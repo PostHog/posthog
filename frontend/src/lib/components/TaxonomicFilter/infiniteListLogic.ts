@@ -5,7 +5,6 @@ import { combineUrl } from 'kea-router'
 
 import api from 'lib/api'
 import { MAX_TOP_MATCHES_PER_GROUP, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
-import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     InfiniteListLogicProps,
     isSkeletonItem,
@@ -89,12 +88,7 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             teamLogic,
             ['currentTeamId'],
         ],
-        actions: [
-            taxonomicFilterLogic(props),
-            ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived'],
-            taxonomicFilterPreferencesLogic,
-            ['setEventOrdering'],
-        ],
+        actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
     })),
     actions({
         selectSelected: true,
@@ -547,17 +541,6 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
                 if (props.listGroupType !== TaxonomicFilterGroupType.SuggestedFilters) {
                     actions.infiniteListResultsReceived(props.listGroupType, values.localItems)
                 }
-            }
-        },
-        setEventOrdering: async () => {
-            if (props.listGroupType !== TaxonomicFilterGroupType.Events) {
-                return
-            }
-
-            if (values.hasRemoteDataSource) {
-                actions.loadRemoteItems({ offset: 0, limit: values.limit })
-            } else if (props.autoSelectItem) {
-                actions.setIndex(0)
             }
         },
         moveUp: () => {

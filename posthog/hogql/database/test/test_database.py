@@ -11,6 +11,7 @@ from parameterized import parameterized
 
 from posthog.schema import (
     DatabaseSchemaDataWarehouseTable,
+    DatabaseSchemaPostHogTable,
     DataWarehouseEventsModifier,
     HogQLQueryModifiers,
     PersonsOnEventsMode,
@@ -18,7 +19,12 @@ from posthog.schema import (
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import ROOT_TABLES__DO_NOT_ADD_ANY_MORE, Database, get_data_warehouse_table_name
+from posthog.hogql.database.database import (
+    ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
+    Database,
+    build_database_root_node,
+    get_data_warehouse_table_name,
+)
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
     ExpressionField,
@@ -229,6 +235,21 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         team_2_database = Database.create_for(team=other_team)
 
         assert "team_1_table" not in team_2_database.get_warehouse_table_names()
+
+    def test_root_tables_do_not_leak_between_database_instances(self):
+        first_root = build_database_root_node()
+        second_root = build_database_root_node()
+
+        assert first_root.children["events"] is not second_root.children["events"]
+
+        first_database = Database()
+        second_database = Database()
+
+        assert first_database.tables.children["events"] is not second_database.tables.children["events"]
+
+        first_database.tables.children["events"].table = None
+
+        assert second_database.tables.children["events"].table is not None
 
     def test_serialize_database_warehouse_with_deleted_joins(self):
         DataWarehouseJoin.objects.create(
@@ -727,6 +748,30 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         )
 
         assert pretty_print_in_tests(printed, self.team.pk) == self.snapshot
+
+    @override_settings(PERSON_ON_EVENTS_OVERRIDE=False, PERSON_ON_EVENTS_V2_OVERRIDE=True)
+    def test_database_warehouse_joins_persons_poe_v2_source_key_nested_ast_call(self):
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key="toString(ifNull(properties.email, ''))",
+            joining_table_name="groups",
+            joining_table_key="key",
+            field_name="some_field",
+        )
+
+        db = Database.create_for(team=self.team)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=db,
+        )
+
+        poe = cast(Table, db.get_table("events").fields["poe"])
+
+        assert poe.fields["some_field"] is not None
+
+        prepare_and_print_ast(parse_select("select person.some_field.key from events"), context, dialect="clickhouse")
 
     def test_database_warehouse_joins_on_view(self):
         DataWarehouseSavedQuery.objects.create(
@@ -1491,6 +1536,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         database = Database.create_for(team=self.team)
         serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
 
+        assert not database.has_table("analytics_platform_preaggregationjob")
+        assert "analytics_platform_preaggregationjob" not in database.get_warehouse_table_names()
         assert "analytics_platform_preaggregationjob" not in serialized
 
     def test_serialize_direct_postgres_table_uses_table_name_in_direct_mode(self) -> None:
@@ -1524,6 +1571,86 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert not database.has_table("events")
         assert "analytics_platform_preaggregationjob" in serialized
         assert "events" not in serialized
+
+    def test_serialize_direct_postgres_reserved_table_names_override_posthog_tables(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseTable.objects.create(
+            name="events",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        DataWarehouseTable.objects.create(
+            name="persons",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert database.has_table("events")
+        assert database.has_table("persons")
+        assert set(serialized["events"].fields.keys()) == {"id"}
+        assert set(serialized["persons"].fields.keys()) == {"email"}
+
+    def test_direct_postgres_reserved_table_names_do_not_hide_posthog_tables_without_connection(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseTable.objects.create(
+            name="events",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+        DataWarehouseTable.objects.create(
+            name="persons",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"email": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team)
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert database.has_table("events")
+        assert database.has_table("persons")
+        assert isinstance(serialized["events"], DatabaseSchemaPostHogTable)
+        assert isinstance(serialized["persons"], DatabaseSchemaPostHogTable)
 
     def test_serialize_direct_postgres_direct_mode_skips_disabled_tables_without_errors(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
@@ -1573,6 +1700,40 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert "enabled_table" in serialized
         assert "disabled_table" not in serialized
         assert database.get_serialization_errors() == {}
+
+    def test_direct_postgres_direct_mode_skips_tables_materialized_from_views(self) -> None:
+        credentials = DataWarehouseCredential.objects.create(
+            access_key="test_key", access_secret="test_secret", team=self.team
+        )
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="source_id",
+            connection_id="connection_id",
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix="ph3",
+        )
+        DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="materialized_table",
+            query={"kind": "HogQLQuery", "query": "SELECT event FROM events"},
+        )
+        DataWarehouseTable.objects.create(
+            name="materialized_table",
+            format="Parquet",
+            team=self.team,
+            credential=credentials,
+            external_data_source=source,
+            url_pattern="direct://postgres",
+            columns={"id": {"hogql": "StringDatabaseField", "clickhouse": "Nullable(String)", "schema_valid": True}},
+        )
+
+        database = Database.create_for(team=self.team, connection_id=str(source.id))
+        serialized = database.serialize(HogQLContext(team_id=self.team.pk, database=database))
+
+        assert not database.has_table("materialized_table")
+        assert "materialized_table" not in serialized
 
     def test_deleted_direct_postgres_schema_does_not_reenable_table(self) -> None:
         credentials = DataWarehouseCredential.objects.create(
