@@ -478,7 +478,7 @@ mod tests {
     #[test]
     fn test_number_value_as_double() {
         use opentelemetry_proto::tonic::metrics::v1::number_data_point::Value;
-        assert_eq!(number_value(&Some(Value::AsDouble(3.14))), 3.14);
+        assert_eq!(number_value(&Some(Value::AsDouble(3.125))), 3.125);
     }
 
     #[test]

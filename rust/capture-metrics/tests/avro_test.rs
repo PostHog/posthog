@@ -156,7 +156,7 @@ fn test_avro_round_trip_gauge() {
     assert_eq!(get_str(val, "unit"), "1");
     assert_eq!(get_str(val, "service_name"), "my-service");
     assert_eq!(get_long(val, "count"), 1);
-    assert_eq!(get_bool(val, "is_monotonic"), false);
+    assert!(!get_bool(val, "is_monotonic"));
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn test_avro_round_trip_sum_monotonic() {
     assert_eq!(get_str(val, "metric_type"), "sum");
     assert_eq!(get_double(val, "value"), 42.0);
     assert_eq!(get_str(val, "aggregation_temporality"), "cumulative");
-    assert_eq!(get_bool(val, "is_monotonic"), true);
+    assert!(get_bool(val, "is_monotonic"));
 }
 
 #[test]
