@@ -16,7 +16,7 @@ class TeamDataWarehouseConfig(models.Model):
     overview_dashboards = models.ManyToManyField(
         "posthog.Dashboard",
         blank=True,
-        related_name="data_warehouse_configs",
+        related_name="+",
     )
 
     class Meta:

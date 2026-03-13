@@ -24,7 +24,7 @@ class Migration(migrations.Migration):
                     "overview_dashboards",
                     models.ManyToManyField(
                         blank=True,
-                        related_name="data_warehouse_configs",
+                        related_name="+",
                         to="posthog.dashboard",
                     ),
                 ),
