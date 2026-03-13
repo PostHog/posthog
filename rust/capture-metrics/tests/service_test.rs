@@ -14,7 +14,10 @@ fn test_parse_single_json_gauge_metric() {
     let request = result.unwrap();
     assert_eq!(request.resource_metrics.len(), 1);
     assert_eq!(request.resource_metrics[0].scope_metrics.len(), 1);
-    assert_eq!(request.resource_metrics[0].scope_metrics[0].metrics.len(), 1);
+    assert_eq!(
+        request.resource_metrics[0].scope_metrics[0].metrics.len(),
+        1
+    );
     assert_eq!(
         request.resource_metrics[0].scope_metrics[0].metrics[0].name,
         "cpu.usage"
@@ -34,7 +37,10 @@ fn test_parse_single_json_with_newlines() {
 
     let request = result.unwrap();
     assert_eq!(request.resource_metrics.len(), 1);
-    assert_eq!(request.resource_metrics[0].scope_metrics[0].metrics.len(), 1);
+    assert_eq!(
+        request.resource_metrics[0].scope_metrics[0].metrics.len(),
+        1
+    );
 }
 
 #[test]
@@ -101,8 +107,7 @@ fn test_parse_empty_resource_metrics() {
 
 #[test]
 fn test_parse_empty_scope_metrics() {
-    let json_data =
-        r#"{"resourceMetrics":[{"resource":{"attributes":[]},"scopeMetrics":[]}]}"#;
+    let json_data = r#"{"resourceMetrics":[{"resource":{"attributes":[]},"scopeMetrics":[]}]}"#;
     let bytes = Bytes::from(json_data);
 
     let result = parse_otel_message(&bytes);
@@ -122,7 +127,10 @@ fn test_parse_empty_metrics_array() {
     assert!(result.is_ok());
 
     let request = result.unwrap();
-    assert_eq!(request.resource_metrics[0].scope_metrics[0].metrics.len(), 0);
+    assert_eq!(
+        request.resource_metrics[0].scope_metrics[0].metrics.len(),
+        0
+    );
 }
 
 #[test]
@@ -157,8 +165,8 @@ fn test_parse_protobuf_gauge_metric() {
         collector::metrics::v1::ExportMetricsServiceRequest,
         common::v1::{any_value, AnyValue, KeyValue},
         metrics::v1::{
-            metric, Gauge, Metric, NumberDataPoint, ResourceMetrics, ScopeMetrics,
-            number_data_point,
+            metric, number_data_point, Gauge, Metric, NumberDataPoint, ResourceMetrics,
+            ScopeMetrics,
         },
         resource::v1::Resource,
     };
@@ -186,9 +194,7 @@ fn test_parse_protobuf_gauge_metric() {
                             attributes: vec![KeyValue {
                                 key: "cpu".to_string(),
                                 value: Some(AnyValue {
-                                    value: Some(any_value::Value::StringValue(
-                                        "cpu0".to_string(),
-                                    )),
+                                    value: Some(any_value::Value::StringValue("cpu0".to_string())),
                                 }),
                             }],
                             time_unix_nano: 1700000000000000000,
@@ -252,7 +258,7 @@ fn test_parse_json_sum_metric() {
 
 #[test]
 fn test_parse_json_histogram_metric() {
-    let json_data = r#"{"resourceMetrics":[{"resource":{"attributes":[]},"scopeMetrics":[{"scope":{"name":"test"},"metrics":[{"name":"http.server.duration","unit":"ms","histogram":{"dataPoints":[{"timeUnixNano":"1700000000000000000","count":"100","sum":5432.1,"bucketCounts":["10","20","30","25","10","5"],"explicitBounds":[1.0,5.0,10.0,50.0,100.0]}],"aggregationTemporality":2}}]}]}]}"#;
+    let json_data = r#"{"resourceMetrics":[{"resource":{"attributes":[]},"scopeMetrics":[{"scope":{"name":"test"},"metrics":[{"name":"http.server.duration","unit":"ms","histogram":{"dataPoints":[{"timeUnixNano":"1700000000000000000","count":100,"sum":5432.1,"bucketCounts":[10,20,30,25,10,5],"explicitBounds":[1.0,5.0,10.0,50.0,100.0]}],"aggregationTemporality":2}}]}]}]}"#;
     let bytes = Bytes::from(json_data);
 
     let result = parse_otel_message(&bytes);
@@ -361,7 +367,11 @@ fn test_patch_otel_json_nested_empty_values() {
     patch_otel_json(&mut json);
 
     assert!(json["resourceMetrics"][0]["resource"]["attributes"][0]["value"].is_null());
-    assert!(json["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["gauge"]["dataPoints"][0]["attributes"][0]["value"].is_null());
+    assert!(
+        json["resourceMetrics"][0]["scopeMetrics"][0]["metrics"][0]["gauge"]["dataPoints"][0]
+            ["attributes"][0]["value"]
+            .is_null()
+    );
 }
 
 #[test]
