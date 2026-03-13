@@ -23,7 +23,7 @@ from typing import Any
 
 import click
 
-_API_KEY = "phc_REPLACE_ME"
+_API_KEY = "phc_khyO4pFrNHv2DOP98Q0L5oMByChkIVmr4LevQRGkd2z"
 _HOST = "https://us.i.posthog.com"
 
 
