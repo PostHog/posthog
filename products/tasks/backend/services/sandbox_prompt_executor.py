@@ -5,7 +5,6 @@ Wraps sandbox_prompt_runner with JSON extraction and Pydantic validation.
 
 import re
 import json
-import asyncio
 import logging
 from typing import Any
 
@@ -13,11 +12,7 @@ from pydantic import BaseModel
 
 from products.tasks.backend.services.sandbox_prompt_runner import OutputFn, SandboxContext, run_prompt
 
-MAX_CONCURRENT_SANDBOXES = 5
-
 logger = logging.getLogger(__name__)
-
-_sandbox_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
 
 
 async def run_sandbox_agent_get_structured_output(
@@ -31,28 +26,26 @@ async def run_sandbox_agent_get_structured_output(
     output_fn: OutputFn = None,
 ) -> BaseModel:
     """Run an agent with a custom prompt in a sandbox and return validated Pydantic output."""
-    async with _sandbox_semaphore:
-        logger.info("Acquired sandbox semaphore (limit=%d)", MAX_CONCURRENT_SANDBOXES)
-        try:
-            last_message, _ = await run_prompt(
-                prompt=prompt,
-                context=context,
-                branch=branch,
-                step_name=step_name,
-                verbose=verbose,
-                output_fn=output_fn,
-            )
-        except Exception:
-            logger.exception("Sandbox execution failed")
-            raise
-        if not last_message:
-            raise RuntimeError("Sandbox returned no agent message")
-        try:
-            json_data = extract_json_from_text(text=last_message, label="Sandbox output")
-            return model_to_validate.model_validate(json_data)
-        except Exception:
-            logger.exception("Error processing sandbox output")
-            raise
+    try:
+        last_message, _ = await run_prompt(
+            prompt=prompt,
+            context=context,
+            branch=branch,
+            step_name=step_name,
+            verbose=verbose,
+            output_fn=output_fn,
+        )
+    except Exception:
+        logger.exception("Sandbox execution failed")
+        raise
+    if not last_message:
+        raise RuntimeError("Sandbox returned no agent message")
+    try:
+        json_data = extract_json_from_text(text=last_message, label="Sandbox output")
+        return model_to_validate.model_validate(json_data)
+    except Exception:
+        logger.exception("Error processing sandbox output")
+        raise
 
 
 def extract_json_from_text(text: str | None, label: str) -> Any:
