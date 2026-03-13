@@ -9979,6 +9979,11 @@ export namespace Schemas {
       status?: ErrorTrackingIssueStatus | string | null;
       tags?: QueryLogTags | null;
       /**
+       * Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)
+       * @nullable
+       */
+      useQueryV2?: boolean | null;
+      /**
        * version of the node, used for schema migrations
        * @nullable
        */
