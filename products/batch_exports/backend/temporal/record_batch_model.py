@@ -1,5 +1,4 @@
 import abc
-import time
 import uuid
 import typing
 import datetime as dt
@@ -20,6 +19,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal import sql
+from products.batch_exports.backend.temporal.metrics import log_query_duration
 
 LOGGER = get_write_only_logger()
 
@@ -275,14 +275,14 @@ INSERT INTO FUNCTION {s3_function}
 
         query_id = str(uuid.uuid4())
         logger = LOGGER.bind(query_id=query_id)
-        logger.info("Executing backfill info query for sessions")
-        start_time = time.monotonic()
 
-        async with get_client(team_id=self.team_id) as client:
-            result = await client.read_query_as_jsonl(printed, query_parameters=context.values, query_id=query_id)
-
-        execution_time = time.monotonic() - start_time
-        logger.info("Backfill info query for sessions completed", query_duration_seconds=execution_time)
+        async with log_query_duration(
+            logger=logger,
+            query_id=query_id,
+            query_type="backfill_info:sessions",
+        ):
+            async with get_client(team_id=self.team_id) as client:
+                result = await client.read_query_as_jsonl(printed, query_parameters=context.values, query_id=query_id)
 
         min_timestamp_str = result[0]["min_timestamp"]
         record_count = int(result[0]["record_count"])

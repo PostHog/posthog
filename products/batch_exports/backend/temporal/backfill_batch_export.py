@@ -1,5 +1,4 @@
 import json
-import time
 import uuid
 import typing
 import asyncio
@@ -20,6 +19,8 @@ from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportRun
+from posthog.clickhouse import query_tagging
+from posthog.clickhouse.query_tagging import Product
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -34,6 +35,7 @@ from products.batch_exports.backend.service import (
     unpause_batch_export,
     update_batch_export_backfill,
 )
+from products.batch_exports.backend.temporal.metrics import log_query_duration
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 
@@ -323,14 +325,13 @@ async def _get_backfill_info_for_events(
     }
 
     query_id = str(uuid.uuid4())
-    logger.info("Executing backfill info query for events", query_id=query_id)
-    start_time = time.monotonic()
-
-    async with get_client(team_id=team_id) as client:
-        result = await client.read_query_as_jsonl(query, query_parameters=query_parameters, query_id=query_id)
-
-    execution_time = time.monotonic() - start_time
-    logger.info("Backfill info query for events completed", query_id=query_id, query_duration_seconds=execution_time)
+    async with log_query_duration(
+        logger=logger,
+        query_id=query_id,
+        query_type="backfill_info:events",
+    ):
+        async with get_client(team_id=team_id) as client:
+            result = await client.read_query_as_jsonl(query, query_parameters=query_parameters, query_id=query_id)
 
     min_timestamp_str = result[0]["min_timestamp"]
     record_count = int(result[0]["record_count"])
@@ -401,21 +402,16 @@ async def _get_backfill_info_for_persons(
         SETTINGS log_comment=%(log_comment)s
     """
 
-    query_id = str(uuid.uuid4())
-    logger.info("Executing backfill info min_timestamp query for persons", query_id=query_id)
-    start_time = time.monotonic()
-
-    async with get_client(team_id=team_id) as client:
-        min_timestamp_results = await client.read_query_as_jsonl(
-            min_timestamp_query, query_parameters=query_parameters, query_id=query_id
-        )
-
-    execution_time = time.monotonic() - start_time
-    logger.info(
-        "Backfill info min_timestamp query for persons completed",
-        query_id=query_id,
-        query_duration_seconds=execution_time,
-    )
+    min_timestamp_query_id = str(uuid.uuid4())
+    async with log_query_duration(
+        logger=logger,
+        query_id=min_timestamp_query_id,
+        query_type="backfill_info:persons_min_timestamp",
+    ):
+        async with get_client(team_id=team_id) as client:
+            min_timestamp_results = await client.read_query_as_jsonl(
+                min_timestamp_query, query_parameters=query_parameters, query_id=min_timestamp_query_id
+            )
 
     # Find the earliest valid timestamp across both tables
     earliest_timestamp: dt.datetime | None = None
@@ -473,20 +469,15 @@ async def _get_backfill_info_for_persons(
     """
 
     count_query_id = str(uuid.uuid4())
-    logger.info("Executing backfill info count query for persons", query_id=count_query_id)
-    count_start_time = time.monotonic()
-
-    async with get_client(team_id=team_id) as client:
-        count_results = await client.read_query_as_jsonl(
-            count_query, query_parameters=query_parameters, query_id=count_query_id
-        )
-
-    count_execution_time = time.monotonic() - count_start_time
-    logger.info(
-        "Backfill info count query for persons completed",
+    async with log_query_duration(
+        logger=logger,
         query_id=count_query_id,
-        query_duration_seconds=count_execution_time,
-    )
+        query_type="backfill_info:persons_count",
+    ):
+        async with get_client(team_id=team_id) as client:
+            count_results = await client.read_query_as_jsonl(
+                count_query, query_parameters=query_parameters, query_id=count_query_id
+            )
 
     record_count = int(count_results[0]["record_count"])
 
