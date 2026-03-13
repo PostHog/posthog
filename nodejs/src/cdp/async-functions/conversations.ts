@@ -17,12 +17,15 @@ registerAsyncFunction('postHogGetTicket', {
         if (!team) {
             throw new Error(`Team ${context.invocation.teamId} not found`)
         }
+        if (!team.secret_api_token) {
+            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
+        }
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
             url: `${context.siteUrl}/api/conversations/external/ticket/${ticketId}`,
             method: 'GET',
-            headers: { Authorization: `Bearer ${team.api_token}` },
+            headers: { Authorization: `Bearer ${team.secret_api_token}` },
         })
     },
 
@@ -77,6 +80,9 @@ registerAsyncFunction('postHogUpdateTicket', {
         if (!updateTeam) {
             throw new Error(`Team ${context.invocation.teamId} not found`)
         }
+        if (!updateTeam.secret_api_token) {
+            throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
+        }
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
@@ -85,7 +91,7 @@ registerAsyncFunction('postHogUpdateTicket', {
             body: JSON.stringify(updates),
             headers: {
                 'Content-Type': 'application/json',
-                Authorization: `Bearer ${updateTeam.api_token}`,
+                Authorization: `Bearer ${updateTeam.secret_api_token}`,
             },
         })
     },
