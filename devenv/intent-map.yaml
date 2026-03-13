@@ -137,6 +137,18 @@ capabilities:
 
     nodejs_traces:
         description: 'Node.js Traces - trace ingestion'
+    logs_ingestion:
+        description: 'OTEL logs capture service'
+        requires: [event_ingestion]
+        docker_profiles: [observability]
+
+    nodejs_metrics:
+        description: 'Node.js Metrics - metric ingestion'
+        requires: [event_ingestion]
+        docker_profiles: [observability]
+
+    metrics_ingestion:
+        description: 'OTEL metrics capture service'
         requires: [event_ingestion]
         docker_profiles: [observability]
 
@@ -292,7 +304,11 @@ intents:
 
     logs:
         description: 'Log aggregation and viewing'
-        capabilities: [event_ingestion, property_definitions, nodejs_logs, nodejs_traces]
+        capabilities: [event_ingestion, property_definitions, logs_ingestion, nodejs_logs, nodejs_traces]
+
+    metrics:
+        description: 'Metric ingestion and viewing'
+        capabilities: [event_ingestion, property_definitions, metrics_ingestion, nodejs_metrics]
 
     workflows:
         description: 'Workflow automation and orchestration'
