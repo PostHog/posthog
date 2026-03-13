@@ -23,6 +23,7 @@ class QueryErrorCategory(StrEnum):
     RATE_LIMITED = "rate_limited"
     USER_ERROR = "user_error"
     ERROR = "error"
+    QUERY_PERFORMANCE_ERROR = "query_performance_error"
 
 
 class InternalCHQueryError(ServerException):
@@ -179,7 +180,7 @@ def classify_query_error(e: Exception) -> QueryErrorCategory:
             ClickHouseQuerySizeExceeded,
         ),
     ):
-        return QueryErrorCategory.USER_ERROR
+        return QueryErrorCategory.QUERY_PERFORMANCE_ERROR
 
     # User errors — bad HogQL query construction
     if isinstance(e, ExposedHogQLError):
