@@ -3,7 +3,7 @@ import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { lazy, Suspense, useRef } from 'react'
 
-import { IconApps, IconChat, IconSearch } from '@posthog/icons'
+import { IconApps, IconChat, IconChevronRight, IconSearch } from '@posthog/icons'
 
 import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
@@ -58,7 +58,7 @@ export function SectionTrigger({
             <Label
                 intent="menu"
                 className={cn(
-                    'text-xxs text-tertiary text-left group-hover:text-primary mr-1',
+                    'text-xxs text-secondary text-left group-hover:text-primary mr-1',
                     isCollapsed && 'text-[7px] m-0 w-full text-center'
                 )}
             >
@@ -66,6 +66,19 @@ export function SectionTrigger({
                 {label}
             </Label>
         </Collapsible.Trigger>
+    )
+}
+
+export function PanelIndicatorIcon(): JSX.Element | null {
+    const { isLayoutNavCollapsed } = useValues(panelLayoutLogic)
+
+    if (!isLayoutNavCollapsed) {
+        return null
+    }
+    return (
+        <span className="absolute bottom-3 -right-1.5 size-2">
+            <IconChevronRight className="size-2 text-inherit" />
+        </span>
     )
 }
 
@@ -146,8 +159,20 @@ export function Nav(): JSX.Element {
                                 active={activePanelIdentifier === 'Chat'}
                                 onClick={() => handlePanelTriggerClick('Chat')}
                             >
-                                <span className="flex size-4 text-tertiary group-hover:text-primary">
-                                    <IconChat className="text-ai" />
+                                <span
+                                    className={cn(
+                                        'relative flex size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                        activePanelIdentifier === 'Chat' && 'text-primary opacity-100'
+                                    )}
+                                >
+                                    <IconChat
+                                        className={cn(
+                                            'text-secondary group-hover:text-ai',
+                                            activePanelIdentifier === 'Chat' && 'text-primary'
+                                        )}
+                                    />
+
+                                    <PanelIndicatorIcon />
                                 </span>
                             </ButtonPrimitive>
                         )}
@@ -178,7 +203,7 @@ export function Nav(): JSX.Element {
                                                         'flex size-4',
                                                         navExperimentActiveTab === tab.id
                                                             ? 'text-primary'
-                                                            : 'text-tertiary group-hover:text-primary'
+                                                            : 'text-secondary group-hover:text-primary'
                                                     )}
                                                 >
                                                     {tab.icon}
@@ -188,7 +213,7 @@ export function Nav(): JSX.Element {
                                                         'text-xs',
                                                         navExperimentActiveTab === tab.id
                                                             ? 'text-primary'
-                                                            : 'text-tertiary group-hover:text-primary'
+                                                            : 'text-secondary group-hover:text-primary'
                                                     )}
                                                 >
                                                     {tab.label}

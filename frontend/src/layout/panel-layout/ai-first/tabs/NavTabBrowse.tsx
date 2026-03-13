@@ -25,7 +25,7 @@ import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layou
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { ActivityTab } from '~/types'
 
-import { SectionTrigger } from '../Nav'
+import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
 
 const panelTriggerItems: {
     identifier: PanelLayoutNavIdentifier
@@ -140,16 +140,30 @@ export function NavTabBrowse(): JSX.Element {
                                     onClick={() => handlePanelTriggerClick(item.identifier)}
                                     data-attr={`menu-item-${item.identifier.toLowerCase()}`}
                                 >
-                                    <span className="size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50">
+                                    <span
+                                        className={cn(
+                                            'relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                            isActive && 'text-primary opacity-100'
+                                        )}
+                                    >
                                         {item.icon}
+
+                                        <PanelIndicatorIcon />
                                     </span>
                                     {!isLayoutNavCollapsed && (
                                         <>
-                                            <span className="truncate">{item.label}</span>
+                                            <span
+                                                className={cn(
+                                                    'truncate text-secondary group-hover:text-primary',
+                                                    isActive && 'text-primary'
+                                                )}
+                                            >
+                                                {item.label}
+                                            </span>
                                             <span className="ml-auto pr-1">
                                                 <IconChevronRight
                                                     className={cn(
-                                                        'size-3 text-tertiary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                                        'size-3 text-secondary opacity-50 group-hover:opacity-100 transition-all duration-50',
                                                         isActive && 'opacity-100'
                                                     )}
                                                 />
