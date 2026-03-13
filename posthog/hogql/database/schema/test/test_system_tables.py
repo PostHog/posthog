@@ -193,7 +193,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("dashboards", _create_dashboard),
     ("data_modeling_jobs", _create_data_modeling_job),
-    ("data_warehouse_saved_queries", _create_data_warehouse_saved_query),
+    ("data_modeling_views", _create_data_warehouse_saved_query),
     ("data_warehouse_sources", _create_data_warehouse_source),
     ("data_warehouse_tables", _create_data_warehouse_table),
     ("error_tracking_issues", _create_error_tracking_issue),

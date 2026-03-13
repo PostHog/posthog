@@ -147,8 +147,8 @@ data_warehouse_sources: PostgresTable = PostgresTable(
     },
 )
 
-data_warehouse_saved_queries: PostgresTable = PostgresTable(
-    name="data_warehouse_saved_queries",
+data_modeling_views: PostgresTable = PostgresTable(
+    name="data_modeling_views",
     postgres_table_name="posthog_datawarehousesavedquery",
     fields={
         "id": StringDatabaseField(name="id"),
@@ -373,13 +373,11 @@ data_modeling_jobs: PostgresTable = PostgresTable(
     fields={
         "id": StringDatabaseField(name="id"),
         "team_id": IntegerDatabaseField(name="team_id"),
-        "saved_query_id": StringDatabaseField(name="saved_query_id"),
+        "data_modeling_view_id": StringDatabaseField(name="saved_query_id"),
         "status": StringDatabaseField(name="status"),
         "rows_materialized": IntegerDatabaseField(name="rows_materialized"),
         "rows_expected": IntegerDatabaseField(name="rows_expected"),
         "error": StringDatabaseField(name="error"),
-        "workflow_id": StringDatabaseField(name="workflow_id"),
-        "workflow_run_id": StringDatabaseField(name="workflow_run_id"),
         "storage_delta_mib": FloatDatabaseField(name="storage_delta_mib"),
         "last_run_at": DateTimeDatabaseField(name="last_run_at"),
         "created_at": DateTimeDatabaseField(name="created_at"),
@@ -410,9 +408,7 @@ class SystemTables(TableNode):
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
-        "data_warehouse_saved_queries": TableNode(
-            name="data_warehouse_saved_queries", table=data_warehouse_saved_queries
-        ),
+        "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
