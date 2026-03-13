@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { applyNestedExclusions } from '../../scripts/lib/schema-exclusions.mjs'
+import { applyNestedExclusions } from '../index.mjs'
 
 describe('applyNestedExclusions', () => {
     it('removes a nested property via wildcard path (array items)', () => {
