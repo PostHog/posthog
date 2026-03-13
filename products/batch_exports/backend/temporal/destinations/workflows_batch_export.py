@@ -201,7 +201,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
 
         transformer = JSONLStreamTransformer(max_workers=1)
 
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(trust_env=True) as session:
             consumer = WorkflowsConsumer(
                 inputs.url,
                 hog_function_id=inputs.hog_function_id,
