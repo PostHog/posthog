@@ -1,7 +1,6 @@
 import time
 import asyncio
 import hashlib
-import logging
 
 from django.conf import settings
 
@@ -16,13 +15,12 @@ from rest_framework.viewsets import ModelViewSet
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.constants import AvailableFeature
 from posthog.event_usage import groups
+from posthog.exceptions_capture import capture_exception
 from posthog.models import ProxyRecord
 from posthog.models.organization import Organization
 from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
 from posthog.temporal.common.client import sync_connect
 from posthog.temporal.proxy_service import CreateManagedProxyInputs, DeleteManagedProxyInputs
-
-logger = logging.getLogger(__name__)
 
 
 def generate_target_cname(organization_id, domain) -> str:
@@ -194,8 +192,8 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                 )
             )
-        except Exception:
-            logger.exception("Failed to start proxy provisioning workflow for domain %s", record.domain)
+        except Exception as e:
+            capture_exception(e, {"domain": record.domain, "proxy_record_id": str(record.id)})
             record.delete()
             return Response(
                 {"detail": "Failed to start provisioning workflow."},
@@ -249,8 +247,8 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                     task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                 )
             )
-        except Exception:
-            logger.exception("Failed to start proxy retry workflow for domain %s", record.domain)
+        except Exception as e:
+            capture_exception(e, {"domain": record.domain, "proxy_record_id": str(record.id)})
             record.status = ProxyRecord.Status.ERRORING
             record.save()
             return Response(
@@ -302,8 +300,8 @@ class ProxyRecordViewset(TeamAndOrgViewSetMixin, ModelViewSet):
                         task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
                     )
                 )
-            except Exception:
-                logger.exception("Failed to start proxy deletion workflow for domain %s", record.domain)
+            except Exception as e:
+                capture_exception(e, {"domain": record.domain, "proxy_record_id": str(record.id)})
                 record.status = previous_status
                 record.save()
                 return Response(
