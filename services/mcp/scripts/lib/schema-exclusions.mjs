@@ -5,41 +5,60 @@
  *   - `steps.*.selector_regex` — for each item in the `steps` array, remove `selector_regex`
  *   - `steps.*.properties.*.value` — nested arrays
  *   - `*` navigates into array `items`; regular segments navigate into `properties[segment]`
- *   - `$ref` is resolved transparently at each step
+ *   - `$ref` is resolved via clone-on-write: shared component schemas are never mutated
  *
- * Mutates the spec in place.
+ * Mutates the operation's schema subtree in place, but leaves shared
+ * component schemas (`#/components/schemas/...`) untouched.
  */
 
 /**
- * Resolve a $ref string to the corresponding schema object.
- * Only handles local component references (#/components/schemas/...).
+ * If `schema` is a `$ref`, deep-clone the referenced component and return it.
+ * Otherwise return `schema` unchanged.
  */
-function resolveRef(spec, schema) {
+function cloneIfRef(spec, schema) {
     if (schema?.$ref) {
         const name = schema.$ref.replace('#/components/schemas/', '')
-        return spec.components?.schemas?.[name]
+        const original = spec.components?.schemas?.[name]
+        return original ? JSON.parse(JSON.stringify(original)) : undefined
     }
     return schema
 }
 
 /**
- * Walk a dotted path through an OpenAPI schema, resolving $ref at each step,
- * and delete the final segment from `properties` (updating `required` too).
+ * Walk a dotted path through an OpenAPI schema and delete the final segment
+ * from `properties` (updating `required` too).
+ *
+ * Uses clone-on-write: when a `$ref` is encountered, the referenced component
+ * is deep-cloned and the parent's reference is replaced with the clone before
+ * any mutation. This ensures shared component schemas are never modified.
+ *
+ * @param {object} spec — full OpenAPI spec
+ * @param {object} parentObj — the object that owns the current schema value
+ * @param {string} parentKey — the key within `parentObj` that holds the schema
+ * @param {string[]} segments — remaining path segments to navigate
  */
-function excludePath(spec, schema, segments) {
-    if (!schema || typeof schema !== 'object' || segments.length === 0) {
+function excludePath(spec, parentObj, parentKey, segments) {
+    if (segments.length === 0) {
         return
     }
 
-    schema = resolveRef(spec, schema)
-    if (!schema) {
+    let schema = parentObj[parentKey]
+    if (!schema || typeof schema !== 'object') {
         return
+    }
+
+    // Clone-on-write: if this is a $ref, replace with a deep copy before mutating
+    if (schema.$ref) {
+        schema = cloneIfRef(spec, schema)
+        if (!schema) {
+            return
+        }
+        parentObj[parentKey] = schema
     }
 
     const [head, ...tail] = segments
 
     if (tail.length === 0) {
-        // Last segment — delete the property
         if (schema.properties?.[head]) {
             delete schema.properties[head]
             if (Array.isArray(schema.required)) {
@@ -53,25 +72,22 @@ function excludePath(spec, schema, segments) {
     }
 
     if (head === '*') {
-        // Navigate into array items
-        const items = resolveRef(spec, schema.items)
-        if (items) {
-            excludePath(spec, items, tail)
+        if (schema.items) {
+            excludePath(spec, schema, 'items', tail)
         }
         return
     }
 
-    // Navigate into a named property
-    const child = schema.properties?.[head]
-    if (child) {
-        excludePath(spec, resolveRef(spec, child), tail)
+    if (schema.properties?.[head]) {
+        excludePath(spec, schema.properties, head, tail)
     }
 }
 
 /**
- * Find the request body schema for a given operationId.
+ * Find the request body's `{ parent, key }` reference for a given operationId,
+ * so callers can pass it to `excludePath` for clone-on-write.
  */
-function findRequestBodySchema(spec, operationId) {
+function findRequestBodySchemaRef(spec, operationId) {
     for (const methods of Object.values(spec.paths ?? {})) {
         for (const operation of Object.values(methods)) {
             if (operation?.operationId !== operationId) {
@@ -79,7 +95,7 @@ function findRequestBodySchema(spec, operationId) {
             }
             const jsonContent = operation.requestBody?.content?.['application/json']
             if (jsonContent?.schema) {
-                return resolveRef(spec, jsonContent.schema)
+                return { parent: jsonContent, key: 'schema' }
             }
         }
     }
@@ -91,21 +107,21 @@ function findRequestBodySchema(spec, operationId) {
  *
  * Handles both top-level field names (`deleted`) and dotted paths
  * (`steps.*.selector_regex`). Walks each path through the operation's
- * request body schema, resolving $ref transparently — so changes to
- * shared component schemas affect all references.
+ * request body schema, cloning any `$ref` targets before mutation so
+ * that shared component schemas are never modified.
  *
- * @param {object} spec — full OpenAPI spec (mutated in place)
+ * @param {object} spec — full OpenAPI spec (mutated in place per-operation)
  * @param {Map<string, string[]>} operationExclusions — operationId → paths to exclude
  */
 export function applyNestedExclusions(spec, operationExclusions) {
     for (const [operationId, paths] of operationExclusions) {
-        const bodySchema = findRequestBodySchema(spec, operationId)
-        if (!bodySchema) {
+        const ref = findRequestBodySchemaRef(spec, operationId)
+        if (!ref) {
             continue
         }
         for (const dottedPath of paths) {
             const segments = dottedPath.split('.')
-            excludePath(spec, bodySchema, segments)
+            excludePath(spec, ref.parent, ref.key, segments)
         }
     }
 }
