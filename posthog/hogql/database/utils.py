@@ -14,6 +14,7 @@ def _extract_field_chain(expr: ast.Expr) -> Optional[list[str | int]]:
         return _extract_field_chain(expr.expr)
 
     if isinstance(expr, ast.Call) and len(expr.args) > 0:
+        # We always descend into the first argument; the join-key field is expected to be args[0].
         return _extract_field_chain(expr.args[0])
 
     return None
