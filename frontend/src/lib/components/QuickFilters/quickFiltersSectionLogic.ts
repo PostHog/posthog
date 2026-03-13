@@ -108,6 +108,8 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
         restoreFiltersFromUrl: () => ({}),
         quickFiltersChanged: true,
         quickFiltersCommitted: true,
+        /** Fires after initial URL restoration completes, regardless of whether state changed */
+        quickFiltersUrlRestoreComplete: true,
     }),
 
     reducers({
@@ -196,6 +198,7 @@ export const quickFiltersSectionLogic = kea<quickFiltersSectionLogicType>([
             if (didChange) {
                 actions.quickFiltersCommitted()
             }
+            actions.quickFiltersUrlRestoreComplete()
         },
     })),
 

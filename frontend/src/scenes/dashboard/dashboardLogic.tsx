@@ -180,7 +180,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
     }),
 
     connect(() => ({
-        actions: [quickFiltersSectionLogic({ context: QuickFilterContext.Dashboards }), ['quickFiltersCommitted']],
+        actions: [
+            quickFiltersSectionLogic({ context: QuickFilterContext.Dashboards }),
+            ['quickFiltersCommitted', 'quickFiltersUrlRestoreComplete'],
+        ],
     })),
 
     actions(() => ({
@@ -249,6 +252,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         applyFilters: true,
         resetUrlVariables: true,
         setInitialVariablesLoaded: (initialVariablesLoaded: boolean) => ({ initialVariablesLoaded }),
+        setInitialQuickFiltersLoaded: (initialQuickFiltersLoaded: boolean) => ({ initialQuickFiltersLoaded }),
         updateDashboardLastRefresh: (lastDashboardRefresh: Dayjs) => ({ lastDashboardRefresh }),
         overrideVariableValue: (variableId: string, value: any, isNull: boolean) => ({
             variableId,
@@ -895,6 +899,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setInitialVariablesLoaded: (_, { initialVariablesLoaded }) => initialVariablesLoaded,
             },
         ],
+        /** Quick filter URL restoration */
+        initialQuickFiltersLoaded: [
+            false,
+            {
+                setInitialQuickFiltersLoaded: (_, { initialQuickFiltersLoaded }) => initialQuickFiltersLoaded,
+            },
+        ],
         externalFilters: [
             {} as DashboardFilter,
             {
@@ -1020,11 +1031,27 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         filtersOverrideForLoad: [
-            (s) => [s.externalFilters, s.urlFilters, s.scopedQuickFiltersAsPropertyFilters],
-            (externalFilters, urlFilters, scopedQuickFilters) => {
+            (s) => [
+                s.externalFilters,
+                s.urlFilters,
+                s.scopedQuickFiltersAsPropertyFilters,
+                s.dashboard,
+                s.quickFilterPropertyFiltersById,
+            ],
+            (externalFilters, urlFilters, scopedQuickFilters, dashboard, quickFilterPropertyFiltersById) => {
                 const combined = combineDashboardFilters(externalFilters, urlFilters)
-                if (scopedQuickFilters.length > 0) {
-                    return { ...combined, properties: [...(combined.properties || []), ...scopedQuickFilters] }
+                // Before the dashboard loads, scopedQuickFiltersAsPropertyFilters is
+                // empty because scoping needs dashboard.quick_filter_ids. Fall back to
+                // all URL-restored quick filter properties — the URL only contains
+                // filters set on this dashboard, so unscoped is safe for initial load.
+                const quickFilters =
+                    scopedQuickFilters.length > 0
+                        ? scopedQuickFilters
+                        : !dashboard
+                          ? Object.values(quickFilterPropertyFiltersById)
+                          : []
+                if (quickFilters.length > 0) {
+                    return { ...combined, properties: [...(combined.properties || []), ...quickFilters] }
                 }
                 return combined
             },
@@ -1248,14 +1275,33 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         textTiles: [(s) => [s.tiles], (tiles) => tiles.filter((t) => !!t.text)],
         itemsLoading: [
-            (s) => [s.dashboardLoading, s.dashboardStreaming, s.refreshStatus, s.initialVariablesLoaded, s.isAnalyzing],
-            (dashboardLoading, dashboardStreaming, refreshStatus, initialVariablesLoaded, isAnalyzing) => {
+            (s) => [
+                s.dashboardLoading,
+                s.dashboardStreaming,
+                s.refreshStatus,
+                s.initialVariablesLoaded,
+                s.initialQuickFiltersLoaded,
+                s.dashboardFiltersEnabled,
+                s.isAnalyzing,
+            ],
+            (
+                dashboardLoading,
+                dashboardStreaming,
+                refreshStatus,
+                initialVariablesLoaded,
+                initialQuickFiltersLoaded,
+                dashboardFiltersEnabled,
+                isAnalyzing
+            ) => {
                 return (
                     isAnalyzing ||
                     dashboardLoading ||
                     dashboardStreaming ||
                     Object.values(refreshStatus).some((s) => s.loading || s.queued) ||
-                    (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams && !initialVariablesLoaded)
+                    (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams && !initialVariablesLoaded) ||
+                    ('quick_filters' in router.values.searchParams &&
+                        dashboardFiltersEnabled &&
+                        !initialQuickFiltersLoaded)
                 )
             },
         ],
@@ -1492,7 +1538,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     actions.loadingDashboardItemsStarted(DashboardLoadAction.InitialLoad)
                     actions.loadDashboardSuccess(props.dashboard)
                 } else {
-                    if (!(SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams)) {
+                    const hasVariablesInUrl = SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams
+                    const hasQuickFiltersInUrl =
+                        'quick_filters' in router.values.searchParams && values.dashboardFiltersEnabled
+
+                    if (!hasVariablesInUrl && !hasQuickFiltersInUrl) {
                         if (values.shouldUseStreaming) {
                             // Streaming loading: load metadata + stream tiles
                             actions.loadDashboardStreaming({
@@ -1505,6 +1555,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             })
                         }
                     }
+                    // else: deferred — variables wait for getVariablesSuccess,
+                    // quick filters wait for quickFiltersUrlRestoreComplete
                 }
             }
         },
@@ -1533,23 +1585,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 // access stored values from dashboardLoadData
                 // as we can't pass them down to this listener
                 const loadAction = values.dashboardLoadData.action!
-                const isInitialLoad =
-                    loadAction === DashboardLoadAction.InitialLoad ||
-                    loadAction === DashboardLoadAction.InitialLoadWithVariables
-
-                // Quick filter selections are restored from the URL after the quick filter
-                // definitions load (an API call). If that happened before the dashboard
-                // finished loading, filtersOverrideForLoad was still empty when the API
-                // call was made. Use Preview so all tiles refresh with the correct filters.
-                const hasQuickFiltersRestoredFromUrl =
-                    isInitialLoad &&
-                    values.dashboardFiltersEnabled &&
-                    values.scopedQuickFiltersAsPropertyFilters.length > 0
-
-                actions.refreshDashboardItems({
-                    action: hasQuickFiltersRestoredFromUrl ? RefreshDashboardItemsAction.Preview : loadAction,
-                    forceRefresh: false,
-                })
+                actions.refreshDashboardItems({ action: loadAction, forceRefresh: false })
             }
 
             if (values.shouldReportOnAPILoad) {
@@ -2219,6 +2255,28 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 action: RefreshDashboardItemsAction.Preview,
                 forceRefresh: false,
             })
+        },
+        quickFiltersUrlRestoreComplete: () => {
+            if (values.initialQuickFiltersLoaded) {
+                return
+            }
+            actions.setInitialQuickFiltersLoaded(true)
+
+            // If variables are also in the URL and haven't loaded yet, let
+            // getVariablesSuccess trigger the load — by then filtersOverrideForLoad
+            // will already include the restored quick filter properties.
+            if (SEARCH_PARAM_QUERY_VARIABLES_KEY in router.values.searchParams && !values.initialVariablesLoaded) {
+                return
+            }
+
+            // Only trigger the initial load if a prior load hasn't already started it
+            if (!values.dashboard && !values.dashboardLoading && !values.dashboardStreaming) {
+                if (values.shouldUseStreaming) {
+                    actions.loadDashboardStreaming({ action: DashboardLoadAction.InitialLoad })
+                } else {
+                    actions.loadDashboard({ action: DashboardLoadAction.InitialLoad })
+                }
+            }
         },
         [variableDataLogic.actionTypes.getVariablesSuccess]: () => {
             // Only run this handler once on startup
