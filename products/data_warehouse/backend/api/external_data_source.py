@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import uuid
 import dataclasses
 from typing import Any
 
+from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch, Q
 
@@ -26,12 +29,14 @@ from posthog.models.activity_logging.external_data_utils import (
     get_external_data_source_created_by_info,
     get_external_data_source_detail_name,
 )
+from posthog.models.hog_function_template import HogFunctionTemplate
+from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.base import FieldType
+from posthog.temporal.data_imports.sources.common.base import FieldType, WebhookSource
 from posthog.temporal.data_imports.sources.common.config import Config
 
 from products.data_warehouse.backend.api.external_data_schema import (
@@ -392,6 +397,95 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
         ]
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
+
+
+@dataclasses.dataclass
+class WebhookHogFunctionCreateResult:
+    hog_function: HogFunction | None = None
+    webhook_url: str = ""
+    error: str | None = None
+
+
+def get_or_create_webhook_hog_function(
+    team: Any,
+    source: WebhookSource,
+    eligible_schemas: list[ExternalDataSchema],
+    extra_inputs: dict[str, Any] | None = None,
+) -> WebhookHogFunctionCreateResult:
+    """Create or update a HogFunction for webhook-based data imports."""
+
+    webhook_template = source.webhook_template
+    if not webhook_template:
+        return WebhookHogFunctionCreateResult(error="No webhook template available for this source")
+
+    schema_mapping: dict[str, str] = {}
+    schema_ids: list[str] = []
+    object_type_map = source.webhook_resource_map
+
+    for schema in eligible_schemas:
+        schema_id_str = str(schema.id)
+        schema_ids.append(schema_id_str)
+
+        object_type = object_type_map.get(schema.name)
+        if object_type:
+            schema_mapping[object_type] = schema_id_str
+
+    db_template = HogFunctionTemplate.get_template(webhook_template.id)
+    if not db_template:
+        return WebhookHogFunctionCreateResult(
+            error="Webhook template not found in database. Please run sync_hog_function_templates."
+        )
+
+    inputs: dict[str, Any] = {
+        "schema_mapping": {"value": schema_mapping},
+        "schema_ids": {"value": schema_ids},
+    }
+    if extra_inputs:
+        inputs.update({key: {"value": value} for key, value in extra_inputs.items()})
+
+    hog_function, _ = HogFunction.objects.update_or_create(
+        team=team,
+        type="warehouse_source_webhook",
+        inputs__schema_ids__value__contains=schema_ids[:1] if schema_ids else [],
+        defaults={
+            "name": db_template.name,
+            "description": db_template.description or "",
+            "hog": db_template.code,
+            "icon_url": db_template.icon_url,
+            "enabled": True,
+            "deleted": False,
+            "template_id": db_template.template_id,
+            "hog_function_template": db_template,
+            "inputs_schema": db_template.inputs_schema,
+            "inputs": inputs,
+        },
+    )
+
+    # Merge with any existing schemas from a previous function
+    assert hog_function.inputs is not None
+    existing_mapping = hog_function.inputs.get("schema_mapping", {}).get("value", {})
+    existing_ids = hog_function.inputs.get("schema_ids", {}).get("value", [])
+
+    merged_mapping = {**existing_mapping, **schema_mapping}
+    merged_ids = list(set(existing_ids + schema_ids))
+
+    if merged_mapping != schema_mapping or merged_ids != schema_ids:
+        hog_function.inputs = {
+            **hog_function.inputs,
+            "schema_mapping": {"value": merged_mapping},
+            "schema_ids": {"value": merged_ids},
+        }
+        hog_function.save(update_fields=["inputs"])
+
+    webhooks_host = {
+        "US": "https://webhooks.us.posthog.com",
+        "EU": "https://webhooks.eu.posthog.com",
+        "DEV": "https://app.dev.posthog.dev",
+    }.get((settings.CLOUD_DEPLOYMENT or "").upper(), settings.SITE_URL)
+
+    webhook_url = f"{webhooks_host}/public/webhooks/dwh/{hog_function.id}"
+
+    return WebhookHogFunctionCreateResult(hog_function=hog_function, webhook_url=webhook_url)
 
 
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
@@ -834,6 +928,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 else None,
                 "sync_type": None,
                 "rows": schema.row_count,
+                "supports_webhooks": schema.supports_webhooks,
             }
             for schema in schemas
         ]
@@ -936,6 +1031,158 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         # Return the full external data source with updated config
         source_serializer = self.get_serializer(external_data_source, context=self.get_serializer_context())
         return Response(source_serializer.data)
+
+    @action(methods=["POST"], detail=True)
+    def create_webhook(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        from posthog.temporal.data_imports.sources.common.base import WebhookSource
+
+        instance: ExternalDataSource = self.get_object()
+
+        if not instance.job_inputs:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Source has no configuration"},
+            )
+
+        source_type = ExternalDataSourceType(instance.source_type)
+        source = SourceRegistry.get_source(source_type)
+
+        if not isinstance(source, WebhookSource):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "This source type does not support webhooks"},
+            )
+
+        config = source.parse_config(instance.job_inputs)
+        source_schemas = source.get_schemas(config, self.team_id)
+        webhook_source_schemas = {s.name: s for s in source_schemas if s.supports_webhooks}
+
+        db_schemas = ExternalDataSchema.objects.filter(
+            source=instance,
+            team_id=self.team_id,
+            sync_type="incremental",
+            should_sync=True,
+        ).exclude(deleted=True)
+
+        eligible_schemas = [s for s in db_schemas if s.name in webhook_source_schemas]
+
+        if not eligible_schemas:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "No webhook-eligible incremental schemas found for this source"},
+            )
+
+        hog_fn_result = get_or_create_webhook_hog_function(
+            team=self.team,
+            source=source,
+            eligible_schemas=eligible_schemas,
+        )
+
+        if hog_fn_result.error:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": hog_fn_result.error},
+            )
+
+        assert hog_fn_result.hog_function is not None
+        hog_function = hog_fn_result.hog_function
+        webhook_url = hog_fn_result.webhook_url
+
+        result = source.create_webhook(config, webhook_url, self.team_id)
+
+        if result.success and result.extra_inputs:
+            assert hog_function.inputs is not None
+            hog_function.inputs = {
+                **hog_function.inputs,
+                **{key: {"value": value} for key, value in result.extra_inputs.items()},
+            }
+            hog_function.save(update_fields=["inputs", "encrypted_inputs"])
+
+        return Response(
+            status=status.HTTP_200_OK,
+            data={
+                "success": result.success,
+                "webhook_url": webhook_url,
+                "error": result.error,
+            },
+        )
+
+    @action(methods=["POST"], detail=True)
+    def update_webhook_inputs(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        instance: ExternalDataSource = self.get_object()
+
+        source_type = ExternalDataSourceType(instance.source_type)
+        source = SourceRegistry.get_source(source_type)
+
+        if not isinstance(source, WebhookSource):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "This source type does not support webhooks"},
+            )
+
+        inputs = request.data.get("inputs", {})
+        if not inputs or not isinstance(inputs, dict):
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "No inputs provided"},
+            )
+
+        source_config = source.get_source_config
+        webhook_fields = source_config.webhookFields or []
+        webhook_field_names = {f.name for f in webhook_fields}
+
+        invalid_keys = set(inputs.keys()) - webhook_field_names
+        if invalid_keys:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Invalid input keys: {', '.join(invalid_keys)}"},
+            )
+
+        required_fields = [f.name for f in webhook_fields if hasattr(f, "required") and f.required]
+        missing_fields = [name for name in required_fields if not inputs.get(name)]
+        if missing_fields:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": f"Missing required fields: {', '.join(missing_fields)}"},
+            )
+
+        schema_ids = list(
+            ExternalDataSchema.objects.filter(
+                source=instance,
+                team_id=self.team_id,
+                sync_type="incremental",
+                should_sync=True,
+            )
+            .exclude(deleted=True)
+            .values_list("id", flat=True)
+        )
+
+        if not schema_ids:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "No eligible schemas found"},
+            )
+
+        try:
+            hog_function = HogFunction.objects.get(
+                team=self.team,
+                type="warehouse_source_webhook",
+                inputs__schema_ids__value__contains=[str(schema_ids[0])],
+            )
+        except HogFunction.DoesNotExist:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "No webhook function found for this source. Create a webhook first."},
+            )
+
+        assert hog_function.inputs is not None
+        hog_function.inputs = {
+            **hog_function.inputs,
+            **{key: {"value": value} for key, value in inputs.items()},
+        }
+        hog_function.save(update_fields=["inputs", "encrypted_inputs"])
+
+        return Response(status=status.HTTP_200_OK, data={"success": True})
 
 
 @dataclasses.dataclass(frozen=True)

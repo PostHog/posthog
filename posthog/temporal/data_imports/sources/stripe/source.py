@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, Optional, cast
 
+import structlog
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
@@ -17,7 +18,12 @@ from posthog.schema import (
 )
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceInputs, SourceResponse
-from posthog.temporal.data_imports.sources.common.base import FieldType, ResumableSource, WebhookSource
+from posthog.temporal.data_imports.sources.common.base import (
+    FieldType,
+    ResumableSource,
+    WebhookCreationResult,
+    WebhookSource,
+)
 from posthog.temporal.data_imports.sources.common.registry import SourceRegistry
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from posthog.temporal.data_imports.sources.common.schema import SourceSchema
@@ -27,6 +33,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     CUSTOMER_RESOURCE_NAME,
     INVOICE_RESOURCE_NAME,
     PRODUCT_RESOURCE_NAME,
+    RESOURCE_TO_STRIPE_OBJECT_TYPE,
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.settings import (
@@ -36,11 +43,14 @@ from posthog.temporal.data_imports.sources.stripe.settings import (
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
     StripeResumeConfig,
+    create_webhook,
     stripe_source,
     validate_credentials as validate_stripe_credentials,
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
+
+logger = structlog.get_logger(__name__)
 
 STRIPE_BASE_URL = "https://dashboard.stripe.com"
 STRIPE_ACCOUNT_URL = f"{STRIPE_BASE_URL}/settings/account"
@@ -108,6 +118,10 @@ class StripeSource(ResumableSource[StripeSourceConfig, StripeResumeConfig], Webh
         return template
 
     @property
+    def webhook_resource_map(self) -> dict[str, str]:
+        return RESOURCE_TO_STRIPE_OBJECT_TYPE
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.STRIPE,
@@ -167,6 +181,27 @@ These permissions are automatically pre-filled in the API key creation form if y
                 ),
             ],
             featured=True,
+            webhookSetupCaption="""To set up the webhook manually:
+
+1. Go to your [Stripe Dashboard > Developers > Webhooks](https://dashboard.stripe.com/webhooks)
+2. Click **Add endpoint**
+3. Paste the webhook URL shown below into the **Endpoint URL** field
+4. Under **Events to send**, select **All events** (or choose specific events matching your synced tables)
+5. Click **Add endpoint**
+
+Once created, copy the **Signing secret** from the webhook details page and add it to your source configuration for signature verification.""",
+            webhookFields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="signing_secret",
+                        label="Signing secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="whsec_...",
+                    ),
+                ],
+            ),
         )
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
@@ -185,6 +220,8 @@ These permissions are automatically pre-filled in the API key creation form if y
             SourceSchema(
                 name=endpoint,
                 supports_incremental=_is_webhook_feature_flag_enabled(team_id)
+                and STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                supports_webhooks=_is_webhook_feature_flag_enabled(team_id)
                 and STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 # nested resources are only full refresh and are not in STRIPE_INCREMENTAL_FIELDS
                 supports_append=STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -216,6 +253,9 @@ These permissions are automatically pre-filled in the API key creation form if y
 
     def get_webhook_source_manager(self, inputs: SourceInputs) -> WebhookSourceManager:
         return WebhookSourceManager(inputs, inputs.logger)
+
+    def create_webhook(self, config: StripeSourceConfig, webhook_url: str, team_id: int) -> WebhookCreationResult:
+        return create_webhook(config, webhook_url)
 
     def source_for_pipeline(
         self,
