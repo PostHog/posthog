@@ -100,6 +100,13 @@ export const getDisplayNameFromEntityFilter = (
 ): string | null => {
     // Make sure names aren't blank strings
     const customName = ensureStringIsNotBlank(filter?.custom_name)
+
+    // For event groups, use "X events" rather than the auto-generated comma-joined name
+    if (filter?.type === EntityTypes.GROUPS) {
+        const nestedCount = (filter as ActionFilter).nestedFilters?.length ?? 0
+        return (isCustom ? customName : null) ?? `${nestedCount} event${nestedCount !== 1 ? 's' : ''}`
+    }
+
     let name = ensureStringIsNotBlank(filter?.name)
     if (name && name in CORE_FILTER_DEFINITIONS_BY_GROUP.events) {
         name = CORE_FILTER_DEFINITIONS_BY_GROUP.events[name].label
