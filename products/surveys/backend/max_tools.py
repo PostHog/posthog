@@ -47,6 +47,11 @@ QUESTION_TYPE_MAP: dict[str, dict[str, Any]] = {
 class SimpleSurveyQuestion(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
+    id: str | None = Field(
+        default=None,
+        description="Question number from the survey context (e.g. '1', '2', '3'). "
+        "Reuse to preserve question identity and historical response data. Omit for new questions.",
+    )
     type: SEMANTIC_QUESTION_TYPE
     question: str
     description: str | None = None
@@ -150,6 +155,10 @@ SURVEY_CREATION_TOOL_DESCRIPTION = dedent("""
     - "single_choice": pick one from choices
     - "multiple_choice": pick many from choices
     - "link": call-to-action link
+
+    # After creation
+    Always share the survey link with the user so they can view and configure it.
+    The link is included in the tool response.
     """).strip()
 
 
@@ -269,7 +278,12 @@ class CreateSurveyTool(MaxTool):
             created_survey = await Survey.objects.acreate(team=self._team, created_by=self._user, **survey_data)
 
             launch_msg = " and launched" if should_launch else ""
-            return f"Survey '{created_survey.name}' created{launch_msg} successfully!", {
+            survey_id = str(created_survey.id)
+            if survey_type == "popover":
+                survey_url = f"/surveys/guided/{survey_id}"
+            else:
+                survey_url = f"/surveys/{survey_id}?edit=true"
+            return f"Survey '{created_survey.name}' created{launch_msg} successfully! [View survey]({survey_url})", {
                 "survey_id": created_survey.id,
                 "survey_name": created_survey.name,
                 "survey_type": survey_type,
@@ -295,6 +309,11 @@ SURVEY_EDIT_TOOL_DESCRIPTION = dedent("""
     - Set launch=true to start collecting responses
     - Set stop=true to stop collecting responses
     - Set archive=true to archive the survey
+
+    # Question identity
+    - When updating questions, use read_data(kind="survey") first to see the current questions
+    - Each question is shown with a number (1, 2, 3, ...) — pass that number as the question's `id` to preserve its identity and historical response data
+    - Omit `id` for entirely new questions; they will be assigned a fresh ID automatically
 
     # Important
     - Only include fields you want to change
@@ -405,7 +424,18 @@ class EditSurveyTool(MaxTool):
             if description is not None:
                 update_data["description"] = description
             if questions is not None:
-                update_data["questions"] = [_build_question(q) for q in questions]
+                new_questions = [_build_question(q) for q in questions]
+                existing_questions = survey.questions or []
+
+                # Build numeric label -> real UUID mapping (1-indexed, matching read_data output)
+                id_map = {str(i + 1): eq["id"] for i, eq in enumerate(existing_questions) if "id" in eq}
+
+                # Resolve numeric labels back to real UUIDs; unknown/missing id -> new question
+                for new_q, simple_q in zip(new_questions, questions):
+                    if simple_q.id and simple_q.id in id_map:
+                        new_q["id"] = id_map[simple_q.id]
+
+                update_data["questions"] = new_questions
             if linked_flag_id is not None:
                 update_data["linked_flag_id"] = linked_flag_id
             if responses_limit is not None:

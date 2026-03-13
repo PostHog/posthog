@@ -18,7 +18,7 @@ import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/fil
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { FunnelsQuery } from '~/queries/schema/schema-general'
 import { isInsightQueryNode } from '~/queries/utils'
-import { EditorFilterProps, FilterType } from '~/types'
+import { EditorFilterProps, FilterType, FunnelVizType as FunnelVizTypeEnum } from '~/types'
 
 import { ActionFilter } from '../filters/ActionFilter/ActionFilter'
 import { AggregationSelect } from '../filters/AggregationSelect'
@@ -29,7 +29,7 @@ import { FunnelDataWarehouseStepDefinitionPopover } from './FunnelDataWarehouseS
 export const FUNNEL_STEP_COUNT_LIMIT = 30
 
 export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Element | null {
-    const { series, querySource } = useValues(insightVizDataLogic(insightProps))
+    const { series, querySource, hasOnlyDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
     const { featureFlags } = useValues(featureFlagLogic)
     const supportsDwhFunnels = featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT]
@@ -60,12 +60,14 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
             <div className="flex justify-between items-center">
                 <LemonLabel>Query Steps</LemonLabel>
 
-                <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
-                    <div className="flex items-center gap-2">
-                        <span className="text-secondary">Graph type</span>
-                        <FunnelVizType insightProps={insightProps} />
-                    </div>
-                </Tooltip>
+                {(querySource as FunnelsQuery)?.funnelsFilter?.funnelVizType !== FunnelVizTypeEnum.Flow && (
+                    <Tooltip docLink="https://posthog.com/docs/product-analytics/funnels#graph-type">
+                        <div className="flex items-center gap-2">
+                            <span className="text-secondary">Graph type</span>
+                            <FunnelVizType insightProps={insightProps} />
+                        </div>
+                    </Tooltip>
+                )}
             </div>
             <div className="FunnelsQuerySteps">
                 <ActionFilter
@@ -107,13 +109,36 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                     definitionPopoverRenderer={
                         isFunnelDwhStepPopoverVariant ? FunnelDataWarehouseStepDefinitionPopover : undefined
                     }
+                    dataWarehousePopoverFields={[
+                        {
+                            key: 'id_field',
+                            label: 'Unique ID',
+                        },
+                        {
+                            key: 'timestamp_field',
+                            label: 'Timestamp',
+                        },
+                        {
+                            key: 'distinct_id_field',
+                            label: 'Aggregation target',
+                            allowHogQL: true,
+                        },
+                    ]}
                 />
             </div>
             <div className="mt-4 deprecated-space-y-4">
                 {showGroupsOptions && (
                     <div className="flex items-center w-full gap-2" data-attr="funnel-aggregation-filter">
                         <span>Aggregating by</span>
-                        <AggregationSelect insightProps={insightProps} hogqlAvailable />
+                        <AggregationSelect
+                            insightProps={insightProps}
+                            hogqlAvailable
+                            disabledReason={
+                                hasOnlyDataWarehouseSeries
+                                    ? 'For data warehouse steps, aggregation is configured per step. Please configure the aggregation target in the individual step settings.'
+                                    : undefined
+                            }
+                        />
                     </div>
                 )}
 

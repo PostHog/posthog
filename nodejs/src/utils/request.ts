@@ -246,13 +246,16 @@ class InsecureAgent extends Agent {
     }
 }
 
-// When the outbound proxy is enabled, external requests go through a CONNECT tunnel.
+// When a proxy URL is available, external requests go through a CONNECT tunnel.
 // The proxy handles SSRF blocking (private IP rejection) at the network level,
 // so we skip the DNS lookup (httpStaticLookup) which would be redundant.
 function makeSecureDispatcher(): Dispatcher {
-    if (defaultConfig.OUTBOUND_PROXY_ENABLED && defaultConfig.OUTBOUND_PROXY_URL) {
+    const proxyUrl =
+        process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+
+    if (proxyUrl) {
         return new ProxyAgent({
-            uri: defaultConfig.OUTBOUND_PROXY_URL,
+            uri: proxyUrl,
             keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
             connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
             requestTls: {},

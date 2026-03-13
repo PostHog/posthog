@@ -211,10 +211,13 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
             editorFilters: filterFalsy([
                 isTrendsLike && {
                     key: 'series',
-                    label: isTrends && display !== ChartDisplayType.CalendarHeatmap ? TrendsSeriesLabel : undefined,
+                    label:
+                        isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
+                            ? TrendsSeriesLabel
+                            : undefined,
                     component: TrendsSeries,
                 },
-                isTrends && hasFormula
+                isTrends && hasFormula && display !== ChartDisplayType.BoxPlot
                     ? {
                           key: 'formula',
                           label: 'Formula',
@@ -322,6 +325,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                   <span>Breakdown attribution</span>
                                   <Tooltip
                                       closeDelayMs={200}
+                                      interactive
                                       title={
                                           <div className="deprecated-space-y-2">
                                               <div>

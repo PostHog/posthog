@@ -263,7 +263,7 @@ export function SharingModalContent({
                                     )}
                                     <LemonButton
                                         data-attr="sharing-link-button"
-                                        type="secondary"
+                                        type="primary"
                                         onClick={() => {
                                             // TRICKY: there's a chance this was sending useless errors to error tracking
                                             // even when it succeeded, so we're explicitly ignoring the promise success
@@ -275,8 +275,7 @@ export function SharingModalContent({
                                             )
                                         }}
                                         icon={<IconLink />}
-                                        fullWidth
-                                        className="mb-4"
+                                        className="ml-auto mb-4"
                                     >
                                         Copy public link
                                     </LemonButton>
@@ -301,7 +300,7 @@ export function SharingModalContent({
                                         formKey="sharingSettings"
                                         className="deprecated-space-y-2"
                                     >
-                                        <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
                                             {insight && (
                                                 <LemonField name="noHeader">
                                                     {({ value, onChange }) => (

@@ -20,7 +20,9 @@ class InsightActorsQueryOptionsRunner(QueryRunner):
 
     @cached_property
     def source_runner(self) -> QueryRunner:
-        return get_query_runner(self.query.source.source, self.team, self.timings, self.limit_context)
+        return get_query_runner(
+            self.query.source.source, self.team, self.timings, self.limit_context, request=self.request
+        )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         raise ValueError(f"Cannot convert source query of type {self.query.source.kind} to query")

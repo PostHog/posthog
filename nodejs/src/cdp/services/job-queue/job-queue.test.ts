@@ -10,8 +10,6 @@ import { CyclotronJobQueue, JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS, getProducerMap
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig
-    let mockConsumeBatch: jest.Mock
-
     const exampleHogFunction = createHogFunction({
         name: 'Test hog function',
         ...HOG_EXAMPLES.simple_fetch,
@@ -21,39 +19,18 @@ describe('CyclotronJobQueue', () => {
 
     beforeEach(() => {
         config = { ...defaultConfig }
-        mockConsumeBatch = jest.fn()
     })
 
-    describe('cyclotron', () => {
-        beforeEach(() => {
-            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'postgres'
-        })
-
-        it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
-            expect(queue).toBeDefined()
-            expect(queue['consumerMode']).toBe('postgres')
-        })
-    })
-
-    describe('kafka', () => {
-        beforeEach(() => {
-            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
-        })
-
-        it('should initialise', () => {
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
-            expect(queue).toBeDefined()
-            expect(queue['consumerMode']).toBe('kafka')
-        })
+    it('should initialise', () => {
+        const queue = new CyclotronJobQueue(config)
+        expect(queue).toBeDefined()
     })
 
     describe('producer setup', () => {
         const buildQueue = (mapping: string, teamMapping?: string) => {
-            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = teamMapping || ''
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
+            const queue = new CyclotronJobQueue(config)
             queue['jobQueuePostgres'].startAsProducer = jest.fn()
             queue['jobQueueKafka'].startAsProducer = jest.fn()
             queue['jobQueuePostgres'].queueInvocations = jest.fn()
@@ -82,8 +59,8 @@ describe('CyclotronJobQueue', () => {
             expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
         })
 
-        it('should start both producers if a percentage is mapped', async () => {
-            const queue = buildQueue('*:postgres:0.5')
+        it('should start both producers if split routing is mapped', async () => {
+            const queue = buildQueue('*:postgres:0.5,*:kafka:0.5')
             await queue.startAsProducer()
             expect(queue['jobQueuePostgres'].startAsProducer).toHaveBeenCalled()
             expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
@@ -168,187 +145,6 @@ describe('CyclotronJobQueue', () => {
             expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
         })
     })
-
-    describe('shadow write', () => {
-        const buildQueue = (shadowEnabled: boolean) => {
-            config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE = 'kafka'
-            config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = '*:kafka'
-            config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED = shadowEnabled
-            config.CYCLOTRON_SHADOW_DATABASE_URL = 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
-            const queue = new CyclotronJobQueue(config, 'hog', mockConsumeBatch)
-            queue['jobQueuePostgres'].startAsProducer = jest.fn()
-            queue['jobQueueKafka'].startAsProducer = jest.fn()
-            queue['jobQueuePostgres'].queueInvocations = jest.fn()
-            queue['jobQueueKafka'].queueInvocations = jest.fn()
-            if (queue['shadowPostgres']) {
-                queue['shadowPostgres'].startAsProducer = jest.fn().mockResolvedValue(undefined)
-                queue['shadowPostgres'].queueInvocations = jest.fn().mockResolvedValue(undefined)
-                queue['shadowPostgres'].stopProducer = jest.fn().mockResolvedValue(undefined)
-            }
-            return queue
-        }
-
-        it('should start shadow producer when enabled', async () => {
-            const queue = buildQueue(true)
-            await queue.startAsProducer()
-            expect(queue['shadowPostgres']).not.toBeNull()
-            expect(queue['shadowPostgres']!.startAsProducer).toHaveBeenCalled()
-        })
-
-        it('should not create shadow producer when disabled', () => {
-            const queue = buildQueue(false)
-            expect(queue['shadowPostgres']).toBeNull()
-        })
-
-        it('should fire-and-forget shadow write on queueInvocations', async () => {
-            const queue = buildQueue(true)
-            await queue.startAsProducer()
-
-            const invocations = [
-                createInvocation(
-                    {
-                        ...createHogExecutionGlobals(),
-                        inputs: {},
-                    },
-                    exampleHogFunction
-                ),
-            ]
-            await queue.queueInvocations(invocations)
-
-            expect(queue['shadowPostgres']!.queueInvocations).toHaveBeenCalledWith(invocations)
-        })
-
-        it('should not shadow write hogflow invocations', async () => {
-            const queue = buildQueue(true)
-            await queue.startAsProducer()
-
-            const invocations = [
-                {
-                    ...createInvocation(
-                        {
-                            ...createHogExecutionGlobals(),
-                            inputs: {},
-                        },
-                        exampleHogFunction
-                    ),
-                    queue: 'hogflow' as const,
-                },
-            ]
-            await queue.queueInvocations(invocations)
-
-            expect(queue['shadowPostgres']!.queueInvocations).not.toHaveBeenCalled()
-        })
-
-        it('should not block on shadow write failure', async () => {
-            const queue = buildQueue(true)
-            await queue.startAsProducer()
-            ;(queue['shadowPostgres']!.queueInvocations as jest.Mock).mockRejectedValue(
-                new Error('shadow write failed')
-            )
-
-            const invocations = [
-                createInvocation(
-                    {
-                        ...createHogExecutionGlobals(),
-                        inputs: {},
-                    },
-                    exampleHogFunction
-                ),
-            ]
-
-            // Should not throw despite shadow failure
-            await expect(queue.queueInvocations(invocations)).resolves.toBeUndefined()
-
-            // Main path should still have been called
-            expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith(invocations)
-        })
-
-        describe('circuit breaker', () => {
-            const flushPromises = () => new Promise((resolve) => process.nextTick(resolve))
-
-            const invocations = [
-                createInvocation(
-                    {
-                        ...createHogExecutionGlobals(),
-                        inputs: {},
-                    },
-                    exampleHogFunction
-                ),
-            ]
-
-            it('should open circuit after 5 consecutive failures and skip writes', async () => {
-                const queue = buildQueue(true)
-                await queue.startAsProducer()
-                const shadowMock = queue['shadowPostgres']!.queueInvocations as jest.Mock
-                shadowMock.mockRejectedValue(new Error('fail'))
-
-                for (let i = 0; i < 5; i++) {
-                    await queue.queueInvocations(invocations)
-                    await flushPromises()
-                }
-
-                shadowMock.mockClear()
-                await queue.queueInvocations(invocations)
-                await flushPromises()
-
-                expect(shadowMock).not.toHaveBeenCalled()
-            })
-
-            it('should resume writes after cooldown and reset on success', async () => {
-                const now = Date.now()
-                jest.spyOn(Date, 'now').mockReturnValue(now)
-
-                const queue = buildQueue(true)
-                await queue.startAsProducer()
-                const shadowMock = queue['shadowPostgres']!.queueInvocations as jest.Mock
-                shadowMock.mockRejectedValue(new Error('fail'))
-
-                for (let i = 0; i < 5; i++) {
-                    await queue.queueInvocations(invocations)
-                    await flushPromises()
-                }
-
-                // Advance past the 60s cooldown
-                ;(Date.now as jest.Mock).mockReturnValue(now + 61_000)
-                shadowMock.mockResolvedValue(undefined)
-                shadowMock.mockClear()
-
-                await queue.queueInvocations(invocations)
-                await flushPromises()
-
-                expect(shadowMock).toHaveBeenCalledTimes(1)
-                expect(queue['shadowFailures']).toBe(0)
-
-                jest.restoreAllMocks()
-            })
-
-            it('should not resume writes before cooldown expires', async () => {
-                const now = Date.now()
-                jest.spyOn(Date, 'now').mockReturnValue(now)
-
-                const queue = buildQueue(true)
-                await queue.startAsProducer()
-                const shadowMock = queue['shadowPostgres']!.queueInvocations as jest.Mock
-                shadowMock.mockRejectedValue(new Error('fail'))
-
-                for (let i = 0; i < 5; i++) {
-                    await queue.queueInvocations(invocations)
-                    await flushPromises()
-                }
-
-                // Advance only 30s — still within cooldown
-                ;(Date.now as jest.Mock).mockReturnValue(now + 30_000)
-                shadowMock.mockClear()
-
-                await queue.queueInvocations(invocations)
-                await flushPromises()
-
-                expect(shadowMock).not.toHaveBeenCalled()
-
-                jest.restoreAllMocks()
-            })
-        })
-    })
 })
 
 describe('getProducerMapping', () => {
@@ -356,15 +152,21 @@ describe('getProducerMapping', () => {
         [
             '*:kafka',
             {
-                '*': { target: 'kafka', percentage: 1 },
+                '*': [{ target: 'kafka', percentage: 1 }],
             },
         ],
         [
-            '*:kafka:0.5,hog:kafka:1,hogflow:postgres:0.1',
+            '*:kafka:0.5,*:postgres:0.5,hog:kafka,hogflow:postgres:0.1,hogflow:kafka:0.9',
             {
-                '*': { target: 'kafka', percentage: 0.5 },
-                hog: { target: 'kafka', percentage: 1 },
-                hogflow: { target: 'postgres', percentage: 0.1 },
+                '*': [
+                    { target: 'kafka', percentage: 0.5 },
+                    { target: 'postgres', percentage: 0.5 },
+                ],
+                hog: [{ target: 'kafka', percentage: 1 }],
+                hogflow: [
+                    { target: 'postgres', percentage: 0.1 },
+                    { target: 'kafka', percentage: 0.9 },
+                ],
             },
         ],
     ])('should return the correct mapping for %s', (mapping, expected) => {
@@ -372,11 +174,14 @@ describe('getProducerMapping', () => {
     })
 
     it.each([
-        ['*:kafkatypo', 'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka'],
-        ['hog:kafkatypo', 'Invalid mapping: hog:kafkatypo - target kafkatypo must be one of postgres, kafka'],
+        ['*:kafkatypo', 'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, postgres-v2, kafka'],
+        [
+            'hog:kafkatypo',
+            'Invalid mapping: hog:kafkatypo - target kafkatypo must be one of postgres, postgres-v2, kafka',
+        ],
         [
             'hog:kafka,hogflow:postgres,*:kafkatypo',
-            'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, kafka',
+            'Invalid mapping: *:kafkatypo - target kafkatypo must be one of postgres, postgres-v2, kafka',
         ],
         [
             'wrong_queue:kafka',
@@ -384,6 +189,7 @@ describe('getProducerMapping', () => {
         ],
         ['hog:kafka:1.1', 'Invalid mapping: hog:kafka:1.1 - percentage 1.1 must be 0 < x <= 1'],
         ['hog:kafka', 'No mapping for the default queue for example: *:postgres'],
+        ['*:kafka:0.5,*:postgres:0.3', 'Invalid mapping for queue *: percentages must sum to 1 (got 0.8)'],
     ])('should throw for bad values for %s', (mapping, error) => {
         expect(() => getProducerMapping(mapping)).toThrow(error)
     })

@@ -254,6 +254,13 @@ def clean_varying_query_parts(query, replace_all_numbers):
     query = re.sub(r"flag_\d+_condition", r"flag_X_condition", query)
     query = re.sub(r"flag_\d+_super_condition", r"flag_X_super_condition", query)
 
+    # session_recording_linked_flag embeds feature flag IDs in JSON, normalize them
+    query = re.sub(
+        r"""session_recording_linked_flag" @> '{"id": \d+}'::jsonb""",
+        r"""session_recording_linked_flag" @> '{"id": 99999}'::jsonb""",
+        query,
+    )
+
     # remove version suffix from funnel UDFs
     query = re.sub(r"aggregate_funnel(_array|_trends)?_v\d+", r"aggregate_funnel\1", query)
 
@@ -966,7 +973,9 @@ def cleanup_materialized_columns():
     optionally_drop("groups")
 
 
-def get_index_from_explain(query: str, index_name: str) -> dict | None:
+def get_index_from_explain(
+    query: str, index_name: str, *, placeholder_values: dict[str, str] | None = None
+) -> dict | None:
     """
     Run EXPLAIN PLAN on a query and extract info for the given index name.
 
@@ -979,8 +988,9 @@ def get_index_from_explain(query: str, index_name: str) -> dict | None:
     * It does not go anywhere near real users or their inputs
     """
     # Substitute HogQL placeholders with dummy values for EXPLAIN
-    query = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", query)
-    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1,json=1 {query}")
+    if not placeholder_values:
+        query = re.sub(r"%\(hogql_val_\d+\)s", "'dummy_value'", query)
+    explain_result = sync_execute(f"EXPLAIN PLAN indexes=1,json=1 {query}", placeholder_values)
     plan_json = json.loads(explain_result[0][0])
 
     # Uncomment this to debug whether your expected index actually exists

@@ -19,9 +19,11 @@ Schema reference for PostHog's core system models, organized by domain:
 - [Flags & Experiments](./references/models-flags-experiments.md)
 - [Groups](./references/models-groups.md)
 - [Hog Flows](./references/models-hog-flows.md)
+- [Hog Functions](./references/models-hog-functions.md)
 - [Notebooks](./references/models-notebooks.md)
 - [Surveys](./references/models-surveys.md)
 - [SQL Variables](./references/models-variables.md)
+- [Skipped events in the read-data-schema tool](./references/taxonomy-skipped-events.md)
 
 ## HogQL References
 
@@ -50,3 +52,4 @@ Use the examples below to create optimized analytical queries.
 - [Logs (filtering by severity and searching for a term)](./references/example-logs.md)
 - [Sessions (listing sessions with duration, pageviews, and bounce rate)](./references/example-sessions.md)
 - [Session replay (listing recordings with activity filters)](./references/example-session-replay.md)
+- [Team taxonomy (top events by count, paginated)](./references/example-team-taxonomy.md)

@@ -17,8 +17,11 @@ export class SqlInsight {
         const editorArea = this.page.getByTestId('hogql-query-editor')
         await editorArea.waitFor({ state: 'visible' })
         await editorArea.click()
-        await this.page.keyboard.press('Meta+A')
-        await this.page.keyboard.type(query)
+        await this.page.keyboard.press('ControlOrMeta+a')
+        // Use insertText() to avoid Monaco autocomplete intercepting keystrokes
+        // during character-by-character typing (space is a trigger character).
+        await this.page.keyboard.insertText(query)
+        await this.page.keyboard.press('Escape')
     }
 
     async run(): Promise<void> {

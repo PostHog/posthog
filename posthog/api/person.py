@@ -591,6 +591,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     property_key=key,
                     search_value=value,
                 ),
+                request=request,
             )
             execution_mode = (
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS
@@ -1082,21 +1083,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         MAX_BATCH_SIZE = 200
         distinct_ids = distinct_ids[:MAX_BATCH_SIZE]
 
-        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids).prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
-                to_attr="distinct_ids_cache",
-            )
-        )
+        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
 
+        requested = set(distinct_ids)
         results: dict[str, Any] = {}
         for person in persons:
             person_data = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
 
-            for did in getattr(person, "distinct_ids_cache", []):
-                if did.distinct_id in distinct_ids:
-                    results[did.distinct_id] = person_data
+            for distinct_id in person.distinct_ids:
+                if distinct_id in requested:
+                    results[distinct_id] = person_data
 
         return response.Response({"results": results})
 

@@ -35,7 +35,7 @@ class TestGetSandboxImageReference:
 
     def test_returns_digest_reference_on_success(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.external_requests.get",
+            "products.tasks.backend.services.modal_sandbox.requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(digest="sha256:abc123")],
         ):
             result = _get_sandbox_image_reference()
@@ -45,7 +45,7 @@ class TestGetSandboxImageReference:
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500, 502, 503])
     def test_falls_back_to_master_on_token_request_failure(self, status_code: int):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.external_requests.get",
+            "products.tasks.backend.services.modal_sandbox.requests.get",
             return_value=_mock_token_response(status_code=status_code),
         ):
             result = _get_sandbox_image_reference()
@@ -54,7 +54,7 @@ class TestGetSandboxImageReference:
 
     def test_falls_back_to_master_when_token_missing(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.external_requests.get",
+            "products.tasks.backend.services.modal_sandbox.requests.get",
             return_value=_mock_token_response(token=None),
         ):
             result = _get_sandbox_image_reference()
@@ -64,7 +64,7 @@ class TestGetSandboxImageReference:
     @pytest.mark.parametrize("status_code", [401, 403, 404, 500, 502, 503])
     def test_falls_back_to_master_on_manifest_request_failure(self, status_code: int):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.external_requests.get",
+            "products.tasks.backend.services.modal_sandbox.requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(status_code=status_code)],
         ):
             result = _get_sandbox_image_reference()
@@ -73,7 +73,7 @@ class TestGetSandboxImageReference:
 
     def test_falls_back_to_master_when_digest_header_missing(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.external_requests.get",
+            "products.tasks.backend.services.modal_sandbox.requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(digest=None)],
         ):
             result = _get_sandbox_image_reference()
@@ -90,7 +90,7 @@ class TestGetSandboxImageReference:
     )
     def test_falls_back_to_master_on_request_exception(self, exception: Exception):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.external_requests.get",
+            "products.tasks.backend.services.modal_sandbox.requests.get",
             side_effect=exception,
         ):
             result = _get_sandbox_image_reference()
@@ -99,7 +99,7 @@ class TestGetSandboxImageReference:
 
     def test_caches_result_across_calls(self):
         with patch(
-            "products.tasks.backend.services.modal_sandbox.external_requests.get",
+            "products.tasks.backend.services.modal_sandbox.requests.get",
             side_effect=[_mock_token_response(), _mock_manifest_response(digest="sha256:cached123")],
         ) as mock_get:
             result1 = _get_sandbox_image_reference()
@@ -162,7 +162,7 @@ class TestModalSandboxAgentServer:
         mock_sandbox.execute = MagicMock(
             side_effect=[
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
-                ExecutionResult(stdout="200", stderr="", exit_code=0, error=None),
+                ExecutionResult(stdout="ok:1", stderr="", exit_code=0, error=None),
             ]
         )
 
@@ -208,35 +208,41 @@ class TestModalSandboxAgentServer:
     def test_start_agent_server_raises_on_health_check_failure(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
             side_effect=[
+                # 1: nohup start command succeeds
                 ExecutionResult(stdout="", stderr="", exit_code=0, error=None),
+                # 2: batched health check script fails
+                ExecutionResult(stdout="", stderr="", exit_code=1, error=None),
+                # 3: cat log file
+                ExecutionResult(stdout="some log output", stderr="", exit_code=0, error=None),
             ]
-            + [ExecutionResult(stdout="502", stderr="", exit_code=0, error=None)] * 20
-            + [ExecutionResult(stdout="some log output", stderr="", exit_code=0, error=None)]
         )
 
-        with patch("products.tasks.backend.services.modal_sandbox.time.sleep"):
-            with pytest.raises(SandboxExecutionError, match="Agent-server failed to start"):
-                mock_sandbox.start_agent_server(
-                    repository="posthog/posthog",
-                    task_id="task-123",
-                    run_id="run-456",
-                )
+        with pytest.raises(SandboxExecutionError, match="Agent-server failed to start"):
+            mock_sandbox.start_agent_server(
+                repository="posthog/posthog",
+                task_id="task-123",
+                run_id="run-456",
+            )
 
-    def test_wait_for_health_check_retries(self, mock_sandbox: Any):
+    def test_wait_for_health_check_passes(self, mock_sandbox: Any):
         mock_sandbox.execute = MagicMock(
-            side_effect=[
-                ExecutionResult(stdout="502", stderr="", exit_code=0, error=None),
-                ExecutionResult(stdout="502", stderr="", exit_code=0, error=None),
-                ExecutionResult(stdout="200", stderr="", exit_code=0, error=None),
-            ]
+            return_value=ExecutionResult(stdout="ok:3", stderr="", exit_code=0, error=None),
         )
 
-        with patch("products.tasks.backend.services.modal_sandbox.time.sleep") as mock_sleep:
-            result = mock_sandbox._wait_for_health_check()
+        result = mock_sandbox._wait_for_health_check()
 
         assert result is True
-        assert mock_sandbox.execute.call_count == 3
-        assert mock_sleep.call_count == 2
+        assert mock_sandbox.execute.call_count == 1
+
+    def test_wait_for_health_check_fails(self, mock_sandbox: Any):
+        mock_sandbox.execute = MagicMock(
+            return_value=ExecutionResult(stdout="", stderr="", exit_code=1, error=None),
+        )
+
+        result = mock_sandbox._wait_for_health_check()
+
+        assert result is False
+        assert mock_sandbox.execute.call_count == 1
 
 
 class TestModalSandboxCommandEscaping:

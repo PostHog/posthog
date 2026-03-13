@@ -38,6 +38,17 @@ const meta: Meta<(props: StoryProps) => JSX.Element> = {
                 '/api/organizations/:id/integrations': { results: [] },
                 '/api/environments/:team_id/conversations/': { results: [] },
                 '/api/user_home_settings/@me/': {},
+                '/api/organizations/:organization_id/proxy_records': {
+                    results: [
+                        {
+                            id: 'proxy-1',
+                            domain: 't.example.com',
+                            status: 'valid',
+                            target_cname: 't-example-com.proxy.posthog.cc',
+                        },
+                    ],
+                    max_proxy_records: 2,
+                },
             },
             patch: {
                 '/api/projects/:id': async (req, res, ctx) => {

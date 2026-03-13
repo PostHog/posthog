@@ -1,6 +1,16 @@
 import React from 'react'
 
-import { IconBadge, IconBolt, IconCursor, IconEye, IconLeave, IconList, IconLogomark, IconPlay } from '@posthog/icons'
+import {
+    IconBadge,
+    IconBolt,
+    IconCursor,
+    IconEye,
+    IconLeave,
+    IconList,
+    IconLogomark,
+    IconPlay,
+    IconServer,
+} from '@posthog/icons'
 
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -66,7 +76,7 @@ export function getPropertyDefinitionIcon(definition: PropertyDefinition): JSX.E
 
 export function getEventDefinitionIcon(definition: EventDefinition & { value?: string | null }): JSX.Element {
     // Rest are events
-    if (definition.name === '$pageview' || definition.name === '$screen') {
+    if (definition.id === '$pageview' || definition.id === '$screen') {
         return (
             <IconWithBadge
                 icon={<IconEye />}
@@ -77,7 +87,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             />
         )
     }
-    if (definition.name === '$pageleave') {
+    if (definition.id === '$pageleave') {
         return (
             <IconWithBadge
                 icon={<IconLeave />}
@@ -88,7 +98,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             />
         )
     }
-    if (definition.name === '$autocapture') {
+    if (definition.id === '$autocapture') {
         return (
             <IconWithBadge
                 icon={<IconBolt />}
@@ -99,7 +109,7 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
             />
         )
     }
-    if (definition.name && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.name]) {
+    if (definition.id && !!CORE_FILTER_DEFINITIONS_BY_GROUP.events[definition.id]) {
         return (
             <IconWithBadge
                 icon={<IconLogomark />}
@@ -129,6 +139,17 @@ export function getEventDefinitionIcon(definition: EventDefinition & { value?: s
                 hidden={definition.hidden}
                 tooltipTitle="Custom action"
                 className="taxonomy-icon taxonomy-icon-ph taxonomy-icon-muted"
+            />
+        )
+    }
+    if (definition.is_data_warehouse) {
+        return (
+            <IconWithBadge
+                icon={<IconServer />}
+                verified={definition.verified}
+                hidden={definition.hidden}
+                tooltipTitle="Data warehouse event"
+                className="taxonomy-icon taxonomy-icon-muted"
             />
         )
     }

@@ -17,7 +17,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, cdpTrackedFetch, isConnectionLevelError, shadowFetchContext } from './hog-executor.service'
+import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -99,6 +99,7 @@ describe('Hog Executor', () => {
             const result = await executor.execute(invocation)
             expect(result).toEqual({
                 capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
                 invocation: {
                     state: {
                         globals: invocation.state.globals,
@@ -1365,117 +1366,6 @@ describe('Hog Executor', () => {
                   },
                 ]
             `)
-        })
-    })
-
-    describe('shadowFetchContext', () => {
-        beforeEach(() => {
-            jest.mocked(fetch).mockClear()
-        })
-
-        it('returns no-op response when inside shadow context', async () => {
-            const result = await shadowFetchContext.run(true, () =>
-                cdpTrackedFetch({
-                    url: 'http://should-not-be-called.example.com/test',
-                    fetchParams: { method: 'GET' },
-                    templateId: 'test-template',
-                })
-            )
-
-            expect(result.fetchError).toBeNull()
-            expect(result.fetchResponse?.status).toBe(200)
-            expect(result.fetchDuration).toBe(0)
-            expect(fetch).not.toHaveBeenCalled()
-        })
-
-        it('makes real HTTP request when outside shadow context', async () => {
-            jest.mocked(fetch).mockResolvedValueOnce({
-                status: 200,
-                headers: {},
-            } as any)
-
-            const result = await cdpTrackedFetch({
-                url: 'http://example.com/test',
-                fetchParams: { method: 'GET' },
-                templateId: 'test-template',
-            })
-
-            expect(fetch).toHaveBeenCalledWith('http://example.com/test', { method: 'GET' })
-            expect(result.fetchResponse?.status).toBe(200)
-        })
-
-        it('retries immediately on connection-level errors and returns success', async () => {
-            const connectionError = Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' })
-            jest.mocked(fetch)
-                .mockRejectedValueOnce(connectionError)
-                .mockResolvedValueOnce({ status: 200, headers: {} } as any)
-
-            const result = await cdpTrackedFetch({
-                url: 'http://example.com/test',
-                fetchParams: { method: 'POST' },
-                templateId: 'test-template',
-            })
-
-            expect(fetch).toHaveBeenCalledTimes(2)
-            expect(result.fetchError).toBeNull()
-            expect(result.fetchResponse?.status).toBe(200)
-        })
-
-        it('exhausts connection retries and surfaces the error', async () => {
-            const connectionError = Object.assign(new Error('other side closed'), { code: 'UND_ERR_SOCKET' })
-            jest.mocked(fetch).mockRejectedValue(connectionError)
-
-            const result = await cdpTrackedFetch({
-                url: 'http://example.com/test',
-                fetchParams: { method: 'POST' },
-                templateId: 'test-template',
-            })
-
-            expect(fetch).toHaveBeenCalledTimes(2)
-            expect(result.fetchError?.message).toBe('other side closed')
-            expect(result.fetchResponse).toBeNull()
-        })
-
-        it('does not retry at client-level on non-connection errors', async () => {
-            jest.mocked(fetch).mockRejectedValueOnce(new Error('some other error'))
-
-            const result = await cdpTrackedFetch({
-                url: 'http://example.com/test',
-                fetchParams: { method: 'POST' },
-                templateId: 'test-template',
-            })
-
-            expect(fetch).toHaveBeenCalledTimes(1)
-            expect(result.fetchError?.message).toBe('some other error')
-        })
-
-        it('isolates shadow context from concurrent non-shadow fetches', async () => {
-            jest.mocked(fetch).mockResolvedValue({
-                status: 200,
-                headers: {},
-            } as any)
-
-            const [shadowResult, normalResult] = await Promise.all([
-                shadowFetchContext.run(true, () =>
-                    cdpTrackedFetch({
-                        url: 'http://shadow.example.com/test',
-                        fetchParams: { method: 'GET' },
-                        templateId: 'shadow-template',
-                    })
-                ),
-                cdpTrackedFetch({
-                    url: 'http://normal.example.com/test',
-                    fetchParams: { method: 'GET' },
-                    templateId: 'normal-template',
-                }),
-            ])
-
-            expect(shadowResult.fetchDuration).toBe(0)
-            expect(shadowResult.fetchResponse?.status).toBe(200)
-
-            expect(fetch).toHaveBeenCalledTimes(1)
-            expect(fetch).toHaveBeenCalledWith('http://normal.example.com/test', { method: 'GET' })
-            expect(normalResult.fetchResponse?.status).toBe(200)
         })
     })
 

@@ -96,7 +96,7 @@ export function InsightsTable({
         insightsTableDataLogic(insightProps)
     )
     const { setDetailedResultsAggregationType, toggleColumnPin } = useActions(insightsTableDataLogic(insightProps))
-    const { weekStartDay, timezone } = useValues(teamLogic)
+    const { weekStartDay, timezone, baseCurrency } = useValues(teamLogic)
     const [maxVisibleColumns, setMaxVisibleColumns] = useState(MAX_VALUE_COLUMNS)
 
     const handleSeriesEditClick = (item: IndexedTrendResult): void => {
@@ -115,9 +115,12 @@ export function InsightsTable({
     const hasCheckboxes =
         isLegend &&
         (!display ||
-            ![ChartDisplayType.BoldNumber, ChartDisplayType.WorldMap, ChartDisplayType.CalendarHeatmap].includes(
-                display
-            ))
+            ![
+                ChartDisplayType.BoldNumber,
+                ChartDisplayType.WorldMap,
+                ChartDisplayType.CalendarHeatmap,
+                ChartDisplayType.BoxPlot,
+            ].includes(display))
     // Build up columns to include. Order matters.
     const columns: LemonTableColumn<IndexedTrendResult, keyof IndexedTrendResult | undefined>[] = []
 
@@ -338,13 +341,17 @@ export function InsightsTable({
     }
 
     const renderCount = useCallback(
-        (value: number) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value),
-        [trendsFilter]
+        (value: number) => formatAggregationAxisValue(trendsFilter as Partial<TrendsFilterType>, value, baseCurrency),
+        [trendsFilter, baseCurrency]
     )
 
     const valueColumns: LemonTableColumn<IndexedTrendResult, any>[] = useMemo(() => {
         // Don't show value columns for non-time-series displays like WorldMap and Heatmap
-        if (display === ChartDisplayType.WorldMap || display === ChartDisplayType.CalendarHeatmap) {
+        if (
+            display === ChartDisplayType.WorldMap ||
+            display === ChartDisplayType.CalendarHeatmap ||
+            display === ChartDisplayType.BoxPlot
+        ) {
             return []
         }
 
@@ -461,6 +468,9 @@ export function InsightsTable({
             firstColumnSticky
             pinnedColumns={pinnedColumns}
             maxHeaderWidth="20rem"
+            // Allow vertical scrolling within the card so long tables
+            // inside dashboards remain scrollable without resizing tiles.
+            allowContentScroll={isInDashboardContext}
         />
     )
 }
