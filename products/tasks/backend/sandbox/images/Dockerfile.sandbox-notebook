@@ -82,12 +82,6 @@ RUN cd /scripts && \
     -o runAgent.mjs && \
     chmod +x runAgent.mjs
 
-# Pull PostHog skills from GitHub releases and install into the plugin directory
-COPY pull-skills.sh /tmp/pull-skills.sh
-RUN chmod +x /tmp/pull-skills.sh && \
-    /tmp/pull-skills.sh && \
-    rm /tmp/pull-skills.sh
-
 # Configure git for commits - TODO: Use user's email and name
 RUN git config --global user.email "array@posthog.com" && \
     git config --global user.name "Array"
