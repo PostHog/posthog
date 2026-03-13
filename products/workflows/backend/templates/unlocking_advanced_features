@@ -122,7 +122,7 @@
     {
       "id": "action_conditional_branch_13f88140-b8b9-4072-9b00-2e3fbbe7d367",
       "name": "Conditional branch",
-      "description": "Check if advanced_feature_unlocked = false",
+      "description": "Check if the feature is still locked",
       "on_error": null,
       "created_at": 1772793447746,
       "updated_at": 1772793447746,
@@ -134,23 +134,11 @@
             "filters": {
               "source": "events",
               "bytecode": [
-                "_H",
-                1,
-                31,
-                32,
-                "using_advanced_features",
-                32,
-                "properties",
-                1,
-                2,
-                11
+            
               ],
               "properties": [
                 {
-                  "key": "using_advanced_features",
-                  "type": "event",
-                  "value": "is_not_set",
-                  "operator": "is_not_set"
+                  
                 }
               ]
             }
