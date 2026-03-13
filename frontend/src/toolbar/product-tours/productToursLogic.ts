@@ -21,6 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
@@ -460,7 +461,7 @@ export const productToursLogic = kea<productToursLogicType>([
             const selector = elementToActionStep(element, dataAttributes).selector ?? ''
             const inferenceData = inferSelector(element)?.selector
             const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
-                console.warn('[Product Tours] Failed to capture element screenshot:', e)
+                toolbarLogger.warn('product_tours', 'Failed to capture element screenshot')
                 captureToolbarException(e, 'product_tour_screenshot')
                 return null
             })

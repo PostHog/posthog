@@ -6,6 +6,7 @@ import { CLICK_TARGETS, CLICK_TARGET_SELECTOR, TAGS_TO_IGNORE, escapeRegex } fro
 import { cssEscape } from 'lib/utils/cssEscape'
 
 import { patch } from '~/toolbar/patch'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ActionStepForm, ElementRect } from '~/toolbar/types'
 import { ActionStepType } from '~/types'
@@ -151,7 +152,7 @@ function computeElementQuery(element: HTMLElement, dataAttributes: string[]): st
         })
         return slashDotDataAttrUnescape(foundSelector)
     } catch (error) {
-        console.warn('Error while trying to find a selector for element', element, error)
+        toolbarLogger.warn('element_selector', 'Error while trying to find a selector for element')
         captureToolbarException(error, 'element_selector_computation')
         return undefined
     }
@@ -401,7 +402,7 @@ export function getElementForStep(step: ActionStepForm, allElements?: HTMLElemen
     try {
         elements = [...(querySelectorAllDeep(selector || '*', document, allElements) as unknown as HTMLElement[])]
     } catch (e) {
-        console.error('Cannot use selector:', selector, '. with exception: ', e)
+        toolbarLogger.error('element_step_selector', 'Cannot use selector', { selector })
         captureToolbarException(e, 'element_step_selector', { selector })
         return null
     }
