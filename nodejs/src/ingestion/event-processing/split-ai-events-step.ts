@@ -13,10 +13,22 @@ const LARGE_AI_PROPERTIES = new Set([
     '$ai_tools',
 ])
 
+const AI_EVENT_NAMES = new Set([
+    '$ai_generation',
+    '$ai_span',
+    '$ai_trace',
+    '$ai_embedding',
+    '$ai_metric',
+    '$ai_feedback',
+    '$ai_evaluation',
+])
+
 export interface SplitAiEventsStepConfig {
     enabled: boolean
     /** '*' for all teams, or a Set of enabled team IDs */
     enabledTeams: Set<number> | '*'
+    /** When true, strip heavy AI properties from the events copy. When false, send unchanged to both outputs. */
+    stripHeavyProperties: boolean
 }
 
 export interface SplitAiEventsStepInput {
@@ -37,13 +49,23 @@ function hasLargeAiProperties(properties: Record<string, unknown>): boolean {
     return false
 }
 
-function maybeStripAiProperties(entry: EventToEmit<EventOutput>): EventToEmit<EventOutput | AiEventOutput>[] {
+function maybeStripAiProperties(
+    entry: EventToEmit<EventOutput>,
+    stripHeavyProperties: boolean
+): EventToEmit<EventOutput | AiEventOutput>[] {
     const properties = entry.event.properties ?? {}
+    const isAiEvent = AI_EVENT_NAMES.has(entry.event.event)
 
-    if (!hasLargeAiProperties(properties)) {
+    if (!isAiEvent) {
         return [entry]
     }
 
+    if (!hasLargeAiProperties(properties) || !stripHeavyProperties) {
+        // Duplicate unchanged to both outputs
+        return [entry, { event: entry.event, output: AI_EVENTS_OUTPUT }]
+    }
+
+    // Strip heavy props from events copy (only when stripHeavyProperties is true)
     const stripped: Record<string, unknown> = {}
     for (const [key, value] of Object.entries(properties)) {
         if (!LARGE_AI_PROPERTIES.has(key)) {
@@ -59,9 +81,13 @@ function maybeStripAiProperties(entry: EventToEmit<EventOutput>): EventToEmit<Ev
     ]
 }
 
-export function parseSplitAiEventsConfig(enabled: boolean, teamsStr: string): SplitAiEventsStepConfig {
+export function parseSplitAiEventsConfig(
+    enabled: boolean,
+    teamsStr: string,
+    stripHeavy: boolean
+): SplitAiEventsStepConfig {
     if (teamsStr === '*') {
-        return { enabled, enabledTeams: '*' }
+        return { enabled, enabledTeams: '*', stripHeavyProperties: stripHeavy }
     }
     const enabledTeams = new Set(
         teamsStr
@@ -69,7 +95,7 @@ export function parseSplitAiEventsConfig(enabled: boolean, teamsStr: string): Sp
             .map((s) => parseInt(s.trim(), 10))
             .filter((n) => !isNaN(n))
     )
-    return { enabled, enabledTeams }
+    return { enabled, enabledTeams, stripHeavyProperties: stripHeavy }
 }
 
 export function createSplitAiEventsStep<T extends SplitAiEventsStepInput>(
@@ -83,7 +109,9 @@ export function createSplitAiEventsStep<T extends SplitAiEventsStepInput>(
         return Promise.resolve(
             ok({
                 ...input,
-                eventsToEmit: input.eventsToEmit.flatMap((entry) => maybeStripAiProperties(entry)),
+                eventsToEmit: input.eventsToEmit.flatMap((entry) =>
+                    maybeStripAiProperties(entry, config.stripHeavyProperties)
+                ),
             })
         )
     }
