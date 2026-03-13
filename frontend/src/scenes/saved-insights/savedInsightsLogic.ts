@@ -8,6 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { Sorting } from 'lib/lemon-ui/LemonTable'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
+import { listSelectionLogic } from 'lib/logic/listSelectionLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -85,6 +86,7 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
     tabAwareScene(),
     connect(() => ({
         values: [teamLogic, ['currentTeamId'], sceneLogic, ['activeSceneId']],
+        actions: [listSelectionLogic({ resource: 'insights' }), ['bulkUpdateTagsSuccess']],
         logic: [eventUsageLogic],
     })),
     actions({
@@ -371,6 +373,9 @@ export const savedInsightsLogic = kea<savedInsightsLogicType>([
             if (duplicateDashboard.duplicateTiles) {
                 actions.loadInsights()
             }
+        },
+        bulkUpdateTagsSuccess: () => {
+            actions.loadInsights()
         },
     })),
     tabAwareActionToUrl(({ values }) => {

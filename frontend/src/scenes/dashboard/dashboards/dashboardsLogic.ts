@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 
 import { Sorting } from 'lib/lemon-ui/LemonTable/sorting'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { listSelectionLogic } from 'lib/logic/listSelectionLogic'
 import { tabAwareActionToUrl } from 'lib/logic/scenes/tabAwareActionToUrl'
 import { tabAwareScene } from 'lib/logic/scenes/tabAwareScene'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
@@ -50,6 +51,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
     tabAwareScene(),
     connect(() => ({
         values: [userLogic, ['user'], featureFlagLogic, ['featureFlags'], tagsModel, ['tags']],
+        actions: [listSelectionLogic({ resource: 'dashboards' }), ['bulkUpdateTagsSuccess']],
     })),
     actions({
         setCurrentTab: (tab: DashboardsTab) => ({ tab }),
@@ -225,6 +227,9 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                     refreshTreeItem('dashboard', String(dashboard.id))
                 }
             })
+        },
+        bulkUpdateTagsSuccess: () => {
+            dashboardsModel.actions.loadDashboards()
         },
     })),
 ])

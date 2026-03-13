@@ -1,8 +1,11 @@
 import { useActions, useValues } from 'kea'
 
 import { IconHome, IconLock, IconPin, IconPinFilled, IconShare } from '@posthog/icons'
+import { LemonCheckbox } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { BulkActionToolbar } from 'lib/components/BulkActions/BulkActionToolbar'
+import { SelectionCheckbox } from 'lib/components/BulkActions/SelectionCheckbox'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -14,6 +17,7 @@ import { atColumn, createdAtColumn, createdByColumn } from 'lib/lemon-ui/LemonTa
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { getSelectionState, listSelectionLogic } from 'lib/logic/listSelectionLogic'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -78,7 +82,51 @@ export function DashboardsTable({
     const { openMoveToModal } = useActions(moveToLogic)
     const { itemsByRef } = useValues(projectTreeDataLogic)
 
+    const dashboardSelection = listSelectionLogic({ resource: 'dashboards' })
+    const { selectedIds } = useValues(dashboardSelection)
+    const { selectAllOnPage } = useActions(dashboardSelection)
+
+    const allPageItems = (dashboards as DashboardType[]).map((d) => ({
+        id: d.id,
+        isEditable: accessLevelSatisfied(
+            AccessControlResourceType.Dashboard,
+            d.user_access_level,
+            AccessControlLevel.Editor
+        ),
+    }))
+    const editableIds = allPageItems.filter((item) => item.isEditable).map((item) => item.id)
+
+    const { isAllSelected, isSomeSelected } = getSelectionState(selectedIds, editableIds)
+
     const columns: LemonTableColumns<DashboardType> = [
+        {
+            key: 'selection',
+            width: 32,
+            title: (
+                <LemonCheckbox
+                    checked={isSomeSelected ? 'indeterminate' : isAllSelected}
+                    onChange={() => selectAllOnPage(allPageItems)}
+                    aria-label="Select all dashboards on this page"
+                />
+            ),
+            render: function Render(_: unknown, dashboard: DashboardType, index: number) {
+                const canEdit = accessLevelSatisfied(
+                    AccessControlResourceType.Dashboard,
+                    dashboard.user_access_level,
+                    AccessControlLevel.Editor
+                )
+                return (
+                    <SelectionCheckbox
+                        resource="dashboards"
+                        id={dashboard.id}
+                        index={index}
+                        allPageItems={allPageItems}
+                        disabledReason={!canEdit ? DASHBOARD_CANNOT_EDIT_MESSAGE : undefined}
+                        ariaLabel={`Select dashboard ${dashboard.name}`}
+                    />
+                )
+            },
+        },
         {
             width: 0,
             dataIndex: 'pinned',
@@ -270,6 +318,11 @@ export function DashboardsTable({
     return (
         <>
             <DashboardsFiltersBar extraActions={extraActions} />
+            <LemonDivider className="my-0" />
+            <div className="flex items-center min-h-12">
+                <div className="flex-1" />
+                <BulkActionToolbar resource="dashboards" />
+            </div>
             <LemonTable
                 data-attr="dashboards-table"
                 pagination={{ pageSize: 100 }}
