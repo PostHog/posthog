@@ -326,7 +326,6 @@ def get_request_analytics_properties(request) -> dict[str, str | bool | None]:
     host: str | None = None
     pathname: str | None = None
     if current_url:
-    if current_url:
         parsed = urlparse(current_url)
         host = parsed.netloc or None
         pathname = parsed.path or None
