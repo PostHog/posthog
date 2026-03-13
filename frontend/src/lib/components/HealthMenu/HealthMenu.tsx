@@ -12,7 +12,7 @@ import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { urls } from 'scenes/urls'
 
 import { sidePanelHealthLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelHealthLogic'
-import { sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
+import { sdkDoctorLogic } from '~/scenes/onboarding/sdks/sdkDoctorLogic'
 
 import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
 import { keyBinds } from '../AppShortcuts/shortcuts'
@@ -35,7 +35,7 @@ const LegacyHealthMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Ele
         postHogStatusBadgeStatus,
     } = useValues(healthMenuLogic)
     const { setHealthMenuOpen } = useActions(healthMenuLogic)
-    const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sidePanelSdkDoctorLogic)
+    const { needsAttention, needsUpdatingCount, sdkHealth } = useValues(sdkDoctorLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const pipelineStatusEnabled = !!featureFlags[FEATURE_FLAGS.PIPELINE_STATUS_PAGE]
     const { issueCount: pipelineIssueCount } = useValues(sidePanelHealthLogic)
