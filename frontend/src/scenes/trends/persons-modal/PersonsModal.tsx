@@ -254,8 +254,13 @@ export function PersonsModal({
                                     <ActorRow
                                         key={actor.id}
                                         actor={actor}
+                                        // created_at is null for actors without a PostgreSQL Person record
+                                        // (personless mode, merged, or deleted persons) — skip the
+                                        // timeline which would 404, and show static properties instead.
                                         propertiesTimelineFilter={
-                                            actor.type == 'person' && currentTeam?.person_on_events_querying_enabled
+                                            actor.type == 'person' &&
+                                            actor.created_at &&
+                                            currentTeam?.person_on_events_querying_enabled
                                                 ? propertiesTimelineFilterFromUrl
                                                 : undefined
                                         }
@@ -480,18 +485,14 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                             {
                                 key: 'properties',
                                 label: 'Properties',
-                                // created_at is null for actors without a PostgreSQL Person record
-                                // (personless mode, merged, or deleted persons) — skip the timeline
-                                // request which would 404, and show static properties instead.
-                                content:
-                                    propertiesTimelineFilter && actor.created_at ? (
-                                        <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
-                                    ) : (
-                                        <PropertiesTable
-                                            type={actor.type as PropertyDefinitionType}
-                                            properties={actor.properties}
-                                        />
-                                    ),
+                                content: propertiesTimelineFilter ? (
+                                    <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
+                                ) : (
+                                    <PropertiesTable
+                                        type={actor.type as PropertyDefinitionType}
+                                        properties={actor.properties}
+                                    />
+                                ),
                             },
                             ...(isSession && actor.person
                                 ? [
