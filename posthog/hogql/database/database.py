@@ -235,16 +235,20 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 
 
 def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
+    def clone_root_tables() -> dict[str, TableNode]:
+        return {name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()}
+
     children: dict[str, TableNode] = {
         "numbers": TableNode(name="numbers", table=NumbersTable()),
     }
 
     if include_posthog_tables:
+        root_tables = clone_root_tables()
         children = {
-            **ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
+            **root_tables,
             "posthog": TableNode(
                 children={
-                    **ROOT_TABLES__DO_NOT_ADD_ANY_MORE
+                    **clone_root_tables()
                     # Add new tables here
                 }
             ),
