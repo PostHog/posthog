@@ -24,6 +24,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconFullScreen } from 'lib/lemon-ui/icons'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { getFormattedNodes } from 'scenes/data-warehouse/scene/modeling/autolayout'
+import { syncIntervalToShorthand } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
 import { DataModelingJobStatus, DataModelingNodeType, DataWarehouseSyncInterval } from '~/types'
@@ -136,29 +137,6 @@ function LineageNodeCompact({ data }: { data: LineageNodeData }): JSX.Element {
 }
 
 // --- Fullscreen node (self-contained with metadata) ---
-
-function syncIntervalToShorthand(syncInterval: DataWarehouseSyncInterval | undefined): string {
-    switch (syncInterval) {
-        case '5min':
-            return '5m'
-        case '30min':
-            return '30m'
-        case '1hour':
-            return '1h'
-        case '6hour':
-            return '6h'
-        case '12hour':
-            return '12h'
-        case '24hour':
-            return '1d'
-        case '7day':
-            return '1w'
-        case '30day':
-            return '30d'
-        default:
-            return 'Never'
-    }
-}
 
 function FullscreenLineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const tagSettings = NODE_TYPE_TAG_SETTINGS[data.nodeType]
