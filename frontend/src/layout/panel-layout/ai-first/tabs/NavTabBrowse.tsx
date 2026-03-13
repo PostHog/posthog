@@ -87,19 +87,14 @@ export function NavTabBrowse(): JSX.Element {
             styledScrollbars
         >
             <Collapsible
-                open={expandedNavSections.project ?? true}
+                open={expandedNavSections.project || isLayoutNavCollapsed ? true : false}
                 onOpenChange={() => toggleNavSection('project')}
                 className="mt-1"
             >
-                <Collapsible.Trigger
-                    icon={!isLayoutNavCollapsed ? <IconFolder /> : undefined}
-                    className={cn(isLayoutNavCollapsed && 'px-px')}
-                    labelClassName={cn(isLayoutNavCollapsed && 'text-[7px] m-0 w-full text-center')}
-                    hideChevron={isLayoutNavCollapsed}
-                >
-                    Project
-                </Collapsible.Trigger>
-                <Collapsible.Panel className={cn('pl-2', isLayoutNavCollapsed && 'items-center')}>
+                {!isLayoutNavCollapsed && (
+                    <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
+                )}
+                <Collapsible.Panel className={cn('pl-2', isLayoutNavCollapsed && 'items-center pl-0')}>
                     <NavLink
                         to={urls.projectRoot()}
                         label="Home"
@@ -169,31 +164,29 @@ export function NavTabBrowse(): JSX.Element {
                 </Collapsible.Panel>
             </Collapsible>
 
-            <Collapsible
-                open={expandedNavSections.apps ?? false}
-                onOpenChange={() => toggleNavSection('apps')}
-                className="px-1 mt-2 group/colorful-product-icons colorful-product-icons-true"
-            >
-                <SectionTrigger
-                    icon={<IconApps />}
-                    label={isLayoutNavCollapsed ? 'Apps' : 'All apps'}
-                    isCollapsed={isLayoutNavCollapsed}
-                />
-                <Collapsible.Panel
-                    className={cn(
-                        '-ml-2 pl-2 w-[calc(100%+(var(--spacing)*4))]',
-                        isLayoutNavCollapsed ? 'items-center' : ''
-                    )}
+            {!isLayoutNavCollapsed && (
+                <Collapsible
+                    open={expandedNavSections.apps ?? false}
+                    onOpenChange={() => toggleNavSection('apps')}
+                    className="mt-2 group/colorful-product-icons colorful-product-icons-true"
                 >
-                    {(expandedNavSections.apps ?? false) && (
-                        <ProjectTree
-                            root="products://"
-                            onlyTree
-                            treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
-                        />
-                    )}
-                </Collapsible.Panel>
-            </Collapsible>
+                    <SectionTrigger icon={<IconApps />} label="Apps" isCollapsed={isLayoutNavCollapsed} />
+                    <Collapsible.Panel
+                        className={cn(
+                            '-ml-2 pl-3 w-[calc(100%+(var(--spacing)*4))]',
+                            isLayoutNavCollapsed ? 'items-center' : ''
+                        )}
+                    >
+                        {(expandedNavSections.apps ?? false) && (
+                            <ProjectTree
+                                root="products://"
+                                onlyTree
+                                treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
+                            />
+                        )}
+                    </Collapsible.Panel>
+                </Collapsible>
+            )}
         </ScrollableShadows>
     )
 }
