@@ -1,27 +1,22 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
 
-import { IconChevronRight, IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSkeleton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { IconRefresh } from '@posthog/icons'
+import { LemonButton, LemonSegmentedButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
-import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
-import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
 import { MessageSentimentBar, SENTIMENT_BAR_COLOR } from '../components/SentimentTag'
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
-import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
-import { llmPersonsLazyLoaderLogic } from '../llmPersonsLazyLoaderLogic'
-import type { GenerationSentiment, MessageSentiment } from '../llmSentimentLazyLoaderLogic'
-import { capitalize, formatScore } from '../sentimentUtils'
+import { formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
-import { CompatMessage } from '../types'
-import { normalizeMessages, parseJSONPreview, truncateValue } from '../utils'
-import { llmAnalyticsSentimentLogic, SentimentFilterLabel, SentimentGeneration } from './llmAnalyticsSentimentLogic'
+import type { CompatMessage } from '../types'
+import { normalizeMessages } from '../utils'
+import type { SentimentCard } from './llmAnalyticsSentimentLogic'
+import { llmAnalyticsSentimentLogic, SentimentFilterLabel } from './llmAnalyticsSentimentLogic'
 
 /**
  * Truncates text to show the tail (last `displayChars` characters), mirroring the backend
@@ -34,13 +29,21 @@ function truncateToClassifierWindow(text: string, displayChars: number = 200): s
     return '…' + text.slice(-displayChars)
 }
 
-function extractUserMessages(aiInput: unknown): CompatMessage[] {
+/**
+ * Retrieves the message at the given index from the raw $ai_input array.
+ * The index corresponds to the position in the original messages array
+ * (as used by the backend sentiment classifier).
+ */
+function getMessageAtIndex(aiInput: unknown, index: number): CompatMessage | null {
     try {
-        const parsed = parseJSONPreview(aiInput)
-        const normalized = normalizeMessages(parsed, 'user')
-        return normalized.filter((msg) => msg.role === 'user' && !msg.tool_call_id)
+        const parsed = typeof aiInput === 'string' ? JSON.parse(aiInput) : aiInput
+        if (!Array.isArray(parsed) || index < 0 || index >= parsed.length) {
+            return null
+        }
+        const normalized = normalizeMessages([parsed[index]], 'user')
+        return normalized[0] ?? null
     } catch {
-        return []
+        return null
     }
 }
 
@@ -96,182 +99,79 @@ function getTextContent(message: CompatMessage): string {
     return ''
 }
 
-function shouldShowCard(
-    sentimentData: GenerationSentiment | null | undefined,
-    sentimentFilter: SentimentFilterLabel,
-    intensityThreshold: number
-): boolean {
-    if (sentimentData === undefined || sentimentData === null) {
-        return true
+function ContextMessage({ aiInput, index }: { aiInput: unknown; index: number }): JSX.Element | null {
+    const message = getMessageAtIndex(aiInput, index)
+    if (!message) {
+        return null
     }
-    const label = sentimentData.label as SentimentLabel
-    const score = sentimentData.score
-    if (sentimentFilter !== 'both') {
-        if (label !== sentimentFilter) {
-            return false
-        }
-    } else {
-        if (label === 'neutral') {
-            return false
-        }
-    }
-    if (score < intensityThreshold) {
-        return false
-    }
-    return true
-}
-
-/** Color for the left accent bar — uses the last message's sentiment if available, else the overall */
-function accentColorForMessage(
-    msgSentiment: MessageSentiment | undefined,
-    genSentiment: GenerationSentiment | null | undefined
-): string {
-    const label = msgSentiment?.label ?? genSentiment?.label
-    if (!label) {
-        return 'bg-border'
-    }
-    return SENTIMENT_BAR_COLOR[label as SentimentLabel] ?? 'bg-border'
-}
-
-interface MessageRowProps {
-    text: string
-    sentiment: MessageSentiment | undefined
-    loading: boolean
-}
-
-function MessageRow({ text, sentiment, loading }: MessageRowProps): JSX.Element {
-    const truncated = truncateToClassifierWindow(text)
-
+    const role = message.role === 'user' ? 'User' : message.role === 'assistant' ? 'Assistant' : message.role
+    const fullText = getTextContent(message)
+    const displayText = truncateToClassifierWindow(fullText, 150)
     return (
-        <div className="flex items-start gap-2">
-            <p className="flex-1 min-w-0 text-sm text-default m-0 break-words leading-relaxed">{truncated}</p>
-            <div className="shrink-0 flex items-center gap-1 pt-0.5">
-                {sentiment ? (
-                    <>
-                        <MessageSentimentBar sentiment={sentiment} />
-                        <span className="text-xs text-muted whitespace-nowrap tabular-nums">
-                            {formatScore(sentiment.score)}
-                        </span>
-                    </>
-                ) : loading ? (
-                    <LemonSkeleton className="h-1.5 w-10" />
-                ) : null}
-            </div>
+        <div className="flex gap-2 text-xs text-muted py-1.5">
+            <span className="shrink-0 font-medium w-16">{role}</span>
+            <Tooltip title={fullText}>
+                <span className="break-words min-w-0">{displayText || '(empty)'}</span>
+            </Tooltip>
         </div>
     )
 }
 
-function SentimentGenerationCard({ generation }: { generation: SentimentGeneration }): JSX.Element {
-    const { uuid, traceId, aiInput, model, distinctId, timestamp } = generation
-    const { sentimentByGenerationId, isGenerationLoading } = useValues(llmGenerationSentimentLazyLoaderLogic)
-    const { ensureGenerationSentimentLoaded } = useActions(llmGenerationSentimentLazyLoaderLogic)
-    const { dateFilter } = useValues(llmAnalyticsSharedLogic)
-    const { personsCache } = useValues(llmPersonsLazyLoaderLogic)
-    const { ensurePersonLoaded } = useActions(llmPersonsLazyLoaderLogic)
+function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: boolean }): JSX.Element {
+    const { generation, messageIndex, sentiment } = card
+    const { uuid, traceId, aiInput, timestamp } = generation
+    const { toggleCardExpanded } = useActions(llmAnalyticsSentimentLogic)
 
-    const sentimentData = sentimentByGenerationId[uuid] as GenerationSentiment | null | undefined
-    const loading = isGenerationLoading(uuid)
-
-    useEffect(() => {
-        if (sentimentData === undefined && !loading) {
-            ensureGenerationSentimentLoaded(uuid, dateFilter)
-        }
-    }, [uuid, sentimentData, loading, dateFilter, ensureGenerationSentimentLoaded])
-
-    useEffect(() => {
-        if (distinctId && personsCache[distinctId] === undefined) {
-            ensurePersonLoaded(distinctId)
-        }
-    }, [distinctId, personsCache, ensurePersonLoaded])
-
-    const userMessages = extractUserMessages(aiInput)
-    const personData = personsCache[distinctId]
-    const [expanded, setExpanded] = useState(false)
-
-    // Prepare messages with their text content (filter out empty ones)
-    const messagesWithText = userMessages
-        .map((msg, idx) => ({
-            text: getTextContent(msg),
-            sentiment: sentimentData?.messages?.[idx] as MessageSentiment | undefined,
-            idx,
-        }))
-        .filter((m) => m.text.length > 0)
-
-    const lastMessage = messagesWithText[messagesWithText.length - 1]
-    const earlierMessages = messagesWithText.slice(0, -1)
-    const hasEarlierMessages = earlierMessages.length > 0
+    const targetMessage = getMessageAtIndex(aiInput, messageIndex)
+    const fullText = targetMessage ? getTextContent(targetMessage) : ''
+    const messageText = truncateToClassifierWindow(fullText)
+    const accentColor = SENTIMENT_BAR_COLOR[sentiment.label as SentimentLabel] ?? 'bg-border'
 
     return (
-        <div className="flex border rounded-lg overflow-hidden" data-attr="llma-sentiment-card">
-            {/* Accent bar colored by the last message's sentiment */}
-            <div className={`w-1 shrink-0 ${accentColorForMessage(lastMessage?.sentiment, sentimentData)}`} />
+        <div
+            className="flex border rounded-lg overflow-hidden cursor-pointer hover:border-primary/30 transition-colors"
+            data-attr="llma-sentiment-card"
+            onClick={() => toggleCardExpanded(generation.uuid)}
+        >
+            <div className={`w-1 shrink-0 ${accentColor}`} />
 
             <div className="flex-1 min-w-0 p-3">
-                {/* Earlier messages (collapsed by default) */}
-                {hasEarlierMessages && (
-                    <div className="mb-1">
-                        <button
-                            onClick={() => setExpanded(!expanded)}
-                            className="flex items-center gap-1 text-xs text-muted hover:text-default cursor-pointer bg-transparent border-0 p-0 mb-1"
-                        >
-                            <IconChevronRight
-                                className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`}
-                            />
-                            {earlierMessages.length} earlier message{earlierMessages.length > 1 ? 's' : ''}
-                        </button>
-                        {expanded && (
-                            <div className="space-y-1.5 mb-2 pl-4 border-l border-border">
-                                {earlierMessages.map((m) => (
-                                    <MessageRow key={m.idx} text={m.text} sentiment={m.sentiment} loading={loading} />
-                                ))}
-                            </div>
-                        )}
+                {expanded && messageIndex > 0 && (
+                    <div className="border-b mb-2 pb-2">
+                        <ContextMessage aiInput={aiInput} index={messageIndex - 1} />
                     </div>
                 )}
 
-                {/* Last (most recent) user message — always visible */}
-                {lastMessage ? (
-                    <MessageRow text={lastMessage.text} sentiment={lastMessage.sentiment} loading={loading} />
-                ) : (
-                    <p className="text-muted text-sm italic m-0">No user messages</p>
-                )}
-
-                {/* Footer: sentiment label + metadata + link */}
-                <div className="flex items-center gap-3 mt-2 pt-2 border-t text-xs text-muted flex-wrap">
-                    {loading || sentimentData === undefined ? (
-                        <LemonSkeleton className="h-4 w-20" />
-                    ) : sentimentData ? (
-                        <span className="font-medium">
-                            {capitalize(sentimentData.label)} {formatScore(sentimentData.score)}
+                <div className="flex items-center gap-2">
+                    <Tooltip title={fullText}>
+                        <p className="flex-1 min-w-0 text-sm text-default m-0 break-words leading-relaxed">
+                            {messageText}
+                        </p>
+                    </Tooltip>
+                    <div className="shrink-0 flex items-center gap-1">
+                        <MessageSentimentBar sentiment={sentiment} />
+                        <span className="text-xs text-muted whitespace-nowrap tabular-nums">
+                            {formatScore(sentiment.score)}
                         </span>
-                    ) : null}
-
-                    {model && <span>{model}</span>}
-
-                    <TZLabel time={timestamp} />
-
-                    {personData ? (
-                        <PersonDisplay
-                            person={{ distinct_id: personData.distinct_id, properties: personData.properties }}
-                            withIcon
-                            noPopover={false}
-                        />
-                    ) : (
-                        distinctId && <span>{truncateValue(distinctId)}</span>
-                    )}
-
-                    <span className="flex-1" />
-
-                    <Tooltip title={traceId}>
                         <Link
-                            to={urls.llmAnalyticsTrace(traceId, { event: uuid })}
-                            className="text-xs"
+                            to={urls.llmAnalyticsTrace(traceId, { event: uuid, timestamp })}
+                            className="text-xs ml-1"
                             data-attr="llma-sentiment-trace-link"
+                            onClick={(e) => e.stopPropagation()}
                         >
                             View trace
                         </Link>
-                    </Tooltip>
+                    </div>
                 </div>
+
+                {expanded && (
+                    <div className="border-t mt-2 pt-2">
+                        <ContextMessage aiInput={aiInput} index={messageIndex + 1} />
+                        {!getMessageAtIndex(aiInput, messageIndex + 1) && (
+                            <span className="text-xs text-muted italic">No following message</span>
+                        )}
+                    </div>
+                )}
             </div>
         </div>
     )
@@ -315,7 +215,9 @@ function SentimentControls(): JSX.Element {
     return (
         <div className="flex items-center gap-4 flex-wrap mb-3" data-attr="llma-sentiment-controls">
             <div className="flex items-center gap-2">
-                <span className="text-sm font-medium">Show:</span>
+                <Tooltip title="Filter by sentiment polarity. Each user message is classified as positive, negative, or neutral.">
+                    <span className="text-sm font-medium">Show:</span>
+                </Tooltip>
                 <LemonSegmentedButton
                     size="small"
                     value={sentimentFilter}
@@ -329,7 +231,9 @@ function SentimentControls(): JSX.Element {
                 />
             </div>
             <div className="flex items-center gap-2">
-                <span className="text-sm font-medium whitespace-nowrap">Min intensity:</span>
+                <Tooltip title="Only show messages with a sentiment confidence score at or above this threshold. Higher values surface stronger signals.">
+                    <span className="text-sm font-medium whitespace-nowrap">Min intensity:</span>
+                </Tooltip>
                 <LemonSlider
                     min={0}
                     max={1}
@@ -345,14 +249,9 @@ function SentimentControls(): JSX.Element {
 }
 
 export function LLMAnalyticsSentiment(): JSX.Element {
-    const { generations, generationsLoading, sentimentFilter, intensityThreshold } =
+    const { generations, generationsLoading, sentimentCards, stillAnalyzing, expandedCardIds, hasMore } =
         useValues(llmAnalyticsSentimentLogic)
-    const { sentimentByGenerationId } = useValues(llmGenerationSentimentLazyLoaderLogic)
-
-    const visibleGenerations = generations.filter((gen: SentimentGeneration) => {
-        const sentimentData = sentimentByGenerationId[gen.uuid]
-        return shouldShowCard(sentimentData, sentimentFilter, intensityThreshold)
-    })
+    const { loadMoreGenerations } = useActions(llmAnalyticsSentimentLogic)
 
     return (
         <div data-attr="llma-sentiment-tab">
@@ -370,23 +269,43 @@ export function LLMAnalyticsSentiment(): JSX.Element {
                 </div>
             ) : (
                 <>
-                    {visibleGenerations.length === 0 ? (
+                    {sentimentCards.length > 0 && (
+                        <div className="space-y-2">
+                            {sentimentCards.map((card: SentimentCard) => (
+                                <SentimentCardRow
+                                    key={card.generation.uuid}
+                                    card={card}
+                                    expanded={expandedCardIds.has(card.generation.uuid)}
+                                />
+                            ))}
+                        </div>
+                    )}
+
+                    {(generationsLoading || stillAnalyzing) && (
+                        <div className="flex items-center justify-center py-8 gap-2 text-muted">
+                            <Spinner className="text-lg" />
+                            <span className="text-sm">Analyzing sentiment…</span>
+                        </div>
+                    )}
+
+                    {!generationsLoading && !stillAnalyzing && sentimentCards.length === 0 && (
                         <div className="text-center py-10 text-muted">
                             <p className="text-sm">
                                 No generations match the current sentiment filter. Try adjusting the controls above.
                             </p>
                         </div>
-                    ) : (
-                        <div className="space-y-2">
-                            {visibleGenerations.map((gen: SentimentGeneration) => (
-                                <SentimentGenerationCard key={gen.uuid} generation={gen} />
-                            ))}
-                        </div>
                     )}
 
-                    {generationsLoading && (
-                        <div className="flex items-center justify-center py-4">
-                            <Spinner className="text-lg" />
+                    {!generationsLoading && !stillAnalyzing && hasMore && (
+                        <div className="flex justify-center py-4">
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={loadMoreGenerations}
+                                data-attr="llma-sentiment-load-more"
+                            >
+                                Load more
+                            </LemonButton>
                         </div>
                     )}
                 </>

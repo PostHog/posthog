@@ -11,15 +11,25 @@
 -- - Selecting properties.$ai_input is fine (only reads for matched rows, not in WHERE).
 */
 SELECT
-    uuid,
-    properties.$ai_trace_id as trace_id,
-    properties.$ai_input as ai_input,
-    properties.$ai_model as model,
-    distinct_id,
-    timestamp
-FROM events
-WHERE event = '$ai_generation'
-    AND properties.$ai_input != ''
-    AND {filters}
+    argMax(uuid, ts) as uuid,
+    trace_id,
+    argMax(ai_input, ts) as ai_input,
+    argMax(model, ts) as model,
+    argMax(did, ts) as distinct_id,
+    max(ts) as timestamp
+FROM (
+    SELECT
+        uuid,
+        properties.$ai_trace_id as trace_id,
+        properties.$ai_input as ai_input,
+        properties.$ai_model as model,
+        distinct_id as did,
+        timestamp as ts
+    FROM events
+    WHERE event = '$ai_generation'
+        AND properties.$ai_input != ''
+        AND {filters}
+)
+GROUP BY trace_id
 ORDER BY timestamp DESC
 LIMIT 200
