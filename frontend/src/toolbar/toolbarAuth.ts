@@ -1,3 +1,4 @@
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 
 import { toolbarConfigLogic } from './toolbarConfigLogic'
@@ -64,6 +65,7 @@ export async function withTokenRefresh(
         toolbarConfigLogic.actions.setOAuthTokens(tokens.access_token, tokens.refresh_token, clientId)
         return await retryRequest(tokens.access_token)
     } catch (e) {
+        toolbarLogger.error('auth', 'Token refresh retry failed', { status: response.status })
         captureToolbarException(e, 'token_refresh_retry')
         toolbarConfigLogic.actions.tokenExpired()
         return response

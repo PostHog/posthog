@@ -70,6 +70,8 @@ function sendLog(level: LogLevel, context: string, message: string, properties?:
     const severity = SEVERITY_MAP[level]
     const timeNano = hrTimeNano()
 
+    const distinctId = toolbarPosthogJS.get_distinct_id?.()
+
     const attributes = toAttributes({
         'toolbar.context': context,
         'service.name': 'posthog-toolbar',
@@ -83,6 +85,7 @@ function sendLog(level: LogLevel, context: string, message: string, properties?:
                     attributes: toAttributes({
                         'service.name': 'posthog-toolbar',
                         host: window.location.host,
+                        ...(distinctId ? { 'posthog.distinct_id': distinctId } : {}),
                     }),
                 },
                 scopeLogs: [

@@ -11,7 +11,8 @@ import { percentageDistribution } from '~/scenes/experiments/utils'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { WebExperiment, WebExperimentDraftType, WebExperimentForm } from '~/toolbar/types'
 import { elementToQuery, joinWithUiHost } from '~/toolbar/utils'
 import { Experiment, ExperimentIdType } from '~/types'
@@ -217,6 +218,10 @@ export const experimentsTabLogic = kea<experimentsTabLogicType>([
                     })
                     breakpoint()
                 } catch (e) {
+                    toolbarLogger.error('experiments', 'Failed to save experiment', {
+                        experimentId: selectedExperimentId,
+                    })
+                    captureToolbarException(e, 'experiment_save')
                     if (e instanceof Error) {
                         lemonToast.error(`Experiment save failed: ${e.message}`)
                     }
