@@ -423,7 +423,6 @@ export const WithHiddenHorizontalScrollbar = (): JSX.Element => {
         </div>
     )
 }
-WithHiddenHorizontalScrollbar.tags = ['test-skip']
 
 export const WithVisibleHorizontalScrollbar = (): JSX.Element => {
     return (
@@ -432,7 +431,6 @@ export const WithVisibleHorizontalScrollbar = (): JSX.Element => {
         </div>
     )
 }
-WithVisibleHorizontalScrollbar.tags = ['test-skip']
 
 export const WithRowActions = (): JSX.Element => {
     return (
