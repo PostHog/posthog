@@ -1,6 +1,11 @@
 /**
- * Reimplementation of d3-sankey (https://github.com/d3/d3-sankey/tree/master/src)
- * Replaces the outdated d3-sankey npm package.
+ * Reimplementation of d3-sankey (https://github.com/d3/d3-sankey)
+ * Original copyright  2015 Mike Bostock.
+ *
+ * The original code is over 7 years old and depends on an outdated
+ * version of d3, so we shipped two versions of d3 to the client.
+ * This reimplementation is more modern and only depends on newer
+ * versions of the d3 modules we actually use.
  */
 
 import { Link, linkHorizontal } from 'd3'
@@ -8,87 +13,123 @@ import { max, min, sum } from 'd3'
 
 // ---- Public types ----
 
-export type SankeyLink<N, L> = L & {
-    source: N
-    target: N
+export interface SankeyExtraProperties {
+    [key: string]: any
+}
+
+export type SankeyNode<N extends SankeyExtraProperties, L extends SankeyExtraProperties> = N & {
+    sourceLinks: Array<SankeyLink<N, L>>
+    targetLinks: Array<SankeyLink<N, L>>
     value: number
-    y0: number
-    y1: number
-    width: number
-    index: number
-}
-
-export interface SankeyLayout<Data, N, L> {
-    (data: Data): { nodes: N[]; links: SankeyLink<N, L>[] }
-    nodeId(fn: (node: N) => string | number): this
-    nodeAlign(fn: (node: N, n: number) => number): this
-    nodeSort(compare: ((a: N, b: N) => number) | null | undefined): this
-    nodeWidth(width: number): this
-    nodePadding(padding: number): this
-    size(size: [number, number]): this
-    extent(extent: [[number, number], [number, number]]): this
-}
-
-// ---- Internal computation types ----
-// These represent the fully-resolved state used during layout computation.
-
-interface InternalNode {
+    fixedValue: number
     index: number
     depth: number
     height: number
     layer: number
-    value: number
     x0: number
     x1: number
     y0: number
     y1: number
-    sourceLinks: InternalLink[]
-    targetLinks: InternalLink[]
 }
 
-interface InternalLink {
-    index: number
-    source: InternalNode
-    target: InternalNode
+export type SankeyLink<N extends SankeyExtraProperties, L extends SankeyExtraProperties> = L & {
+    source: SankeyNode<N, L>
+    target: SankeyNode<N, L>
     value: number
-    width: number
     y0: number
     y1: number
+    width: number
+    index: number
 }
 
-// Links before computeNodeLinks resolves source/target from IDs to node objects
-type InputLink = Omit<InternalLink, 'source' | 'target' | 'width' | 'y0' | 'y1'> & {
-    source: string | number | InternalNode
-    target: string | number | InternalNode
-    width?: number
-    y0?: number
-    y1?: number
+export interface SankeyGraph<N extends SankeyExtraProperties, L extends SankeyExtraProperties> {
+    nodes: Array<SankeyNode<N, L>>
+    links: Array<SankeyLink<N, L>>
+}
+
+export type SankeyInputGraph = { nodes: any[]; links: any[] }
+
+export interface SankeyLayout<N extends SankeyExtraProperties, L extends SankeyExtraProperties> {
+    (graph: SankeyInputGraph): SankeyGraph<N, L>
+
+    update(graph: SankeyGraph<N, L>): SankeyGraph<N, L>
+
+    nodes(): (graph: SankeyInputGraph) => Array<SankeyNode<N, L>>
+    nodes(nodes: Array<SankeyNode<N, L>>): this
+    nodes(nodes: (graph: SankeyInputGraph) => Array<SankeyNode<N, L>>): this
+
+    links(): (graph: SankeyInputGraph) => Array<SankeyLink<N, L>>
+    links(links: Array<SankeyLink<N, L>>): this
+    links(links: (graph: SankeyInputGraph) => Array<SankeyLink<N, L>>): this
+
+    nodeId(): (node: SankeyNode<N, L>) => string | number
+    nodeId(nodeId: (node: SankeyNode<N, L>) => string | number): this
+
+    nodeAlign(): (node: SankeyNode<N, L>, n: number) => number
+    nodeAlign(nodeAlign: (node: SankeyNode<N, L>, n: number) => number): this
+
+    nodeWidth(): number
+    nodeWidth(width: number): this
+
+    nodePadding(): number
+    nodePadding(padding: number): this
+
+    extent(): [[number, number], [number, number]]
+    extent(extent: [[number, number], [number, number]]): this
+
+    size(): [number, number]
+    size(size: [number, number]): this
+
+    nodeSort(): ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | undefined | null
+    nodeSort(compare: ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | undefined | null): this
 }
 
 // ---- Alignment functions ----
 
-export function sankeyLeft(node: { depth: number }): number {
+export function targetDepth(d: SankeyLink<{}, {}>): number {
+    return d.target.depth
+}
+
+export function sankeyRight(node: SankeyNode<{}, {}>, n: number): number {
+    return n - 1 - node.depth
+}
+
+export function sankeyLeft(node: SankeyNode<{}, {}>): number {
     return node.depth
 }
 
-export function sankeyJustify(node: { depth: number; sourceLinks: unknown[] }, n: number): number {
-    return node.sourceLinks.length ? node.depth : n - 1
+export function sankeyJustify(node: SankeyNode<{}, {}>, n: number): number {
+    return node.sourceLinks?.length ? node.depth : n - 1
+}
+
+export function sankeyCenter(node: SankeyNode<{}, {}>): number {
+    return node.targetLinks?.length
+        ? node.depth
+        : node.sourceLinks?.length
+          ? min(node.sourceLinks, targetDepth)! - 1
+          : 0
 }
 
 // ---- Link path generator ----
 
-function horizontalSource(d: InternalLink): [number, number] {
+function horizontalSource<N extends SankeyExtraProperties, L extends SankeyExtraProperties>(
+    d: SankeyLink<N, L>
+): [number, number] {
     return [d.source.x1, d.y0]
 }
 
-function horizontalTarget(d: InternalLink): [number, number] {
+function horizontalTarget<N extends SankeyExtraProperties, L extends SankeyExtraProperties>(
+    d: SankeyLink<N, L>
+): [number, number] {
     return [d.target.x0, d.y1]
 }
 
-export function sankeyLinkHorizontal<N = unknown, L = unknown>(): Link<any, SankeyLink<N, L>, [number, number]> {
-    return linkHorizontal<InternalLink, [number, number]>()
-        .source(horizontalSource)
-        .target(horizontalTarget) as unknown as Link<any, SankeyLink<N, L>, [number, number]>
+export function sankeyLinkHorizontal<N extends SankeyExtraProperties, L extends SankeyExtraProperties>(): Link<
+    any,
+    SankeyLink<N, L>,
+    [number, number]
+> {
+    return linkHorizontal<SankeyLink<N, L>, [number, number]>().source(horizontalSource).target(horizontalTarget)
 }
 
 // ---- Helpers ----
@@ -97,11 +138,17 @@ function ascendingBreadth(a: { y0: number }, b: { y0: number }): number {
     return a.y0 - b.y0
 }
 
-function ascendingSourceBreadth(a: InternalLink, b: InternalLink): number {
+function ascendingSourceBreadth(
+    a: { source: { y0: number }; index: number },
+    b: { source: { y0: number }; index: number }
+): number {
     return ascendingBreadth(a.source, b.source) || a.index - b.index
 }
 
-function ascendingTargetBreadth(a: InternalLink, b: InternalLink): number {
+function ascendingTargetBreadth(
+    a: { target: { y0: number }; index: number },
+    b: { target: { y0: number }; index: number }
+): number {
     return ascendingBreadth(a.target, b.target) || a.index - b.index
 }
 
@@ -109,7 +156,10 @@ function nodeValue(d: { value: number }): number {
     return d.value
 }
 
-function find(nodeById: Map<string | number, InternalNode>, id: string | number): InternalNode {
+function find<N extends SankeyExtraProperties, L extends SankeyExtraProperties>(
+    nodeById: Map<string | number, SankeyNode<N, L>>,
+    id: string | number
+): SankeyNode<N, L> {
     const node = nodeById.get(id)
     if (!node) {
         throw new Error('missing: ' + id)
@@ -117,7 +167,11 @@ function find(nodeById: Map<string | number, InternalNode>, id: string | number)
     return node
 }
 
-function computeLinkBreadths({ nodes }: { nodes: InternalNode[] }): void {
+function computeLinkBreadths<N extends SankeyExtraProperties, L extends SankeyExtraProperties>({
+    nodes,
+}: {
+    nodes: SankeyNode<N, L>[]
+}): void {
     for (const node of nodes) {
         let y0 = node.y0
         let y1 = y0
@@ -134,7 +188,10 @@ function computeLinkBreadths({ nodes }: { nodes: InternalNode[] }): void {
 
 // ---- Main sankey factory ----
 
-export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Data, N, L> {
+export default function sankey<
+    N extends SankeyExtraProperties = any,
+    L extends SankeyExtraProperties = any,
+>(): SankeyLayout<N, L> {
     let x0 = 0,
         y0 = 0,
         x1 = 1,
@@ -142,70 +199,164 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
     let dx = 24
     let dy = 8,
         py = 8
-    let id: (d: InternalNode) => string | number = (d) => d.index
-    let align: (node: InternalNode, n: number) => number = sankeyJustify as unknown as (
-        node: InternalNode,
-        n: number
-    ) => number
-    let sort: ((a: InternalNode, b: InternalNode) => number) | null | undefined
 
-    function sankeyLayout(data: any): any {
-        const graph = { nodes: data.nodes as InternalNode[], links: data.links as InputLink[] }
-        computeNodeLinks(graph)
-        computeNodeValues(graph)
-        computeNodeDepths(graph)
-        computeNodeHeights(graph)
-        computeNodeBreadths(graph)
-        computeLinkBreadths(graph)
+    let id: (d: SankeyNode<N, L>) => string | number = (d) => d.index
+    let align: (node: SankeyNode<N, L>, n: number) => number = sankeyJustify
+    let sort: ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | null | undefined
+    let nodesFn = (graph: SankeyGraph<N, L>): SankeyNode<N, L>[] => graph.nodes
+    let linksFn = (graph: SankeyGraph<N, L>): SankeyLink<N, L>[] => graph.links
+
+    let sankeyLayout: SankeyLayout<N, L>
+
+    function layout(graph: SankeyGraph<N, L>): SankeyGraph<N, L> {
+        const g = { nodes: nodesFn(graph), links: linksFn(graph) }
+        computeNodeLinks(g)
+        computeNodeValues(g)
+        computeNodeDepths(g)
+        computeNodeHeights(g)
+        computeNodeBreadths(g)
+        computeLinkBreadths(g)
+        return g
+    }
+
+    function update(graph: SankeyGraph<N, L>): SankeyGraph<N, L> {
+        computeLinkBreadths({ nodes: graph.nodes })
         return graph
     }
 
-    sankeyLayout.nodeId = function (fn: (node: N) => string | number): any {
-        id = fn as unknown as (d: InternalNode) => string | number
-        return sankeyLayout
+    function nodesAccessor(): (graph: SankeyInputGraph) => SankeyNode<N, L>[]
+    function nodesAccessor(fn: SankeyNode<N, L>[]): SankeyLayout<N, L>
+    function nodesAccessor(fn: (graph: SankeyInputGraph) => SankeyNode<N, L>[]): SankeyLayout<N, L>
+    function nodesAccessor(
+        fn?: ((graph: SankeyInputGraph) => SankeyNode<N, L>[]) | SankeyNode<N, L>[]
+    ): ((graph: SankeyInputGraph) => SankeyNode<N, L>[]) | SankeyLayout<N, L> {
+        if (fn) {
+            nodesFn = typeof fn === 'function' ? fn : () => fn
+            return sankeyLayout
+        }
+        return nodesFn
     }
 
-    sankeyLayout.nodeAlign = function (fn: (node: N, n: number) => number): any {
-        align = fn as unknown as (node: InternalNode, n: number) => number
-        return sankeyLayout
+    function linksAccessor(): (graph: SankeyInputGraph) => SankeyLink<N, L>[]
+    function linksAccessor(fn: SankeyLink<N, L>[]): SankeyLayout<N, L>
+    function linksAccessor(fn: (graph: SankeyInputGraph) => SankeyLink<N, L>[]): SankeyLayout<N, L>
+    function linksAccessor(
+        fn?: ((graph: SankeyInputGraph) => SankeyLink<N, L>[]) | SankeyLink<N, L>[]
+    ): ((graph: SankeyInputGraph) => SankeyLink<N, L>[]) | SankeyLayout<N, L> {
+        if (fn) {
+            linksFn = typeof fn === 'function' ? fn : () => fn
+            return sankeyLayout
+        }
+        return linksFn
     }
 
-    sankeyLayout.nodeSort = function (compare: ((a: N, b: N) => number) | null | undefined): any {
-        sort = compare as unknown as ((a: InternalNode, b: InternalNode) => number) | null | undefined
-        return sankeyLayout
+    function nodeIdAccessor(): (node: SankeyNode<N, L>) => string | number
+    function nodeIdAccessor(fn: (node: SankeyNode<N, L>) => string | number): SankeyLayout<N, L>
+    function nodeIdAccessor(
+        fn?: (node: SankeyNode<N, L>) => string | number
+    ): ((node: SankeyNode<N, L>) => string | number) | SankeyLayout<N, L> {
+        if (fn) {
+            id = fn
+            return sankeyLayout
+        }
+        return id
     }
 
-    sankeyLayout.nodeWidth = function (width: number): any {
-        dx = width
-        return sankeyLayout
+    function nodeAlignAccessor(): (node: SankeyNode<N, L>, n: number) => number
+    function nodeAlignAccessor(fn: (node: SankeyNode<N, L>, n: number) => number): SankeyLayout<N, L>
+    function nodeAlignAccessor(
+        fn?: (node: SankeyNode<N, L>, n: number) => number
+    ): ((node: SankeyNode<N, L>, n: number) => number) | SankeyLayout<N, L> {
+        if (fn) {
+            align = fn
+            return sankeyLayout
+        }
+        return align
     }
 
-    sankeyLayout.nodePadding = function (padding: number): any {
-        dy = py = padding
-        return sankeyLayout
+    function nodeSortAccessor(): ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | undefined | null
+    function nodeSortAccessor(
+        fn: ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | undefined | null
+    ): SankeyLayout<N, L>
+    function nodeSortAccessor(
+        fn?: ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | null | undefined
+    ): ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | undefined | null | SankeyLayout<N, L> {
+        if (arguments.length) {
+            sort = fn
+            return sankeyLayout
+        }
+        return sort
     }
 
-    sankeyLayout.size = function ([width, height]: [number, number]): any {
-        x0 = y0 = 0
-        x1 = width
-        y1 = height
-        return sankeyLayout
+    function nodeWidthAccessor(): number
+    function nodeWidthAccessor(width: number): SankeyLayout<N, L>
+    function nodeWidthAccessor(width?: number): number | SankeyLayout<N, L> {
+        if (width !== undefined) {
+            dx = width
+            return sankeyLayout
+        }
+        return dx
     }
 
-    sankeyLayout.extent = function ([[left, top], [right, bottom]]: [[number, number], [number, number]]): any {
-        x0 = left
-        y0 = top
-        x1 = right
-        y1 = bottom
-        return sankeyLayout
+    function nodePaddingAccessor(): number
+    function nodePaddingAccessor(padding: number): SankeyLayout<N, L>
+    function nodePaddingAccessor(padding?: number): number | SankeyLayout<N, L> {
+        if (padding !== undefined) {
+            dy = py = padding
+            return sankeyLayout
+        }
+        return dy
     }
+
+    function sizeAccessor(): [number, number]
+    function sizeAccessor(size: [number, number]): SankeyLayout<N, L>
+    function sizeAccessor(size?: [number, number]): [number, number] | SankeyLayout<N, L> {
+        if (size) {
+            x0 = y0 = 0
+            x1 = size[0]
+            y1 = size[1]
+            return sankeyLayout
+        }
+        return [x1 - x0, y1 - y0]
+    }
+
+    function extentAccessor(): [[number, number], [number, number]]
+    function extentAccessor(extent: [[number, number], [number, number]]): SankeyLayout<N, L>
+    function extentAccessor(
+        extent?: [[number, number], [number, number]]
+    ): [[number, number], [number, number]] | SankeyLayout<N, L> {
+        if (extent) {
+            x0 = extent[0][0]
+            y0 = extent[0][1]
+            x1 = extent[1][0]
+            y1 = extent[1][1]
+            return sankeyLayout
+        }
+        return [
+            [x0, y0],
+            [x1, y1],
+        ] satisfies [[number, number], [number, number]]
+    }
+
+    sankeyLayout = Object.assign(layout, {
+        update,
+        nodes: nodesAccessor,
+        links: linksAccessor,
+        nodeId: nodeIdAccessor,
+        nodeAlign: nodeAlignAccessor,
+        nodeSort: nodeSortAccessor,
+        nodeWidth: nodeWidthAccessor,
+        nodePadding: nodePaddingAccessor,
+        size: sizeAccessor,
+        extent: extentAccessor,
+    })
 
     function computeNodeLinks({
         nodes: nodeList,
         links: linkList,
     }: {
-        nodes: InternalNode[]
-        links: InputLink[]
+        nodes: SankeyNode<N, L>[]
+        links: SankeyLink<N, L>[]
     }): void {
         for (const [i, node] of nodeList.entries()) {
             node.index = i
@@ -221,21 +372,21 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
             if (typeof link.target !== 'object') {
                 link.target = find(nodeById, link.target)
             }
-            ;(link.source as InternalNode).sourceLinks.push(link as InternalLink)
-            ;(link.target as InternalNode).targetLinks.push(link as InternalLink)
+            link.source.sourceLinks.push(link)
+            link.target.targetLinks.push(link)
         }
     }
 
-    function computeNodeValues({ nodes: nodeList }: { nodes: InternalNode[] }): void {
+    function computeNodeValues({ nodes: nodeList }: { nodes: SankeyNode<N, L>[] }): void {
         for (const node of nodeList) {
             node.value = Math.max(sum(node.sourceLinks, nodeValue), sum(node.targetLinks, nodeValue))
         }
     }
 
-    function computeNodeDepths({ nodes: nodeList }: { nodes: InternalNode[] }): void {
+    function computeNodeDepths({ nodes: nodeList }: { nodes: SankeyNode<N, L>[] }): void {
         const n = nodeList.length
         let current = new Set(nodeList)
-        let next = new Set<InternalNode>()
+        let next = new Set<SankeyNode<N, L>>()
         let x = 0
         while (current.size) {
             for (const node of current) {
@@ -252,10 +403,10 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
         }
     }
 
-    function computeNodeHeights({ nodes: nodeList }: { nodes: InternalNode[] }): void {
+    function computeNodeHeights({ nodes: nodeList }: { nodes: SankeyNode<N, L>[] }): void {
         const n = nodeList.length
         let current = new Set(nodeList)
-        let next = new Set<InternalNode>()
+        let next = new Set<SankeyNode<N, L>>()
         let x = 0
         while (current.size) {
             for (const node of current) {
@@ -272,10 +423,10 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
         }
     }
 
-    function computeNodeLayers({ nodes: nodeList }: { nodes: InternalNode[] }): InternalNode[][] {
+    function computeNodeLayers({ nodes: nodeList }: { nodes: SankeyNode<N, L>[] }): SankeyNode<N, L>[][] {
         const x = max(nodeList, (d) => d.depth)! + 1
         const kx = (x1 - x0 - dx) / (x - 1)
-        const columns: InternalNode[][] = new Array(x)
+        const columns: SankeyNode<N, L>[][] = new Array(x)
         for (const node of nodeList) {
             const i = Math.max(0, Math.min(x - 1, Math.floor(align(node, x))))
             node.layer = i
@@ -295,7 +446,7 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
         return columns
     }
 
-    function initializeNodeBreadths(columns: InternalNode[][]): void {
+    function initializeNodeBreadths(columns: SankeyNode<N, L>[][]): void {
         const ky = min(columns, (c) => (y1 - y0 - (c.length - 1) * py) / sum(c, nodeValue))!
         for (const columnNodes of columns) {
             let y = y0
@@ -317,7 +468,7 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
         }
     }
 
-    function computeNodeBreadths(graph: { nodes: InternalNode[] }): void {
+    function computeNodeBreadths(graph: { nodes: SankeyNode<N, L>[] }): void {
         const columns = computeNodeLayers(graph)
         py = Math.min(dy, (y1 - y0) / (max(columns, (c) => c.length)! - 1))
         initializeNodeBreadths(columns)
@@ -329,7 +480,7 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
         }
     }
 
-    function relaxLeftToRight(columns: InternalNode[][], alpha: number, beta: number): void {
+    function relaxLeftToRight(columns: SankeyNode<N, L>[][], alpha: number, beta: number): void {
         for (let i = 1, n = columns.length; i < n; ++i) {
             const column = columns[i]
             for (const target of column) {
@@ -343,9 +494,9 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
                 if (!(w > 0)) {
                     continue
                 }
-                const dy = (y / w - target.y0) * alpha
-                target.y0 += dy
-                target.y1 += dy
+                const deltaY = (y / w - target.y0) * alpha
+                target.y0 += deltaY
+                target.y1 += deltaY
                 reorderNodeLinks(target)
             }
             if (sort === undefined) {
@@ -355,7 +506,7 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
         }
     }
 
-    function relaxRightToLeft(columns: InternalNode[][], alpha: number, beta: number): void {
+    function relaxRightToLeft(columns: SankeyNode<N, L>[][], alpha: number, beta: number): void {
         for (let n = columns.length, i = n - 2; i >= 0; --i) {
             const column = columns[i]
             for (const source of column) {
@@ -369,9 +520,9 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
                 if (!(w > 0)) {
                     continue
                 }
-                const dy = (y / w - source.y0) * alpha
-                source.y0 += dy
-                source.y1 += dy
+                const deltaY = (y / w - source.y0) * alpha
+                source.y0 += deltaY
+                source.y1 += deltaY
                 reorderNodeLinks(source)
             }
             if (sort === undefined) {
@@ -381,7 +532,7 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
         }
     }
 
-    function resolveCollisions(nodeList: InternalNode[], alpha: number): void {
+    function resolveCollisions(nodeList: SankeyNode<N, L>[], alpha: number): void {
         const i = nodeList.length >> 1
         const subject = nodeList[i]
         resolveCollisionsBottomToTop(nodeList, subject.y0 - py, i - 1, alpha)
@@ -390,31 +541,31 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
         resolveCollisionsTopToBottom(nodeList, y0, 0, alpha)
     }
 
-    function resolveCollisionsTopToBottom(nodeList: InternalNode[], y: number, i: number, alpha: number): void {
+    function resolveCollisionsTopToBottom(nodeList: SankeyNode<N, L>[], y: number, i: number, alpha: number): void {
         for (; i < nodeList.length; ++i) {
             const node = nodeList[i]
-            const dy = (y - node.y0) * alpha
-            if (dy > 1e-6) {
-                node.y0 += dy
-                node.y1 += dy
+            const deltaY = (y - node.y0) * alpha
+            if (deltaY > 1e-6) {
+                node.y0 += deltaY
+                node.y1 += deltaY
             }
             y = node.y1 + py
         }
     }
 
-    function resolveCollisionsBottomToTop(nodeList: InternalNode[], y: number, i: number, alpha: number): void {
+    function resolveCollisionsBottomToTop(nodeList: SankeyNode<N, L>[], y: number, i: number, alpha: number): void {
         for (; i >= 0; --i) {
             const node = nodeList[i]
-            const dy = (node.y1 - y) * alpha
-            if (dy > 1e-6) {
-                node.y0 -= dy
-                node.y1 -= dy
+            const deltaY = (node.y1 - y) * alpha
+            if (deltaY > 1e-6) {
+                node.y0 -= deltaY
+                node.y1 -= deltaY
             }
             y = node.y0 - py
         }
     }
 
-    function reorderNodeLinks({ sourceLinks, targetLinks }: InternalNode): void {
+    function reorderNodeLinks({ sourceLinks, targetLinks }: SankeyNode<N, L>): void {
         for (const { source } of targetLinks) {
             source.sourceLinks.sort(ascendingTargetBreadth)
         }
@@ -423,7 +574,7 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
         }
     }
 
-    function reorderLinks(nodeList: InternalNode[]): void {
+    function reorderLinks(nodeList: SankeyNode<N, L>[]): void {
         for (const { sourceLinks, targetLinks } of nodeList) {
             sourceLinks.sort(ascendingTargetBreadth)
             targetLinks.sort(ascendingSourceBreadth)
@@ -431,7 +582,7 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
     }
 
     // Returns the target.y0 that would produce an ideal link from source to target.
-    function targetTop(source: InternalNode, target: InternalNode): number {
+    function targetTop(source: SankeyNode<N, L>, target: SankeyNode<N, L>): number {
         let y = source.y0 - ((source.sourceLinks.length - 1) * py) / 2
         for (const { target: node, width } of source.sourceLinks) {
             if (node === target) {
@@ -449,7 +600,7 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
     }
 
     // Returns the source.y0 that would produce an ideal link from source to target.
-    function sourceTop(source: InternalNode, target: InternalNode): number {
+    function sourceTop(source: SankeyNode<N, L>, target: SankeyNode<N, L>): number {
         let y = target.y0 - ((target.targetLinks.length - 1) * py) / 2
         for (const { source: node, width } of target.targetLinks) {
             if (node === source) {
@@ -466,5 +617,5 @@ export default function sankey<Data = any, N = any, L = any>(): SankeyLayout<Dat
         return y
     }
 
-    return sankeyLayout as any
+    return sankeyLayout
 }

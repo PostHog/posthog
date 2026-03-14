@@ -61,7 +61,7 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
         .style('height', `${height}px`)
 }
 
-const createSankeyGenerator = (width: number, height: number): SankeyLayout<any, PathNodeData, {}> => {
+const createSankeyGenerator = (width: number, height: number): SankeyLayout<PathNodeData, {}> => {
     /** **Left canvas margin**
      * - Expanded by the border radius to make sure the nodes are not cut off.
      */
@@ -83,7 +83,7 @@ const createSankeyGenerator = (width: number, height: number): SankeyLayout<any,
     /** **Bottom canvas margin** */
     const marginBottom = CANVAS_PADDING_VERTICAL
 
-    return sankey<any, PathNodeData, {}>()
+    return sankey<PathNodeData, {}>()
         .nodeId((d) => d.name)
         .nodeAlign(sankeyLeft)
         .nodeSort(null)

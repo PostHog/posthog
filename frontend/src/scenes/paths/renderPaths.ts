@@ -22,8 +22,8 @@ const createCanvas = (canvasRef: RefObject<HTMLDivElement>, width: number, heigh
         .style('height', `${height}px`)
 }
 
-const createSankeyGenerator = (width: number, height: number): SankeyLayout<any, PathNodeData, {}> => {
-    return sankey<any, PathNodeData, {}>()
+const createSankeyGenerator = (width: number, height: number): SankeyLayout<PathNodeData, {}> => {
+    return sankey<PathNodeData, {}>()
         .nodeId((d) => d.name)
         .nodeAlign(sankeyJustify)
         .nodeSort(null)
