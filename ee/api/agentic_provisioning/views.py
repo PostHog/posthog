@@ -11,6 +11,7 @@ from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
 from django.db import IntegrityError, transaction
+from django.db.utils import InternalError
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
@@ -307,13 +308,14 @@ def _handle_new_user(
     first_name = name.split(" ")[0] if name else ""
 
     try:
-        organization, team, user = User.objects.bootstrap(
-            organization_name=f"Stripe ({email})",
-            email=email,
-            password=None,
-            first_name=first_name,
-        )
-    except IntegrityError:
+        with transaction.atomic():
+            organization, team, user = User.objects.bootstrap(
+                organization_name=f"Stripe ({email})",
+                email=email,
+                password=None,
+                first_name=first_name,
+            )
+    except (IntegrityError, InternalError):
         existing = User.objects.filter(email=email).first()
         if existing:
             return _handle_existing_user(
