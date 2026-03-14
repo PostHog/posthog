@@ -35,7 +35,7 @@ from posthog import settings
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
-from posthog.api.query_coalescer import HttpQueryCoalescer, compute_coalescing_key
+from posthog.api.query_coalescer import QueryCoalescer, compute_coalescing_key
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
@@ -110,7 +110,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self._coalescer: Optional[HttpQueryCoalescer] = None
+        self._coalescer: Optional[QueryCoalescer] = None
 
     def get_throttles(self):
         if self.action == "draft_sql":
@@ -153,7 +153,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         query_json = query.model_dump_json()
         key = compute_coalescing_key(self.team.pk, query_json)
-        coalescer = HttpQueryCoalescer(key, dry_run=dry_run)
+        coalescer = QueryCoalescer(key, dry_run=dry_run)
 
         log = logger.bind(coalescing_key=key, query_id=client_query_id)
 

@@ -14,7 +14,7 @@ from posthog.api.query_coalescer import (
     DONE_KEY_PREFIX,
     ERROR_KEY_PREFIX,
     LOCK_KEY_PREFIX,
-    HttpQueryCoalescer,
+    QueryCoalescer,
     _Heartbeat,
     compute_coalescing_key,
 )
@@ -37,7 +37,7 @@ class TestComputeCoalescingKey(TestCase):
         self.assertNotEqual(key1, key2)
 
 
-class TestHttpQueryCoalescer(TestCase):
+class TestQueryCoalescer(TestCase):
     def setUp(self):
         self.redis = posthog_redis.get_client()
         self.key = f"test_{id(self)}_{time.monotonic_ns()}"
@@ -56,7 +56,7 @@ class TestHttpQueryCoalescer(TestCase):
     # -- Lock lifecycle --
 
     def test_acquire_succeeds_when_no_lock(self):
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         self.assertTrue(coalescer.try_acquire())
         self.assertTrue(coalescer.is_leader)
         self.assertTrue(self._lock_exists())
@@ -64,22 +64,22 @@ class TestHttpQueryCoalescer(TestCase):
 
     def test_acquire_fails_when_lock_held(self):
         self._set_lock("other")
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         self.assertFalse(coalescer.try_acquire())
         self.assertFalse(coalescer.is_leader)
 
     def test_cleanup_releases_lock(self):
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         coalescer.try_acquire()
         coalescer.cleanup()
         self.assertFalse(self._lock_exists())
 
     def test_cleanup_preserves_other_leaders_lock(self):
-        old = HttpQueryCoalescer(self.key)
+        old = QueryCoalescer(self.key)
         old.try_acquire()
         # Simulate old lock expired, new leader acquired
         self.redis.delete(f"{LOCK_KEY_PREFIX}:{self.key}")
-        new = HttpQueryCoalescer(self.key)
+        new = QueryCoalescer(self.key)
         new.try_acquire()
         old.cleanup()
         self.assertTrue(self._lock_exists())
@@ -88,7 +88,7 @@ class TestHttpQueryCoalescer(TestCase):
     # -- Heartbeat --
 
     def test_heartbeat_extends_lock_ttl(self):
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         coalescer.try_acquire()
 
         self.redis.expire(f"{LOCK_KEY_PREFIX}:{self.key}", 2)
@@ -105,7 +105,7 @@ class TestHttpQueryCoalescer(TestCase):
         coalescer.cleanup()
 
     def test_heartbeat_stops_cleanly(self):
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         coalescer.try_acquire()
         assert coalescer._heartbeat is not None
         heartbeat = coalescer._heartbeat
@@ -115,14 +115,14 @@ class TestHttpQueryCoalescer(TestCase):
     # -- Signals --
 
     def test_mark_done_sets_done_key(self):
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         coalescer.try_acquire()
         coalescer.mark_done()
         self.assertIsNotNone(self.redis.get(f"{DONE_KEY_PREFIX}:{self.key}"))
         coalescer.cleanup()
 
     def test_store_and_get_error_response(self):
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         coalescer.try_acquire()
         coalescer.store_error_response(400, b'{"detail":"bad request"}')
         result = coalescer.get_error_response()
@@ -132,7 +132,7 @@ class TestHttpQueryCoalescer(TestCase):
         coalescer.cleanup()
 
     def test_get_error_response_returns_none_when_missing(self):
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         self.assertIsNone(coalescer.get_error_response())
 
     # -- wait_for_signal --
@@ -140,7 +140,7 @@ class TestHttpQueryCoalescer(TestCase):
     def test_wait_returns_done_when_done_key_set(self):
         self._set_lock()
         self.redis.set(f"{DONE_KEY_PREFIX}:{self.key}", "1", ex=60)
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         self.assertEqual(coalescer.wait_for_signal(max_wait=5), "done")
 
     def test_wait_returns_error_when_error_key_set(self):
@@ -150,28 +150,28 @@ class TestHttpQueryCoalescer(TestCase):
             json.dumps({"status": 500, "body": "internal error"}),
             ex=60,
         )
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         self.assertEqual(coalescer.wait_for_signal(max_wait=5), "error")
 
     def test_wait_returns_crashed_when_lock_gone(self):
         # No lock set — leader gone
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         self.assertEqual(coalescer.wait_for_signal(max_wait=0.1), "crashed")
 
     def test_wait_returns_timeout_when_max_wait_exceeded(self):
         self._set_lock()
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         self.assertEqual(coalescer.wait_for_signal(max_wait=0.01), "timeout")
 
     def test_wait_returns_timeout_in_dry_run(self):
         self._set_lock()
         self.redis.set(f"{DONE_KEY_PREFIX}:{self.key}", "1", ex=60)
-        coalescer = HttpQueryCoalescer(self.key, dry_run=True)
+        coalescer = QueryCoalescer(self.key, dry_run=True)
         self.assertEqual(coalescer.wait_for_signal(max_wait=5), "timeout")
 
     def test_wait_polls_until_done(self):
         self._set_lock()
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
 
         def leader_finishes():
             time.sleep(0.05)
@@ -191,7 +191,7 @@ class TestHttpQueryCoalescer(TestCase):
         follower_polling = threading.Event()
 
         def run_leader():
-            c = HttpQueryCoalescer(self.key)
+            c = QueryCoalescer(self.key)
             acquired = c.try_acquire()
             results["leader_acquired"] = acquired
             barrier.wait()
@@ -201,7 +201,7 @@ class TestHttpQueryCoalescer(TestCase):
 
         def run_follower():
             barrier.wait()
-            c = HttpQueryCoalescer(self.key)
+            c = QueryCoalescer(self.key)
             acquired = c.try_acquire()
             results["follower_acquired"] = acquired
             follower_polling.set()
@@ -225,7 +225,7 @@ class TestHttpQueryCoalescer(TestCase):
         follower_polling = threading.Event()
 
         def run_leader():
-            c = HttpQueryCoalescer(self.key)
+            c = QueryCoalescer(self.key)
             c.try_acquire()
             barrier.wait()
             follower_polling.wait(timeout=5)
@@ -234,7 +234,7 @@ class TestHttpQueryCoalescer(TestCase):
 
         def run_follower():
             barrier.wait()
-            c = HttpQueryCoalescer(self.key)
+            c = QueryCoalescer(self.key)
             c.try_acquire()
             follower_polling.set()
             signal = c.wait_for_signal(max_wait=5)
@@ -256,39 +256,39 @@ class TestHttpQueryCoalescer(TestCase):
     # -- Metrics --
 
     def test_leader_increments_counter(self):
-        from posthog.api.query_coalescer import http_coalesce_counter
+        from posthog.api.query_coalescer import query_coalesce_counter
 
-        before = http_coalesce_counter.labels(outcome="leader")._value.get()
-        coalescer = HttpQueryCoalescer(self.key)
+        before = query_coalesce_counter.labels(outcome="leader")._value.get()
+        coalescer = QueryCoalescer(self.key)
         coalescer.try_acquire()
-        after = http_coalesce_counter.labels(outcome="leader")._value.get()
+        after = query_coalesce_counter.labels(outcome="leader")._value.get()
         self.assertEqual(after, before + 1)
         coalescer.cleanup()
 
     def test_follower_increments_counter(self):
-        from posthog.api.query_coalescer import http_coalesce_counter
+        from posthog.api.query_coalescer import query_coalesce_counter
 
         self._set_lock()
-        before = http_coalesce_counter.labels(outcome="follower")._value.get()
-        coalescer = HttpQueryCoalescer(self.key)
+        before = query_coalesce_counter.labels(outcome="follower")._value.get()
+        coalescer = QueryCoalescer(self.key)
         coalescer.try_acquire()
-        after = http_coalesce_counter.labels(outcome="follower")._value.get()
+        after = query_coalesce_counter.labels(outcome="follower")._value.get()
         self.assertEqual(after, before + 1)
 
     def test_dry_run_follower_increments_counter(self):
-        from posthog.api.query_coalescer import http_coalesce_counter
+        from posthog.api.query_coalescer import query_coalesce_counter
 
         self._set_lock()
-        before = http_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
-        coalescer = HttpQueryCoalescer(self.key, dry_run=True)
+        before = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
+        coalescer = QueryCoalescer(self.key, dry_run=True)
         coalescer.try_acquire()
-        after = http_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
+        after = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
         self.assertEqual(after, before + 1)
 
     # -- Redis failure --
 
     def test_redis_failure_on_acquire_raises(self):
-        coalescer = HttpQueryCoalescer(self.key)
+        coalescer = QueryCoalescer(self.key)
         with mock.patch.object(coalescer._redis, "set", side_effect=RedisError("down")):
             with self.assertRaises(RedisError):
                 coalescer.try_acquire()

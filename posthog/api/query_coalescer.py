@@ -36,14 +36,14 @@ end
 return 0
 """
 
-http_coalesce_counter = Counter(
-    "http_query_coalesce_total",
-    "HTTP-layer query coalescing outcomes",
+query_coalesce_counter = Counter(
+    "posthog_query_coalesce_total",
+    "Query coalescing outcomes",
     labelnames=["outcome"],
 )
 
-http_coalesce_wait_histogram = Histogram(
-    "http_query_coalesce_wait_seconds",
+query_coalesce_wait_histogram = Histogram(
+    "posthog_query_coalesce_wait_seconds",
     "Time followers spent waiting for leader result",
     buckets=[0.1, 0.5, 1, 2, 5, 10, 20, 30, 60],
 )
@@ -72,7 +72,7 @@ class _Heartbeat:
         self._thread.join(timeout=2)
 
 
-class HttpQueryCoalescer:
+class QueryCoalescer:
     """HTTP-layer query coalescer.
 
     One request (leader) acquires a Redis lock and executes the query.
@@ -111,11 +111,11 @@ class HttpQueryCoalescer:
         if self._is_leader:
             self._redis.delete(self._done_key, self._error_key)
             self._heartbeat = _Heartbeat(self._redis, self._lock_key, self._lock_value)
-            http_coalesce_counter.labels(outcome="leader").inc()
+            query_coalesce_counter.labels(outcome="leader").inc()
         elif self.dry_run:
-            http_coalesce_counter.labels(outcome="follower_dry_run").inc()
+            query_coalesce_counter.labels(outcome="follower_dry_run").inc()
         else:
-            http_coalesce_counter.labels(outcome="follower").inc()
+            query_coalesce_counter.labels(outcome="follower").inc()
         return self._is_leader
 
     def wait_for_signal(self, max_wait: float) -> str:
@@ -134,31 +134,31 @@ class HttpQueryCoalescer:
 
         while (time.monotonic() - start) < max_wait:
             if self._redis.get(self._done_key):
-                http_coalesce_wait_histogram.observe(time.monotonic() - start)
-                http_coalesce_counter.labels(outcome="follower_done").inc()
+                query_coalesce_wait_histogram.observe(time.monotonic() - start)
+                query_coalesce_counter.labels(outcome="follower_done").inc()
                 return "done"
 
             if self._redis.get(self._error_key):
-                http_coalesce_wait_histogram.observe(time.monotonic() - start)
-                http_coalesce_counter.labels(outcome="follower_error").inc()
+                query_coalesce_wait_histogram.observe(time.monotonic() - start)
+                query_coalesce_counter.labels(outcome="follower_error").inc()
                 return "error"
 
             if self._redis.get(self._lock_key) is None:
                 # Leader gone - check one more time for done/error set between checks
                 if self._redis.get(self._done_key):
-                    http_coalesce_wait_histogram.observe(time.monotonic() - start)
-                    http_coalesce_counter.labels(outcome="follower_done").inc()
+                    query_coalesce_wait_histogram.observe(time.monotonic() - start)
+                    query_coalesce_counter.labels(outcome="follower_done").inc()
                     return "done"
                 if self._redis.get(self._error_key):
-                    http_coalesce_wait_histogram.observe(time.monotonic() - start)
-                    http_coalesce_counter.labels(outcome="follower_error").inc()
+                    query_coalesce_wait_histogram.observe(time.monotonic() - start)
+                    query_coalesce_counter.labels(outcome="follower_error").inc()
                     return "error"
-                http_coalesce_counter.labels(outcome="follower_crashed").inc()
+                query_coalesce_counter.labels(outcome="follower_crashed").inc()
                 return "crashed"
 
             time.sleep(POLL_INTERVAL_SECONDS * (0.2 + random.random()))
 
-        http_coalesce_counter.labels(outcome="follower_timeout").inc()
+        query_coalesce_counter.labels(outcome="follower_timeout").inc()
         return "timeout"
 
     def get_error_response(self) -> Optional[dict]:
