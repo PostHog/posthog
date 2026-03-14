@@ -68,7 +68,7 @@ export function withoutPostHogInit(href: string): string {
 }
 
 export const currentPageLogic = kea<currentPageLogicType>([
-    path(['toolbar', 'stats', 'currentPageLogic']),
+    path(['toolbar', 'elements', 'currentPageLogic']),
 
     actions(() => ({
         setHref: (href: string) => ({ href }),

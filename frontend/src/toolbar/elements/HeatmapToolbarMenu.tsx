@@ -17,12 +17,12 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { currentPageLogic } from '~/toolbar/elements/currentPageLogic'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
-import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { joinWithUiHost } from '~/toolbar/utils'
 
-import { toolbarConfigLogic } from '../toolbarConfigLogic'
+import { toolbarConfigLogic } from '../core/toolbarConfigLogic'
 
 const HeatmapsJSWarning = (): JSX.Element | null => {
     const { posthog, uiHost } = useValues(toolbarConfigLogic)

@@ -15,7 +15,7 @@ import { ActionsListView } from '~/toolbar/actions/ActionsListView'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 import { joinWithUiHost } from '~/toolbar/utils'
 
 const ActionsListToolbarMenu = (): JSX.Element => {
@@ -42,7 +42,7 @@ const ActionsListToolbarMenu = (): JSX.Element => {
                 />
             </ToolbarMenu.Header>
             <ToolbarMenu.Body>
-                <div className="px-1 deprecated-space-y-px py-2">
+                <div className="px-1 gap-px py-2">
                     {allActions.length === 0 && allActionsLoading ? (
                         <div className="text-center my-4">
                             <Spinner />

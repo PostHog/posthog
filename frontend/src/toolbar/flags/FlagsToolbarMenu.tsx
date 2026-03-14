@@ -16,8 +16,8 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { joinWithUiHost } from '~/toolbar/utils'
 
 export const FlagsToolbarMenu = (): JSX.Element => {
@@ -107,7 +107,7 @@ export const FlagsToolbarMenu = (): JSX.Element => {
                                     className={clsx('-mx-1 py-1 px-2', hasOverride && 'bg-fill-primary')}
                                     key={feature_flag.key}
                                 >
-                                    <div className="flex flex-row items-center deprecated-space-x-2">
+                                    <div className="flex flex-row items-center gap-2">
                                         <div className="flex-1 truncate">
                                             <Link
                                                 className="font-medium"

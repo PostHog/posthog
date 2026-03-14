@@ -15,7 +15,7 @@ import { WebVitalsMetric } from '~/queries/schema/schema-general'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { joinWithUiHost } from '~/toolbar/utils'
 
-import { toolbarConfigLogic } from '../toolbarConfigLogic'
+import { toolbarConfigLogic } from '../core/toolbarConfigLogic'
 import { WebVitalsMetrics, webVitalsToolbarLogic } from './webVitalsToolbarLogic'
 
 // Same order as in the Web Vitals report

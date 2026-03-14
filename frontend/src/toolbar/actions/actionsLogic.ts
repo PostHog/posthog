@@ -4,7 +4,7 @@ import { loaders } from 'kea-loaders'
 
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/core/toolbarConfigLogic'
 import { ActionType } from '~/types'
 
 import type { actionsLogicType } from './actionsLogicType'

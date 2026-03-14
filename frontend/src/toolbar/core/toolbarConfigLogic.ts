@@ -3,12 +3,10 @@ import { combineUrl, encodeParams } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarLogger } from '~/toolbar/core/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/core/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
-import { withTokenRefresh } from './toolbarAuth'
-import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 import {
     cleanToolbarAuthHash,
     generatePKCE,
@@ -16,10 +14,12 @@ import {
     OAUTH_LOCALSTORAGE_KEY,
     PKCE_STORAGE_KEY,
     readToolbarAuthHash,
-} from './utils'
+} from '../utils'
+import { withTokenRefresh } from './toolbarAuth'
+import type { toolbarConfigLogicType } from './toolbarConfigLogicType'
 
 export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
-    path(['toolbar', 'toolbarConfigLogic']),
+    path(['toolbar', 'core', 'toolbarConfigLogic']),
     props({} as ToolbarProps),
 
     actions({

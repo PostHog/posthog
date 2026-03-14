@@ -4,8 +4,8 @@ import { loaders } from 'kea-loaders'
 
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { WebExperiment } from '~/toolbar/types'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/core/toolbarConfigLogic'
+import { WebExperiment } from '~/toolbar/core/types'
 
 import type { experimentsLogicType } from './experimentsLogicType'
 

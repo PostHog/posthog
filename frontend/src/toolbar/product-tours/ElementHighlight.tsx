@@ -1,4 +1,4 @@
-import { ElementRect } from '~/toolbar/types'
+import { ElementRect } from '~/toolbar/core/types'
 
 export interface ElementHighlightProps {
     rect: ElementRect

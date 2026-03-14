@@ -1,4 +1,4 @@
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 import { TOOLBAR_ID, elementToQuery } from '~/toolbar/utils'
 
 export const PRODUCT_TOURS_SIDEBAR_TRANSITION_MS = 200

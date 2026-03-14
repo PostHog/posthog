@@ -6,7 +6,7 @@ import { LemonButton, LemonInput, LemonSegmentedButton, LemonSlider, LemonSwitch
 import { IconDragHandle } from 'lib/lemon-ui/icons'
 import { getStepIcon, getStepTitle, hasElementTarget, hasIncompleteTargeting } from 'scenes/product-tours/stepUtils'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 import { joinWithUiHost } from '~/toolbar/utils'
 
 import { TourStep, productToursLogic } from './productToursLogic'

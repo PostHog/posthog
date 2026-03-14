@@ -22,8 +22,8 @@ import {
 import { LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { dateFilterToText } from 'lib/utils'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { HeatmapElement, HeatmapResponseType } from '~/toolbar/types'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/core/toolbarConfigLogic'
+import { HeatmapElement, HeatmapResponseType } from '~/toolbar/core/types'
 import { FilterType } from '~/types'
 
 import type { heatmapDataLogicType } from './heatmapDataLogicType'

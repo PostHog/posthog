@@ -2,7 +2,7 @@ import { collectAllElementsDeep, querySelectorAllDeep } from 'query-selector-sha
 
 import { elementToSelector } from 'lib/actionUtils'
 
-import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
+import { CountedHTMLElement, ElementsEventType } from '~/toolbar/core/types'
 
 import { buildDOMIndex, matchEventToElementUsingIndex } from './domElementIndex'
 

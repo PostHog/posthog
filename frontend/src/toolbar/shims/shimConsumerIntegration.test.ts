@@ -11,7 +11,7 @@ jest.mock('lib/api', () => ({
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 
 global.fetch = jest.fn(() =>
     Promise.resolve({

@@ -7,7 +7,7 @@ import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { hasIncompleteTargeting } from 'scenes/product-tours/stepUtils'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 
 import {
     PRODUCT_TOURS_MIN_JS_VERSION,

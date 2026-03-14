@@ -1,7 +1,8 @@
 import { toBlob } from 'html-to-image'
 
-import { toolbarUploadMedia } from '~/toolbar/toolbarConfigLogic'
-import { TOOLBAR_ID } from '~/toolbar/utils'
+import { toolbarUploadMedia } from '~/toolbar/core/toolbarConfigLogic'
+
+import { TOOLBAR_ID } from './dom'
 
 export interface ElementScreenshot {
     mediaId: string

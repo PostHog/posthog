@@ -11,8 +11,8 @@ import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { SelectorEditingModal } from '~/toolbar/actions/SelectorEditingModal'
 import { StepField } from '~/toolbar/actions/StepField'
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { toolbarPosthogJS } from '~/toolbar/core/toolbarPosthogJS'
 import { SelectorQualityWarning } from '~/toolbar/elements/SelectorQualityWarning'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 
 export const ActionsEditingToolbarMenu = (): JSX.Element => {
     const {

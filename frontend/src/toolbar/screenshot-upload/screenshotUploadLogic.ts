@@ -3,8 +3,8 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/core/toolbarConfigLogic'
+import { toolbarPosthogJS } from '~/toolbar/core/toolbarPosthogJS'
 import { captureElementScreenshot, uploadScreenshot } from '~/toolbar/utils/screenshot'
 import { EventDefinition } from '~/types'
 

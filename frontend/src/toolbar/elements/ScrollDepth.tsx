@@ -6,7 +6,7 @@ import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
-import { toolbarConfigLogic } from '../toolbarConfigLogic'
+import { toolbarConfigLogic } from '../core/toolbarConfigLogic'
 
 function ScrollDepthMouseInfo(): JSX.Element | null {
     const { posthog } = useValues(toolbarConfigLogic)

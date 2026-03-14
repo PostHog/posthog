@@ -13,9 +13,9 @@ import type { PostHog } from 'posthog-js'
 import { createRoot } from 'react-dom/client'
 
 import { disposablesPlugin } from '~/kea-disposables'
+import { toolbarLogger } from '~/toolbar/core/toolbarLogger'
+import { captureToolbarException } from '~/toolbar/core/toolbarPosthogJS'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
-import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarParams } from '~/types'
 
 interface InitKeaProps {

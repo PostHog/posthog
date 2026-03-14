@@ -2,8 +2,8 @@ import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { TAGS_TO_IGNORE } from 'lib/actionUtils'
 
-import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { toolbarLogger } from '~/toolbar/core/toolbarLogger'
+import { captureToolbarException } from '~/toolbar/core/toolbarPosthogJS'
 import { TOOLBAR_ID, elementIsVisible, getParent } from '~/toolbar/utils'
 
 export interface SelectorGroup {

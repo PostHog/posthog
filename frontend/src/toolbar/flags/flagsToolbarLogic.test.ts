@@ -1,8 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
 const featureFlags = [

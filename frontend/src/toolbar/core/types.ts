@@ -1,6 +1,6 @@
 import { ActionStepType, ActionType, ElementType, Experiment } from '~/types'
 
-import { FragileSelectorResult } from './utils/selectorQuality'
+import { FragileSelectorResult } from '../utils/selectorQuality'
 
 export type ElementsEventType = {
     count: number
