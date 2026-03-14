@@ -45,14 +45,14 @@ export function EventsTable({ query, queryKey, onEventSelect, selectedEvent }: E
                 title={
                     <div className="flex gap-x-1">
                         <Link onClick={() => onEventSelect(record)} subtle className="line-clamp-1">
-                            {record.properties.$exception_types[0]}
+                            {record.properties.$exception_types?.[0] ?? 'Unknown'}
                         </Link>
                         {tagRenderer(record)}
                     </div>
                 }
                 description={
                     <div className="space-y-0.5">
-                        <span className="line-clamp-1">{record.properties.$exception_values[0]}</span>
+                        <span className="line-clamp-1">{record.properties.$exception_values?.[0]}</span>
                         <div className="flex items-center">
                             <div>{renderTime(record)}</div>
                             <CustomSeparator />
