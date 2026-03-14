@@ -1,12 +1,13 @@
 import time
+from datetime import timedelta
 from urllib.parse import urlencode
 
-from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.models.agentic_provisioning import AgenticProvisioningState
 
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
@@ -21,7 +22,12 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
             "region": "US",
         }
         data.update(overrides)
-        cache.set(f"{AUTH_CODE_CACHE_PREFIX}{code}", data, timeout=300)
+        AgenticProvisioningState.objects.create(
+            purpose=AgenticProvisioningState.Purpose.AUTH_CODE,
+            token=code,
+            payload=data,
+            expires_at=timezone.now() + timedelta(seconds=300),
+        )
         return code
 
     def _token_request_body(self, **overrides):
@@ -37,7 +43,6 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
             data=body,
             content_type="application/x-www-form-urlencoded",
             HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
         )
 
     def test_valid_code_exchange_returns_tokens(self):
@@ -117,6 +122,22 @@ class TestOAuthTokenExchange(StripeProvisioningTestBase):
             "/api/agentic/oauth/token",
             data=body,
             content_type="application/x-www-form-urlencoded",
-            HTTP_API_VERSION="0.1d",
         )
         assert res.status_code == 401
+
+    def test_works_without_api_version_header(self):
+        """APP 0.1d spec: Stripe does not send API-Version on /oauth/token calls."""
+        self._store_auth_code("no_version_code")
+        body = self._token_request_body(code="no_version_code")
+        ts = int(time.time())
+        sig = compute_signature(HMAC_SECRET, ts, body)
+        res = self.client.post(
+            "/api/agentic/oauth/token",
+            data=body,
+            content_type="application/x-www-form-urlencoded",
+            HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["token_type"] == "bearer"
+        assert data["access_token"].startswith("pha_")

@@ -1,21 +1,23 @@
+from datetime import timedelta
+
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
-from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from rest_framework.parsers import JSONParser
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.test import APIRequestFactory
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX
 from ee.api.agentic_provisioning.region_proxy import (
     _proxy_to_region,
     _should_proxy_body_region,
     _should_proxy_token_lookup,
 )
 from ee.api.agentic_provisioning.test.base import StripeProvisioningTestBase
+from ee.models.agentic_provisioning import AgenticProvisioningState
 
 factory = APIRequestFactory()
 
@@ -53,16 +55,17 @@ class TestShouldProxyBodyRegion(BaseTest):
 
 
 class TestShouldProxyTokenLookup(BaseTest):
-    def setUp(self):
-        super().setUp()
-        cache.clear()
-
-    def test_proxies_when_auth_code_not_in_cache(self):
+    def test_proxies_when_auth_code_not_in_db(self):
         request = _make_drf_request({"grant_type": "authorization_code", "code": "unknown_code"})
         assert _should_proxy_token_lookup(request, "US") is True
 
-    def test_skips_when_auth_code_in_cache(self):
-        cache.set(f"{AUTH_CODE_CACHE_PREFIX}known_code", {"user_id": 1}, timeout=300)
+    def test_skips_when_auth_code_in_db(self):
+        AgenticProvisioningState.objects.create(
+            purpose=AgenticProvisioningState.Purpose.AUTH_CODE,
+            token="known_code",
+            payload={"user_id": 1},
+            expires_at=timezone.now() + timedelta(seconds=300),
+        )
         request = _make_drf_request({"grant_type": "authorization_code", "code": "known_code"})
         assert _should_proxy_token_lookup(request, "US") is False
 

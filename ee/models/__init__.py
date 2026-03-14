@@ -1,3 +1,4 @@
+from .agentic_provisioning import AgenticProvisioningState
 from .assistant import (
     AgentArtifact,
     Conversation,
@@ -19,6 +20,7 @@ from .session_summaries import SingleSessionSummary
 __all__ = [
     "AccessControl",
     "AgentArtifact",
+    "AgenticProvisioningState",
     "ConversationCheckpoint",
     "ConversationCheckpointBlob",
     "ConversationCheckpointWrite",

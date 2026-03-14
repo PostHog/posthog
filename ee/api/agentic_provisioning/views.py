@@ -10,7 +10,7 @@ from django.conf import settings
 from django.contrib.auth import login as auth_login
 from django.contrib.auth.decorators import login_required
 from django.core.cache import cache
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
@@ -31,9 +31,9 @@ from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.utils import get_instance_region
 
+from ee.models.agentic_provisioning import AgenticProvisioningState
 from ee.settings import BILLING_SERVICE_URL
 
-from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
 from .region_proxy import stripe_region_proxy
 from .signature import SUPPORTED_VERSIONS, verify_stripe_signature
 
@@ -42,7 +42,6 @@ logger = structlog.get_logger(__name__)
 AUTH_CODE_TTL_SECONDS = 300
 PENDING_AUTH_TTL_SECONDS = 600
 DEEP_LINK_TTL_SECONDS = 600
-DEEP_LINK_CACHE_PREFIX = "stripe_app_deep_link:"
 SUPPORTED_DEEP_LINK_PURPOSES = {"dashboard"}
 DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
@@ -64,10 +63,8 @@ SERVICES_CACHE_KEY = "agentic_provisioning:services"
 SERVICES_CACHE_TTL = 3600  # 1 hour
 SERVICES_CACHE_RETRY_TTL = 300  # 5 min retry window when billing is down
 
-# Products that shouldn't be listed as provisionable services
 _EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
 
-# Billing product type -> APP service categories
 _CATEGORY_MAP: dict[str, list[str]] = {
     "product_analytics": ["analytics"],
     "session_replay": ["observability"],
@@ -273,15 +270,16 @@ def _handle_existing_user(
     stripe_account_id: str = "",
     region: str = "US",
 ) -> Response:
-    cache.set(
-        f"{PENDING_AUTH_CACHE_PREFIX}{confirmation_secret}",
-        {
+    AgenticProvisioningState.objects.create(
+        purpose=AgenticProvisioningState.Purpose.PENDING_AUTH,
+        token=confirmation_secret,
+        payload={
             "email": user.email,
             "scopes": scopes,
             "stripe_account_id": stripe_account_id,
             "region": region,
         },
-        timeout=PENDING_AUTH_TTL_SECONDS,
+        expires_at=timezone.now() + timedelta(seconds=PENDING_AUTH_TTL_SECONDS),
     )
 
     authorize_url = _build_authorize_url(confirmation_secret, scopes)
@@ -331,10 +329,10 @@ def _handle_new_user(
         )
 
     code = secrets.token_urlsafe(32)
-    cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
-    cache.set(
-        cache_key,
-        {
+    AgenticProvisioningState.objects.create(
+        purpose=AgenticProvisioningState.Purpose.AUTH_CODE,
+        token=code,
+        payload={
             "user_id": user.id,
             "org_id": str(organization.id),
             "team_id": team.id,
@@ -342,7 +340,7 @@ def _handle_new_user(
             "scopes": scopes,
             "region": region,
         },
-        timeout=AUTH_CODE_TTL_SECONDS,
+        expires_at=timezone.now() + timedelta(seconds=AUTH_CODE_TTL_SECONDS),
     )
 
     return Response({"id": request_id, "type": "oauth", "oauth": {"code": code}})
@@ -368,15 +366,19 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     if not state:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=missing_state")
 
-    pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
-    pending = cache.get(pending_key)
+    pending = AgenticProvisioningState.objects.filter(
+        token=state,
+        purpose=AgenticProvisioningState.Purpose.PENDING_AUTH,
+        expires_at__gt=timezone.now(),
+        consumed_at__isnull=True,
+    ).first()
     if pending is None:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=expired_or_invalid_state")
 
-    if request.user.email != pending["email"]:
+    if request.user.email != pending.payload["email"]:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
 
-    cache.delete(pending_key)
+    pending.delete()
 
     user = request.user
     membership = user.organization_memberships.first()
@@ -389,17 +391,18 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_team")
 
     code = secrets.token_urlsafe(32)
-    cache.set(
-        f"{AUTH_CODE_CACHE_PREFIX}{code}",
-        {
+    AgenticProvisioningState.objects.create(
+        purpose=AgenticProvisioningState.Purpose.AUTH_CODE,
+        token=code,
+        payload={
             "user_id": user.id,
             "org_id": str(organization.id),
             "team_id": team.id,
-            "stripe_account_id": pending.get("stripe_account_id", ""),
-            "scopes": pending.get("scopes", []),
-            "region": pending.get("region", "US"),
+            "stripe_account_id": pending.payload.get("stripe_account_id", ""),
+            "scopes": pending.payload.get("scopes", []),
+            "region": pending.payload.get("region", "US"),
         },
-        timeout=AUTH_CODE_TTL_SECONDS,
+        expires_at=timezone.now() + timedelta(seconds=AUTH_CODE_TTL_SECONDS),
     )
 
     callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
@@ -435,15 +438,24 @@ def _exchange_authorization_code(request: Request) -> Response:
     if not code:
         return Response({"error": "invalid_request", "error_description": "code is required"}, status=400)
 
-    cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
-    code_data = cache.get(cache_key)
-    if code_data is None:
-        return Response(
-            {"error": "invalid_grant", "error_description": "Invalid or expired authorization code"}, status=400
+    with transaction.atomic():
+        state = (
+            AgenticProvisioningState.objects.select_for_update()
+            .filter(
+                token=code,
+                purpose=AgenticProvisioningState.Purpose.AUTH_CODE,
+                expires_at__gt=timezone.now(),
+                consumed_at__isnull=True,
+            )
+            .first()
         )
+        if state is None:
+            return Response(
+                {"error": "invalid_grant", "error_description": "Invalid or expired authorization code"}, status=400
+            )
+        state.delete()
 
-    cache.delete(cache_key)
-
+    code_data = state.payload
     user_id = code_data["user_id"]
     team_id = code_data["team_id"]
     scopes = code_data.get("scopes", [])
@@ -575,7 +587,11 @@ def provisioning_resources_create(request: Request) -> Response:
         return _error_response("team_not_found", "Team not found", resource_id=str(team_id), status=404)
 
     resolved_service_id = service_id or POSTHOG_SERVICE_ID
-    cache.set(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}", resolved_service_id, timeout=None)
+    AgenticProvisioningState.objects.update_or_create(
+        token=str(team_id),
+        purpose=AgenticProvisioningState.Purpose.RESOURCE_SERVICE,
+        defaults={"payload": {"service_id": resolved_service_id}},
+    )
 
     region = get_instance_region() or "US"
     host = _region_to_host(region)
@@ -649,7 +665,7 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
             "credential_rotation_failed", "Failed to rotate credentials", resource_id=resource_id, status=500
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or POSTHOG_SERVICE_ID
+    service_id = _get_resource_service_id(team_id)
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -709,7 +725,7 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
             status=404,
         )
 
-    service_id = cache.get(f"{RESOURCE_SERVICE_CACHE_PREFIX}{team_id}") or POSTHOG_SERVICE_ID
+    service_id = _get_resource_service_id(team_id)
     region = get_instance_region() or "US"
     host = _region_to_host(region)
 
@@ -764,15 +780,15 @@ def deep_links(request: Request) -> Response:
     host = _region_to_host(region)
 
     token = secrets.token_urlsafe(32)
-    cache_key = f"{DEEP_LINK_CACHE_PREFIX}{token}"
-    cache.set(
-        cache_key,
-        {
+    AgenticProvisioningState.objects.create(
+        purpose=AgenticProvisioningState.Purpose.DEEP_LINK,
+        token=token,
+        payload={
             "user_id": access_token.user_id,
             "team_id": team_id,
             "purpose": purpose,
         },
-        timeout=DEEP_LINK_TTL_SECONDS,
+        expires_at=timezone.now() + timedelta(seconds=DEEP_LINK_TTL_SECONDS),
     )
 
     expires_at = timezone.now() + timedelta(seconds=DEEP_LINK_TTL_SECONDS)
@@ -847,6 +863,20 @@ def _region_to_host(region: str) -> str:
     return settings.SITE_URL
 
 
+def _get_resource_service_id(team_id: int) -> str:
+    payload = (
+        AgenticProvisioningState.objects.filter(
+            token=str(team_id),
+            purpose=AgenticProvisioningState.Purpose.RESOURCE_SERVICE,
+        )
+        .values_list("payload", flat=True)
+        .first()
+    )
+    if payload and isinstance(payload, dict):
+        return payload.get("service_id", POSTHOG_SERVICE_ID)
+    return POSTHOG_SERVICE_ID
+
+
 # ---------------------------------------------------------------------------
 # GET /agentic/login — deep link login for agentic provisioning users
 # ---------------------------------------------------------------------------
@@ -859,25 +889,32 @@ def agentic_login(request: Any) -> HttpResponseBase:
         logger.warning("agentic_login.missing_token")
         return HttpResponseRedirect("/?error=missing_token")
 
-    cache_key = f"{DEEP_LINK_CACHE_PREFIX}{token}"
+    now = timezone.now()
 
     try:
-        link_data = cache.get(cache_key)
+        with transaction.atomic():
+            state = (
+                AgenticProvisioningState.objects.select_for_update()
+                .filter(
+                    token=token,
+                    purpose=AgenticProvisioningState.Purpose.DEEP_LINK,
+                    expires_at__gt=now,
+                    consumed_at__isnull=True,
+                )
+                .first()
+            )
+            if state is None:
+                _capture_deep_link_event("expired_or_invalid_token")
+                logger.warning("agentic_login.expired_or_invalid_token")
+                return HttpResponseRedirect("/?error=expired_or_invalid_token")
+
+            state.consumed_at = now
+            state.save(update_fields=["consumed_at"])
     except Exception:
-        capture_exception(additional_properties={"cache_key": cache_key})
+        capture_exception(additional_properties={"token": token})
         return HttpResponseRedirect("/?error=service_unavailable")
 
-    if link_data is None:
-        _capture_deep_link_event("expired_or_invalid_token")
-        logger.warning("agentic_login.expired_or_invalid_token")
-        return HttpResponseRedirect("/?error=expired_or_invalid_token")
-
-    # Atomic delete — if another request already consumed this token, reject
-    if not cache.delete(cache_key):
-        _capture_deep_link_event("expired_or_invalid_token")
-        logger.warning("agentic_login.token_already_consumed")
-        return HttpResponseRedirect("/?error=expired_or_invalid_token")
-
+    link_data = state.payload
     if not isinstance(link_data, dict):
         _capture_deep_link_event("invalid_token_data")
         logger.warning("agentic_login.invalid_token_data")
