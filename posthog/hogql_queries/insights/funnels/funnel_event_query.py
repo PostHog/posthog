@@ -412,7 +412,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             return get_breakdown_expr(breakdown, properties_column, normalize_url=normalize_url)
         elif breakdownType == "cohort":
             if isinstance(breakdown, int):
-                cohort_id = int(breakdown)
+                cohort_id = breakdown
             elif isinstance(breakdown, list) and "all" not in breakdown and len(breakdown) == 1:
                 cohort_id = int(breakdown[0])
             else:
