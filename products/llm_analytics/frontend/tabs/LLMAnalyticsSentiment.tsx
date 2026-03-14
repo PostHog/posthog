@@ -154,7 +154,7 @@ function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: b
                             {formatScore(sentiment.score)}
                         </span>
                         <Link
-                            to={urls.llmAnalyticsTrace(traceId, { event: uuid, timestamp })}
+                            to={urls.llmAnalyticsTrace(traceId, { event: uuid, timestamp, msg: String(messageIndex) })}
                             className="text-xs ml-1"
                             data-attr="llma-sentiment-trace-link"
                             onClick={(e) => e.stopPropagation()}

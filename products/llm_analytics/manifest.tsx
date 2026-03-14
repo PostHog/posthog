@@ -195,6 +195,7 @@ export const manifest: ProductManifest = {
                 exception_ts?: string
                 search?: string
                 tab?: string
+                msg?: string
             }
         ): string => {
             const queryParams = new URLSearchParams(params)
