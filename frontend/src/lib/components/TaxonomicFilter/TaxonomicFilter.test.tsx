@@ -145,7 +145,18 @@ describe('TaxonomicFilter', () => {
         expect(onChange.mock.calls[0][1]).toBe('event1')
     })
 
-    it('promotes $current_url to the top when searching for "url"', async () => {
+    it.each([
+        {
+            search: 'url',
+            expectedFirstProperty: '$current_url',
+            description: 'promotes $current_url for exact search term',
+        },
+        {
+            search: 'urls',
+            expectedFirstProperty: '$initial_referring_url',
+            description: 'does not promote for near-miss search term',
+        },
+    ])('$description', async ({ search, expectedFirstProperty }) => {
         // Return $current_url after other url-containing properties so we can
         // verify that promotion moves it to position 0.
         useMocks({
@@ -157,7 +168,10 @@ describe('TaxonomicFilter', () => {
                         { ...mockEventPropertyDefinition, id: 'url-other-2', name: 'signup_url' },
                         { ...mockEventPropertyDefinition, id: 'url-current', name: '$current_url' },
                     ]
-                    const results = search ? allProps.filter((p) => p.name.includes(search)) : allProps
+                    // Keep near-miss searches returning URL-like properties so we can
+                    // assert that only exact promotion terms change ordering.
+                    const filterSearch = search === 'urls' ? 'url' : search
+                    const results = filterSearch ? allProps.filter((p) => p.name.includes(filterSearch)) : allProps
                     return [200, { results, count: results.length }]
                 },
             },
@@ -171,18 +185,20 @@ describe('TaxonomicFilter', () => {
             expect(screen.getByTestId('prop-filter-event_properties-0')).toBeInTheDocument()
         })
 
-        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'url')
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), search)
 
         await waitFor(() => {
-            expect(screen.getByTestId('prop-filter-event_properties-0')).toHaveTextContent(/current[ _]url/i)
+            expect(screen.getByTestId('prop-filter-event_properties-0')).toHaveTextContent(
+                new RegExp(expectedFirstProperty.replace(/^\$/, '').replace(/_/g, '[ _]'), 'i')
+            )
         })
 
-        // Clicking the first result should select $current_url
-        userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
+        // Clicking the first result should select the promoted (or unpromoted) first result.
+        await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
 
         await waitFor(() => {
             expect(onChange).toHaveBeenCalledTimes(1)
         })
-        expect(onChange.mock.calls[0][1]).toBe('$current_url')
+        expect(onChange.mock.calls[0][1]).toBe(expectedFirstProperty)
     })
 })

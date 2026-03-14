@@ -53,7 +53,10 @@ function promoteMatchingProperties<T extends TaxonomicDefinitionTypes | Skeleton
     const promoted: T[] = []
     const rest: T[] = []
 
-    for (const item of results) {
+    for (const item of results as (T | undefined)[]) {
+        if (!item) {
+            continue
+        }
         if (isSkeletonItem(item)) {
             rest.push(item)
             continue
