@@ -5,10 +5,10 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
-    name: 'Data warehouse',
+    name: 'Data ops',
     scenes: {
-        DataWarehouse: {
-            name: 'Data warehouse',
+        DataOps: {
+            name: 'Data ops',
             import: () => import('./DataWarehouseScene'),
             projectBased: true,
             defaultDocsPath: '/docs/data-warehouse',
@@ -35,11 +35,11 @@ export const manifest: ProductManifest = {
         },
     },
     routes: {
-        '/data-warehouse': ['DataWarehouse', 'dataWarehouse'],
+        '/data-ops': ['DataOps', 'dataOps'],
         '/models': ['Models', 'models'],
     },
     urls: {
-        dataWarehouse: (): string => '/data-warehouse',
+        dataOps: (): string => '/data-ops',
         models: (): string => '/models',
     },
     treeItemsProducts: [
@@ -56,13 +56,14 @@ export const manifest: ProductManifest = {
         },
         {
             path: 'Data warehouse',
+            displayLabel: 'Data ops',
             intents: [ProductKey.DATA_WAREHOUSE, ProductKey.DATA_WAREHOUSE_SAVED_QUERY],
             category: 'Unreleased',
-            href: urls.dataWarehouse(),
+            href: urls.dataOps(),
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
             iconType: 'data_warehouse',
             iconColor: ['var(--color-product-data-warehouse-light)'],
-            sceneKey: 'DataWarehouse',
+            sceneKey: 'DataOps',
         },
     ],
     treeItemsMetadata: [

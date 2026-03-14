@@ -118,6 +118,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             },
             deleted: false,
             active: true,

@@ -12,6 +12,7 @@ from prometheus_client import Histogram
 from temporalio import activity, workflow
 from temporalio.common import MetricCounter, MetricHistogramTimedelta, MetricMeter
 
+from posthog.event_usage import EventSource
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.insight import Insight
 from posthog.models.sharing_configuration import SharingConfiguration
@@ -219,8 +220,9 @@ async def generate_assets_async(
             cancellation_events[asset.id] = cancellation_event
 
             try:
+                source = EventSource.SUBSCRIPTION if isinstance(resource, Subscription) else None
                 await database_sync_to_async(exporter.export_asset_direct, thread_sensitive=False)(
-                    asset, cancellation_event=cancellation_event
+                    asset, cancellation_event=cancellation_event, source=source
                 )
 
                 logger.info(

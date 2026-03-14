@@ -7,6 +7,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 
 if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
     from posthog.models.organization import Organization
     from posthog.models.user import User
 
@@ -140,26 +141,23 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
         super().save(*args, **kwargs)
 
-    def _get_event_properties(self, additional_properties: dict | None = None) -> dict:
-        properties = {
+    def _get_event_properties(self) -> dict:
+        return {
             "alert_id": self.id,
             "alert_name": self.name,
             "condition_type": self.condition.get("type") if self.condition else None,
             "calculation_interval": self.calculation_interval,
         }
-        if additional_properties:
-            properties.update(additional_properties)
-        return properties
 
-    def report_created(self, user: User, additional_properties: dict | None = None) -> None:
+    def report_created(self, user: User, analytics_props: AnalyticsProps | None = None) -> None:
         from posthog.event_usage import report_user_action
 
-        report_user_action(user, "alert created", self._get_event_properties(additional_properties))
+        report_user_action(user, "alert created", self._get_event_properties(), analytics_props=analytics_props)
 
-    def report_updated(self, user: User, additional_properties: dict | None = None) -> None:
+    def report_updated(self, user: User, analytics_props: AnalyticsProps | None = None) -> None:
         from posthog.event_usage import report_user_action
 
-        report_user_action(user, "alert updated", self._get_event_properties(additional_properties))
+        report_user_action(user, "alert updated", self._get_event_properties(), analytics_props=analytics_props)
 
     @classmethod
     def check_alert_limit(cls, team_id: int, organization: Organization) -> str | None:

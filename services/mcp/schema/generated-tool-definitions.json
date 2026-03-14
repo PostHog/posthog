@@ -644,6 +644,81 @@
             "readOnlyHint": false
         }
     },
+    "proxy-list": {
+        "description": "List all managed reverse proxies configured for the current organization. Returns each proxy's domain, CNAME target, provisioning status, and the maximum number of proxies allowed by the current plan. Use this to check whether a reverse proxy is set up before recommending one.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "List reverse proxies",
+        "title": "List reverse proxies",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "proxy-get": {
+        "description": "Get full details of a specific reverse proxy by ID. Returns the domain, CNAME target (the DNS record value the user needs to configure), current provisioning status, and any error or warning messages. Use this to debug why a proxy isn't working or to check DNS verification status.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Get reverse proxy details",
+        "title": "Get reverse proxy details",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "proxy-create": {
+        "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Create reverse proxy",
+        "title": "Create reverse proxy",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "proxy-retry": {
+        "description": "Retry provisioning a reverse proxy that has failed. Only works for proxies in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' and restarts the DNS verification and certificate provisioning workflow.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Retry reverse proxy provisioning",
+        "title": "Retry reverse proxy provisioning",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "proxy-delete": {
+        "description": "Delete a managed reverse proxy. For proxies still being set up (waiting, erroring, timed_out), the record is removed immediately. For active proxies, a cleanup workflow is started to remove the provisioned infrastructure.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Delete reverse proxy",
+        "title": "Delete reverse proxy",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "workflows-list": {
         "description": "List all workflows in the project. Returns workflows with their name, description, status (draft/active/archived), version, trigger configuration, and timestamps.",
         "category": "Workflows",

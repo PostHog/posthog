@@ -170,7 +170,7 @@ Defined in `src/llm_gateway/products/config.py`:
 | `llma_summarization` | API key + OAuth | gpt-4.1-nano, gpt-4.1-mini | LLM analytics summarization     |
 | `llma_eval_summary`  | API key + OAuth | gpt-5-mini                 | LLM analytics eval summary      |
 
-Aliases: `twig` and `array` resolve to `posthog_code`.
+Aliases: `twig`, `array` resolve to `posthog_code`; `slack-twig` resolves to `slack-posthog-code`.
 
 ### Adding a new product
 

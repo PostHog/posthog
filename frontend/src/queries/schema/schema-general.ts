@@ -2993,6 +2993,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     reason?: UserProductListReason
     /** Custom reason text for custom product suggestion (from UserProductList) */
     reasonText?: string | null
+    /** Display label override — when set, shown in the nav instead of the last segment of `path` */
+    displayLabel?: string
 }
 
 export interface FileSystemViewLogEntry {
@@ -4487,6 +4489,8 @@ export interface MarketingAnalyticsTableQuery extends Omit<
     compareFilter?: CompareFilter
     /** Filter by integration type */
     integrationFilter?: IntegrationFilter
+    /** Drill-down hierarchy level: channel, source, or campaign (default) */
+    drillDownLevel?: MarketingAnalyticsDrillDownLevel
 }
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
@@ -4526,6 +4530,8 @@ export interface MarketingAnalyticsAggregatedQuery extends Omit<
     draftConversionGoal?: ConversionGoalFilter
     /** Filter by integration IDs */
     integrationFilter?: IntegrationFilter
+    /** Drill-down hierarchy level: channel, source, or campaign (default) */
+    drillDownLevel?: MarketingAnalyticsDrillDownLevel
 }
 
 /** Columns for non-integrated conversions table */
@@ -4720,6 +4726,12 @@ export interface MarketingAnalyticsConfig {
     campaign_field_preferences?: Record<string, CampaignFieldPreference>
 }
 
+export enum MarketingAnalyticsDrillDownLevel {
+    Channel = 'channel',
+    Source = 'source',
+    Campaign = 'campaign',
+}
+
 export enum MarketingAnalyticsBaseColumns {
     Id = 'ID',
     Campaign = 'Campaign',
@@ -4733,6 +4745,37 @@ export enum MarketingAnalyticsBaseColumns {
     ReportedConversionValue = 'Reported Conversion Value',
     ReportedROAS = 'Reported ROAS',
     CostPerReportedConversion = 'Cost per Reported Conversion',
+}
+
+export type MarketingAnalyticsDrillDownConfig = {
+    columnAlias: string
+    excludedBaseColumns: MarketingAnalyticsBaseColumns[]
+}
+
+export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
+    MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsDrillDownConfig
+> = {
+    [MarketingAnalyticsDrillDownLevel.Channel]: {
+        columnAlias: 'Channel',
+        excludedBaseColumns: [
+            MarketingAnalyticsBaseColumns.Id,
+            MarketingAnalyticsBaseColumns.Campaign,
+            MarketingAnalyticsBaseColumns.Source,
+        ],
+    },
+    [MarketingAnalyticsDrillDownLevel.Source]: {
+        columnAlias: 'Source',
+        excludedBaseColumns: [
+            MarketingAnalyticsBaseColumns.Id,
+            MarketingAnalyticsBaseColumns.Campaign,
+            MarketingAnalyticsBaseColumns.Source,
+        ],
+    },
+    [MarketingAnalyticsDrillDownLevel.Campaign]: {
+        columnAlias: MarketingAnalyticsBaseColumns.Campaign,
+        excludedBaseColumns: [],
+    },
 }
 
 export enum MarketingAnalyticsConstants {

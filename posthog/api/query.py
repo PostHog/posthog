@@ -39,7 +39,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import get_query_tag_value, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.errors import ExposedCHQueryError, InternalCHQueryError
-from posthog.event_usage import report_user_or_team_action
+from posthog.event_usage import get_request_analytics_properties, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.apply_dashboard_filters import apply_dashboard_filters, apply_dashboard_variables
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
@@ -144,6 +144,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 data, self.team, data.client_query_id, request.user
             )
             self._tag_client_query_id(client_query_id)
+            analytics_props = get_request_analytics_properties(request)
             query_dict = query.model_dump()
 
             if data.limit_context == SchemaLimitContext.POSTHOG_AI:
@@ -166,7 +167,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 user=request.user,  # type: ignore[arg-type]
                 is_query_service=(get_query_tag_value("access_method") == "personal_api_key"),
                 limit_context=limit_context,
-                request=request,
+                analytics_props=analytics_props,
             )
             if isinstance(result, BaseModel):
                 result = result.model_dump(by_alias=True)
@@ -187,7 +188,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                     user=request.user if isinstance(request.user, User) else None,
                     team=self.team,
                     organization=self.team.organization,
-                    request=request,
+                    analytics_props=analytics_props,
                 )
             except Exception:
                 pass
