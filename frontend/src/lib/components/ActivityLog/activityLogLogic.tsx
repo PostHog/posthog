@@ -192,6 +192,7 @@ export const activityLogLogic = kea<activityLogLogicType>([
     path((key) => ['lib', 'components', 'ActivityLog', 'activitylog', 'logic', key]),
     actions({
         setPage: (page: number) => ({ page }),
+        setHighlightedActivityId: (id: string | null) => ({ id }),
     }),
     loaders(({ values, props }) => ({
         activity: [
@@ -210,6 +211,12 @@ export const activityLogLogic = kea<activityLogLogicType>([
             1,
             {
                 setPage: (_, { page }) => page,
+            },
+        ],
+        highlightedActivityId: [
+            null as string | null,
+            {
+                setHighlightedActivityId: (_, { id }) => id,
             },
         ],
     })),
@@ -278,6 +285,11 @@ export const activityLogLogic = kea<activityLogLogicType>([
                     newSearchParams,
                     router.values.hashParams
                 )
+            }
+
+            const activityId = searchParams['activity']
+            if (activityId && activityId !== values.highlightedActivityId) {
+                actions.setHighlightedActivityId(activityId)
             }
         }
         return {

@@ -36,6 +36,7 @@ export interface ActivityLogDetail {
 }
 
 export type ActivityLogItem = {
+    id?: string
     user?: Pick<UserBasicType, 'email' | 'first_name' | 'last_name'>
     activity: string
     created_at: string
@@ -64,6 +65,7 @@ export type ChangeMapping = {
 export type HumanizedChange = { description: Description | null; extendedDescription?: ExtendedDescription }
 
 export type HumanizedActivityLogItem = {
+    id?: string
     email?: string | null
     name?: string
     isSystem?: boolean
@@ -108,6 +110,7 @@ export function humanize(
         if (description !== null) {
             const impersonatedUserName = logItem.user ? fullName(logItem.user) : undefined
             logLines.push({
+                id: logItem.id,
                 email: logItem.was_impersonated ? undefined : logItem.user?.email,
                 name: logItem.was_impersonated
                     ? `PostHog Support${impersonatedUserName ? ` (as ${impersonatedUserName})` : ''}`
