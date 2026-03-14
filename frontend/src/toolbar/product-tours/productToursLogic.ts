@@ -101,6 +101,9 @@ export function getStepElement(step: TourStep): HTMLElement | null {
         try {
             return document.querySelector(step.selector) as HTMLElement | null
         } catch {
+            toolbarLogger.warn('product_tours', 'Failed to query element with manual selector', {
+                selector: step.selector,
+            })
             return null
         }
     }
@@ -112,6 +115,7 @@ export function getStepElement(step: TourStep): HTMLElement | null {
         try {
             return document.querySelector(step.selector) as HTMLElement | null
         } catch {
+            toolbarLogger.warn('product_tours', 'Failed to query element with selector', { selector: step.selector })
             return null
         }
     }
@@ -625,6 +629,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     actions.selectTour(null)
                 }
             } catch (e: any) {
+                toolbarLogger.error('product_tours', 'Failed to save tour', { tourId: tourForm?.id })
                 captureToolbarException(e, 'product_tour_save')
                 lemonToast.error(e.detail || 'Failed to save tour')
             }

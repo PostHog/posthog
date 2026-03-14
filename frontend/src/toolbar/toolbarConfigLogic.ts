@@ -96,7 +96,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                             return props.uiHost.replace(/\/+$/, '')
                         }
                     } catch {
-                        // invalid URL, fall through to other sources
+                        toolbarLogger.warn('config', 'Invalid uiHost URL provided', { uiHost: props.uiHost })
                     }
                 }
 
@@ -142,6 +142,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     listeners(({ values, actions }) => ({
         authenticate: async () => {
+            toolbarLogger.info('auth', 'Authentication initiated')
+
             // If the uiHost check found a problem, open the config modal instead of proceeding.
             if (values.authStatus === 'error') {
                 toolbarPosthogJS.capture('toolbar ui host config modal opened', { ui_host: values.uiHost })
@@ -186,6 +188,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             window.location.href = `${values.uiHost}/toolbar_oauth/authorize/?redirect=${redirect}&code_challenge=${codeChallenge}`
         },
         logout: () => {
+            toolbarLogger.info('auth', 'User logged out')
             toolbarPosthogJS.capture('toolbar logout')
             localStorage.removeItem(LOCALSTORAGE_KEY)
             localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
@@ -301,7 +304,7 @@ function restoreOAuthTokens(
             }
         }
     } catch {
-        // ignore localStorage errors
+        toolbarLogger.warn('auth', 'Failed to parse stored OAuth tokens from localStorage')
     }
 }
 
@@ -325,11 +328,12 @@ function initInstrumentation(
     props: ToolbarProps,
     values: { isAuthenticated: boolean; uiHost: string; apiHost: string }
 ): void {
+    if (props.distinctId) {
+        toolbarPosthogJS.identify(props.distinctId, props.userEmail ? { email: props.userEmail } : {})
+    }
+
     if (props.instrument) {
         toolbarPosthogJS.opt_in_capturing()
-        if (props.distinctId) {
-            toolbarPosthogJS.identify(props.distinctId, props.userEmail ? { email: props.userEmail } : {})
-        }
     }
 
     toolbarPosthogJS.capture('toolbar loaded', {
@@ -463,7 +467,7 @@ async function exchangeCodeForTokens(
         const raw = localStorage.getItem(PKCE_STORAGE_KEY)
         pkceData = JSON.parse(raw || '{}')
     } catch {
-        // corrupted data
+        toolbarLogger.warn('auth', 'Failed to parse PKCE data from localStorage')
     }
     localStorage.removeItem(PKCE_STORAGE_KEY)
 
