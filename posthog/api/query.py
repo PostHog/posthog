@@ -35,7 +35,7 @@ from posthog import settings
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
-from posthog.api.query_coalescer import QueryCoalescer, compute_coalescing_key, query_coalesce_counter
+from posthog.api.query_coalescer import QueryCoalescer, compute_coalescing_key
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
@@ -153,10 +153,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         query_json = query.model_dump_json()
         key = compute_coalescing_key(self.team.pk, query_json)
-        coalescer = QueryCoalescer(key)
+        coalescer = QueryCoalescer(key, dry_run=not enabled)
 
         log = logger.bind(coalescing_key=key, query_id=client_query_id)
 
+        # Dry run: all requests still compete for the lock so we can measure how many
+        # concurrent duplicates exist (follower_dry_run metric). Leaders proceed normally
+        # (the Redis overhead is minimal). Followers return immediately without waiting.
         try:
             is_leader = coalescer.try_acquire()
         except RedisError:
@@ -169,7 +172,6 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             return None
 
         if not enabled:
-            query_coalesce_counter.labels(outcome="follower_dry_run").inc()
             return None
 
         # Follower path
@@ -210,19 +212,20 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         return None
 
     def finalize_response(self, request, response, *args, **kwargs):
-        response = super().finalize_response(request, response, *args, **kwargs)
-
-        if self._coalescer and self._coalescer.is_leader:
-            try:
-                if response.status_code >= 400:
-                    response.render()
-                    self._coalescer.store_error_response(response.status_code, response.content)
-                else:
-                    self._coalescer.mark_done()
-            except Exception:
-                logger.warning("query_coalescing_finalize_error", exc_info=True)
-            finally:
-                self._coalescer.cleanup()
+        try:
+            response = super().finalize_response(request, response, *args, **kwargs)
+        finally:
+            if self._coalescer and self._coalescer.is_leader:
+                try:
+                    if response.status_code >= 400:
+                        response.render()
+                        self._coalescer.store_error_response(response.status_code, response.content)
+                    else:
+                        self._coalescer.mark_done()
+                except Exception:
+                    logger.warning("query_coalescing_finalize_error", exc_info=True)
+                finally:
+                    self._coalescer.cleanup()
 
         return response
 

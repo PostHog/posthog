@@ -271,6 +271,14 @@ class TestQueryCoalescer(TestCase):
         after = query_coalesce_counter.labels(outcome="follower")._value.get()
         self.assertEqual(after, before + 1)
 
+    def test_dry_run_follower_increments_counter(self):
+        self._set_lock()
+        before = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
+        coalescer = QueryCoalescer(self.key, dry_run=True)
+        self.assertFalse(coalescer.try_acquire())
+        after = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
+        self.assertEqual(after, before + 1)
+
     # -- Redis failure --
 
     def test_redis_failure_on_acquire_raises(self):
@@ -299,7 +307,10 @@ class TestQueryCoalescingEndpoint(ClickhouseTestMixin, APIBaseTest):
         before = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
 
         try:
-            with mock.patch("posthog.api.query.posthoganalytics.feature_enabled", return_value=False):
+            with (
+                mock.patch("posthog.api.query.posthoganalytics.feature_enabled", return_value=False),
+                mock.patch.object(QueryCoalescer, "wait_for_signal") as mock_wait,
+            ):
                 response = self.client.post(
                     f"/api/environments/{self.team.id}/query/",
                     {"query": query.model_dump()},
@@ -310,6 +321,7 @@ class TestQueryCoalescingEndpoint(ClickhouseTestMixin, APIBaseTest):
             self.assertIn("test_event", events)
             after = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
             self.assertEqual(after, before + 1)
+            mock_wait.assert_not_called()
         finally:
             redis.delete(f"{LOCK_KEY_PREFIX}:{key}")
 

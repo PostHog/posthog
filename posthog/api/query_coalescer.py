@@ -80,8 +80,9 @@ class QueryCoalescer:
     then either replay the stored error response or re-execute to hit fresh cache.
     """
 
-    def __init__(self, coalescing_key: str):
+    def __init__(self, coalescing_key: str, *, dry_run: bool = False):
         self.coalescing_key = coalescing_key
+        self._dry_run = dry_run
         self._lock_value: str = uuid.uuid4().hex
         self._is_leader: bool = False
         self._heartbeat: Optional[_Heartbeat] = None
@@ -111,6 +112,8 @@ class QueryCoalescer:
             self._redis.delete(self._done_key, self._error_key)
             self._heartbeat = _Heartbeat(self._redis, self._lock_key, self._lock_value)
             query_coalesce_counter.labels(outcome="leader").inc()
+        elif self._dry_run:
+            query_coalesce_counter.labels(outcome="follower_dry_run").inc()
         else:
             query_coalesce_counter.labels(outcome="follower").inc()
         return self._is_leader
