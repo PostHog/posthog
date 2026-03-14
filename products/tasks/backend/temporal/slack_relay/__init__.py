@@ -1,8 +1,8 @@
 from .activities import RelaySlackMessageInput, relay_slack_message
-from .workflow import TwigAgentRelayWorkflow
+from .workflow import PostHogCodeAgentRelayWorkflow
 
 __all__ = [
     "RelaySlackMessageInput",
-    "TwigAgentRelayWorkflow",
+    "PostHogCodeAgentRelayWorkflow",
     "relay_slack_message",
 ]

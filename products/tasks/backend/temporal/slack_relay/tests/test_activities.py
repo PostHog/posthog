@@ -42,7 +42,7 @@ class TestRelaySlackMessage(TestCase):
         )
         self.integration = Integration.objects.create(
             team=self.team,
-            kind="slack-twig",
+            kind="slack-posthog-code",
             integration_id="T123",
             config={},
         )

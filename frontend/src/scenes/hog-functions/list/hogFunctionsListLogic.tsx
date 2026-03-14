@@ -18,6 +18,7 @@ import { CyclotronJobFiltersType, HogFunctionType, HogFunctionTypeType, UserType
 import type { hogFunctionsListLogicType } from './hogFunctionsListLogicType'
 
 export const CDP_TEST_HIDDEN_FLAG = '[CDP-TEST-HIDDEN]'
+const EMPTY_MANUAL_FUNCTIONS: HogFunctionType[] = []
 // Helping kea-typegen navigate the exported default class for Fuse
 export interface Fuse extends FuseClass<HogFunctionType> {}
 
@@ -151,7 +152,7 @@ export const hogFunctionsListLogic = kea<hogFunctionsListLogicType>([
     selectors({
         loading: [(s) => [s.hogFunctionsLoading], (hogFunctionsLoading) => hogFunctionsLoading],
         sortedHogFunctions: [
-            (s) => [s.hogFunctions, (_, props) => props.manualFunctions ?? []],
+            (s) => [s.hogFunctions, (_, props) => props.manualFunctions ?? EMPTY_MANUAL_FUNCTIONS],
             (hogFunctions, manualFunctions): HogFunctionType[] => {
                 const enabledFirst = [...hogFunctions, ...manualFunctions].sort(
                     (a, b) => Number(b.enabled) - Number(a.enabled)

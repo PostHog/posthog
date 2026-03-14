@@ -6,6 +6,7 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import get_request_analytics_properties
 from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
 from posthog.rbac.user_access_control import UserAccessControlError
 
@@ -32,7 +33,6 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError({"pathname": "This field is required."})
 
         query_runner = get_query_runner(
-            request=request,
             query={
                 "kind": "TrendsQuery",
                 "dateRange": {"date_from": "-7d", "explicitDate": False},
@@ -79,7 +79,10 @@ class WebVitalsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         )
 
         try:
-            result = query_runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+            result = query_runner.run(
+                execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE,
+                analytics_props=get_request_analytics_properties(request),
+            )
         except UserAccessControlError as e:
             raise ValidationError(str(e))
 

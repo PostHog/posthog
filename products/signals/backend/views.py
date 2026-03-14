@@ -293,7 +293,7 @@ class SignalReportViewSet(
                 document_id,
                 content,
                 metadata,
-                toString(timestamp) as timestamp
+                timestamp
             FROM (
                 SELECT
                     document_id,
