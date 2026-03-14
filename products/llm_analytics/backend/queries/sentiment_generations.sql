@@ -28,6 +28,7 @@ FROM (
     FROM events
     WHERE event = '$ai_generation'
         AND properties.$ai_input != ''
+        AND properties.$ai_trace_id != ''
         AND {filters}
 )
 GROUP BY trace_id
