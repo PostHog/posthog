@@ -374,19 +374,24 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     if not state:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=missing_state")
 
-    pending = AgenticProvisioningState.objects.filter(
-        token=state,
-        purpose=AgenticProvisioningState.Purpose.PENDING_AUTH,
-        expires_at__gt=timezone.now(),
-        consumed_at__isnull=True,
-    ).first()
-    if pending is None:
-        return HttpResponseRedirect(f"{settings.SITE_URL}?error=expired_or_invalid_state")
+    with transaction.atomic():
+        pending = (
+            AgenticProvisioningState.objects.select_for_update()
+            .filter(
+                token=state,
+                purpose=AgenticProvisioningState.Purpose.PENDING_AUTH,
+                expires_at__gt=timezone.now(),
+                consumed_at__isnull=True,
+            )
+            .first()
+        )
+        if pending is None:
+            return HttpResponseRedirect(f"{settings.SITE_URL}?error=expired_or_invalid_state")
 
-    if request.user.email != pending.payload["email"]:
-        return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
+        if request.user.email != pending.payload["email"]:
+            return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
 
-    pending.delete()
+        pending.delete()
 
     user = request.user
     membership = user.organization_memberships.first()
@@ -919,7 +924,7 @@ def agentic_login(request: Any) -> HttpResponseBase:
             state.consumed_at = now
             state.save(update_fields=["consumed_at"])
     except Exception:
-        capture_exception(additional_properties={"token": token})
+        capture_exception(additional_properties={"token_prefix": token[:8] if token else ""})
         return HttpResponseRedirect("/?error=service_unavailable")
 
     link_data = state.payload

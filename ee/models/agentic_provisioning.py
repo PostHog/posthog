@@ -11,13 +11,16 @@ class AgenticProvisioningState(UUIDModel):
         RESOURCE_SERVICE = "resource_service"
 
     purpose = models.CharField(max_length=32, choices=Purpose.choices)
-    token = models.CharField(max_length=255, unique=True, db_index=True)
+    token = models.CharField(max_length=255, db_index=True)
     payload = models.JSONField(default=dict)
     expires_at = models.DateTimeField(null=True, blank=True)
     consumed_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["purpose", "token"], name="unique_agentic_state_purpose_token"),
+        ]
         indexes = [
             models.Index(fields=["purpose", "expires_at"], name="idx_agentic_state_purpose_exp"),
         ]
