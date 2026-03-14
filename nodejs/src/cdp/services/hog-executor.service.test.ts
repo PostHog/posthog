@@ -817,7 +817,7 @@ describe('Hog Executor', () => {
         it('postHogGetTicket queues internal fetch with correct params', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
@@ -828,14 +828,14 @@ describe('Hog Executor', () => {
                 type: 'fetch',
                 url: `${hub.SITE_URL}/api/conversations/external/ticket/test-ticket-123`,
                 method: 'GET',
-                headers: { Authorization: 'Bearer test-api-token' },
+                headers: { Authorization: 'Bearer test-secret-token' },
             })
         })
 
         it('postHogUpdateTicket queues internal fetch with correct params', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogUpdateTicket', [
@@ -851,7 +851,7 @@ describe('Hog Executor', () => {
                 body: JSON.stringify({ status: 'resolved', priority: 'high' }),
                 headers: {
                     'Content-Type': 'application/json',
-                    Authorization: 'Bearer test-api-token',
+                    Authorization: 'Bearer test-secret-token',
                 },
             })
         })
@@ -859,7 +859,7 @@ describe('Hog Executor', () => {
         it('postHogGetTicket errors when ticket_id is missing', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogGetTicket', [{}])
@@ -871,7 +871,7 @@ describe('Hog Executor', () => {
         it('postHogUpdateTicket errors when ticket_id is missing', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogUpdateTicket', [{ updates: { status: 'resolved' } }])

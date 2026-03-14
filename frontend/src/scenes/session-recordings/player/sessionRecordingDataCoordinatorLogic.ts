@@ -93,6 +93,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'loadRecordingCommentsSuccess',
                     'loadRecordingNotebookCommentsSuccess',
                 ],
+                snapLogic,
+                ['storeUpdated'],
             ],
             values: [
                 metaLogic,
@@ -218,6 +220,12 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             )
 
             breakpoint()
+
+            // processAllSnapshots may synthesize full snapshots (e.g. for mobile recordings).
+            // Sync them back to the store so canPlayAt() and LoadingScheduler work correctly.
+            if (values.snapshotStore.syncFullSnapshotTimestamps(result)) {
+                actions.storeUpdated()
+            }
 
             // Release raw snapshot arrays from the store — only the metadata
             // (fullSnapshotTimestamps, metaTimestamps, state) is still needed.
