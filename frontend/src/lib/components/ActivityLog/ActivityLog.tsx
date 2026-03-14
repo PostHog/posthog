@@ -163,6 +163,10 @@ export const ActivityLogRow = ({
                 newParams.set(key, String(value))
             }
         }
+        // Ensure the History tab is restored when deep-linking from feature flag pages
+        if (pathname && pathname.startsWith('/feature_flags/') && !newParams.has('tab')) {
+            newParams.set('tab', 'history')
+        }
         newParams.set('activity', logItem.id)
         const url = `${window.location.origin}${pathname}?${newParams.toString()}${hash || ''}`
         void copyToClipboard(url, 'activity link')
