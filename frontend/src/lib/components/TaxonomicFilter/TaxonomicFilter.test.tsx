@@ -10,6 +10,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
 
+import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { TaxonomicFilterGroupType } from './types'
 
@@ -20,6 +21,7 @@ jest.mock('lib/components/AutoSizer', () => ({
 
 describe('TaxonomicFilter', () => {
     beforeEach(() => {
+        localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': mockGetEventDefinitions,
@@ -138,5 +140,74 @@ describe('TaxonomicFilter', () => {
         })
 
         expect(onChange.mock.calls[0][1]).toBe('event1')
+    })
+
+    describe('Recent filters tab', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        afterEach(() => {
+            if (recentTaxonomicFiltersLogic.isMounted()) {
+                recentTaxonomicFiltersLogic.unmount()
+            }
+        })
+
+        it('auto-appears when there are matching recent items', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(TaxonomicFilterGroupType.Events, 'event1', {
+                name: 'event1',
+                id: 'uuid-1',
+            })
+
+            renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+        })
+
+        it('only shows items whose group type matches the current context', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(TaxonomicFilterGroupType.Events, '$pageview', {
+                name: '$pageview',
+                id: 'uuid-pv',
+            })
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.PersonProperties,
+                'location',
+                { name: 'location', id: 'uuid-loc' }
+            )
+
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByText('$pageview')).not.toBeInTheDocument()
+        })
+
+        it('does not appear when there are no matching recent items', async () => {
+            recentTaxonomicFiltersLogic.mount()
+
+            renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByTestId('taxonomic-tab-recent_filters')).not.toBeInTheDocument()
+        })
     })
 })

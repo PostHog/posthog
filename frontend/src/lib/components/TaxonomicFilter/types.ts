@@ -230,6 +230,7 @@ export enum TaxonomicFilterGroupType {
     // Workflows execution variables
     WorkflowVariables = 'workflow_variables',
     SuggestedFilters = 'suggested_filters',
+    RecentFilters = 'recent_filters',
     Empty = 'empty',
 }
 
