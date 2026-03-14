@@ -35,7 +35,7 @@ from posthog import settings
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
-from posthog.api.query_coalescer import QueryCoalescer, compute_coalescing_key
+from posthog.api.query_coalescer import QueryCoalescer, compute_coalescing_key, query_coalesce_counter
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
@@ -146,14 +146,14 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         if execution_mode != ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE:
             return None
 
-        dry_run = not posthoganalytics.feature_enabled(
+        enabled = posthoganalytics.feature_enabled(
             "http-query-coalescing",
             str(self.team.pk),
         )
 
         query_json = query.model_dump_json()
         key = compute_coalescing_key(self.team.pk, query_json)
-        coalescer = QueryCoalescer(key, dry_run=dry_run)
+        coalescer = QueryCoalescer(key)
 
         log = logger.bind(coalescing_key=key, query_id=client_query_id)
 
@@ -168,7 +168,8 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             self._coalescer = coalescer
             return None
 
-        if dry_run:
+        if not enabled:
+            query_coalesce_counter.labels(outcome="follower_dry_run").inc()
             return None
 
         # Follower path

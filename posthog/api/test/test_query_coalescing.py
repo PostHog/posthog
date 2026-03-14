@@ -271,16 +271,6 @@ class TestQueryCoalescer(TestCase):
         after = query_coalesce_counter.labels(outcome="follower")._value.get()
         self.assertEqual(after, before + 1)
 
-    def test_dry_run_follower_increments_counter(self):
-        from posthog.api.query_coalescer import query_coalesce_counter
-
-        self._set_lock()
-        before = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
-        coalescer = QueryCoalescer(self.key, dry_run=True)
-        self.assertFalse(coalescer.try_acquire())
-        after = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
-        self.assertEqual(after, before + 1)
-
     # -- Redis failure --
 
     def test_redis_failure_on_acquire_raises(self):

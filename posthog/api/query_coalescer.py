@@ -73,16 +73,15 @@ class _Heartbeat:
 
 
 class QueryCoalescer:
-    """HTTP-layer query coalescer.
+    """Query coalescer.
 
     One request (leader) acquires a Redis lock and executes the query.
     Concurrent requests (followers) poll until the leader signals done,
     then either replay the stored error response or re-execute to hit fresh cache.
     """
 
-    def __init__(self, coalescing_key: str, *, dry_run: bool = False):
+    def __init__(self, coalescing_key: str):
         self.coalescing_key = coalescing_key
-        self.dry_run = dry_run
         self._lock_value: str = uuid.uuid4().hex
         self._is_leader: bool = False
         self._heartbeat: Optional[_Heartbeat] = None
@@ -112,8 +111,6 @@ class QueryCoalescer:
             self._redis.delete(self._done_key, self._error_key)
             self._heartbeat = _Heartbeat(self._redis, self._lock_key, self._lock_value)
             query_coalesce_counter.labels(outcome="leader").inc()
-        elif self.dry_run:
-            query_coalesce_counter.labels(outcome="follower_dry_run").inc()
         else:
             query_coalesce_counter.labels(outcome="follower").inc()
         return self._is_leader
