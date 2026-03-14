@@ -139,22 +139,25 @@ class TestGroupingPipeline:
     async def run_signal_pipeline(self, record_id: int, case: EvalSignalCase):
         """Run a single signal through the pre-emit pipeline."""
 
-        description = await self.pre_emit(record_id, case)
+        try:
+            description = await self.pre_emit(record_id, case)
 
-        if not description:
-            logger.warning("record=%d Signal dropped", record_id)
-            return
+            if not description:
+                logger.warning("record=%d Signal dropped", record_id)
+                return
 
-        logger.warning(
-            "record=%d group=%d source=%s description=%.80s",
-            record_id,
-            case.group_index,
-            case.signal.source.value,
-            description.replace("\n", " "),
-        )
+            logger.warning(
+                "record=%d group=%d source=%s description=%.80s",
+                record_id,
+                case.group_index,
+                case.signal.source.value,
+                description.replace("\n", " "),
+            )
 
-        report_id = await self.match_signal(record_id, description, case)
-        await self.store_signal(record_id, description, report_id, case)
+            report_id = await self.match_signal(record_id, description, case)
+            await self.store_signal(record_id, description, report_id, case)
+        except Exception:
+            logger.exception("record=%d group=%d Signal pipeline failed, skipping", record_id, case.group_index)
 
     async def store_signal(self, record_id: int, description: str, report_id: str, case: EvalSignalCase):
         signal_embedding = await self.store.embed(description)
