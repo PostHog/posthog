@@ -20,6 +20,7 @@ import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -164,7 +165,7 @@ export const ActivityLogRow = ({
             }
         }
         // Ensure the History tab is restored when deep-linking from feature flag pages
-        if (pathname && pathname.startsWith('/feature_flags/') && !newParams.has('tab')) {
+        if (pathname && removeProjectIdIfPresent(pathname).startsWith('/feature_flags/') && !newParams.has('tab')) {
             newParams.set('tab', 'history')
         }
         newParams.set('activity', logItem.id)
