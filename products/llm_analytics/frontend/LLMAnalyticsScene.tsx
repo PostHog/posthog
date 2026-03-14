@@ -582,7 +582,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
         })
     }
 
-    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]) {
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT_TAB]) {
         tabs.push({
             key: 'sentiment',
             label: 'Sentiment',
