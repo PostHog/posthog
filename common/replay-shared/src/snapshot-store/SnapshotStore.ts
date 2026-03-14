@@ -187,6 +187,7 @@ export class SnapshotStore {
                     timestamps.push(snap.timestamp)
                 }
             }
+            timestamps.sort((a, b) => a - b)
             if (
                 timestamps.length > 0 &&
                 (timestamps.length !== entry.fullSnapshotTimestamps.length ||

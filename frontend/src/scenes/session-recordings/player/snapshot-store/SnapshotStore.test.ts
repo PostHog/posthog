@@ -352,28 +352,29 @@ describe('SnapshotStore', () => {
             expect(store.canPlayAt(snapTs)).toBe(true)
         })
 
-        it('returns false when timestamps are unchanged', () => {
+        it.each([
+            {
+                description: 'returns false when timestamps are unchanged',
+                loadSource: true,
+            },
+            {
+                description: 'skips unloaded entries',
+                loadSource: false,
+            },
+        ])('$description', ({ loadSource }) => {
             const store = new SnapshotStore()
             store.setSources(makeSources(3))
 
             const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
-            store.markLoaded(0, [makeFullSnapshot(fsTs)])
+            if (loadSource) {
+                store.markLoaded(0, [makeFullSnapshot(fsTs)])
+            }
 
             const versionBefore = store.version
             const changed = store.syncFullSnapshotTimestamps([makeFullSnapshot(fsTs)])
 
             expect(changed).toBe(false)
             expect(store.version).toBe(versionBefore)
-        })
-
-        it('skips unloaded entries', () => {
-            const store = new SnapshotStore()
-            store.setSources(makeSources(3))
-
-            const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
-            const changed = store.syncFullSnapshotTimestamps([makeFullSnapshot(fsTs)])
-
-            expect(changed).toBe(false)
         })
     })
 
