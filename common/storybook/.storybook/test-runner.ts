@@ -96,7 +96,7 @@ const customSnapshotsDir = path.resolve(__dirname, '../../../frontend/__snapshot
 // eslint-disable-next-line no-console
 console.log('[test-runner] Storybook snapshots will be saved to', customSnapshotsDir)
 
-const JEST_TIMEOUT_MS = 25000 // Increased for stories with iframes (e.g. SidePanelDocs)
+const JEST_TIMEOUT_MS = 60000 // Multi-viewport snapshots can take substantially longer in CI
 const PLAYWRIGHT_TIMEOUT_MS = 10000 // Must be shorter than JEST_TIMEOUT_MS
 const VIEWPORT_SETTLE_TIMEOUT_MS = 5000
 
