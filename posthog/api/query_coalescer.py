@@ -127,9 +127,6 @@ class QueryCoalescer:
             "timeout" — max_wait exceeded
             "crashed" — leader lock disappeared without done/error
         """
-        if self.dry_run:
-            return "timeout"
-
         start = time.monotonic()
 
         while (time.monotonic() - start) < max_wait:

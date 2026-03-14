@@ -168,8 +168,10 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             self._coalescer = coalescer
             return None
 
+        if dry_run:
+            return None
+
         # Follower path
-        log = log.bind(dry_run=dry_run)
         log.info("query_coalescing_follower_waiting")
 
         signal = coalescer.wait_for_signal(max_wait=settings.QUERY_COALESCING_MAX_WAIT_SECONDS)

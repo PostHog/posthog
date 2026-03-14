@@ -3,6 +3,7 @@ import time
 import threading
 from typing import Any
 
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest import mock
 
 from django.test import TestCase
@@ -17,6 +18,7 @@ from posthog.api.query_coalescer import (
     QueryCoalescer,
     _Heartbeat,
     compute_coalescing_key,
+    query_coalesce_counter,
 )
 
 
@@ -163,12 +165,6 @@ class TestQueryCoalescer(TestCase):
         coalescer = QueryCoalescer(self.key)
         self.assertEqual(coalescer.wait_for_signal(max_wait=0.01), "timeout")
 
-    def test_wait_returns_timeout_in_dry_run(self):
-        self._set_lock()
-        self.redis.set(f"{DONE_KEY_PREFIX}:{self.key}", "1", ex=60)
-        coalescer = QueryCoalescer(self.key, dry_run=True)
-        self.assertEqual(coalescer.wait_for_signal(max_wait=5), "timeout")
-
     def test_wait_polls_until_done(self):
         self._set_lock()
         coalescer = QueryCoalescer(self.key)
@@ -281,7 +277,7 @@ class TestQueryCoalescer(TestCase):
         self._set_lock()
         before = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
         coalescer = QueryCoalescer(self.key, dry_run=True)
-        coalescer.try_acquire()
+        self.assertFalse(coalescer.try_acquire())
         after = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
         self.assertEqual(after, before + 1)
 
@@ -292,3 +288,78 @@ class TestQueryCoalescer(TestCase):
         with mock.patch.object(coalescer._redis, "set", side_effect=RedisError("down")):
             with self.assertRaises(RedisError):
                 coalescer.try_acquire()
+
+
+class TestQueryCoalescingEndpoint(ClickhouseTestMixin, APIBaseTest):
+    def _query_and_key(self):
+        from posthog.schema import EventsQuery
+
+        query = EventsQuery(select=["event"])
+        key = compute_coalescing_key(self.team.pk, query.model_dump_json())
+        return query, key
+
+    def test_dry_run_follower_executes_normally(self):
+        _create_event(team=self.team, event="test_event", distinct_id="user1")
+        flush_persons_and_events()
+
+        query, key = self._query_and_key()
+        redis = posthog_redis.get_client()
+        redis.set(f"{LOCK_KEY_PREFIX}:{key}", "other_leader", ex=60)
+
+        before = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
+
+        try:
+            with mock.patch("posthog.api.query.posthoganalytics.feature_enabled", return_value=False):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/query/",
+                    {"query": query.model_dump()},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            events = [row[0] for row in response.json()["results"]]
+            self.assertIn("test_event", events)
+            after = query_coalesce_counter.labels(outcome="follower_dry_run")._value.get()
+            self.assertEqual(after, before + 1)
+        finally:
+            redis.delete(f"{LOCK_KEY_PREFIX}:{key}")
+
+    def test_follower_waits_for_leader_and_hits_cache(self):
+        _create_event(team=self.team, event="test_event", distinct_id="user1")
+        flush_persons_and_events()
+
+        query, key = self._query_and_key()
+
+        # First request populates the cache (as leader, no lock held)
+        with mock.patch("posthog.api.query.posthoganalytics.feature_enabled", return_value=True):
+            first = self.client.post(
+                f"/api/environments/{self.team.id}/query/",
+                {"query": query.model_dump()},
+            )
+        self.assertEqual(first.status_code, 200)
+
+        # Now simulate a leader holding the lock with done signal
+        redis = posthog_redis.get_client()
+        redis.set(f"{LOCK_KEY_PREFIX}:{key}", "other_leader", ex=60)
+        redis.set(f"{DONE_KEY_PREFIX}:{key}", "1", ex=60)
+
+        before_follower = query_coalesce_counter.labels(outcome="follower")._value.get()
+        before_done = query_coalesce_counter.labels(outcome="follower_done")._value.get()
+
+        try:
+            with mock.patch("posthog.api.query.posthoganalytics.feature_enabled", return_value=True):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/query/",
+                    {"query": query.model_dump()},
+                )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.json().get("is_cached"))
+            events = [row[0] for row in response.json()["results"]]
+            self.assertIn("test_event", events)
+            after_follower = query_coalesce_counter.labels(outcome="follower")._value.get()
+            after_done = query_coalesce_counter.labels(outcome="follower_done")._value.get()
+            self.assertEqual(after_follower, before_follower + 1)
+            self.assertEqual(after_done, before_done + 1)
+        finally:
+            redis.delete(f"{LOCK_KEY_PREFIX}:{key}")
+            redis.delete(f"{DONE_KEY_PREFIX}:{key}")
