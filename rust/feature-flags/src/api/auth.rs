@@ -130,14 +130,16 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
           )
     "#;
 
-    let row = sqlx::query(query)
+    let row = 
+    sqlx::query(query)
         .bind(&secure_value)
         .fetch_optional(&mut *conn)
         .await?
         .ok_or_else(|| {
             warn!("Personal API key not found or doesn't have required scopes");
-            FlagError::PersonalApiKeyInvalid("Authorization header".to_string())
-        })?;
+            FlagError::PersonalApiKeyInvalid
+        }
+)?;
 
     // Validate scoped_teams restriction
     let scoped_teams: Option<Vec<i32>> = row.try_get("scoped_teams").ok();
@@ -148,9 +150,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
                 scoped_teams = ?teams,
                 "Personal API key does not have access to this team"
             );
-            return Err(FlagError::PersonalApiKeyInvalid(
-                "Authorization header".to_string(),
-            ));
+            return Err(FlagError::PersonalApiKeyInvalid);
         }
     }
 
@@ -175,9 +175,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
                     scoped_organizations = ?orgs,
                     "Personal API key scope does not include this organization"
                 );
-                return Err(FlagError::PersonalApiKeyInvalid(
-                    "Authorization header".to_string(),
-                ));
+                return Err(FlagError::PersonalApiKeyInvalid);
             }
         }
 
@@ -196,9 +194,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
                 scoped_organizations = ?scoped_organizations,
                 "Personal API key does not have access to this organization"
             );
-            return Err(FlagError::PersonalApiKeyInvalid(
-                "Authorization header".to_string(),
-            ));
+            return Err(FlagError::PersonalApiKeyInvalid);
         }
     } else {
         // Legacy team without organization_id - skip organization validation
