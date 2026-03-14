@@ -4,7 +4,13 @@ import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
 import { getQueryBasedInsightModel } from '~/queries/nodes/InsightViz/utils'
 import { isFunnelsQuery, isPathsQuery, isRetentionQuery, isTrendsQuery } from '~/queries/utils'
-import { ChartDisplayType, DashboardLayoutSize, DashboardTile, QueryBasedInsightModel } from '~/types'
+import {
+    ChartDisplayType,
+    DashboardLayoutSize,
+    DashboardTile,
+    DashboardWidgetType,
+    QueryBasedInsightModel,
+} from '~/types'
 
 export interface TileLayout {
     x: number
@@ -136,7 +142,20 @@ export const calculateLayouts = (
             let defaultW = 6
             let defaultH = 5
             // Content-adjusted constraints (note that widths should be factors of 12)
-            if (tile.text) {
+            if (tile.widget) {
+                const widgetSizes: Record<string, { w: number; h: number }> = {
+                    [DashboardWidgetType.Experiment]: { w: 6, h: 6 },
+                    [DashboardWidgetType.Logs]: { w: 12, h: 5 },
+                    [DashboardWidgetType.ErrorTracking]: { w: 8, h: 5 },
+                    [DashboardWidgetType.SessionReplays]: { w: 8, h: 6 },
+                    [DashboardWidgetType.SurveyResponses]: { w: 6, h: 5 },
+                }
+                const size = widgetSizes[tile.widget.widget_type]
+                if (size) {
+                    defaultW = size.w
+                    defaultH = size.h
+                }
+            } else if (tile.text) {
                 defaultW = 2
                 defaultH = 2
             } else if (isFunnelsQuery(query)) {

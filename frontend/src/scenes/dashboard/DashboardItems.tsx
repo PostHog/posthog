@@ -24,6 +24,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
 import { DashboardTextItem } from './items/DashboardTextItem'
+import { DashboardWidgetItem } from './items/DashboardWidgetItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 50
@@ -228,7 +229,7 @@ export function DashboardItems(): JSX.Element {
                         }}
                     >
                         {tiles?.map((tile) => {
-                            const { insight, text } = tile
+                            const { insight, text, widget } = tile
                             const smLayout = layouts['sm']?.find((l) => {
                                 return l.i == tile.id.toString()
                             })
@@ -343,6 +344,24 @@ export function DashboardItems(): JSX.Element {
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                    />
+                                )
+                            }
+
+                            if (widget) {
+                                return (
+                                    <DashboardWidgetItem
+                                        key={tile.id}
+                                        tile={tile}
+                                        widget={widget}
+                                        placement={placement}
+                                        otherDashboards={otherDashboards}
+                                        showResizeHandles={commonTileProps.showResizeHandles}
+                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                        moveToDashboard={commonTileProps.moveToDashboard}
+                                        removeFromDashboard={commonTileProps.removeFromDashboard}
                                     />
                                 )
                             }

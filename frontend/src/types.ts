@@ -2140,10 +2140,28 @@ export interface Tileable {
     color: InsightColor | null
 }
 
+export enum DashboardWidgetType {
+    Experiment = 'experiment',
+    Logs = 'logs',
+    ErrorTracking = 'error_tracking',
+    SessionReplays = 'session_replays',
+    SurveyResponses = 'survey_responses',
+}
+
+export interface DashboardWidgetModel {
+    id: number
+    widget_type: DashboardWidgetType
+    config: Record<string, any>
+    created_by?: UserBasicType
+    last_modified_by?: UserBasicType
+    last_modified_at?: string
+}
+
 export interface DashboardTile<T = InsightModel> extends Tileable {
     id: number
     insight?: T
     text?: TextModel
+    widget?: DashboardWidgetModel
     deleted?: boolean
     is_cached?: boolean
     order?: number

@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useState } from 'react'
 
 import { IconPencil, IconPlusSmall, IconShare } from '@posthog/icons'
 
@@ -16,6 +17,7 @@ import { urls } from 'scenes/urls'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode } from '~/types'
 
+import { AddWidgetModal } from './AddWidgetModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardLoadAction, dashboardLogic } from './dashboardLogic'
 
@@ -95,6 +97,7 @@ export function ViewModeActions(): JSX.Element {
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { push } = useActions(router)
     const hasTileRedesign = useFeatureFlag('DASHBOARD_TILE_REDESIGN')
+    const [addWidgetModalOpen, setAddWidgetModalOpen] = useState(false)
 
     if (!dashboard) {
         return <></>
@@ -138,6 +141,24 @@ export function ViewModeActions(): JSX.Element {
                     </LemonButton>
                 </AppShortcut>
             </AccessControlAction>
+            <AccessControlAction
+                resourceType={AccessControlResourceType.Dashboard}
+                minAccessLevel={AccessControlLevel.Editor}
+                userAccessLevel={dashboard.user_access_level}
+            >
+                <LemonButton
+                    onClick={() => setAddWidgetModalOpen(true)}
+                    data-attr="add-widget-to-dashboard"
+                    type="secondary"
+                    size="small"
+                    tooltip="Add widget"
+                    tooltipPlacement="top"
+                    icon={<IconPlusSmall />}
+                >
+                    Widget
+                </LemonButton>
+            </AccessControlAction>
+            <AddWidgetModal isOpen={addWidgetModalOpen} onClose={() => setAddWidgetModalOpen(false)} />
             {canEditDashboard && hasTileRedesign && (
                 <AppShortcut
                     name="EnterEditMode"

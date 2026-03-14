@@ -45,7 +45,7 @@ from posthog.event_usage import get_request_analytics_properties, report_user_ac
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Dashboard, DashboardTile, Insight, Text
+from posthog.models import Dashboard, DashboardTile, DashboardWidget, Insight, Text
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
@@ -188,10 +188,21 @@ class TextSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
 
 
+class DashboardWidgetSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    last_modified_by = UserBasicSerializer(read_only=True)
+
+    class Meta:
+        model = DashboardWidget
+        fields = ["id", "widget_type", "config", "created_by", "last_modified_by", "last_modified_at"]
+        read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
+
+
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
     insight = InsightSerializer()
     text = TextSerializer()
+    widget = DashboardWidgetSerializer(required=False, allow_null=True)
 
     class Meta:
         model = DashboardTile
@@ -531,6 +542,20 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 filters_overrides=existing_tile.filters_overrides,
                 show_description=existing_tile.show_description,
             )
+        elif existing_tile.widget:
+            new_widget = DashboardWidget.objects.create(
+                widget_type=existing_tile.widget.widget_type,
+                config=existing_tile.widget.config,
+                team=dashboard.team,
+                created_by=existing_tile.widget.created_by,
+            )
+            DashboardTile.objects.create(
+                dashboard=dashboard,
+                widget=new_widget,
+                layouts=existing_tile.layouts,
+                color=existing_tile.color,
+                show_description=existing_tile.show_description,
+            )
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
@@ -642,6 +667,37 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 dashboard=instance,
                 defaults={**tile_data, "text": text, "dashboard": instance},
             )
+        elif tile_data.get("widget", None):
+            widget_json: dict = tile_data.get("widget", {})
+            widget_defaults = {
+                "widget_type": widget_json.get("widget_type"),
+                "config": widget_json.get("config", {}),
+                "team_id": instance.team_id,
+                "last_modified_at": now(),
+                "last_modified_by": user,
+            }
+            widget_id = widget_json.get("id", None)
+            if widget_id:
+                widget_defaults["created_by"] = user
+            else:
+                widget_defaults["created_by"] = user
+
+            widget, _ = DashboardWidget.objects.update_or_create(
+                id=widget_id, team_id=instance.team_id, defaults=widget_defaults
+            )
+
+            tile_defaults = {
+                k: v for k, v in tile_data.items() if k in ("layouts", "color", "show_description", "deleted")
+            }
+            tile_defaults["widget"] = widget
+            tile_defaults["dashboard"] = instance
+
+            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
+            DashboardTile.objects.update_or_create(
+                id=tile_data.get("id", None),
+                dashboard=instance,
+                defaults=tile_defaults,
+            )
         elif (
             "deleted" in tile_data
             or "color" in tile_data
@@ -650,6 +706,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             or "show_description" in tile_data
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
+            tile_data.pop("widget", None)  # don't update widget reference here
 
             # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
             DashboardTile.objects.update_or_create(
