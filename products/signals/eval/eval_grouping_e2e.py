@@ -1,73 +1,122 @@
 """
-Grouping e2e eval — clustering quality against known ground-truth groups.
+Grouping e2e eval — measures how well the signal grouping pipeline clusters
+signals into reports, evaluated against known ground-truth groups.
 
-Feeds synthetic signals through the real grouping pipeline (LLM matching,
-embeddings) with mocked infrastructure (ClickHouse, Temporal).
+Feeds synthetic signals through the real pipeline (LLM query generation,
+embedding search, LLM matching, specificity verification) with mocked
+infrastructure (in-memory embedding store replaces ClickHouse + Kafka).
 
-One eval item per predicted report, with metrics:
-- purity (numeric 0-1): fraction of signals from the dominant true group
-- is_pure (binary): whether all signals belong to a single true group
-- group_recall (numeric 0-1): fraction of the dominant group captured (undergrouping)
+After grouping, each report is summarized and judged for safety (prompt
+injection detection) and actionability (can a coding agent act on it).
 
-Plus global metrics: ari, homogeneity, completeness, v_measure, mean_purity, mean_group_recall.
-
-Note: --limit truncates the interleaved stream, so metrics like completeness and
-group_recall will penalize the pipeline for groups it never saw. Use with caution.
+Captures four levels of metrics:
+- Per-signal: correct_match (binary), failure_mode (categorical: NONE,
+  UNDERGROUP, OVERGROUP, SPECIFICITY_SPLIT)
+- Per-report grouping: purity, is_pure, group_recall
+- Per-report judges: correct_safety (binary), correct_actionability
+  (binary), actionability_choice (categorical)
+- Aggregate: ARI, homogeneity, completeness, v_measure, mean_purity,
+  mean_group_recall
 
 Run:
     pytest products/signals/eval/eval_grouping_e2e.py -xvs --log-cli-level=WARNING
-    pytest products/signals/eval/eval_grouping_e2e.py -xvs --log-cli-level=WARNING [--limit <limit>] [--no-capture]
+    pytest products/signals/eval/eval_grouping_e2e.py -xvs --log-cli-level=WARNING --limit 10 --no-capture
 """
 
 import uuid
 import random
+import asyncio
 import logging
-from collections import Counter
+from dataclasses import dataclass
+from enum import Enum
+from typing import Any
 
 import pytest
 
-from sklearn.metrics import adjusted_rand_score, completeness_score, homogeneity_score, v_measure_score
+from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
+from posthog.temporal.data_imports.workflow_activities.emit_signals import (
+    _check_actionability,
+    _summarize_long_descriptions,
+)
 
-from products.signals.backend.api import emit_signal
-from products.signals.backend.models import SignalReport
+from products.signals.backend.temporal.actionability_judge import ActionabilityChoice, judge_report_actionability
+from products.signals.backend.temporal.grouping import (
+    generate_search_queries,
+    match_signal_to_report,
+    verify_match_specificity,
+)
+from products.signals.backend.temporal.safety_judge import judge_report_safety
+from products.signals.backend.temporal.summarize_signals import summarize_signals
+from products.signals.backend.temporal.types import (
+    ExistingReportMatch,
+    MatchResult,
+    NewReportMatch,
+    NoMatchMetadata,
+    SpecificityMetadata,
+)
 from products.signals.eval.capture import EvalMetric, capture_evaluation, deterministic_uuid
-from products.signals.eval.data_spec import SignalSpec
+from products.signals.eval.data_spec import EvalSignalSpec
 from products.signals.eval.fixtures.grouping_data import GROUP_DATA
+from products.signals.eval.mock import EmbeddingStore, ReportStore
 
 RNG_SEED = 1337
-EVAL_NAME = "signal-grouping-e2e"
+
+
+class MatchFailureMode(Enum):
+    NONE = "NONE"  # correct match
+    UNDERGROUP = "UNDERGROUP"  # created new report when should have joined existing
+    OVERGROUP = "OVERGROUP"  # joined a report belonging to a different ground-truth group
+    SPECIFICITY_SPLIT = "SPECIFICITY_SPLIT"  # specificity check split a correct match
+
 
 logger = logging.getLogger(__name__)
 
 
-def get_signals_stream() -> list[tuple[int, SignalSpec]]:
-    """Interleave signals across groups randomly, preserving within-group order.
+@dataclass
+class EvalSignalCase:
+    group_index: int
+    signal_index: int
+    actionable: bool
+    safe: bool
+    signal: EvalSignalSpec
 
-    Returns (group_index, signal) tuples so callers know the ground truth.
-    """
+
+def get_signals_stream() -> list[EvalSignalCase]:
+    """Interleave signals across groups randomly, preserving within-group order."""
     rng = random.Random(RNG_SEED)
     cursors = [0] * len(GROUP_DATA)
-    stream: list[tuple[int, SignalSpec]] = []
+    stream: list[EvalSignalCase] = []
 
     def get_active():
         return [i for i, g in enumerate(GROUP_DATA) if cursors[i] < len(g.signals)]
 
     while active := get_active():
         k = rng.randint(0, len(active) - 1)
-        group_idx = active[k]
-        signal = GROUP_DATA[group_idx].signals[cursors[group_idx]]
-        cursors[group_idx] += 1
-        stream.append((group_idx, signal))
+        group_index = active[k]
+        group = GROUP_DATA[group_index]
+        signal = group.signals[cursors[group_index]]
+        stream.append(
+            EvalSignalCase(
+                group_index=group_index,
+                signal_index=cursors[group_index],
+                safe=group.safe,
+                actionable=group.actionable,
+                signal=signal,
+            )
+        )
+        cursors[group_index] += 1
 
     return stream
 
 
 class TestGroupingPipeline:
     @pytest.fixture(autouse=True)
-    def _setup(self, team, mock_temporal, mock_clickhouse, posthog_client, limit, no_capture):
-        self.team = team
-        self.store = mock_clickhouse
+    def _setup(self, posthog_client, openai_client, gemini_client, mock_temporal, limit, no_capture):
         self.posthog_client = posthog_client
+        self.gemini_client = gemini_client
+        self.openai_client = openai_client
+        self.store = EmbeddingStore(openai_client)
+        self.report_store = ReportStore()
         self.limit = limit
         self.no_capture = no_capture
 
@@ -76,239 +125,414 @@ class TestGroupingPipeline:
         stream = get_signals_stream()
         if self.limit:
             stream = stream[: self.limit]
-            groups_in_stream = {g_idx for g_idx, _ in stream}
-            total_groups = len(GROUP_DATA)
-            if len(groups_in_stream) < total_groups:
-                logger.warning(
-                    "--limit %d: stream covers %d/%d groups — completeness and group_recall will be unreliable",
-                    self.limit,
-                    len(groups_in_stream),
-                    total_groups,
-                )
+            logger.warning("Limiting to %d signals.", self.limit)
 
-        # Emit signals through the real pipeline
-
-        n_groups = len({g_idx for g_idx, _ in stream})
+        n_groups = len({case.group_index for case in stream})
         logger.warning("Emitting %d signals from %d ground-truth groups...", len(stream), n_groups)
 
-        ground_truth: dict[str, int] = {}
-        signal_ids_in_order: list[str] = []
+        for i, case in enumerate(stream):
+            await self.run_signal_pipeline(record_id=i, case=case)
 
-        for group_idx, signal in stream:
-            signal_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"eval:{group_idx}:{signal.description}"))
-            ground_truth[signal_id] = group_idx
-            signal_ids_in_order.append(signal_id)
+        await self._judge_reports()
+        self._capture_grouping_quality()
+        self._capture_aggregate_metrics(stream)
 
-            await emit_signal(
-                team=self.team,
-                source_product=signal.source_product,
-                source_type=signal.source_type,
-                source_id=signal_id,
-                description=signal.description,
-            )
+    async def run_signal_pipeline(self, record_id: int, case: EvalSignalCase):
+        """Run a single signal through the pre-emit pipeline."""
 
-        logger.warning("Pipeline complete. %d signals stored.", len(self.store._signals))
+        description = await self.pre_emit(record_id, case)
 
-        # Build predicted grouping from store
+        if not description:
+            logger.warning("record=%d Signal dropped", record_id)
+            return
 
-        predicted: dict[str, str] = {}
-        signal_content: dict[str, str] = {}
-        for sig in self.store._signals:
-            if not sig.deleted:
-                predicted[sig.source_id] = sig.report_id
-                signal_content[sig.source_id] = sig.content
-
-        aligned_ids = [sid for sid in signal_ids_in_order if sid in predicted]
-        assert aligned_ids, (
-            f"No signals were stored — pipeline produced no output "
-            f"({len(signal_ids_in_order)} emitted, {len(self.store._signals)} in store)"
+        logger.warning(
+            "record=%d group=%d source=%s description=%.80s",
+            record_id,
+            case.group_index,
+            case.signal.source.value,
+            description.replace("\n", " "),
         )
-        dropped = len(signal_ids_in_order) - len(aligned_ids)
-        if dropped:
-            logger.warning("Pipeline dropped %d/%d signals", dropped, len(signal_ids_in_order))
 
-        true_labels = [ground_truth[sid] for sid in aligned_ids]
-        pred_labels = [predicted[sid] for sid in aligned_ids]
+        report_id = await self.match_signal(record_id, description, case)
+        await self.store_signal(record_id, description, report_id, case)
 
-        logger.warning("Computing metrics for %d aligned signals...", len(aligned_ids))
+    async def store_signal(self, record_id: int, description: str, report_id: str, case: EvalSignalCase):
+        signal_embedding = await self.store.embed(description)
+        self.store.store(
+            signal_id=str(record_id),
+            content=description,
+            embedding=signal_embedding,
+            report_id=report_id,
+            source_product=case.signal.config.source_product,
+            source_type=case.signal.config.source_type,
+            source_id="",
+            weight=1.0,
+        )
 
-        # Compute global clustering metrics
+    async def match_signal(self, record_id: int, description: str, case: EvalSignalCase) -> str:
+        """Match a single signal to an existing report or create a new one. Returns report_id."""
 
-        ari = adjusted_rand_score(true_labels, pred_labels)
-        homogeneity = homogeneity_score(true_labels, pred_labels)
-        completeness = completeness_score(true_labels, pred_labels)
-        v_measure = v_measure_score(true_labels, pred_labels)
+        queries = await generate_search_queries(
+            description=description,
+            source_product=case.signal.config.source_product,
+            source_type=case.signal.config.source_type,
+            signal_type_examples=self.store.get_type_examples(),
+        )
 
-        n_true_groups = len(set(true_labels))
-        n_pred_groups = len(set(pred_labels))
-        report_titles = {str(r.id): r.title async for r in SignalReport.objects.filter(team=self.team)}
+        query_embeddings = [self.store.embed(q) for q in queries]
+        candidates = [self.store.search(emb) for emb in query_embeddings]
 
-        # Per-report breakdown and purity scoring
+        match_result = await match_signal_to_report(
+            description=description,
+            source_product=case.signal.config.source_product,
+            source_type=case.signal.config.source_type,
+            queries=queries,
+            query_results=candidates,
+            report_contexts=self.report_store.get_contexts(),
+        )
 
-        experiment_id = deterministic_uuid(EVAL_NAME)
+        if isinstance(match_result, ExistingReportMatch):
+            report_ctx = self.report_store.get(match_result.report_id)
+            report_title = report_ctx.context.title if report_ctx else ""
+            group_signals = self.store.get_signals_for_report(match_result.report_id)
 
-        true_group_sizes = Counter(true_labels)
-
-        report_purities: list[float] = []
-        report_recalls: list[float] = []
-        report_rows: list[str] = []
-
-        for report_id in sorted(set(pred_labels)):
-            title = report_titles.get(report_id, "(untitled)")
-            member_ids = [sid for sid in aligned_ids if predicted[sid] == report_id]
-            true_group_counts = Counter(ground_truth[sid] for sid in member_ids)
-
-            # Purity: fraction of signals from the dominant true group
-            dominant_count = max(true_group_counts.values())
-            purity = dominant_count / len(member_ids)
-            report_purities.append(purity)
-
-            # Group recall: fraction of the dominant true group captured by this report
-            dominant_group = true_group_counts.most_common(1)[0][0]
-            group_recall = dominant_count / true_group_sizes[dominant_group]
-            report_recalls.append(group_recall)
-
-            # Build output: list of signals in this report
-            signals_output = [
-                {
-                    "signal_id": sid,
-                    "true_group": ground_truth[sid],
-                    "true_scenario": GROUP_DATA[ground_truth[sid]].scenario,
-                    "content": signal_content.get(sid, "")[:200],
-                }
-                for sid in member_ids
-            ]
-
-            is_pure = len(true_group_counts) == 1
-
-            report_rows.append(
-                f"  {report_id[:12]}: {title} "
-                f"({len(member_ids)} signals, purity={purity:.2f}, recall={group_recall:.2f}, "
-                f"groups={dict(true_group_counts)})"
+            specificity_result = await verify_match_specificity(
+                new_signal_description=description,
+                new_signal_source_product=case.signal.config.source_product,
+                new_signal_source_type=case.signal.config.source_type,
+                report_title=report_title,
+                group_signals=group_signals,
             )
 
-            if not self.no_capture:
-                item_id = deterministic_uuid(f"{EVAL_NAME}:{report_id}")
-                capture_evaluation(
-                    client=self.posthog_client,
-                    experiment_id=experiment_id,
-                    experiment_name=EVAL_NAME,
-                    item_id=item_id,
-                    item_name=f"{title} ({len(member_ids)} signals)",
-                    input=f"Report: {title}\nScenario (dominant): {GROUP_DATA[dominant_group].scenario}",
-                    output=signals_output,
-                    expected=None,
-                    metrics=[
-                        EvalMetric(
-                            name="purity",
-                            description="Fraction of signals from the dominant true group in a predicted report",
-                            result_type="numeric",
-                            score=purity,
-                            score_min=0.0,
-                            score_max=1.0,
-                            reasoning=f"{'Pure' if is_pure else 'Mixed'}: {dict(true_group_counts)}",
-                        ),
-                        EvalMetric(
-                            name="is_pure",
-                            description="Whether all signals in a predicted report belong to a single true group",
-                            result_type="binary",
-                            score=1.0 if is_pure else 0.0,
-                            score_min=0.0,
-                            score_max=1.0,
-                            reasoning=f"{'All signals from group ' + str(dominant_group) if is_pure else 'Mixed: ' + str(dict(true_group_counts))}",
-                        ),
-                        EvalMetric(
-                            name="group_recall",
-                            description="Fraction of the dominant true group's signals captured by this report — low values indicate undergrouping",
-                            result_type="numeric",
-                            score=group_recall,
-                            score_min=0.0,
-                            score_max=1.0,
-                            reasoning=f"{dominant_count}/{true_group_sizes[dominant_group]} signals from group {dominant_group}",
-                        ),
-                    ],
+            specificity_meta = SpecificityMetadata(
+                pr_title=specificity_result.pr_title,
+                specific_enough=specificity_result.specific_enough,
+                reason=specificity_result.reason,
+            )
+
+            if specificity_result.specific_enough:
+                match_result.match_metadata.specificity = specificity_meta
+            else:
+                match_result = NewReportMatch(
+                    title=description.split("\n")[0],
+                    summary=f"Split from group: {report_title}",
+                    match_metadata=NoMatchMetadata(
+                        reason=f'PR-specificity rejected: "{specificity_result.pr_title}" — {specificity_result.reason}',
+                        specificity_rejection=specificity_meta,
+                    ),
                 )
 
-        mean_purity = sum(report_purities) / len(report_purities) if report_purities else 0.0
-        mean_group_recall = sum(report_recalls) / len(report_recalls) if report_recalls else 0.0
+        report_id = match_result.report_id if isinstance(match_result, ExistingReportMatch) else str(uuid.uuid4())
+        self._capture_match_quality(case, report_id, match_result)
+        self.report_store.insert(report_id, match_result, case.group_index)
+        return report_id
 
-        results = "\n".join(
-            [
-                "=" * 60,
-                "GROUPING EVAL RESULTS",
-                "=" * 60,
-                f"Signals: {len(aligned_ids)} | True groups: {n_true_groups} | Predicted groups: {n_pred_groups}",
-                f"ARI: {ari:.3f} | Homogeneity: {homogeneity:.3f} | Completeness: {completeness:.3f} | V-measure: {v_measure:.3f}",
-                "",
-                "Per-report breakdown:",
-                *report_rows,
-                "",
-                f"Global: mean_purity={mean_purity:.3f} mean_group_recall={mean_group_recall:.3f} ARI={ari:.3f} V-measure={v_measure:.3f}",
-                "=" * 60,
-            ]
+    async def pre_emit(self, record_id: int, case: EvalSignalCase) -> str:
+        content = case.signal.content
+        config = case.signal.config
+
+        outputs = [content]
+
+        if case.signal.content is None:
+            logger.warning("Emitter returned None for record %d, skipping", record_id)
+            return
+
+        if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
+            outputs = await _summarize_long_descriptions(
+                outputs=outputs,
+                summarization_prompt=config.summarization_prompt,
+                threshold=config.description_summarization_threshold_chars,
+                extra={},
+            )
+
+        content = outputs[0]
+
+        if config.actionability_prompt:
+            stub = SignalEmitterOutput(
+                source_product=config.source_product,
+                source_type=config.source_type,
+                source_id="",
+                description=content,
+                weight=1.0,
+                extra={},
+            )
+            is_actionable, thoughts = await _check_actionability(self.gemini_client, stub, config.actionability_prompt)
+            self._capture_pre_emit_actionability(case, thoughts, is_actionable)
+            if not is_actionable:
+                return None
+
+        return content or None
+
+    async def _capture_pre_emit_actionability(self, case: EvalSignalCase, thoughts: str, outcome: bool):
+        self._capture(
+            eval_name=f"{case.signal.source}-actionability-check",
+            item_name=f"case-{case.group_index}-{case.signal_index}",
+            input=case.signal.content,
+            output=thoughts,
+            expected="ACTIONABLE" if case.actionable else "NOT_ACTIONABLE",
+            metrics=[
+                EvalMetric(
+                    name="correct_classification",
+                    result_type="binary",
+                    score=1.0 if outcome == case.actionable else 0.0,
+                    score_min=0,
+                    score_max=1,
+                    reasoning=thoughts,
+                )
+            ],
         )
-        logger.warning("\n%s", results)
 
-        if not self.no_capture:
-            global_input = f"{len(aligned_ids)} signals, {n_true_groups} true groups, {n_pred_groups} predicted groups"
-            capture_evaluation(
-                client=self.posthog_client,
-                experiment_id=f"{experiment_id}-aggregate",
-                experiment_name=EVAL_NAME,
-                item_id=deterministic_uuid(f"{EVAL_NAME}:global"),
-                item_name="global",
-                input=global_input,
-                output=None,
-                expected=None,
+    def _capture_match_quality(self, case: EvalSignalCase, report_id: str, match_result: MatchResult):
+        """Captures whether the matching decision was correct and classifies the failure mode."""
+        is_existing = isinstance(match_result, ExistingReportMatch)
+        expected_report = self.report_store.find_report_by_group_index(case.group_index)
+        expected_id = expected_report.context.report_id
+        has_specificity_rejection = (
+            isinstance(match_result, NewReportMatch) and match_result.match_metadata.specificity_rejection is not None
+        )
+
+        if expected_report is None:
+            correct = not is_existing
+            expected = "NEW_REPORT"
+            if correct:
+                failure_mode = MatchFailureMode.NONE
+            else:
+                failure_mode = MatchFailureMode.OVERGROUP
+        else:
+            expected = f"EXISTING_REPORT"
+
+            if is_existing and match_result.report_id == expected_id:
+                failure_mode = MatchFailureMode.NONE
+                correct = True
+            elif is_existing:
+                failure_mode = MatchFailureMode.OVERGROUP
+                correct = False
+            elif has_specificity_rejection:
+                failure_mode = MatchFailureMode.SPECIFICITY_SPLIT
+                correct = False
+            else:
+                failure_mode = MatchFailureMode.UNDERGROUP
+                correct = False
+
+        outcome = f"EXISTING_REPORT" if is_existing else f"NEW_REPORT"
+        reasoning = match_result.match_metadata.reason if hasattr(match_result.match_metadata, "reason") else ""
+
+        self._capture(
+            eval_name="match-quality-check",
+            item_name=f"match-{case.group_index}-{case.signal_index}",
+            input=case.signal.content,
+            output=outcome,
+            expected=expected,
+            metrics=[
+                EvalMetric(
+                    name="correct_match",
+                    result_type="binary",
+                    score=1.0 if correct else 0.0,
+                    score_min=0,
+                    score_max=1,
+                    reasoning=reasoning,
+                ),
+                EvalMetric(
+                    name="failure_mode",
+                    result_type="categorical",
+                    score=failure_mode.value,
+                ),
+            ],
+            report_id=report_id,
+        )
+
+    async def _judge_reports(self):
+        """Run summarization, safety, and actionability judges on each report."""
+        for report in self.report_store.all_reports():
+            report_id = report.context.report_id
+            signals = self.store.get_signals_for_report(report_id)
+            if not signals:
+                continue
+
+            dominant_group = GROUP_DATA[report.true_group_index]
+            expected_safe = dominant_group.safe
+            expected_actionable = dominant_group.actionable
+
+            title, summary = await summarize_signals(signals)
+
+            safety_result, actionability_result = await asyncio.gather(
+                judge_report_safety(title=title, summary=summary, signals=signals),
+                judge_report_actionability(title=title, summary=summary, signals=signals),
+            )
+
+            self._capture(
+                eval_name="report-safety-check",
+                item_name=f"report-{report_id[:12]}",
+                input=f"{title}\n\n{summary}",
+                output="SAFE" if safety_result.choice else "UNSAFE",
+                expected="SAFE" if expected_safe else "UNSAFE",
                 metrics=[
                     EvalMetric(
-                        name="ari",
-                        description="Adjusted Rand Index — similarity between predicted and true groupings, adjusted for chance",
-                        result_type="numeric",
-                        score=ari,
-                        score_min=-1.0,
-                        score_max=1.0,
-                    ),
-                    EvalMetric(
-                        name="homogeneity",
-                        description="Whether each predicted report contains only signals from a single true group",
-                        result_type="numeric",
-                        score=homogeneity,
-                        score_min=0.0,
-                        score_max=1.0,
-                    ),
-                    EvalMetric(
-                        name="completeness",
-                        description="Whether all signals from a true group are assigned to the same predicted report",
-                        result_type="numeric",
-                        score=completeness,
-                        score_min=0.0,
-                        score_max=1.0,
-                    ),
-                    EvalMetric(
-                        name="v_measure",
-                        description="Harmonic mean of homogeneity and completeness",
-                        result_type="numeric",
-                        score=v_measure,
-                        score_min=0.0,
-                        score_max=1.0,
-                    ),
-                    EvalMetric(
-                        name="mean_purity",
-                        description="Average purity across all predicted reports",
-                        result_type="numeric",
-                        score=mean_purity,
-                        score_min=0.0,
-                        score_max=1.0,
-                    ),
-                    EvalMetric(
-                        name="mean_group_recall",
-                        description="Average group recall across all predicted reports — low values indicate undergrouping",
-                        result_type="numeric",
-                        score=mean_group_recall,
-                        score_min=0.0,
-                        score_max=1.0,
+                        name="correct_safety",
+                        result_type="binary",
+                        score=1.0 if safety_result.choice == expected_safe else 0.0,
+                        reasoning=safety_result.explanation,
                     ),
                 ],
+                report_id=report_id,
             )
-            self.posthog_client.flush()
+
+            is_actionable = actionability_result.choice != ActionabilityChoice.NOT_ACTIONABLE
+            self._capture(
+                eval_name="report-actionability-check",
+                item_name=f"report-{report_id[:12]}",
+                input=f"{title}\n\n{summary}",
+                output=actionability_result.choice.value,
+                expected="ACTIONABLE" if expected_actionable else "NOT_ACTIONABLE",
+                metrics=[
+                    EvalMetric(
+                        name="correct_actionability",
+                        result_type="binary",
+                        score=1.0 if is_actionable == expected_actionable else 0.0,
+                        reasoning=actionability_result.explanation,
+                    ),
+                    EvalMetric(
+                        name="actionability_choice",
+                        result_type="categorical",
+                        score=actionability_result.choice.value,
+                    ),
+                ],
+                report_id=report_id,
+            )
+
+    def _capture_grouping_quality(self):
+        """Per-report metrics: purity, is_pure, group_recall."""
+        for report in self.report_store.all_reports():
+            groups = report.true_signal_groups
+            total = len(groups)
+            if total == 0:
+                continue
+
+            dominant_group = report.true_group_index
+            dominant_count = groups.count(dominant_group)
+
+            purity = dominant_count / total
+            is_pure = dominant_count == total
+
+            # recall: what fraction of the dominant group's total signals landed here
+            total_in_group = len(GROUP_DATA[dominant_group].signals)
+            group_recall = dominant_count / total_in_group
+
+            self._capture(
+                eval_name="grouping-quality",
+                item_name=f"report-{report.context.report_id[:12]}",
+                input=report.context.title,
+                output=f"purity={purity:.2f} recall={group_recall:.2f} signals={total}",
+                expected=f"group-{dominant_group}",
+                metrics=[
+                    EvalMetric(name="purity", result_type="numeric", score=purity),
+                    EvalMetric(name="is_pure", result_type="binary", score=1.0 if is_pure else 0.0),
+                    EvalMetric(name="group_recall", result_type="numeric", score=group_recall),
+                ],
+                report_id=report.context.report_id,
+            )
+
+    def _capture_aggregate_metrics(self, stream: list[EvalSignalCase]):
+        """Global clustering metrics: ARI, homogeneity, completeness, v_measure, mean_purity, mean_group_recall."""
+        from sklearn.metrics import adjusted_rand_score, homogeneity_completeness_v_measure
+
+        true_labels: list[int] = []
+        pred_labels: list[str] = []
+        for report in self.report_store.all_reports():
+            for group_index in report.true_signal_groups:
+                true_labels.append(group_index)
+                pred_labels.append(report.context.report_id)
+
+        reports = self.report_store.all_reports()
+
+        purities: list[float] = []
+        group_recalls: list[float] = []
+        for report in reports:
+            groups = report.true_signal_groups
+            dominant_count = groups.count(report.true_group_index)
+            purities.append(dominant_count / len(groups))
+            total_in_group = len(GROUP_DATA[report.true_group_index].signals)
+            group_recalls.append(dominant_count / total_in_group)
+
+        ari = adjusted_rand_score(true_labels, pred_labels)
+        homogeneity, completeness, v_measure = homogeneity_completeness_v_measure(true_labels, pred_labels)
+        mean_purity = sum(purities) / len(purities) if purities else 0.0
+        mean_group_recall = sum(group_recalls) / len(group_recalls) if group_recalls else 0.0
+
+        n_groups_expected = len({case.group_index for case in stream})
+        n_reports_actual = len(reports)
+
+        self._capture(
+            eval_name="grouping-aggregate",
+            item_name="aggregate",
+            input=f"{len(stream)} signals, {n_groups_expected} true groups",
+            output=f"{n_reports_actual} predicted reports",
+            expected=f"{n_groups_expected} reports",
+            metrics=[
+                EvalMetric(
+                    name="ari",
+                    description="Adjusted rand index — chance-corrected clustering similarity, -1 (worst) to 1 (perfect)",
+                    result_type="numeric",
+                    score=ari,
+                    score_min=-1,
+                    score_max=1,
+                ),
+                EvalMetric(
+                    name="homogeneity",
+                    description="Each report contains only signals from a single true group (1.0 = no overgrouping)",
+                    result_type="numeric",
+                    score=homogeneity,
+                ),
+                EvalMetric(
+                    name="completeness",
+                    description="All signals from a true group are assigned to the same report (1.0 = no undergrouping)",
+                    result_type="numeric",
+                    score=completeness,
+                ),
+                EvalMetric(
+                    name="v_measure",
+                    description="Harmonic mean of homogeneity and completeness",
+                    result_type="numeric",
+                    score=v_measure,
+                ),
+                EvalMetric(
+                    name="mean_purity",
+                    description="Average fraction of signals from the dominant group per report",
+                    result_type="numeric",
+                    score=mean_purity,
+                ),
+                EvalMetric(
+                    name="mean_group_recall",
+                    description="Average fraction of a true group's signals captured by its best report",
+                    result_type="numeric",
+                    score=mean_group_recall,
+                ),
+            ],
+        )
+
+    def _capture(
+        self,
+        eval_name: str,
+        item_name: str,
+        input: Any,
+        output: Any,
+        expected: Any,
+        metrics: list[EvalMetric],
+        report_id: int | str = 0,
+    ):
+        if self.no_capture:
+            return
+        experiment_id = deterministic_uuid(eval_name)
+        item_id = deterministic_uuid(f"{eval_name}:{report_id}")
+        capture_evaluation(
+            client=self.posthog_client,
+            experiment_id=experiment_id,
+            experiment_name=eval_name,
+            item_id=item_id,
+            item_name=item_name,
+            input=input,
+            output=output,
+            expected=expected,
+            metrics=metrics,
+        )

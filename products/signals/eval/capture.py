@@ -17,7 +17,7 @@ class EvalMetric:
     description: str | None = None
     version: str = "1"
     result_type: str = "binary"
-    score: float | None = None
+    score: float | str | None = None
     score_min: float = 0
     score_max: float = 1
     reasoning: str | None = None

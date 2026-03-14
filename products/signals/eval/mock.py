@@ -1,16 +1,16 @@
-import os
-import json
 import logging
 from dataclasses import dataclass, field
-from types import SimpleNamespace
-
-import pytest
-from unittest.mock import AsyncMock, patch
+from datetime import UTC, datetime
 
 import numpy as np
-from asgiref.sync import sync_to_async
 
-from posthog.models import Organization, Project, Team
+from products.signals.backend.temporal.types import (
+    ExistingReportMatch,
+    MatchResult,
+    ReportContext,
+    SignalCandidate,
+    SignalData,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -25,34 +25,53 @@ class StoredSignal:
     source_type: str
     source_id: str
     weight: float
-    timestamp: str
+    timestamp: datetime
     extra: dict = field(default_factory=dict)
     deleted: bool = False
 
 
-class InMemoryClickHouse:
-    """Replaces ClickHouse for signal storage and cosine search."""
+class EmbeddingStore:
+    """In-process embedding store that replaces ClickHouse + Kafka + embedding API.
 
-    def __init__(self):
+    Generates real embeddings via OpenAI, stores them immediately (no fire-and-forget),
+    and supports cosine search against stored signals.
+    """
+
+    def __init__(self, openai_client):
         self._signals: list[StoredSignal] = []
-        self._embedding_cache: dict[str, list[float]] = {}  # content -> embedding
+        self._embedding_cache: dict[str, list[float]] = {}
+        self._client = openai_client
 
-    def cache_embedding(self, content: str, embedding: list[float]) -> None:
+    async def embed(self, content: str) -> list[float]:
+        """Generate and cache an embedding. Returns cached result if available."""
+        if content in self._embedding_cache:
+            return self._embedding_cache[content]
+        response = await self._client.embeddings.create(
+            model="text-embedding-3-small",
+            input=content,
+        )
+        embedding = response.data[0].embedding
         self._embedding_cache[content] = embedding
+        return embedding
 
-    def store_signal(
+    def store(
         self,
         signal_id: str,
         content: str,
         embedding: list[float],
-        metadata: dict,
-        timestamp: str = "",
+        report_id: str,
+        source_product: str,
+        source_type: str,
+        source_id: str,
+        weight: float,
+        extra: dict | None = None,
+        timestamp: datetime | None = None,
+        deleted: bool = False,
     ) -> None:
-        report_id = metadata.get("report_id", "")
-        source_product = metadata.get("source_product", "")
-        deleted = metadata.get("deleted", False)
+        """Immediately store a signal with its embedding."""
+        ts = timestamp or datetime.now(UTC)
         logger.info(
-            "CH store: signal=%s report=%s product=%s deleted=%s content=%.80s",
+            "store: signal=%s report=%s product=%s deleted=%s content=%.80s",
             signal_id[:12],
             report_id[:12],
             source_product,
@@ -66,20 +85,18 @@ class InMemoryClickHouse:
                 embedding=embedding,
                 report_id=report_id,
                 source_product=source_product,
-                source_type=metadata.get("source_type", ""),
-                source_id=metadata.get("source_id", ""),
-                weight=metadata.get("weight", 0.0),
-                extra=metadata.get("extra", {}),
-                timestamp=timestamp,
+                source_type=source_type,
+                source_id=source_id,
+                weight=weight,
+                timestamp=ts,
+                extra=extra or {},
                 deleted=deleted,
             )
         )
 
-    def cosine_search(self, query_embedding: list[float], limit: int = 10) -> list[list]:
-        """Return rows matching the SignalsRunEmbeddingQuery format."""
+    def search(self, query_embedding: list[float], limit: int = 10) -> list[SignalCandidate]:
+        """Cosine search against stored signals. Returns SignalCandidate list."""
         searchable = [s for s in self._signals if not s.deleted and s.report_id and np.linalg.norm(s.embedding) > 0]
-        logger.info("CH search: %d stored, %d searchable", len(self._signals), len(searchable))
-
         if not searchable:
             return []
 
@@ -88,48 +105,44 @@ class InMemoryClickHouse:
         if q_norm == 0:
             return []
 
-        scored = []
+        scored: list[tuple[float, StoredSignal]] = []
         for sig in searchable:
             s = np.array(sig.embedding, dtype=np.float64)
             dist = 1.0 - float(np.dot(q, s) / (q_norm * np.linalg.norm(s)))
             scored.append((dist, sig))
 
         scored.sort(key=lambda x: x[0])
-        results = scored[:limit]
-        for dist, sig in results:
-            logger.info(
-                "  candidate: signal=%s report=%s dist=%.4f content=%.60s",
-                sig.signal_id[:12],
-                sig.report_id[:12],
-                dist,
-                sig.content.replace("\n", " "),
-            )
         return [
-            [sig.signal_id, sig.content, sig.report_id, sig.source_product, sig.source_type, dist]
-            for dist, sig in results
+            SignalCandidate(
+                signal_id=sig.signal_id,
+                report_id=sig.report_id,
+                content=sig.content,
+                source_product=sig.source_product,
+                source_type=sig.source_type,
+                distance=dist,
+            )
+            for dist, sig in scored[:limit]
         ]
 
-    def get_signals_for_report(self, report_id: str) -> list[list]:
-        """Return rows matching the SignalsFetchForReport format."""
-        results = []
-        for sig in self._signals:
-            if sig.report_id == report_id and not sig.deleted:
-                metadata = json.dumps(
-                    {
-                        "source_product": sig.source_product,
-                        "source_type": sig.source_type,
-                        "source_id": sig.source_id,
-                        "weight": sig.weight,
-                        "report_id": sig.report_id,
-                        "extra": sig.extra,
-                    }
-                )
-                results.append([sig.signal_id, sig.content, metadata, sig.timestamp])
-        logger.info("CH fetch_for_report: report=%s found=%d signals", report_id[:12], len(results))
-        return results
+    def get_signals_for_report(self, report_id: str) -> list[SignalData]:
+        """Fetch all non-deleted signals for a report."""
+        return [
+            SignalData(
+                signal_id=sig.signal_id,
+                content=sig.content,
+                source_product=sig.source_product,
+                source_type=sig.source_type,
+                source_id=sig.source_id,
+                weight=sig.weight,
+                timestamp=sig.timestamp,
+                extra=sig.extra,
+            )
+            for sig in self._signals
+            if sig.report_id == report_id and not sig.deleted
+        ]
 
-    def get_type_examples(self) -> list[list]:
-        """Return rows matching the SignalsFetchTypeExamples format."""
+    def get_type_examples(self) -> list[SignalData]:
+        """Return one example signal per unique (source_product, source_type) pair."""
         seen: dict[tuple[str, str], StoredSignal] = {}
         for sig in self._signals:
             if sig.deleted:
@@ -137,140 +150,85 @@ class InMemoryClickHouse:
             key = (sig.source_product, sig.source_type)
             if key not in seen:
                 seen[key] = sig
-        logger.info("CH type_examples: %d types from %d signals", len(seen), len(self._signals))
         return [
-            [sig.source_product, sig.source_type, sig.content, json.dumps({"extra": sig.extra}), sig.timestamp]
+            SignalData(
+                signal_id=sig.signal_id,
+                content=sig.content,
+                source_product=sig.source_product,
+                source_type=sig.source_type,
+                source_id=sig.source_id,
+                weight=sig.weight,
+                timestamp=sig.timestamp,
+                extra=sig.extra,
+            )
             for sig in seen.values()
         ]
 
-    def count_signals(self, signal_ids: list[str]) -> int:
-        """Return count for SignalsWaitForClickHouse."""
-        stored_ids = {sig.signal_id for sig in self._signals if not sig.deleted}
-        count = len(stored_ids & set(signal_ids))
-        logger.info("CH wait: %d/%d signals found", count, len(signal_ids))
-        return count
+    @property
+    def signal_count(self) -> int:
+        return len(self._signals)
+
+    @property
+    def active_signals(self) -> list[StoredSignal]:
+        return [s for s in self._signals if not s.deleted]
 
 
-def _fake_database_sync_to_async(fn=None, *, thread_sensitive=True, executor=None):
-    """Mock database_sync_to_async that wraps sync functions via sync_to_async."""
-    if fn is None:
-        return lambda f: sync_to_async(f, thread_sensitive=thread_sensitive)
-    return sync_to_async(fn, thread_sensitive=thread_sensitive)
+@dataclass
+class StoredReport:
+    context: ReportContext
+    true_signal_groups: list[int]
+    true_group_index: int
 
 
-@pytest.fixture
-def mock_temporal():
-    """Mock Temporal infrastructure so _process_signal_batch runs as plain async code.
+class ReportStore:
+    """In-process report context store that replaces Postgres report lookups."""
 
-    Bypasses the full Temporal chain (SignalEmitterWorkflow → BufferSignalsWorkflow →
-    S3 flush → TeamSignalGroupingV2Workflow) by intercepting emit_signal's workflow
-    calls and feeding signals directly into _process_signal_batch one at a time.
-    """
+    def __init__(self):
+        self._store: dict[str, StoredReport] = {}
 
-    async def mock_execute_activity(fn, *args, **kwargs):
-        return await fn(*args)
+    def all_reports(self) -> list[StoredReport]:
+        return list(self._store.values())
 
-    # Collect signals from emit_signal's start_workflow calls and process them immediately
-    async def fake_start_workflow(workflow_fn, workflow_input, **kwargs):
-        from products.signals.backend.temporal.grouping import _process_signal_batch
-        from products.signals.backend.temporal.types import EmitSignalInputs
+    def get_contexts(self) -> dict[str, ReportContext]:
+        return {k: v.context for k, v in self._store.items()}
 
-        # The emitter workflow carries the actual signal — process it directly
-        if hasattr(workflow_input, "signal") and isinstance(workflow_input.signal, EmitSignalInputs):
-            await _process_signal_batch([workflow_input.signal])
+    def get(self, report_id: str) -> StoredReport:
+        return self._store[report_id]
 
-    fake_client = AsyncMock()
-    fake_client.start_workflow = fake_start_workflow
+    def find_report_by_group_index(self, group_index: int) -> StoredReport | None:
+        """Find the report with the most members of the given ground-truth group."""
+        best: StoredReport | None = None
+        best_count = 0
+        for report in self._store.values():
+            count = report.true_signal_groups.count(group_index)
+            if count > best_count:
+                best_count = count
+                best = report
+        return best
 
-    async def fake_async_connect():
-        return fake_client
+    def insert(self, report_id: str, match_result: MatchResult, group_index: int) -> None:
+        """Update report context after a match result, mirroring the workflow batch logic."""
 
-    async def _fake_aget(*args, **kwargs):
-        return SimpleNamespace(id=0, pk=0)
+        if isinstance(match_result, ExistingReportMatch):
+            r = self._store.get(report_id)
+            old_ctx = r.context
+            r.context = ReportContext(
+                report_id=report_id,
+                title=old_ctx.title if old_ctx else "",
+                signal_count=(old_ctx.signal_count if old_ctx else 0) + 1,
+            )
+            r.true_signal_groups.append(group_index)
 
-    with (
-        patch("temporalio.workflow.execute_activity", mock_execute_activity),
-        patch("temporalio.workflow.start_child_workflow", new_callable=AsyncMock),
-        patch("temporalio.workflow.logger", logger),
-        patch("temporalio.activity.heartbeat", lambda *a, **kw: None),
-        patch("products.signals.backend.api.async_connect", fake_async_connect),
-        patch("products.signals.backend.api.database_sync_to_async", _fake_database_sync_to_async),
-        patch("products.signals.backend.temporal.grouping.database_sync_to_async", _fake_database_sync_to_async),
-        patch("products.signals.backend.temporal.summary.database_sync_to_async", _fake_database_sync_to_async),
-        # Activities look up team just to pass it to mocked functions — skip the DB hit
-        patch.object(Team.objects, "aget", _fake_aget),
-    ):
-        yield
+            if r.true_signal_groups.count(group_index) > r.true_signal_groups.count(r.true_group_index):
+                r.true_group_index = group_index
 
-
-@pytest.fixture
-def mock_clickhouse():
-    store = InMemoryClickHouse()
-
-    async def fake_hogql(*, query_type, query, team, placeholders=None, **kwargs):
-        placeholders = placeholders or {}
-        if query_type == "SignalsRunEmbeddingQuery":
-            embedding = placeholders["embedding"].value
-            limit = placeholders.get("limit", SimpleNamespace(value=10)).value
-            return SimpleNamespace(results=store.cosine_search(embedding, limit))
-        elif query_type == "SignalsFetchTypeExamples":
-            return SimpleNamespace(results=store.get_type_examples())
-        elif query_type == "SignalsFetchForReport":
-            report_id = placeholders["report_id"].value
-            return SimpleNamespace(results=store.get_signals_for_report(report_id))
-        elif query_type == "SignalsWaitForClickHouse":
-            signal_ids = placeholders["signal_ids"].value
-            return SimpleNamespace(results=[[store.count_signals(signal_ids)]])
-        return SimpleNamespace(results=[])
-
-    def fake_emit_embedding(*, content, team_id, document_id, metadata, timestamp=None, **kwargs):
-        embedding = store._embedding_cache.get(content, [])
-        store.store_signal(
-            signal_id=document_id,
-            content=content,
-            embedding=embedding,
-            metadata=metadata,
-            timestamp=str(timestamp) if timestamp else "",
-        )
-
-    async def _generate_embedding(team, content, **kwargs):
-        import openai
-
-        client = openai.AsyncOpenAI(api_key=os.environ["OPENAI_API_KEY"])
-        response = await client.embeddings.create(
-            model="text-embedding-3-small",
-            input=content,
-        )
-        embedding = response.data[0].embedding
-        store.cache_embedding(content, embedding)
-        return SimpleNamespace(embedding=embedding)
-
-    with (
-        patch(
-            "products.signals.backend.temporal.grouping.execute_hogql_query_with_retry",
-            side_effect=fake_hogql,
-        ),
-        patch(
-            "products.signals.backend.temporal.summary.execute_hogql_query_with_retry",
-            side_effect=fake_hogql,
-        ),
-        patch(
-            "products.signals.backend.temporal.grouping.emit_embedding_request",
-            side_effect=fake_emit_embedding,
-        ),
-        patch(
-            "products.signals.backend.api.SignalInput.model_validate",
-        ),
-        patch(
-            "products.signals.backend.temporal.grouping.async_generate_embedding",
-            side_effect=_generate_embedding,
-        ),
-    ):
-        yield store
-
-
-@pytest.fixture
-def team(db):
-    org = Organization.objects.create(name="eval", is_ai_data_processing_approved=True)
-    project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=org)
-    return Team.objects.create(id=project.id, project=project, organization=org)
+        else:
+            self._store[report_id] = {
+                "context": ReportContext(
+                    report_id=report_id,
+                    title=match_result.title,
+                    signal_count=1,
+                ),
+                "true_signal_groups": [group_index],
+                "true_group_index": group_index,
+            }

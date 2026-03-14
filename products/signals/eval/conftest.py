@@ -3,12 +3,14 @@ import logging
 from pathlib import Path
 
 import pytest
+from unittest.mock import patch
 
 from django.conf import settings
 
 import posthoganalytics
 from dotenv import load_dotenv
 from posthoganalytics import Posthog
+from posthoganalytics.ai.gemini import genai
 from posthoganalytics.ai.openai import AsyncOpenAI
 
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
@@ -78,5 +80,13 @@ def openai_client(posthog_client):
     return AsyncOpenAI(posthog_client=posthog_client)
 
 
-# Re-export fixtures from mock.py so pytest auto-discovers them
-from products.signals.eval.mock import mock_clickhouse, mock_temporal, team  # noqa: E402, F401
+@pytest.fixture
+def gemini_client():
+    api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
+    return genai.AsyncClient(api_key=api_key)
+
+
+@pytest.fixture
+def mock_temporal():
+    with patch("temporalio.activity.heartbeat"):
+        yield
