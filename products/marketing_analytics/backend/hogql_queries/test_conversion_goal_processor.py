@@ -17,6 +17,7 @@ from posthog.schema import (
     ConversionGoalFilter3,
     DateRange,
     EventPropertyFilter,
+    MarketingAnalyticsDrillDownLevel,
     NodeKind,
     PropertyMathType,
     PropertyOperator,
@@ -5461,3 +5462,92 @@ class TestConversionGoalProcessor(ClickhouseTestMixin, BaseTest):
         assert conversion_count == 1
 
         assert pretty_print_in_tests(response.hogql, self.team.pk) == self.snapshot
+
+    def test_channel_drill_down_uses_utm_medium_for_classification(self):
+        """
+        Test that CHANNEL drill-down uses utm_medium from events for proper channel classification.
+
+        Scenario:
+        - User 1: pageview with utm_source=google, utm_medium=cpc → should be "Paid Search"
+        - User 2: pageview with utm_source=google, utm_medium=organic → should be "Organic Search"
+
+        This validates that utm_medium is threaded through the conversion pipeline
+        and used in channel type classification, matching the behavior of adapter cost data.
+        """
+        with freeze_time("2023-03-10"):
+            _create_person(distinct_ids=["paid_user"], team=self.team)
+            _create_event(
+                distinct_id="paid_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "spring_sale", "utm_source": "google", "utm_medium": "cpc"},
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-03-12"):
+            _create_event(
+                distinct_id="paid_user",
+                event="purchase",
+                team=self.team,
+                properties={"revenue": 100},
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-03-10"):
+            _create_person(distinct_ids=["organic_user"], team=self.team)
+            _create_event(
+                distinct_id="organic_user",
+                event="$pageview",
+                team=self.team,
+                properties={"utm_campaign": "seo_blog", "utm_source": "google", "utm_medium": "organic"},
+            )
+            flush_persons_and_events_in_batches()
+
+        with freeze_time("2023-03-12"):
+            _create_event(
+                distinct_id="organic_user",
+                event="purchase",
+                team=self.team,
+                properties={"revenue": 50},
+            )
+            flush_persons_and_events_in_batches()
+
+        self.config.drill_down_level = MarketingAnalyticsDrillDownLevel.CHANNEL
+
+        goal = ConversionGoalFilter1(
+            kind=NodeKind.EVENTS_NODE,
+            event="purchase",
+            conversion_goal_id="channel_test",
+            conversion_goal_name="Channel Test",
+            math=BaseMathType.TOTAL,
+            schema_map={"utm_campaign_name": "utm_campaign", "utm_source_name": "utm_source"},
+        )
+
+        processor = ConversionGoalProcessor(goal=goal, index=0, team=self.team, config=self.config)
+
+        date_conditions: list[ast.Expr] = [
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.GtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-01")]),
+            ),
+            ast.CompareOperation(
+                left=ast.Field(chain=["events", "timestamp"]),
+                op=ast.CompareOperationOp.LtEq,
+                right=ast.Call(name="toDate", args=[ast.Constant(value="2023-03-31")]),
+            ),
+        ]
+
+        cte_query = processor.generate_cte_query(date_conditions)
+        response = execute_hogql_query(query=cte_query, team=self.team)
+
+        # Should have 2 results: one for paid channel, one for organic channel
+        assert len(response.results) >= 2, f"Expected at least 2 channel groups, got {len(response.results)}"
+
+        # Schema at CHANNEL level: [0]=match_key, [1]=channel_type, [2]=id, [3]=source, [4]=conversion
+        channels = {row[1]: row[4] for row in response.results}
+
+        # The paid user (utm_medium=cpc) and organic user (utm_medium=organic)
+        # should be classified into different channels
+        assert "Paid Search" in channels, f"Expected 'Paid Search' channel, got channels: {list(channels.keys())}"
+        assert channels["Paid Search"] == 1, f"Expected 1 paid conversion, got {channels['Paid Search']}"
