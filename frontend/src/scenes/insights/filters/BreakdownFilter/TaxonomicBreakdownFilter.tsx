@@ -18,6 +18,7 @@ export interface TaxonomicBreakdownFilterProps {
     breakdownFilter?: BreakdownFilter | null
     display?: ChartDisplayType | null
     isTrends: boolean
+    isFunnels: boolean
     disabledReason?: string
     updateBreakdownFilter: (breakdownFilter: BreakdownFilter) => void
     updateDisplay: (display: ChartDisplayType | undefined) => void
@@ -31,6 +32,7 @@ export function TaxonomicBreakdownFilter({
     breakdownFilter,
     display,
     isTrends,
+    isFunnels,
     disabledReason,
     updateBreakdownFilter,
     updateDisplay,
@@ -41,6 +43,7 @@ export function TaxonomicBreakdownFilter({
     const logicProps: TaxonomicBreakdownFilterLogicProps = {
         insightProps,
         isTrends,
+        isFunnels,
         display,
         breakdownFilter: breakdownFilter || {},
         updateBreakdownFilter,
