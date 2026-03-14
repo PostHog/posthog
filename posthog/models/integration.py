@@ -583,6 +583,7 @@ class OauthIntegration:
                     "grant_type": "authorization_code",
                 },
                 headers={"User-Agent": "PostHog/1.0 by PostHogTeam"},
+                    timeout=10.0,
             )
         # Pinterest uses HTTP Basic Auth for token exchange (base64-encoded client_id:client_secret)
         elif kind == "pinterest-ads":
@@ -594,6 +595,7 @@ class OauthIntegration:
                     "redirect_uri": OauthIntegration.redirect_uri(kind),
                     "grant_type": "authorization_code",
                 },
+                    timeout=10.0,
             )
         elif kind == "tiktok-ads":
             # TikTok Ads uses JSON request body instead of form data and maps 'code' to 'auth_code'
