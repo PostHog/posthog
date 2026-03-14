@@ -25,10 +25,10 @@ def _sign_request(body: bytes, secret: str) -> tuple[str, str]:
     return signature, ts
 
 
-class TestTwigInteractivityHandler(TestCase):
+class TestPostHogCodeInteractivityHandler(TestCase):
     def setUp(self):
         self.client = APIClient()
-        self.signing_secret = "twig-test-secret"
+        self.signing_secret = "posthog-code-test-secret"
 
     def _post_interactivity(self, payload: dict, **extra_headers) -> Any:
         payload = {"team": {"id": "T12345"}, **payload}
@@ -36,7 +36,7 @@ class TestTwigInteractivityHandler(TestCase):
         body = body_str.encode()
         signature, ts = _sign_request(body, self.signing_secret)
         return self.client.post(
-            "/slack/twig-interactivity-callback/",
+            "/slack/posthog-code-interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
             HTTP_X_SLACK_SIGNATURE=signature,
@@ -45,12 +45,12 @@ class TestTwigInteractivityHandler(TestCase):
         )
 
     def test_get_method_returns_405(self):
-        response = self.client.get("/slack/twig-interactivity-callback/")
+        response = self.client.get("/slack/posthog-code-interactivity-callback/")
         assert response.status_code == 405
 
-    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_invalid_signature_returns_403(self, mock_config):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": "different-secret"}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": "different-secret"}
         response = self._post_interactivity({"type": "block_suggestion"})
         assert response.status_code == 403
 
@@ -59,17 +59,17 @@ class TestRepoPickerOptions(TestCase):
     def setUp(self):
         cache.clear()
         self.client = APIClient()
-        self.signing_secret = "twig-test-secret"
+        self.signing_secret = "posthog-code-test-secret"
 
         self.organization = Organization.objects.create(name="Test Org")
         self.team = Team.objects.create(organization=self.organization, name="Test Team")
         self.user = User.objects.create(email="dev@example.com", distinct_id="user-1")
         OrganizationMembership.objects.create(user=self.user, organization=self.organization)
-        self.twig_integration = Integration.objects.create(
+        self.posthog_code_integration = Integration.objects.create(
             team=self.team,
-            kind="slack-twig",
+            kind="slack-posthog-code",
             integration_id="T12345",
-            sensitive_config={"access_token": "xoxb-twig-test"},
+            sensitive_config={"access_token": "xoxb-posthog-code-test"},
         )
         self.github_integration = Integration.objects.create(
             team=self.team,
@@ -80,7 +80,7 @@ class TestRepoPickerOptions(TestCase):
 
         self.context_token = "test-token-1234"
         self.context_payload = {
-            "integration_id": self.twig_integration.id,
+            "integration_id": self.posthog_code_integration.id,
             "channel": "C001",
             "thread_ts": "1234.5678",
             "user_message_ts": "1234.5678",
@@ -88,7 +88,7 @@ class TestRepoPickerOptions(TestCase):
             "event_text": "fix the bug",
             "created_at": int(time.time()),
         }
-        cache.set(f"twig_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
+        cache.set(f"posthog_code_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
 
     def _post_interactivity(self, payload: dict) -> Any:
         payload = {"team": {"id": "T12345"}, **payload}
@@ -96,7 +96,7 @@ class TestRepoPickerOptions(TestCase):
         body = body_str.encode()
         signature, ts = _sign_request(body, self.signing_secret)
         return self.client.post(
-            "/slack/twig-interactivity-callback/",
+            "/slack/posthog-code-interactivity-callback/",
             data=body_str,
             content_type="application/x-www-form-urlencoded",
             HTTP_X_SLACK_SIGNATURE=signature,
@@ -104,17 +104,17 @@ class TestRepoPickerOptions(TestCase):
         )
 
     @patch("products.slack_app.backend.api._get_full_repo_names")
-    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_options_returns_filtered_repos(self, mock_config, mock_get_repos):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_get_repos.return_value = ["posthog/posthog", "posthog/posthog-js", "posthog/hogvm"]
 
         payload = {
             "type": "block_suggestion",
-            "action_id": "twig_repo_select",
+            "action_id": "posthog_code_repo_select",
             "value": "js",
             "user": {"id": "U123"},
-            "block_id": f"twig_repo_picker_v1:{self.context_token}",
+            "block_id": f"posthog_code_repo_picker_v1:{self.context_token}",
         }
         response = self._post_interactivity(payload)
         assert response.status_code == 200
@@ -123,48 +123,48 @@ class TestRepoPickerOptions(TestCase):
         assert options[0]["value"] == "posthog/posthog-js"
 
     @patch("products.slack_app.backend.api._get_full_repo_names")
-    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_options_empty_query_returns_all(self, mock_config, mock_get_repos):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_get_repos.return_value = ["posthog/posthog", "posthog/posthog-js"]
 
         payload = {
             "type": "block_suggestion",
-            "action_id": "twig_repo_select",
+            "action_id": "posthog_code_repo_select",
             "value": "",
             "user": {"id": "U123"},
-            "block_id": f"twig_repo_picker_v1:{self.context_token}",
+            "block_id": f"posthog_code_repo_picker_v1:{self.context_token}",
         }
         response = self._post_interactivity(payload)
         assert response.status_code == 200
         assert len(response.json()["options"]) == 2
 
-    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_options_wrong_user_returns_empty(self, mock_config):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
 
         payload = {
             "type": "block_suggestion",
-            "action_id": "twig_repo_select",
+            "action_id": "posthog_code_repo_select",
             "value": "",
             "user": {"id": "U_WRONG"},
-            "block_id": f"twig_repo_picker_v1:{self.context_token}",
+            "block_id": f"posthog_code_repo_picker_v1:{self.context_token}",
         }
         response = self._post_interactivity(payload)
         assert response.status_code == 200
         assert response.json()["options"] == []
 
-    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_options_expired_token_returns_empty(self, mock_config):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
-        cache.delete(f"twig_repo_picker_ctx:{self.context_token}")
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
+        cache.delete(f"posthog_code_repo_picker_ctx:{self.context_token}")
 
         payload = {
             "type": "block_suggestion",
-            "action_id": "twig_repo_select",
+            "action_id": "posthog_code_repo_select",
             "value": "",
             "user": {"id": "U123"},
-            "block_id": f"twig_repo_picker_v1:{self.context_token}",
+            "block_id": f"posthog_code_repo_picker_v1:{self.context_token}",
         }
         response = self._post_interactivity(payload)
         assert response.status_code == 200
@@ -173,22 +173,22 @@ class TestRepoPickerOptions(TestCase):
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_submit_signals_temporal_workflow(
         self, mock_config, mock_sync_connect, mock_asyncio_run, mock_webclient_class
     ):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_webclient_class.return_value = MagicMock()
-        self.context_payload["workflow_id"] = "twig-mention-T12345:C001:1234.5678"
-        cache.set(f"twig_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
+        self.context_payload["workflow_id"] = "posthog-code-mention-T12345:C001:1234.5678"
+        cache.set(f"posthog_code_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
 
         payload = {
             "type": "block_actions",
             "user": {"id": "U123"},
             "actions": [
                 {
-                    "action_id": "twig_repo_select",
-                    "block_id": f"twig_repo_picker_v1:{self.context_token}",
+                    "action_id": "posthog_code_repo_select",
+                    "block_id": f"posthog_code_repo_picker_v1:{self.context_token}",
                     "selected_option": {"value": "posthog/posthog"},
                     "action_ts": "1700000000.123",
                 }
@@ -198,26 +198,28 @@ class TestRepoPickerOptions(TestCase):
         response = self._post_interactivity(payload)
         assert response.status_code == 200
         mock_sync_connect.assert_called_once()
-        mock_sync_connect.return_value.get_workflow_handle.assert_called_once_with("twig-mention-T12345:C001:1234.5678")
+        mock_sync_connect.return_value.get_workflow_handle.assert_called_once_with(
+            "posthog-code-mention-T12345:C001:1234.5678"
+        )
         mock_asyncio_run.assert_called_once()
         mock_webclient_class.return_value.chat_update.assert_called_once()
 
     @patch("posthog.models.integration.WebClient")
-    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_submit_without_workflow_id_posts_expired(self, mock_config, mock_webclient_class):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
         self.context_payload.pop("workflow_id", None)
-        cache.set(f"twig_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
+        cache.set(f"posthog_code_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
 
         payload = {
             "type": "block_actions",
             "user": {"id": "U123"},
             "actions": [
                 {
-                    "action_id": "twig_repo_select",
-                    "block_id": f"twig_repo_picker_v1:{self.context_token}",
+                    "action_id": "posthog_code_repo_select",
+                    "block_id": f"posthog_code_repo_picker_v1:{self.context_token}",
                     "selected_option": {"value": "posthog/posthog"},
                     "action_ts": "1700000000.123",
                 }
@@ -232,7 +234,7 @@ class TestRepoPickerOptions(TestCase):
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_submit_signal_failure_posts_expired(
         self,
         mock_config,
@@ -240,11 +242,11 @@ class TestRepoPickerOptions(TestCase):
         mock_asyncio_run,
         mock_webclient_class,
     ):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
         mock_client = MagicMock()
         mock_webclient_class.return_value = mock_client
-        self.context_payload["workflow_id"] = "twig-mention-T12345:C001:1234.5678"
-        cache.set(f"twig_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
+        self.context_payload["workflow_id"] = "posthog-code-mention-T12345:C001:1234.5678"
+        cache.set(f"posthog_code_repo_picker_ctx:{self.context_token}", self.context_payload, timeout=900)
         mock_asyncio_run.side_effect = RuntimeError("workflow not found")
 
         payload = {
@@ -252,8 +254,8 @@ class TestRepoPickerOptions(TestCase):
             "user": {"id": "U123"},
             "actions": [
                 {
-                    "action_id": "twig_repo_select",
-                    "block_id": f"twig_repo_picker_v1:{self.context_token}",
+                    "action_id": "posthog_code_repo_select",
+                    "block_id": f"posthog_code_repo_picker_v1:{self.context_token}",
                     "selected_option": {"value": "posthog/posthog"},
                     "action_ts": "1700000000.123",
                 }
@@ -268,20 +270,20 @@ class TestRepoPickerOptions(TestCase):
 
     @patch("products.slack_app.backend.api.asyncio.run")
     @patch("products.slack_app.backend.api.sync_connect")
-    @patch("products.slack_app.backend.api.SlackIntegration.twig_slack_config")
+    @patch("products.slack_app.backend.api.SlackIntegration.posthog_code_slack_config")
     def test_terminate_action_starts_temporal_workflow(self, mock_config, mock_sync_connect, mock_asyncio_run):
-        mock_config.return_value = {"SLACK_TWIG_SIGNING_SECRET": self.signing_secret}
+        mock_config.return_value = {"SLACK_POSTHOG_CODE_SIGNING_SECRET": self.signing_secret}
 
         payload = {
             "type": "block_actions",
             "user": {"id": "U123"},
             "actions": [
                 {
-                    "action_id": "twig_terminate_task",
+                    "action_id": "posthog_code_terminate_task",
                     "value": json.dumps(
                         {
                             "run_id": "run-1",
-                            "integration_id": self.twig_integration.id,
+                            "integration_id": self.posthog_code_integration.id,
                             "mentioning_slack_user_id": "U123",
                         }
                     ),
@@ -304,7 +306,7 @@ class TestRepoPickerOptions(TestCase):
     def test_terminate_action_signals_workflow(
         self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model, mock_send_cancel
     ):
-        from products.slack_app.backend.tasks import process_twig_task_termination
+        from products.slack_app.backend.tasks import process_posthog_code_task_termination
 
         mock_send_cancel.return_value = SimpleNamespace(
             success=False, status_code=502, error="Connection refused", retryable=True
@@ -342,11 +344,11 @@ class TestRepoPickerOptions(TestCase):
             "user": {"id": "U123"},
             "actions": [
                 {
-                    "action_id": "twig_terminate_task",
+                    "action_id": "posthog_code_terminate_task",
                     "value": json.dumps(
                         {
                             "run_id": "run-1",
-                            "integration_id": self.twig_integration.id,
+                            "integration_id": self.posthog_code_integration.id,
                             "mentioning_slack_user_id": "U123",
                         }
                     ),
@@ -356,7 +358,7 @@ class TestRepoPickerOptions(TestCase):
             "message": {"ts": "1234.9999"},
         }
 
-        process_twig_task_termination(payload)
+        process_posthog_code_task_termination(payload)
 
         mock_send_cancel.assert_called_once()
         mock_client.get_workflow_handle.assert_called_once_with("task-processing-task-1-run-1")
@@ -370,7 +372,7 @@ class TestRepoPickerOptions(TestCase):
     def test_terminate_action_without_expected_user_is_denied(
         self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model
     ):
-        from products.slack_app.backend.tasks import process_twig_task_termination
+        from products.slack_app.backend.tasks import process_posthog_code_task_termination
 
         payload = {
             "type": "block_actions",
@@ -378,11 +380,11 @@ class TestRepoPickerOptions(TestCase):
             "user": {"id": "U123"},
             "actions": [
                 {
-                    "action_id": "twig_terminate_task",
+                    "action_id": "posthog_code_terminate_task",
                     "value": json.dumps(
                         {
                             "run_id": "run-1",
-                            "integration_id": self.twig_integration.id,
+                            "integration_id": self.posthog_code_integration.id,
                         }
                     ),
                 }
@@ -391,7 +393,7 @@ class TestRepoPickerOptions(TestCase):
             "message": {"ts": "1234.9999"},
         }
 
-        process_twig_task_termination(payload)
+        process_posthog_code_task_termination(payload)
 
         mock_integration_model.objects.get.assert_not_called()
         mock_task_run_model.objects.select_related.assert_not_called()
@@ -405,7 +407,7 @@ class TestRepoPickerOptions(TestCase):
     def test_terminate_action_on_terminal_run_posts_feedback(
         self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model
     ):
-        from products.slack_app.backend.tasks import process_twig_task_termination
+        from products.slack_app.backend.tasks import process_posthog_code_task_termination
 
         mock_run = MagicMock()
         mock_run.id = "run-1"
@@ -429,11 +431,11 @@ class TestRepoPickerOptions(TestCase):
             "user": {"id": "U123"},
             "actions": [
                 {
-                    "action_id": "twig_terminate_task",
+                    "action_id": "posthog_code_terminate_task",
                     "value": json.dumps(
                         {
                             "run_id": "run-1",
-                            "integration_id": self.twig_integration.id,
+                            "integration_id": self.posthog_code_integration.id,
                             "mentioning_slack_user_id": "U123",
                             "thread_ts": "1234.5678",
                         }
@@ -444,7 +446,7 @@ class TestRepoPickerOptions(TestCase):
             "message": {"ts": "1234.9999"},
         }
 
-        process_twig_task_termination(payload)
+        process_posthog_code_task_termination(payload)
 
         mock_sync_connect.assert_not_called()
         mock_slack_client.chat_postMessage.assert_called_once()
@@ -456,7 +458,7 @@ class TestRepoPickerOptions(TestCase):
     def test_terminate_action_with_mismatched_team_run_is_noop(
         self, mock_sync_connect, mock_slack_integration, mock_integration_model, mock_task_run_model
     ):
-        from products.slack_app.backend.tasks import process_twig_task_termination
+        from products.slack_app.backend.tasks import process_posthog_code_task_termination
 
         mock_task_run_model.DoesNotExist = Exception
         mock_task_run_model.Status.COMPLETED = "completed"
@@ -476,11 +478,11 @@ class TestRepoPickerOptions(TestCase):
             "user": {"id": "U123"},
             "actions": [
                 {
-                    "action_id": "twig_terminate_task",
+                    "action_id": "posthog_code_terminate_task",
                     "value": json.dumps(
                         {
                             "run_id": "run-1",
-                            "integration_id": self.twig_integration.id,
+                            "integration_id": self.posthog_code_integration.id,
                             "mentioning_slack_user_id": "U123",
                             "thread_ts": "1234.5678",
                         }
@@ -491,7 +493,7 @@ class TestRepoPickerOptions(TestCase):
             "message": {"ts": "1234.9999"},
         }
 
-        process_twig_task_termination(payload)
+        process_posthog_code_task_termination(payload)
 
         mock_sync_connect.assert_not_called()
         mock_slack_client.chat_postMessage.assert_not_called()

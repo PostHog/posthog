@@ -373,14 +373,15 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                     )}
 
                                     {size === 'default' && (
-                                        <span className="relative truncate text-left w-full">
+                                        <span className="relative truncate text-left w-full text-secondary group-hover/lemon-tree-button:text-primary">
                                             {renderItem ? (
                                                 <>
                                                     {renderItem(
                                                         item,
                                                         <span
                                                             className={cn({
-                                                                'font-semibold': isFolder && !isEmptyFolder,
+                                                                'font-semibold text-secondary group-hover/lemon-tree-button:text-primary':
+                                                                    isFolder && !isEmptyFolder,
                                                             })}
                                                         >
                                                             {displayName}

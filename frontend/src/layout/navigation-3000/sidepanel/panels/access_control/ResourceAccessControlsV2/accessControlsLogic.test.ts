@@ -17,24 +17,24 @@ function matchesFilters(
     entry: { project: EffectiveAccessControlEntry; resources: Record<string, EffectiveAccessControlEntry> },
     filters: AccessControlFilters
 ): boolean {
-    if (filters.resourceKeys.length > 0) {
-        const hasEffectiveAccessToFilteredResource = filters.resourceKeys.some(
-            (rk) => getEffectiveLevel(entry, rk) !== null
-        )
-        if (!hasEffectiveAccessToFilteredResource) {
-            return false
-        }
+    const hasResourceFilter = filters.resourceKeys.length > 0
+    const hasLevelFilter = filters.ruleLevels.length > 0
+
+    if (hasResourceFilter && hasLevelFilter) {
+        // Intersection: at least one selected resource must have one of the selected levels
+        return filters.resourceKeys.some((rk) => {
+            const level = getEffectiveLevel(entry, rk)
+            return level !== null && (filters.ruleLevels as string[]).includes(level)
+        })
     }
 
-    if (filters.ruleLevels.length > 0) {
-        const hasMatchingLevel = filters.ruleLevels.some(
-            (rl) =>
-                getEffectiveLevel(entry, 'project' as APIScopeObject) === rl ||
-                Object.keys(entry.resources).some((r) => getEffectiveLevel(entry, r as APIScopeObject) === rl)
-        )
-        if (!hasMatchingLevel) {
-            return false
-        }
+    if (hasResourceFilter) {
+        return filters.resourceKeys.some((rk) => getEffectiveLevel(entry, rk) !== null)
+    }
+
+    if (hasLevelFilter) {
+        const allKeys = ['project', ...Object.keys(entry.resources)] as APIScopeObject[]
+        return filters.ruleLevels.some((rl) => allKeys.some((k) => getEffectiveLevel(entry, k) === rl))
     }
 
     return true
@@ -139,22 +139,49 @@ describe('accessControlsLogic', () => {
         })
 
         describe('combined filters', () => {
-            it('requires both resourceKeys and ruleLevels to match', () => {
-                const filters = {
-                    ...emptyFilters,
-                    resourceKeys: ['insight' as APIScopeObject],
-                    ruleLevels: [AccessControlLevel.Manager],
-                }
-                expect(matchesFilters(memberEntry, filters)).toBe(true)
-            })
-
-            it('rejects when resourceKeys match but ruleLevels do not', () => {
-                const filters = {
-                    ...emptyFilters,
-                    resourceKeys: ['dashboard' as APIScopeObject],
-                    ruleLevels: [AccessControlLevel.Viewer],
-                }
-                expect(matchesFilters(roleEntry, filters)).toBe(false)
+            it.each([
+                [
+                    'matches when a selected resource has one of the selected levels',
+                    {
+                        ...emptyFilters,
+                        resourceKeys: ['insight' as APIScopeObject],
+                        ruleLevels: [AccessControlLevel.Manager],
+                    },
+                    memberEntry,
+                    true,
+                ],
+                [
+                    'rejects when no selected resource has any of the selected levels',
+                    {
+                        ...emptyFilters,
+                        resourceKeys: ['dashboard' as APIScopeObject],
+                        ruleLevels: [AccessControlLevel.Viewer],
+                    },
+                    roleEntry,
+                    false,
+                ],
+                [
+                    'matches when resource has effective access at the selected level',
+                    {
+                        ...emptyFilters,
+                        resourceKeys: ['dashboard' as APIScopeObject],
+                        ruleLevels: [AccessControlLevel.Editor],
+                    },
+                    roleEntry,
+                    true,
+                ],
+                [
+                    'rejects when resource has no effective access even if level exists elsewhere',
+                    {
+                        ...emptyFilters,
+                        resourceKeys: ['insight' as APIScopeObject],
+                        ruleLevels: [AccessControlLevel.Admin],
+                    },
+                    roleEntry,
+                    false,
+                ],
+            ])('%s', (_desc, filters, entry, expected) => {
+                expect(matchesFilters(entry, filters)).toBe(expected)
             })
         })
     })

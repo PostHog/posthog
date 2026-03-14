@@ -6,11 +6,15 @@ import { useMemo, useState } from 'react'
 import { IconGear, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+
 import { ColumnFeature } from '~/queries/nodes/DataTable/DataTable'
 import { Query } from '~/queries/Query/Query'
 import {
     DataTableNode,
-    MarketingAnalyticsColumnsSchemaNames,
+    MARKETING_ANALYTICS_DRILL_DOWN_CONFIG,
+    MarketingAnalyticsDrillDownLevel,
     MarketingAnalyticsTableQuery,
 } from '~/queries/schema/schema-general'
 import { QueryContext, QueryContextColumn } from '~/queries/types'
@@ -40,7 +44,9 @@ export const MarketingAnalyticsTable = ({
     attachTo,
 }: MarketingAnalyticsTableProps): JSX.Element => {
     const { setQuery } = useActions(marketingAnalyticsTableLogic)
-    const { showColumnConfigModal } = useActions(marketingAnalyticsLogic)
+    const { showColumnConfigModal, setDrillDownLevel } = useActions(marketingAnalyticsLogic)
+    const { drillDownLevel } = useValues(marketingAnalyticsLogic)
+    const hasDrillDown = useFeatureFlag('MARKETING_ANALYTICS_DRILL_DOWN')
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
 
     const [searchTerm, setSearchTerm] = useState('')
@@ -60,17 +66,16 @@ export const MarketingAnalyticsTable = ({
             },
             columns: (query.source as MarketingAnalyticsTableQuery).select?.reduce(
                 (acc, column) => {
+                    const allGroupingAliases = Object.values(MARKETING_ANALYTICS_DRILL_DOWN_CONFIG).map(
+                        (c) => c.columnAlias
+                    )
+                    const isGroupingColumn = allGroupingAliases.includes(column)
                     acc[column] = {
-                        title: column,
                         render: (props) => (
                             <MarketingAnalyticsCell
                                 {...props}
                                 style={{
-                                    maxWidth:
-                                        column.toLocaleLowerCase() ===
-                                        MarketingAnalyticsColumnsSchemaNames.Campaign.toLocaleLowerCase()
-                                            ? '200px'
-                                            : undefined,
+                                    maxWidth: isGroupingColumn ? '200px' : undefined,
                                 }}
                             />
                         ),
@@ -90,12 +95,24 @@ export const MarketingAnalyticsTable = ({
                     <div className="flex items-center gap-2">
                         <LemonInput
                             type="search"
-                            placeholder="Search campaigns..."
+                            placeholder="Search..."
                             value={searchTerm}
                             onChange={setSearchTerm}
                             className="w-64"
                             data-attr="marketing-analytics-search"
                         />
+                        {hasDrillDown && (
+                            <LemonSegmentedButton
+                                value={drillDownLevel}
+                                onChange={setDrillDownLevel}
+                                options={[
+                                    { value: MarketingAnalyticsDrillDownLevel.Channel, label: 'Channel' },
+                                    { value: MarketingAnalyticsDrillDownLevel.Source, label: 'Source' },
+                                    { value: MarketingAnalyticsDrillDownLevel.Campaign, label: 'Campaign' },
+                                ]}
+                                size="small"
+                            />
+                        )}
                         <Tooltip title="Filters the currently loaded results" delayMs={0}>
                             <IconInfo className="text-xl text-secondary" />
                         </Tooltip>

@@ -4022,7 +4022,7 @@ export interface PreflightStatus {
         available: boolean
         client_id?: string
     }
-    twig_slack_service: {
+    posthog_code_slack_service: {
         available: boolean
         client_id?: string
     }
@@ -4043,7 +4043,6 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
-    auth_brand?: string | null
     object_storage: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
@@ -4796,7 +4795,7 @@ export enum EventDefinitionType {
 
 export const INTEGRATION_KINDS = [
     'slack',
-    'slack-twig',
+    'slack-posthog-code',
     'salesforce',
     'hubspot',
     'google-pubsub',

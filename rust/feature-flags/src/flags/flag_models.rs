@@ -9,6 +9,16 @@ pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
 }
 
+/// New holdout format: `{"id": 42, "exclusion_percentage": 10}`.
+/// Replaces the legacy `holdout_groups` array which reused `FlagPropertyGroup` with
+/// confusing semantics (rollout_percentage meant exclusion, variant was just "holdout-{id}").
+/// See holdout-migration-plan.md for the full migration plan.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct Holdout {
+    pub id: i64,
+    pub exclusion_percentage: f64,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct FlagPropertyGroup {
     #[serde(default)]
@@ -77,6 +87,10 @@ pub struct FlagFilters {
     /// ]
     #[serde(default)]
     pub holdout_groups: Option<Vec<FlagPropertyGroup>>,
+    /// New holdout format: `{"id": 42, "exclusion_percentage": 10}`.
+    /// Preferred over `holdout_groups` when present (Phase 2 of holdout migration).
+    #[serde(default)]
+    pub holdout: Option<Holdout>,
 }
 
 pub type FeatureFlagId = i32;
