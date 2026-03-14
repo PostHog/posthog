@@ -128,4 +128,38 @@ describe('recentTaxonomicFiltersLogic', () => {
         logic.actions.recordRecentFilter(TaxonomicFilterGroupType.Events, null, { name: 'All events' })
         expect(logic.values.recentFilters).toHaveLength(0)
     })
+
+    it('stores a property filter when provided', () => {
+        const propertyFilter = { key: '$browser', type: 'event', operator: 'exact', value: 'Chrome' }
+        logic.actions.recordRecentFilter(
+            TaxonomicFilterGroupType.EventProperties,
+            '$browser',
+            { name: '$browser' },
+            propertyFilter as any
+        )
+
+        expect(logic.values.recentFilters[0].propertyFilter).toEqual(propertyFilter)
+    })
+
+    it('exposes _recentPropertyFilter on recentFilterItems when a property filter is stored', () => {
+        const propertyFilter = { key: '$browser', type: 'event', operator: 'exact', value: 'Chrome' }
+        logic.actions.recordRecentFilter(
+            TaxonomicFilterGroupType.EventProperties,
+            '$browser',
+            { name: '$browser' },
+            propertyFilter as any
+        )
+
+        const items = logic.values.recentFilterItems
+        expect(items[0]._recentPropertyFilter).toEqual(propertyFilter)
+        expect(items[0].group).toBe(TaxonomicFilterGroupType.EventProperties)
+    })
+
+    it('does not include _recentPropertyFilter when no property filter is stored', () => {
+        logic.actions.recordRecentFilter(TaxonomicFilterGroupType.Events, '$pageview', { name: '$pageview' })
+
+        const items = logic.values.recentFilterItems
+        expect(items[0]._recentPropertyFilter).toBeUndefined()
+        expect(items[0].group).toBe(TaxonomicFilterGroupType.Events)
+    })
 })

@@ -1,7 +1,9 @@
-import { actions, kea, path, reducers } from 'kea'
+import { actions, kea, path, reducers, selectors } from 'kea'
 
 import { now } from 'lib/dayjs'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+
+import { AnyPropertyFilter } from '~/types'
 
 import type { recentTaxonomicFiltersLogicType } from './recentTaxonomicFiltersLogicType'
 import { TaxonomicFilterGroupType, TaxonomicFilterValue } from './types'
@@ -22,15 +24,22 @@ export interface RecentTaxonomicFilter {
     value: TaxonomicFilterValue
     item: Record<string, any>
     timestamp: number
+    propertyFilter?: AnyPropertyFilter
 }
 
 export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>([
     path(['lib', 'components', 'TaxonomicFilter', 'recentTaxonomicFiltersLogic']),
     actions({
-        recordRecentFilter: (groupType: TaxonomicFilterGroupType, value: TaxonomicFilterValue, item: any) => ({
+        recordRecentFilter: (
+            groupType: TaxonomicFilterGroupType,
+            value: TaxonomicFilterValue,
+            item: any,
+            propertyFilter?: AnyPropertyFilter
+        ) => ({
             groupType,
             value,
             item,
+            propertyFilter,
         }),
     }),
     reducers({
@@ -38,7 +47,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
             [] as RecentTaxonomicFilter[],
             { persist: true },
             {
-                recordRecentFilter: (state, { groupType, value, item }) => {
+                recordRecentFilter: (state, { groupType, value, item, propertyFilter }) => {
                     if (EXCLUDED_GROUP_TYPES.has(groupType) || value == null) {
                         return state
                     }
@@ -46,7 +55,13 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
                     const currentTime = now().valueOf()
                     const cutoff = currentTime - RECENT_FILTER_MAX_AGE_MS
 
-                    const entry: RecentTaxonomicFilter = { groupType, value, item, timestamp: currentTime }
+                    const entry: RecentTaxonomicFilter = {
+                        groupType,
+                        value,
+                        item,
+                        timestamp: currentTime,
+                        ...(propertyFilter ? { propertyFilter } : {}),
+                    }
 
                     const withoutDuplicate = state.filter((f) => !(f.groupType === groupType && f.value === value))
 
@@ -55,6 +70,17 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
                     return [entry, ...withoutExpired].slice(0, MAX_RECENT_FILTERS)
                 },
             },
+        ],
+    }),
+    selectors({
+        recentFilterItems: [
+            (s) => [s.recentFilters],
+            (recentFilters: RecentTaxonomicFilter[]): Record<string, any>[] =>
+                recentFilters.map((f) => ({
+                    ...f.item,
+                    group: f.groupType,
+                    ...(f.propertyFilter ? { _recentPropertyFilter: f.propertyFilter } : {}),
+                })),
         ],
     }),
     permanentlyMount(),

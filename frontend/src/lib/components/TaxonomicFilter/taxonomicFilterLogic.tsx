@@ -6,10 +6,11 @@ import posthog from 'posthog-js'
 
 import { IconFlag, IconServer } from '@posthog/icons'
 
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
 import { infiniteListLogicType } from 'lib/components/TaxonomicFilter/infiniteListLogicType'
 import {
-    RecentTaxonomicFilter,
+    type RecentTaxonomicFilter,
     recentTaxonomicFiltersLogic,
 } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
@@ -84,6 +85,21 @@ import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/h
 
 import { InlineHogQLEditor } from './InlineHogQLEditor'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
+
+const PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
+    TaxonomicFilterGroupType.EventProperties,
+    TaxonomicFilterGroupType.PersonProperties,
+    TaxonomicFilterGroupType.NumericalEventProperties,
+    TaxonomicFilterGroupType.SessionProperties,
+    TaxonomicFilterGroupType.DataWarehouseProperties,
+    TaxonomicFilterGroupType.DataWarehousePersonProperties,
+    TaxonomicFilterGroupType.EventFeatureFlags,
+    TaxonomicFilterGroupType.EventMetadata,
+    TaxonomicFilterGroupType.Metadata,
+    TaxonomicFilterGroupType.RevenueAnalyticsProperties,
+    TaxonomicFilterGroupType.ErrorTrackingProperties,
+    TaxonomicFilterGroupType.ActivityLogProperties,
+])
 
 export const DEFAULT_SLOTS_PER_GROUP = 5
 export const MAX_TOP_MATCHES_PER_GROUP = 10
@@ -389,7 +405,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.hideBehavioralCohorts,
                 s.endpointFilters,
                 s.hogQLGlobals,
-                s.recentFilters,
                 s.requestedGroupTypes,
             ],
             (
@@ -407,7 +422,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 hideBehavioralCohorts: boolean,
                 endpointFilters: Record<string, any> | undefined,
                 hogQLGlobals: Record<string, any> | undefined,
-                recentFilters: RecentTaxonomicFilter[],
                 requestedGroupTypes: TaxonomicFilterGroupType[]
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
@@ -1130,10 +1144,31 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         name: 'Recent',
                         searchPlaceholder: 'recent filters',
                         type: TaxonomicFilterGroupType.RecentFilters,
-                        options: recentFilters
-                            .filter((f) => requestedGroupTypes.includes(f.groupType))
-                            .map((f) => ({ ...f.item, group: f.groupType })),
-                        getName: (item: TaxonomicDefinitionTypes) => ('name' in item ? item.name : '') || '',
+                        logic: recentTaxonomicFiltersLogic,
+                        value: 'recentFilterItems',
+                        localItemsSearch: (items: TaxonomicDefinitionTypes[], query: string) => {
+                            const contextFiltered = items.filter(
+                                (item) =>
+                                    'group' in item &&
+                                    requestedGroupTypes.includes(
+                                        (item as Record<string, any>).group as TaxonomicFilterGroupType
+                                    )
+                            )
+                            if (!query) {
+                                return contextFiltered
+                            }
+                            const lowerQuery = query.toLowerCase()
+                            return contextFiltered.filter((item) =>
+                                ('name' in item ? String(item.name) : '').toLowerCase().includes(lowerQuery)
+                            )
+                        },
+                        getName: (item: TaxonomicDefinitionTypes) => {
+                            const asRecord = item as Record<string, any>
+                            if (asRecord._recentPropertyFilter) {
+                                return formatPropertyLabel(asRecord._recentPropertyFilter, {})
+                            }
+                            return ('name' in item ? item.name : '') || ''
+                        },
                         getValue: (item: TaxonomicDefinitionTypes): TaxonomicFilterValue =>
                             'name' in item ? (item.name ?? null) : null,
                         getPopoverHeader: () => 'Recent',
@@ -1149,9 +1184,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (s) => [s.activeTab, s.taxonomicGroups],
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
         ],
+        hasMatchingRecentFilters: [
+            (s) => [s.recentFilters, s.requestedGroupTypes],
+            (recentFilters: RecentTaxonomicFilter[], requestedGroupTypes: TaxonomicFilterGroupType[]): boolean =>
+                recentFilters.some((f) => requestedGroupTypes.includes(f.groupType)),
+        ],
         taxonomicGroupTypes: [
-            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups],
-            (groupTypes, taxonomicGroups): TaxonomicFilterGroupType[] => {
+            (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.hasMatchingRecentFilters],
+            (groupTypes, taxonomicGroups, hasMatchingRecentFilters): TaxonomicFilterGroupType[] => {
                 const availableGroupTypes = new Set(taxonomicGroups.map((group) => group.type))
                 const resolvedGroupTypes: TaxonomicFilterGroupType[] =
                     groupTypes || taxonomicGroups.map((group) => group.type)
@@ -1175,12 +1215,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     return availableGroupTypes.has(groupType)
                 })
 
-                const recentGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.RecentFilters)
-                if (
-                    recentGroup &&
-                    (recentGroup.options?.length ?? 0) > 0 &&
-                    !filtered.includes(TaxonomicFilterGroupType.RecentFilters)
-                ) {
+                if (hasMatchingRecentFilters && !filtered.includes(TaxonomicFilterGroupType.RecentFilters)) {
                     return [TaxonomicFilterGroupType.RecentFilters, ...filtered]
                 }
 
@@ -1385,9 +1420,9 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     })
                 }
                 props.onChange?.(group, value, item)
-                window.setTimeout(() => {
+                if (!PROPERTY_FILTER_GROUP_TYPES.has(group.type)) {
                     recentTaxonomicFiltersLogic.actions.recordRecentFilter(group.type, value, item)
-                }, 0)
+                }
             } else if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
                 props.onChange?.(group, value, item)
             } else if (props.onEnter) {

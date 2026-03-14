@@ -2,7 +2,13 @@ import { actions, kea, key, listeners, path, props, reducers, selectors } from '
 import isEqual from 'lodash.isequal'
 
 import { PropertyFilterLogicProps } from 'lib/components/PropertyFilters/types'
-import { isValidPropertyFilter, parseProperties } from 'lib/components/PropertyFilters/utils'
+import {
+    isValidPropertyFilter,
+    parseProperties,
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
+} from 'lib/components/PropertyFilters/utils'
+import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { isOperatorFlag } from 'lib/utils'
 
 import { AnyPropertyFilter, EmptyPropertyFilter } from '~/types'
 
@@ -88,15 +94,23 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
 
     listeners(({ actions, props, values }) => ({
         setFilter: async ({ property }) => {
-            if (
-                props.sendAllKeyUpdates ||
-                property?.value ||
-                ('operator' in property &&
-                    property?.operator &&
-                    ['is_set', 'is_not_set'].includes(property?.operator)) ||
-                (property?.key && property.type === 'hogql')
-            ) {
+            const isComplete =
+                property?.value || ('operator' in property && property?.operator && isOperatorFlag(property.operator))
+
+            if (props.sendAllKeyUpdates || isComplete || (property?.key && property.type === 'hogql')) {
                 actions.update()
+            }
+
+            if (isComplete && property?.key && property?.type) {
+                const groupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[property.type]
+                if (groupType && recentTaxonomicFiltersLogic.isMounted()) {
+                    recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                        groupType,
+                        property.key,
+                        { name: property.key },
+                        property
+                    )
+                }
             }
         },
         remove: () => actions.update(),

@@ -380,7 +380,9 @@ const InfiniteListRow = ({
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
         const isExactMatchItem =
-            listGroupType === TaxonomicFilterGroupType.SuggestedFilters && itemGroup.type !== listGroupType
+            (listGroupType === TaxonomicFilterGroupType.SuggestedFilters ||
+                listGroupType === TaxonomicFilterGroupType.RecentFilters) &&
+            itemGroup.type !== listGroupType
 
         return (
             <div

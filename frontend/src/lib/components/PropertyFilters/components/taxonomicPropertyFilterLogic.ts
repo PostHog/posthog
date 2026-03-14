@@ -93,6 +93,12 @@ export const taxonomicPropertyFilterLogic = kea<taxonomicPropertyFilterLogicType
     }),
     listeners(({ actions, values, props }) => ({
         selectItem: ({ taxonomicGroup, propertyKey, itemPropertyFilterType, item }) => {
+            if (item?._recentPropertyFilter) {
+                props.setFilter(props.filterIndex, item._recentPropertyFilter)
+                actions.closeDropdown()
+                return
+            }
+
             if (isQuickFilterItem(item)) {
                 props.setFilter(props.filterIndex, quickFilterToPropertyFilter(item))
                 actions.closeDropdown()
