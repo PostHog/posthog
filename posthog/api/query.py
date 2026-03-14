@@ -182,15 +182,27 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             error_data = coalescer.get_error_response()
             if error_data:
                 log.info("http_query_coalescing_follower_replaying_error", status=error_data["status"])
+                try:
+                    body = orjson.loads(error_data["body"])
+                except Exception:
+                    log.warning("http_query_coalescing_follower_body_parse_failed")
+                    return None
                 return Response(
-                    data=orjson.loads(error_data["body"]),
+                    data=body,
                     status=error_data["status"],
                 )
             # Couldn't read error, fall through
             log.warning("http_query_coalescing_follower_error_read_failed")
             return None
 
-        # timeout or crashed, fall through to normal execution
+        if signal == "timeout":
+            log.warning("http_query_coalescing_follower_timeout")
+            return Response(
+                data={"type": "server_error", "detail": "Query is still running, please try again shortly."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # crashed — leader is gone, fall through to re-execute
         log.info("http_query_coalescing_follower_fallthrough", signal=signal)
         return None
 
