@@ -44,9 +44,6 @@ class DetailSerializer(serializers.Serializer):
 
 @extend_schema_serializer(component_name="ActivityLogEntry")
 class ActivityLogSerializer(serializers.Serializer):
-    class Meta:
-        exclude = ["team_id, organization_id"]
-
     id = serializers.UUIDField(read_only=True)
     user = serializers.SerializerMethodField()
     activity = serializers.CharField(read_only=True)

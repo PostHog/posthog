@@ -247,7 +247,15 @@ export const activityLogLogic = kea<activityLogLogicType>([
             },
         ],
     })),
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
+        [router.actionTypes.locationChanged]: ({ searchParams }) => {
+            const activityId = searchParams?.activity
+            if (activityId && activityId !== values.highlightedActivityId) {
+                actions.setHighlightedActivityId(activityId)
+            } else if (!activityId && values.highlightedActivityId !== null) {
+                actions.setHighlightedActivityId(null)
+            }
+        },
         setPage: async (_, breakpoint) => {
             breakpoint()
             actions.fetchActivity()
@@ -285,13 +293,6 @@ export const activityLogLogic = kea<activityLogLogicType>([
                     newSearchParams,
                     router.values.hashParams
                 )
-            }
-
-            const activityId = searchParams['activity']
-            if (activityId && activityId !== values.highlightedActivityId) {
-                actions.setHighlightedActivityId(activityId)
-            } else if (!activityId && values.highlightedActivityId !== null) {
-                actions.setHighlightedActivityId(null)
             }
         }
         return {
