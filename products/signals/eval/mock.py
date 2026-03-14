@@ -192,6 +192,7 @@ class StoredReport:
     context: ReportContext
     true_signal_groups: list[int]
     true_group_index: int
+    safety_choice: bool | None = None  # True = safe, False = unsafe, None = not yet judged
 
 
 class ReportStore:

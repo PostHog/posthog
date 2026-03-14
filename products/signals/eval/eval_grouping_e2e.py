@@ -16,7 +16,7 @@ Captures four levels of metrics:
 - Per-report judges: correct_safety (binary), correct_actionability
   (binary), actionability_choice (categorical)
 - Aggregate: ARI, homogeneity, completeness, v_measure, mean_purity,
-  mean_group_recall
+  mean_group_recall, unsafe_blocked_rate
 
 Run:
     pytest products/signals/eval/eval_grouping_e2e.py -xvs --log-cli-level=WARNING
@@ -351,6 +351,8 @@ class TestGroupingPipeline:
                 judge_report_actionability(title=title, summary=summary, signals=signals),
             )
 
+            report.safety_choice = safety_result.choice
+
             self._capture(
                 eval_name="report-safety-check",
                 item_name=f"report-{report_id[:12]}",
@@ -445,6 +447,22 @@ class TestGroupingPipeline:
         n_groups_expected = len({case.group_index for case in stream})
         n_reports_actual = len(reports)
 
+        # Compute unsafe signal blocking rate: what % of unsafe signals never make it
+        # through the pipeline — either dropped at pre-emit (not in any report) or
+        # caught by the safety judge on their report.
+        unsafe_group_indices = {i for i, g in enumerate(GROUP_DATA) if not g.safe}
+        stream_unsafe_groups = unsafe_group_indices & {case.group_index for case in stream}
+        total_unsafe = sum(len(GROUP_DATA[gi].signals) for gi in stream_unsafe_groups)
+
+        # Count unsafe signals that leaked through: present in a report the safety judge called safe
+        unsafe_leaked = 0
+        for report in reports:
+            if report.safety_choice is True:
+                unsafe_leaked += sum(1 for gi in report.true_signal_groups if gi in unsafe_group_indices)
+
+        unsafe_blocked = total_unsafe - unsafe_leaked
+        unsafe_blocked_rate = unsafe_blocked / total_unsafe if total_unsafe > 0 else 1.0
+
         self._capture(
             eval_name="grouping-aggregate",
             item_name="aggregate",
@@ -489,6 +507,13 @@ class TestGroupingPipeline:
                     description="Average fraction of a true group's signals captured by its best report",
                     result_type="numeric",
                     score=mean_group_recall,
+                ),
+                EvalMetric(
+                    name="unsafe_blocked_rate",
+                    description="Fraction of unsafe signals blocked by the pipeline (dropped at pre-emit or caught by safety judge)",
+                    result_type="numeric",
+                    score=unsafe_blocked_rate,
+                    reasoning=f"{unsafe_blocked}/{total_unsafe} unsafe signals blocked ({unsafe_leaked} leaked through)",
                 ),
             ],
         )
