@@ -129,7 +129,7 @@ function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: b
 
     return (
         <div
-            className="flex border rounded-lg overflow-hidden cursor-pointer hover:border-primary/30 transition-colors"
+            className="flex border rounded-lg overflow-hidden cursor-pointer hover:border-primary/30 transition-colors bg-surface-primary"
             data-attr="llma-sentiment-card"
             onClick={() => toggleCardExpanded(generation.uuid)}
         >
