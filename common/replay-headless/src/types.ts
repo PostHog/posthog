@@ -22,7 +22,14 @@ export interface PlayerConfig {
     startTimestamp?: number
     endTimestamp?: number
     mouseTail?: boolean
+    showMetadataFooter?: boolean
     viewportEvents?: ViewportEvent[]
+}
+
+export interface PlayerError {
+    code: string
+    message: string
+    retryable: boolean
 }
 
 export interface InactivityPeriod {

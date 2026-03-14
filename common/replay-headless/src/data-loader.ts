@@ -12,6 +12,18 @@ import {
 
 import type { PlayerConfig, RecordingBlock } from './types'
 
+export class DataLoadError extends Error {
+    readonly statusCode: number
+    readonly retryable: boolean
+
+    constructor(message: string, statusCode: number) {
+        super(message)
+        this.name = 'DataLoadError'
+        this.statusCode = statusCode
+        this.retryable = statusCode >= 500 || statusCode === 429
+    }
+}
+
 const MAX_CONCURRENT_FETCHES = 6
 
 async function fetchBlocks(config: PlayerConfig): Promise<RecordingBlock[]> {
@@ -25,7 +37,10 @@ async function fetchBlocks(config: PlayerConfig): Promise<RecordingBlock[]> {
 
     if (!response.ok) {
         const body = await response.text()
-        throw new Error(`Failed to fetch block listing: ${response.status} ${response.statusText} - ${body}`)
+        throw new DataLoadError(
+            `Failed to fetch block listing: ${response.status} ${response.statusText} - ${body}`,
+            response.status
+        )
     }
 
     const data: { blocks: RecordingBlock[] } = await response.json()
@@ -49,7 +64,10 @@ async function fetchBlock(config: PlayerConfig, block: RecordingBlock): Promise<
 
     if (!response.ok) {
         const body = await response.text()
-        throw new Error(`Failed to fetch block: ${response.status} ${response.statusText} - ${body}`)
+        throw new DataLoadError(
+            `Failed to fetch block: ${response.status} ${response.statusText} - ${body}`,
+            response.status
+        )
     }
     return response.text()
 }
