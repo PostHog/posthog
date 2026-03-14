@@ -8,7 +8,7 @@ import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { cssEscape } from 'lib/utils/cssEscape'
 
 import { SelectorCount } from '~/toolbar/actions/SelectorCount'
-import { ActionStepForm } from '~/toolbar/types'
+import { ActionStepForm } from '~/toolbar/core/types'
 
 import { URL_MATCHING_HINTS } from 'products/actions/frontend/utils/hints'
 

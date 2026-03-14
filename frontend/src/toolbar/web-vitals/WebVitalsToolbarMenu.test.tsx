@@ -3,7 +3,7 @@ import '@testing-library/jest-dom'
 import { render, screen } from '@testing-library/react'
 
 import { initKeaTests } from '~/test/init'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 
 import { WebVitalsToolbarMenu } from './WebVitalsToolbarMenu'
 

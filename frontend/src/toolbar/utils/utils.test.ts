@@ -1,4 +1,4 @@
-import { joinWithUiHost, slashDotDataAttrUnescape } from './utils'
+import { joinWithUiHost, slashDotDataAttrUnescape } from '.'
 
 describe('utils', () => {
     describe('joinWithUiHost', () => {

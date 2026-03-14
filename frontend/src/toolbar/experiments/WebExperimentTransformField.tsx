@@ -6,12 +6,12 @@ import { LemonLabel, LemonSelect } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 
+import { WebExperimentTransform } from '~/toolbar/core/types'
 import {
     ElementSelectorButtonTypes,
     ElementSelectorType,
     experimentsTabLogic,
 } from '~/toolbar/experiments/experimentsTabLogic'
-import { WebExperimentTransform } from '~/toolbar/types'
 
 interface WebExperimentTransformFieldProps {
     variant: string
@@ -30,7 +30,7 @@ export function WebExperimentTransformField({
 
     return (
         <>
-            <div className="inline-flex deprecated-space-x-2">
+            <div className="inline-flex gap-2">
                 <LemonButton
                     icon={<IconCursorClick />}
                     size="small"

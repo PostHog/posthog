@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/core/toolbarConfigLogic'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 global.fetch = jest.fn(() =>

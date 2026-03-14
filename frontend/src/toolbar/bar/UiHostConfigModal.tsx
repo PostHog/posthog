@@ -6,7 +6,7 @@ import { IconX } from '@posthog/icons'
 import { Logomark } from 'lib/brand/Logomark'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 
 interface UiHostConfigModalProps {
     visible: boolean

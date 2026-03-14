@@ -1,4 +1,4 @@
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarPosthogJS } from '~/toolbar/core/toolbarPosthogJS'
 
 type LogLevel = 'info' | 'warn' | 'error' | 'debug'
 

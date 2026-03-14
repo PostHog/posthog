@@ -1,8 +1,8 @@
 import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 import { classifyEvent, eventDebugMenuLogic } from '~/toolbar/debug/eventDebugMenuLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { EventType } from '~/types'
 
 function makeEvent(overrides: Partial<EventType> = {}): EventType {

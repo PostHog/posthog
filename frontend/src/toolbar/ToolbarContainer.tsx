@@ -4,12 +4,12 @@ import { useState } from 'react'
 import { Fade } from 'lib/components/Fade/Fade'
 import { FloatingContainerContext } from 'lib/hooks/useFloatingContainerContext'
 
+import { HedgehogButton } from './bar/HedgehogButton'
 import { Toolbar } from './bar/Toolbar'
 import { ToolbarFixedZones } from './bar/ToolbarFixedZones'
 import { toolbarLogic } from './bar/toolbarLogic'
+import { toolbarConfigLogic } from './core/toolbarConfigLogic'
 import { Elements } from './elements/Elements'
-import { HedgehogButton } from './hedgehog/HedgehogButton'
-import { toolbarConfigLogic } from './toolbarConfigLogic'
 
 export function ToolbarContainer(): JSX.Element {
     const { buttonVisible } = useValues(toolbarConfigLogic)

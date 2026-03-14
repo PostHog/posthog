@@ -11,11 +11,11 @@ import { Spinner } from 'lib/lemon-ui/Spinner'
 import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 import { ExperimentsEditingToolbarMenu } from '~/toolbar/experiments/ExperimentsEditingToolbarMenu'
 import { ExperimentsListView } from '~/toolbar/experiments/ExperimentsListView'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { joinWithUiHost } from '~/toolbar/utils'
 
 const ExperimentsListToolbarMenu = (): JSX.Element => {
@@ -42,7 +42,7 @@ const ExperimentsListToolbarMenu = (): JSX.Element => {
                 </ToolbarMenu.Header>
             )}
             <ToolbarMenu.Body>
-                <div className="px-1 deprecated-space-y-px py-2">
+                <div className="px-1 gap-px py-2">
                     {isWebExperimentsDisabled && (
                         <div className="pb-2">
                             <LemonBanner type="warning">

@@ -7,10 +7,10 @@ import { urls } from 'scenes/urls'
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
-import { ActionDraftType, ActionForm } from '~/toolbar/types'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/core/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/core/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/core/toolbarPosthogJS'
+import { ActionDraftType, ActionForm } from '~/toolbar/core/types'
 import {
     actionStepToActionStepFormItem,
     elementToActionStep,

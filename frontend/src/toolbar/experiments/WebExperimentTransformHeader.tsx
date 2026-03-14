@@ -6,8 +6,8 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
 import { SelectorCount } from '~/toolbar/actions/SelectorCount'
+import { WebExperimentTransform } from '~/toolbar/core/types'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
-import { WebExperimentTransform } from '~/toolbar/types'
 
 import { SelectorEditor } from './SelectorEditor'
 

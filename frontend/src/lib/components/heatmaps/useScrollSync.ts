@@ -1,7 +1,7 @@
 import { PostHog } from 'posthog-js'
 import { useEffect, useRef } from 'react'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 
 export function useScrollSync(enabled: boolean = true): {
     innerRef: React.RefObject<HTMLDivElement>

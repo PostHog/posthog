@@ -17,7 +17,7 @@ import { listMyFlagsAPIResponse } from './__mocks__/list-my-flags-response'
 import { listExperimentsAPIResponse } from './__mocks__/list-web-experiments-response'
 import { listWebVitalsAPIResponse } from './__mocks__/list-web-vitals-response'
 import { MenuState, toolbarLogic } from './bar/toolbarLogic'
-import { toolbarConfigLogic } from './toolbarConfigLogic'
+import { toolbarConfigLogic } from './core/toolbarConfigLogic'
 import { TOOLBAR_ID } from './utils'
 
 function useToolbarStyles(): void {

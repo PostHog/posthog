@@ -5,7 +5,7 @@ import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
 import { CLOUD_INTERNAL_POSTHOG_PROPERTY_KEYS } from '~/taxonomy/taxonomy'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_KEYS } from '~/taxonomy/taxonomy'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 import { EventType } from '~/types'
 
 import type { eventDebugMenuLogicType } from './eventDebugMenuLogicType'

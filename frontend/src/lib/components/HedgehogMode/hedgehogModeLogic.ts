@@ -7,7 +7,7 @@ import api from 'lib/api'
 import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/core/toolbarConfigLogic'
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
 
 import { sanitizeHedgehogConfig } from './hedgehog-mode-utils'

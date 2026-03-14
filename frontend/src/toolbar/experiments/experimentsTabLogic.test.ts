@@ -10,7 +10,7 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 
 import { experimentsLogic } from './experimentsLogic'
 import { experimentsTabLogic } from './experimentsTabLogic'

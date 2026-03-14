@@ -4,7 +4,7 @@ import { Suspense, lazy } from 'react'
 import { inStorybook } from 'lib/utils'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 
 import { useAppShortcut } from '../AppShortcuts/useAppShortcut'
 import { hedgehogModeLogic } from './hedgehogModeLogic'

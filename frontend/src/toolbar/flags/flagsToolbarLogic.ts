@@ -6,9 +6,9 @@ import type { PostHog } from 'posthog-js'
 
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
 
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/core/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/core/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/core/toolbarPosthogJS'
 import { CombinedFeatureFlagAndValueType } from '~/types'
 
 import type { flagsToolbarLogicType } from './flagsToolbarLogicType'

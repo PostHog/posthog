@@ -2,7 +2,7 @@ import { memo } from 'react'
 
 import { objectsEqual } from 'lib/utils'
 
-import { ElementRect } from '~/toolbar/types'
+import { ElementRect } from '~/toolbar/core/types'
 import { EMPTY_STYLE, inBounds, rectEqual } from '~/toolbar/utils'
 
 const heatmapLabelStyle = {

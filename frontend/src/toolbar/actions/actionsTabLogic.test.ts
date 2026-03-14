@@ -4,7 +4,7 @@ import { initKeaTests } from '~/test/init'
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 
 const mockAction = {
     id: 42,

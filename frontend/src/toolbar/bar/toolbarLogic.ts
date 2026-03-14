@@ -8,15 +8,15 @@ import { PostHogAppToolbarEvent } from 'lib/components/IframedToolbarBrowser/uti
 
 import { actionsLogic } from '~/toolbar/actions/actionsLogic'
 import { actionsTabLogic } from '~/toolbar/actions/actionsTabLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
+import { toolbarLogger } from '~/toolbar/core/toolbarLogger'
+import { toolbarPosthogJS } from '~/toolbar/core/toolbarPosthogJS'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { experimentsLogic } from '~/toolbar/experiments/experimentsLogic'
 import { experimentsTabLogic } from '~/toolbar/experiments/experimentsTabLogic'
 import { flagsToolbarLogic } from '~/toolbar/flags/flagsToolbarLogic'
 import { productToursLogic } from '~/toolbar/product-tours/productToursLogic'
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
-import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_CONTAINER_CLASS, TOOLBAR_ID, inBounds, makeNavigateWrapper } from '~/toolbar/utils'
 import { webVitalsToolbarLogic } from '~/toolbar/web-vitals/webVitalsToolbarLogic'
 

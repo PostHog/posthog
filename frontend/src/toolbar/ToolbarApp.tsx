@@ -6,7 +6,7 @@ import { Slide, ToastContainer } from 'react-toastify'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useSecondRender } from 'lib/hooks/useSecondRender'
 
-import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { toolbarConfigLogic } from '~/toolbar/core/toolbarConfigLogic'
 import { ToolbarContainer } from '~/toolbar/ToolbarContainer'
 import { ToolbarProps } from '~/types'
 

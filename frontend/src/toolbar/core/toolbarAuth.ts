@@ -1,5 +1,5 @@
-import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { toolbarLogger } from '~/toolbar/core/toolbarLogger'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/core/toolbarPosthogJS'
 
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 

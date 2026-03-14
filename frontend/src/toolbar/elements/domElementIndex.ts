@@ -1,6 +1,6 @@
 import { matchesDataAttribute } from 'lib/actionUtils'
 
-import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
+import { CountedHTMLElement, ElementsEventType } from '~/toolbar/core/types'
 import { ElementType } from '~/types'
 
 interface ElementFingerprint {
