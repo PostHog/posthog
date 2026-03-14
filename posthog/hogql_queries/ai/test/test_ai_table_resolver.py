@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
-from unittest.mock import Mock, patch
+from unittest.mock import patch
 
 from posthog.hogql_queries.ai.ai_table_resolver import (
     AI_EVENTS_TTL_DAYS,
@@ -48,27 +48,13 @@ class TestIsWithinAiEventsTtl:
 class TestIsAiEventsEnabled:
     @patch("posthog.hogql_queries.ai.ai_table_resolver.posthoganalytics.feature_enabled", return_value=True)
     def test_returns_true_when_flag_enabled(self, mock_flag):
-        team = Mock(id=123, organization_id="org_abc")
-        assert is_ai_events_enabled(team) is True
-        mock_flag.assert_called_once_with(
-            "ai-events-table-rollout",
-            "123",
-            groups={"organization": "org_abc"},
-            group_properties={"organization": {"id": "org_abc"}},
-            send_feature_flag_events=False,
-        )
+        assert is_ai_events_enabled(123) is True
+        mock_flag.assert_called_once_with("ai-events-table-rollout", "123", send_feature_flag_events=False)
 
     @patch("posthog.hogql_queries.ai.ai_table_resolver.posthoganalytics.feature_enabled", return_value=False)
     def test_returns_false_when_flag_disabled(self, mock_flag):
-        team = Mock(id=456, organization_id="org_xyz")
-        assert is_ai_events_enabled(team) is False
-        mock_flag.assert_called_once_with(
-            "ai-events-table-rollout",
-            "456",
-            groups={"organization": "org_xyz"},
-            group_properties={"organization": {"id": "org_xyz"}},
-            send_feature_flag_events=False,
-        )
+        assert is_ai_events_enabled(456) is False
+        mock_flag.assert_called_once_with("ai-events-table-rollout", "456", send_feature_flag_events=False)
 
 
 class TestValidateAiEventNames:

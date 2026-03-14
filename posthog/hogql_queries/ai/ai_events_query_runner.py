@@ -64,7 +64,7 @@ class AiEventsQueryRunner(QueryRunner):
         )
 
     def _should_use_ai_events_table(self) -> bool:
-        if not is_ai_events_enabled(self.team):
+        if not is_ai_events_enabled(self.team.id):
             return False
 
         after = self.query.after or "-24h"

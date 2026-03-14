@@ -1,22 +1,14 @@
-from __future__ import annotations
-
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
 
 import posthoganalytics
-
-if TYPE_CHECKING:
-    from posthog.models import Team
 
 AI_EVENTS_TTL_DAYS = 30
 
 
-def is_ai_events_enabled(team: Team) -> bool:
+def is_ai_events_enabled(team_id: int) -> bool:
     return posthoganalytics.feature_enabled(
         "ai-events-table-rollout",
-        str(team.id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
+        str(team_id),
         send_feature_flag_events=False,
     )
 
