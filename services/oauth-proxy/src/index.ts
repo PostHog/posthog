@@ -4,7 +4,7 @@
  * A Cloudflare Worker that sits in front of both US and EU PostHog instances,
  * providing a single OAuth endpoint that handles region routing transparently.
  *
- * Used by the PostHog MCP server, Twig, and any future OAuth integration
+ * Used by the PostHog MCP server, PostHog Code, and any future OAuth integration
  * so they don't need separate US/EU URLs.
  */
 import { handleAuthorize } from '@/handlers/authorize'

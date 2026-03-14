@@ -64,6 +64,32 @@ class AnnotationSerializer(serializers.ModelSerializer):
             "created_at",
             "updated_at",
         ]
+        extra_kwargs = {
+            "content": {
+                "help_text": "Annotation text shown on charts to describe the change, release, or incident.",
+            },
+            "date_marker": {
+                "help_text": "When this annotation happened (ISO 8601 timestamp). Used to position it on charts.",
+            },
+            "creation_type": {
+                "help_text": "Who created this annotation. Use `USR` for user-created notes and `GIT` for bot/deployment notes.",
+            },
+            "dashboard_id": {
+                "help_text": "Optional dashboard ID to attach this annotation to. Must belong to the current project.",
+            },
+            "dashboard_item": {
+                "help_text": "Optional insight ID to attach this annotation to. Must belong to the current project.",
+            },
+            "deleted": {
+                "help_text": "Soft-delete flag. Set to true to hide the annotation, or false to restore it.",
+            },
+            "scope": {
+                "help_text": (
+                    "Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. "
+                    "`recording` is deprecated and rejected."
+                ),
+            },
+        }
 
     def update(self, instance: Annotation, validated_data: dict[str, Any]) -> Annotation:
         instance.team_id = self.context["team_id"]

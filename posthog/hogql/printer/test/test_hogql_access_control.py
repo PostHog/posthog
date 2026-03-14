@@ -54,6 +54,7 @@ class TestAccessControlSystemTables(BaseTest):
         assert "experiments" not in system_node.children
         assert "feature_flags" not in system_node.children
         assert "surveys" not in system_node.children
+        assert "annotations" not in system_node.children
         assert "data_warehouse_sources" not in system_node.children
         assert "actions" not in system_node.children
         assert "hog_flows" not in system_node.children
@@ -65,6 +66,7 @@ class TestAccessControlSystemTables(BaseTest):
         assert "system.experiments" in database._denied_tables
         assert "system.feature_flags" in database._denied_tables
         assert "system.surveys" in database._denied_tables
+        assert "system.annotations" in database._denied_tables
         assert "system.data_warehouse_sources" in database._denied_tables
         assert "system.actions" in database._denied_tables
         assert "system.hog_flows" in database._denied_tables

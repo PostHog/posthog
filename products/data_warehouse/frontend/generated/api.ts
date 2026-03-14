@@ -366,6 +366,23 @@ export const dataWarehouseDataHealthIssuesRetrieve = async (
 }
 
 /**
+ * Returns the data ops overview dashboard ID for this team, creating it if it doesn't exist yet.
+ */
+export const getDataWarehouseDataOpsDashboardRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_warehouse/data_ops_dashboard/`
+}
+
+export const dataWarehouseDataOpsDashboardRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getDataWarehouseDataOpsDashboardRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
  * Returns success and failed job statistics for the last 1, 7, or 30 days.
 Query parameter 'days' can be 1, 7, or 30 (default: 7).
  */

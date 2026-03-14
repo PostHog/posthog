@@ -577,6 +577,8 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             return {}
 
     def _get_org(self) -> Optional[Organization]:
+        # root-router viewset with param_derived_from_user_current_team — no URL-scoped org to mismatch
+        # nosemgrep: cross-org-bypass-user-organization
         org = None if self.request.user.is_anonymous else self.request.user.organization
 
         return org

@@ -68,5 +68,5 @@ export function discoverDefinitions({ definitionsDir, productsDir }) {
         }
     }
 
-    return sources
+    return sources.sort((a, b) => a.moduleName.localeCompare(b.moduleName))
 }

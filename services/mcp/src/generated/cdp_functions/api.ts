@@ -228,6 +228,7 @@ export const EnvironmentsHogFunctionsCreateBody = zod.object({
         .describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
@@ -261,6 +262,11 @@ export const EnvironmentsHogFunctionsCreateBody = zod.object({
                 secret: zod.boolean().default(environmentsHogFunctionsCreateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(environmentsHogFunctionsCreateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -294,7 +300,10 @@ export const EnvironmentsHogFunctionsCreateBody = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -350,6 +359,11 @@ export const EnvironmentsHogFunctionsCreateBody = zod.object({
                                 .boolean()
                                 .default(environmentsHogFunctionsCreateBodyMappingsItemInputsSchemaItemHiddenDefault),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -389,7 +403,10 @@ export const EnvironmentsHogFunctionsCreateBody = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -408,6 +425,7 @@ export const EnvironmentsHogFunctionsCreateBody = zod.object({
         .max(environmentsHogFunctionsCreateBodyExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
 })
 
 /**
@@ -516,10 +534,13 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
         .optional(),
     updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -551,6 +572,11 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
                 secret: zod.boolean().default(environmentsHogFunctionsRetrieveResponseInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(environmentsHogFunctionsRetrieveResponseInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -584,7 +610,10 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -646,6 +675,11 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
                                     environmentsHogFunctionsRetrieveResponseMappingsItemInputsSchemaItemHiddenDefault
                                 ),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -685,7 +719,10 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -749,12 +786,29 @@ export const EnvironmentsHogFunctionsRetrieveResponse = zod.object({
         .max(environmentsHogFunctionsRetrieveResponseTemplateIdMax)
         .nullish()
         .describe('ID of the template to create this function from.'),
+    status: zod
+        .object({
+            state: zod
+                .union([
+                    zod.literal(0),
+                    zod.literal(1),
+                    zod.literal(2),
+                    zod.literal(3),
+                    zod.literal(11),
+                    zod.literal(12),
+                ])
+                .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+            tokens: zod.number(),
+        })
+        .nullish(),
     execution_order: zod
         .number()
         .min(environmentsHogFunctionsRetrieveResponseExecutionOrderMin)
         .max(environmentsHogFunctionsRetrieveResponseExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
+    batch_export_id: zod.string().nullish(),
 })
 
 /**
@@ -812,6 +866,7 @@ export const EnvironmentsHogFunctionsUpdateBody = zod.object({
         .describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
@@ -845,6 +900,11 @@ export const EnvironmentsHogFunctionsUpdateBody = zod.object({
                 secret: zod.boolean().default(environmentsHogFunctionsUpdateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(environmentsHogFunctionsUpdateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -878,7 +938,10 @@ export const EnvironmentsHogFunctionsUpdateBody = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -934,6 +997,11 @@ export const EnvironmentsHogFunctionsUpdateBody = zod.object({
                                 .boolean()
                                 .default(environmentsHogFunctionsUpdateBodyMappingsItemInputsSchemaItemHiddenDefault),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -973,7 +1041,10 @@ export const EnvironmentsHogFunctionsUpdateBody = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -992,6 +1063,7 @@ export const EnvironmentsHogFunctionsUpdateBody = zod.object({
         .max(environmentsHogFunctionsUpdateBodyExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
 })
 
 export const environmentsHogFunctionsUpdateResponseNameMax = 400
@@ -1092,10 +1164,13 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
         .optional(),
     updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -1125,6 +1200,11 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
                 secret: zod.boolean().default(environmentsHogFunctionsUpdateResponseInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(environmentsHogFunctionsUpdateResponseInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -1158,7 +1238,10 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -1220,6 +1303,11 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
                                     environmentsHogFunctionsUpdateResponseMappingsItemInputsSchemaItemHiddenDefault
                                 ),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -1259,7 +1347,10 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -1323,12 +1414,29 @@ export const EnvironmentsHogFunctionsUpdateResponse = zod.object({
         .max(environmentsHogFunctionsUpdateResponseTemplateIdMax)
         .nullish()
         .describe('ID of the template to create this function from.'),
+    status: zod
+        .object({
+            state: zod
+                .union([
+                    zod.literal(0),
+                    zod.literal(1),
+                    zod.literal(2),
+                    zod.literal(3),
+                    zod.literal(11),
+                    zod.literal(12),
+                ])
+                .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+            tokens: zod.number(),
+        })
+        .nullish(),
     execution_order: zod
         .number()
         .min(environmentsHogFunctionsUpdateResponseExecutionOrderMin)
         .max(environmentsHogFunctionsUpdateResponseExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
+    batch_export_id: zod.string().nullish(),
 })
 
 /**
@@ -1386,6 +1494,7 @@ export const EnvironmentsHogFunctionsPartialUpdateBody = zod.object({
         .describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
@@ -1421,6 +1530,11 @@ export const EnvironmentsHogFunctionsPartialUpdateBody = zod.object({
                 secret: zod.boolean().default(environmentsHogFunctionsPartialUpdateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(environmentsHogFunctionsPartialUpdateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -1454,7 +1568,10 @@ export const EnvironmentsHogFunctionsPartialUpdateBody = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -1516,6 +1633,11 @@ export const EnvironmentsHogFunctionsPartialUpdateBody = zod.object({
                                     environmentsHogFunctionsPartialUpdateBodyMappingsItemInputsSchemaItemHiddenDefault
                                 ),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -1555,7 +1677,10 @@ export const EnvironmentsHogFunctionsPartialUpdateBody = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -1574,6 +1699,7 @@ export const EnvironmentsHogFunctionsPartialUpdateBody = zod.object({
         .max(environmentsHogFunctionsPartialUpdateBodyExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
 })
 
 export const environmentsHogFunctionsPartialUpdateResponseNameMax = 400
@@ -1683,10 +1809,13 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
         .optional(),
     updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -1722,6 +1851,11 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
                     .boolean()
                     .default(environmentsHogFunctionsPartialUpdateResponseInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -1755,7 +1889,10 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -1817,6 +1954,11 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
                                     environmentsHogFunctionsPartialUpdateResponseMappingsItemInputsSchemaItemHiddenDefault
                                 ),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -1856,7 +1998,10 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -1920,12 +2065,29 @@ export const EnvironmentsHogFunctionsPartialUpdateResponse = zod.object({
         .max(environmentsHogFunctionsPartialUpdateResponseTemplateIdMax)
         .nullish()
         .describe('ID of the template to create this function from.'),
+    status: zod
+        .object({
+            state: zod
+                .union([
+                    zod.literal(0),
+                    zod.literal(1),
+                    zod.literal(2),
+                    zod.literal(3),
+                    zod.literal(11),
+                    zod.literal(12),
+                ])
+                .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+            tokens: zod.number(),
+        })
+        .nullish(),
     execution_order: zod
         .number()
         .min(environmentsHogFunctionsPartialUpdateResponseExecutionOrderMin)
         .max(environmentsHogFunctionsPartialUpdateResponseExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
+    batch_export_id: zod.string().nullish(),
 })
 
 /**
@@ -1992,6 +2154,7 @@ export const EnvironmentsHogFunctionsEnableBackfillsCreateBody = zod.object({
         .describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
@@ -2031,6 +2194,11 @@ export const EnvironmentsHogFunctionsEnableBackfillsCreateBody = zod.object({
                     .boolean()
                     .default(environmentsHogFunctionsEnableBackfillsCreateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -2064,7 +2232,10 @@ export const EnvironmentsHogFunctionsEnableBackfillsCreateBody = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -2126,6 +2297,11 @@ export const EnvironmentsHogFunctionsEnableBackfillsCreateBody = zod.object({
                                     environmentsHogFunctionsEnableBackfillsCreateBodyMappingsItemInputsSchemaItemHiddenDefault
                                 ),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -2165,7 +2341,10 @@ export const EnvironmentsHogFunctionsEnableBackfillsCreateBody = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -2184,6 +2363,7 @@ export const EnvironmentsHogFunctionsEnableBackfillsCreateBody = zod.object({
         .max(environmentsHogFunctionsEnableBackfillsCreateBodyExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
 })
 
 /**
@@ -2308,10 +2488,13 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                 .optional(),
             updated_at: zod.string().datetime({}).optional(),
             enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+            deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
             hog: zod
                 .string()
                 .optional()
                 .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.string().nullish(),
             inputs_schema: zod
                 .array(
                     zod.object({
@@ -2353,6 +2536,11 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                                 environmentsHogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemHiddenDefault
                             ),
                         description: zod.string().optional(),
+                        integration: zod.string().optional(),
+                        integration_key: zod.string().optional(),
+                        requires_field: zod.string().optional(),
+                        integration_field: zod.string().optional(),
+                        requiredScopes: zod.string().optional(),
                         templating: zod
                             .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                             .optional()
@@ -2389,7 +2577,10 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                     events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    bytecode: zod.unknown().nullish(),
+                    transpiled: zod.unknown().optional(),
                     filter_test_accounts: zod.boolean().optional(),
+                    bytecode_error: zod.string().optional(),
                 })
                 .optional()
                 .describe('Event filters that control which events trigger this function.'),
@@ -2454,6 +2645,11 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                                             environmentsHogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemInputsSchemaItemHiddenDefault
                                         ),
                                     description: zod.string().optional(),
+                                    integration: zod.string().optional(),
+                                    integration_key: zod.string().optional(),
+                                    requires_field: zod.string().optional(),
+                                    integration_field: zod.string().optional(),
+                                    requiredScopes: zod.string().optional(),
                                     templating: zod
                                         .union([
                                             zod.literal(true),
@@ -2497,7 +2693,10 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                                 events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                bytecode: zod.unknown().nullish(),
+                                transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
+                                bytecode_error: zod.string().optional(),
                             })
                             .optional(),
                     })
@@ -2561,12 +2760,29 @@ export const EnvironmentsHogFunctionsInvocationsCreateBody = zod.object({
                 .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneTemplateIdMax)
                 .nullish()
                 .describe('ID of the template to create this function from.'),
+            status: zod
+                .object({
+                    state: zod
+                        .union([
+                            zod.literal(0),
+                            zod.literal(1),
+                            zod.literal(2),
+                            zod.literal(3),
+                            zod.literal(11),
+                            zod.literal(12),
+                        ])
+                        .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+                    tokens: zod.number(),
+                })
+                .nullish(),
             execution_order: zod
                 .number()
                 .min(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMin)
                 .max(environmentsHogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMax)
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
+            _create_in_folder: zod.string().optional(),
+            batch_export_id: zod.string().nullish(),
         })
         .describe('Full function configuration to test.'),
     globals: zod
@@ -2698,10 +2914,13 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                 .optional(),
             updated_at: zod.string().datetime({}).optional(),
             enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+            deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
             hog: zod
                 .string()
                 .optional()
                 .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.string().nullish(),
             inputs_schema: zod
                 .array(
                     zod.object({
@@ -2743,6 +2962,11 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                                 environmentsHogFunctionsInvocationsCreateResponseConfigurationOneInputsSchemaItemHiddenDefault
                             ),
                         description: zod.string().optional(),
+                        integration: zod.string().optional(),
+                        integration_key: zod.string().optional(),
+                        requires_field: zod.string().optional(),
+                        integration_field: zod.string().optional(),
+                        requiredScopes: zod.string().optional(),
                         templating: zod
                             .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                             .optional()
@@ -2781,7 +3005,10 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                     events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    bytecode: zod.unknown().nullish(),
+                    transpiled: zod.unknown().optional(),
                     filter_test_accounts: zod.boolean().optional(),
+                    bytecode_error: zod.string().optional(),
                 })
                 .optional()
                 .describe('Event filters that control which events trigger this function.'),
@@ -2846,6 +3073,11 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                                             environmentsHogFunctionsInvocationsCreateResponseConfigurationOneMappingsItemInputsSchemaItemHiddenDefault
                                         ),
                                     description: zod.string().optional(),
+                                    integration: zod.string().optional(),
+                                    integration_key: zod.string().optional(),
+                                    requires_field: zod.string().optional(),
+                                    integration_field: zod.string().optional(),
+                                    requiredScopes: zod.string().optional(),
                                     templating: zod
                                         .union([
                                             zod.literal(true),
@@ -2889,7 +3121,10 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                                 events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                bytecode: zod.unknown().nullish(),
+                                transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
+                                bytecode_error: zod.string().optional(),
                             })
                             .optional(),
                     })
@@ -2955,12 +3190,29 @@ export const EnvironmentsHogFunctionsInvocationsCreateResponse = zod.object({
                 .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneTemplateIdMax)
                 .nullish()
                 .describe('ID of the template to create this function from.'),
+            status: zod
+                .object({
+                    state: zod
+                        .union([
+                            zod.literal(0),
+                            zod.literal(1),
+                            zod.literal(2),
+                            zod.literal(3),
+                            zod.literal(11),
+                            zod.literal(12),
+                        ])
+                        .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+                    tokens: zod.number(),
+                })
+                .nullish(),
             execution_order: zod
                 .number()
                 .min(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneExecutionOrderMin)
                 .max(environmentsHogFunctionsInvocationsCreateResponseConfigurationOneExecutionOrderMax)
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
+            _create_in_folder: zod.string().optional(),
+            batch_export_id: zod.string().nullish(),
         })
         .describe('Full function configuration to test.'),
     globals: zod
@@ -3140,10 +3392,13 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
         .optional(),
     updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -3179,6 +3434,11 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
                     .boolean()
                     .default(environmentsHogFunctionsRearrangePartialUpdateResponseInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -3212,7 +3472,10 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -3274,6 +3537,11 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
                                     environmentsHogFunctionsRearrangePartialUpdateResponseMappingsItemInputsSchemaItemHiddenDefault
                                 ),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -3315,7 +3583,10 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -3379,12 +3650,29 @@ export const EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem = zod.ob
         .max(environmentsHogFunctionsRearrangePartialUpdateResponseTemplateIdMax)
         .nullish()
         .describe('ID of the template to create this function from.'),
+    status: zod
+        .object({
+            state: zod
+                .union([
+                    zod.literal(0),
+                    zod.literal(1),
+                    zod.literal(2),
+                    zod.literal(3),
+                    zod.literal(11),
+                    zod.literal(12),
+                ])
+                .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+            tokens: zod.number(),
+        })
+        .nullish(),
     execution_order: zod
         .number()
         .min(environmentsHogFunctionsRearrangePartialUpdateResponseExecutionOrderMin)
         .max(environmentsHogFunctionsRearrangePartialUpdateResponseExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
+    batch_export_id: zod.string().nullish(),
 })
 export const EnvironmentsHogFunctionsRearrangePartialUpdateResponse = zod.array(
     EnvironmentsHogFunctionsRearrangePartialUpdateResponseItem
@@ -3668,7 +3956,10 @@ export const HogFunctionsCreateBody = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -3887,10 +4178,13 @@ export const HogFunctionsRetrieveResponse = zod.object({
         .optional(),
     updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -3920,6 +4214,11 @@ export const HogFunctionsRetrieveResponse = zod.object({
                 secret: zod.boolean().default(hogFunctionsRetrieveResponseInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsRetrieveResponseInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -3953,7 +4252,10 @@ export const HogFunctionsRetrieveResponse = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -4009,6 +4311,11 @@ export const HogFunctionsRetrieveResponse = zod.object({
                                 .boolean()
                                 .default(hogFunctionsRetrieveResponseMappingsItemInputsSchemaItemHiddenDefault),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -4048,7 +4355,10 @@ export const HogFunctionsRetrieveResponse = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -4112,12 +4422,29 @@ export const HogFunctionsRetrieveResponse = zod.object({
         .max(hogFunctionsRetrieveResponseTemplateIdMax)
         .nullish()
         .describe('ID of the template to create this function from.'),
+    status: zod
+        .object({
+            state: zod
+                .union([
+                    zod.literal(0),
+                    zod.literal(1),
+                    zod.literal(2),
+                    zod.literal(3),
+                    zod.literal(11),
+                    zod.literal(12),
+                ])
+                .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+            tokens: zod.number(),
+        })
+        .nullish(),
     execution_order: zod
         .number()
         .min(hogFunctionsRetrieveResponseExecutionOrderMin)
         .max(hogFunctionsRetrieveResponseExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
+    batch_export_id: zod.string().nullish(),
 })
 
 export const HogFunctionsUpdateParams = zod.object({
@@ -4172,6 +4499,7 @@ export const HogFunctionsUpdateBody = zod.object({
     name: zod.string().max(hogFunctionsUpdateBodyNameMax).nullish().describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
@@ -4205,6 +4533,11 @@ export const HogFunctionsUpdateBody = zod.object({
                 secret: zod.boolean().default(hogFunctionsUpdateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsUpdateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -4238,7 +4571,10 @@ export const HogFunctionsUpdateBody = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -4294,6 +4630,11 @@ export const HogFunctionsUpdateBody = zod.object({
                                 .boolean()
                                 .default(hogFunctionsUpdateBodyMappingsItemInputsSchemaItemHiddenDefault),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -4333,7 +4674,10 @@ export const HogFunctionsUpdateBody = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -4352,6 +4696,7 @@ export const HogFunctionsUpdateBody = zod.object({
         .max(hogFunctionsUpdateBodyExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
 })
 
 export const hogFunctionsUpdateResponseNameMax = 400
@@ -4448,10 +4793,13 @@ export const HogFunctionsUpdateResponse = zod.object({
         .optional(),
     updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -4481,6 +4829,11 @@ export const HogFunctionsUpdateResponse = zod.object({
                 secret: zod.boolean().default(hogFunctionsUpdateResponseInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsUpdateResponseInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -4514,7 +4867,10 @@ export const HogFunctionsUpdateResponse = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -4570,6 +4926,11 @@ export const HogFunctionsUpdateResponse = zod.object({
                                 .boolean()
                                 .default(hogFunctionsUpdateResponseMappingsItemInputsSchemaItemHiddenDefault),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -4609,7 +4970,10 @@ export const HogFunctionsUpdateResponse = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -4673,12 +5037,29 @@ export const HogFunctionsUpdateResponse = zod.object({
         .max(hogFunctionsUpdateResponseTemplateIdMax)
         .nullish()
         .describe('ID of the template to create this function from.'),
+    status: zod
+        .object({
+            state: zod
+                .union([
+                    zod.literal(0),
+                    zod.literal(1),
+                    zod.literal(2),
+                    zod.literal(3),
+                    zod.literal(11),
+                    zod.literal(12),
+                ])
+                .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+            tokens: zod.number(),
+        })
+        .nullish(),
     execution_order: zod
         .number()
         .min(hogFunctionsUpdateResponseExecutionOrderMin)
         .max(hogFunctionsUpdateResponseExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
+    batch_export_id: zod.string().nullish(),
 })
 
 export const HogFunctionsPartialUpdateParams = zod.object({
@@ -4799,7 +5180,10 @@ export const HogFunctionsPartialUpdateBody = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -5013,10 +5397,13 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
         .optional(),
     updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -5046,6 +5433,11 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
                 secret: zod.boolean().default(hogFunctionsPartialUpdateResponseInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsPartialUpdateResponseInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -5079,7 +5471,10 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -5135,6 +5530,11 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
                                 .boolean()
                                 .default(hogFunctionsPartialUpdateResponseMappingsItemInputsSchemaItemHiddenDefault),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -5174,7 +5574,10 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -5238,12 +5641,29 @@ export const HogFunctionsPartialUpdateResponse = zod.object({
         .max(hogFunctionsPartialUpdateResponseTemplateIdMax)
         .nullish()
         .describe('ID of the template to create this function from.'),
+    status: zod
+        .object({
+            state: zod
+                .union([
+                    zod.literal(0),
+                    zod.literal(1),
+                    zod.literal(2),
+                    zod.literal(3),
+                    zod.literal(11),
+                    zod.literal(12),
+                ])
+                .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+            tokens: zod.number(),
+        })
+        .nullish(),
     execution_order: zod
         .number()
         .min(hogFunctionsPartialUpdateResponseExecutionOrderMin)
         .max(hogFunctionsPartialUpdateResponseExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
+    batch_export_id: zod.string().nullish(),
 })
 
 /**
@@ -5314,6 +5734,7 @@ export const HogFunctionsEnableBackfillsCreateBody = zod.object({
         .describe('Display name for the function.'),
     description: zod.string().optional().describe('Human-readable description of what this function does.'),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
@@ -5347,6 +5768,11 @@ export const HogFunctionsEnableBackfillsCreateBody = zod.object({
                 secret: zod.boolean().default(hogFunctionsEnableBackfillsCreateBodyInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsEnableBackfillsCreateBodyInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -5380,7 +5806,10 @@ export const HogFunctionsEnableBackfillsCreateBody = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -5442,6 +5871,11 @@ export const HogFunctionsEnableBackfillsCreateBody = zod.object({
                                     hogFunctionsEnableBackfillsCreateBodyMappingsItemInputsSchemaItemHiddenDefault
                                 ),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -5481,7 +5915,10 @@ export const HogFunctionsEnableBackfillsCreateBody = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -5500,6 +5937,7 @@ export const HogFunctionsEnableBackfillsCreateBody = zod.object({
         .max(hogFunctionsEnableBackfillsCreateBodyExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
 })
 
 export const HogFunctionsInvocationsCreateParams = zod.object({
@@ -5625,10 +6063,13 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                 .optional(),
             updated_at: zod.string().datetime({}).optional(),
             enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+            deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
             hog: zod
                 .string()
                 .optional()
                 .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.string().nullish(),
             inputs_schema: zod
                 .array(
                     zod.object({
@@ -5664,6 +6105,11 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                             .boolean()
                             .default(hogFunctionsInvocationsCreateBodyConfigurationOneInputsSchemaItemHiddenDefault),
                         description: zod.string().optional(),
+                        integration: zod.string().optional(),
+                        integration_key: zod.string().optional(),
+                        requires_field: zod.string().optional(),
+                        integration_field: zod.string().optional(),
+                        requiredScopes: zod.string().optional(),
                         templating: zod
                             .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                             .optional()
@@ -5700,7 +6146,10 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                     events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    bytecode: zod.unknown().nullish(),
+                    transpiled: zod.unknown().optional(),
                     filter_test_accounts: zod.boolean().optional(),
+                    bytecode_error: zod.string().optional(),
                 })
                 .optional()
                 .describe('Event filters that control which events trigger this function.'),
@@ -5765,6 +6214,11 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                                             hogFunctionsInvocationsCreateBodyConfigurationOneMappingsItemInputsSchemaItemHiddenDefault
                                         ),
                                     description: zod.string().optional(),
+                                    integration: zod.string().optional(),
+                                    integration_key: zod.string().optional(),
+                                    requires_field: zod.string().optional(),
+                                    integration_field: zod.string().optional(),
+                                    requiredScopes: zod.string().optional(),
                                     templating: zod
                                         .union([
                                             zod.literal(true),
@@ -5808,7 +6262,10 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                                 events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                bytecode: zod.unknown().nullish(),
+                                transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
+                                bytecode_error: zod.string().optional(),
                             })
                             .optional(),
                     })
@@ -5872,12 +6329,29 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
                 .max(hogFunctionsInvocationsCreateBodyConfigurationOneTemplateIdMax)
                 .nullish()
                 .describe('ID of the template to create this function from.'),
+            status: zod
+                .object({
+                    state: zod
+                        .union([
+                            zod.literal(0),
+                            zod.literal(1),
+                            zod.literal(2),
+                            zod.literal(3),
+                            zod.literal(11),
+                            zod.literal(12),
+                        ])
+                        .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+                    tokens: zod.number(),
+                })
+                .nullish(),
             execution_order: zod
                 .number()
                 .min(hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMin)
                 .max(hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMax)
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
+            _create_in_folder: zod.string().optional(),
+            batch_export_id: zod.string().nullish(),
         })
         .describe('Full function configuration to test.'),
     globals: zod
@@ -6009,10 +6483,13 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                 .optional(),
             updated_at: zod.string().datetime({}).optional(),
             enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+            deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
             hog: zod
                 .string()
                 .optional()
                 .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.string().nullish(),
             inputs_schema: zod
                 .array(
                     zod.object({
@@ -6054,6 +6531,11 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                                 hogFunctionsInvocationsCreateResponseConfigurationOneInputsSchemaItemHiddenDefault
                             ),
                         description: zod.string().optional(),
+                        integration: zod.string().optional(),
+                        integration_key: zod.string().optional(),
+                        requires_field: zod.string().optional(),
+                        integration_field: zod.string().optional(),
+                        requiredScopes: zod.string().optional(),
                         templating: zod
                             .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                             .optional()
@@ -6090,7 +6572,10 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                     events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                     properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                    bytecode: zod.unknown().nullish(),
+                    transpiled: zod.unknown().optional(),
                     filter_test_accounts: zod.boolean().optional(),
+                    bytecode_error: zod.string().optional(),
                 })
                 .optional()
                 .describe('Event filters that control which events trigger this function.'),
@@ -6155,6 +6640,11 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                                             hogFunctionsInvocationsCreateResponseConfigurationOneMappingsItemInputsSchemaItemHiddenDefault
                                         ),
                                     description: zod.string().optional(),
+                                    integration: zod.string().optional(),
+                                    integration_key: zod.string().optional(),
+                                    requires_field: zod.string().optional(),
+                                    integration_field: zod.string().optional(),
+                                    requiredScopes: zod.string().optional(),
                                     templating: zod
                                         .union([
                                             zod.literal(true),
@@ -6198,7 +6688,10 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                                 events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                                 properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                                bytecode: zod.unknown().nullish(),
+                                transpiled: zod.unknown().optional(),
                                 filter_test_accounts: zod.boolean().optional(),
+                                bytecode_error: zod.string().optional(),
                             })
                             .optional(),
                     })
@@ -6262,12 +6755,29 @@ export const HogFunctionsInvocationsCreateResponse = zod.object({
                 .max(hogFunctionsInvocationsCreateResponseConfigurationOneTemplateIdMax)
                 .nullish()
                 .describe('ID of the template to create this function from.'),
+            status: zod
+                .object({
+                    state: zod
+                        .union([
+                            zod.literal(0),
+                            zod.literal(1),
+                            zod.literal(2),
+                            zod.literal(3),
+                            zod.literal(11),
+                            zod.literal(12),
+                        ])
+                        .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+                    tokens: zod.number(),
+                })
+                .nullish(),
             execution_order: zod
                 .number()
                 .min(hogFunctionsInvocationsCreateResponseConfigurationOneExecutionOrderMin)
                 .max(hogFunctionsInvocationsCreateResponseConfigurationOneExecutionOrderMax)
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
+            _create_in_folder: zod.string().optional(),
+            batch_export_id: zod.string().nullish(),
         })
         .describe('Full function configuration to test.'),
     globals: zod
@@ -6449,10 +6959,13 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
         .optional(),
     updated_at: zod.string().datetime({}).optional(),
     enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
+    deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
     hog: zod
         .string()
         .optional()
         .describe('Source code. Hog language for most types; TypeScript for site_destination and site_app.'),
+    bytecode: zod.unknown().nullish(),
+    transpiled: zod.string().nullish(),
     inputs_schema: zod
         .array(
             zod.object({
@@ -6484,6 +6997,11 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
                 secret: zod.boolean().default(hogFunctionsRearrangePartialUpdateResponseInputsSchemaItemSecretDefault),
                 hidden: zod.boolean().default(hogFunctionsRearrangePartialUpdateResponseInputsSchemaItemHiddenDefault),
                 description: zod.string().optional(),
+                integration: zod.string().optional(),
+                integration_key: zod.string().optional(),
+                requires_field: zod.string().optional(),
+                integration_field: zod.string().optional(),
+                requiredScopes: zod.string().optional(),
                 templating: zod
                     .union([zod.literal(true), zod.literal(false), zod.literal('hog'), zod.literal('liquid')])
                     .optional()
@@ -6517,7 +7035,10 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
             events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
             properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+            bytecode: zod.unknown().nullish(),
+            transpiled: zod.unknown().optional(),
             filter_test_accounts: zod.boolean().optional(),
+            bytecode_error: zod.string().optional(),
         })
         .optional()
         .describe('Event filters that control which events trigger this function.'),
@@ -6579,6 +7100,11 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
                                     hogFunctionsRearrangePartialUpdateResponseMappingsItemInputsSchemaItemHiddenDefault
                                 ),
                             description: zod.string().optional(),
+                            integration: zod.string().optional(),
+                            integration_key: zod.string().optional(),
+                            requires_field: zod.string().optional(),
+                            integration_field: zod.string().optional(),
+                            requiredScopes: zod.string().optional(),
                             templating: zod
                                 .union([
                                     zod.literal(true),
@@ -6618,7 +7144,10 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
                         events: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         data_warehouse: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
                         properties: zod.array(zod.record(zod.string(), zod.unknown())).optional(),
+                        bytecode: zod.unknown().nullish(),
+                        transpiled: zod.unknown().optional(),
                         filter_test_accounts: zod.boolean().optional(),
+                        bytecode_error: zod.string().optional(),
                     })
                     .optional(),
             })
@@ -6682,11 +7211,28 @@ export const HogFunctionsRearrangePartialUpdateResponseItem = zod.object({
         .max(hogFunctionsRearrangePartialUpdateResponseTemplateIdMax)
         .nullish()
         .describe('ID of the template to create this function from.'),
+    status: zod
+        .object({
+            state: zod
+                .union([
+                    zod.literal(0),
+                    zod.literal(1),
+                    zod.literal(2),
+                    zod.literal(3),
+                    zod.literal(11),
+                    zod.literal(12),
+                ])
+                .describe('* `0` - 0\n* `1` - 1\n* `2` - 2\n* `3` - 3\n* `11` - 11\n* `12` - 12'),
+            tokens: zod.number(),
+        })
+        .nullish(),
     execution_order: zod
         .number()
         .min(hogFunctionsRearrangePartialUpdateResponseExecutionOrderMin)
         .max(hogFunctionsRearrangePartialUpdateResponseExecutionOrderMax)
         .nullish()
         .describe('Execution priority for transformations. Lower values run first.'),
+    _create_in_folder: zod.string().optional(),
+    batch_export_id: zod.string().nullish(),
 })
 export const HogFunctionsRearrangePartialUpdateResponse = zod.array(HogFunctionsRearrangePartialUpdateResponseItem)

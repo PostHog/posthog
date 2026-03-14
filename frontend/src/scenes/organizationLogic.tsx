@@ -172,13 +172,20 @@ export const organizationLogic = kea<organizationLogicType>([
             }
         },
         deleteOrganizationSuccess: ({ redirectPath }) => {
+            lemonToast.success('Organization has been deleted', {
+                toastId: 'deleteOrganization',
+            })
+
+            // When deleting an org as part of the delete-account flow, skip the
+            // page reload so the user stays in the modal. The org deletion is
+            // async, so a reload would still show the org in the list.
+            if (redirectPath === urls.settings('user-danger-zone')) {
+                return
+            }
+
             router.actions.replace(redirectPath ?? router.values.currentLocation.pathname, {
                 ...router.values.searchParams,
                 organizationDeleted: true,
-            })
-
-            lemonToast.success('Organization has been deleted', {
-                toastId: 'deleteOrganization',
             })
             location.reload()
         },

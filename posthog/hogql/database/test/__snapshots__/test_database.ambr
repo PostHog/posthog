@@ -2700,6 +2700,124 @@
           "row_count": null,
           "type": "system"
       },
+      "system.annotations": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "content": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "content",
+                  "id": null,
+                  "name": "content",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "scope": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scope",
+                  "id": null,
+                  "name": "scope",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "creation_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "creation_type",
+                  "id": null,
+                  "name": "creation_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "date_marker": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "date_marker",
+                  "id": null,
+                  "name": "date_marker",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "dashboard_item_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dashboard_item_id",
+                  "id": null,
+                  "name": "dashboard_item_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "dashboard_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dashboard_id",
+                  "id": null,
+                  "name": "dashboard_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.annotations",
+          "name": "system.annotations",
+          "row_count": null,
+          "type": "system"
+      },
       "system.cohort_calculation_history": {
           "fields": {
               "id": {
@@ -6163,6 +6281,124 @@
           },
           "id": "system.actions",
           "name": "system.actions",
+          "row_count": null,
+          "type": "system"
+      },
+      "system.annotations": {
+          "fields": {
+              "id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "id",
+                  "id": null,
+                  "name": "id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "content": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "content",
+                  "id": null,
+                  "name": "content",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "scope": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "scope",
+                  "id": null,
+                  "name": "scope",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "creation_type": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "creation_type",
+                  "id": null,
+                  "name": "creation_type",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "string"
+              },
+              "date_marker": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "date_marker",
+                  "id": null,
+                  "name": "date_marker",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "deleted": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "deleted",
+                  "id": null,
+                  "name": "deleted",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "expression"
+              },
+              "dashboard_item_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dashboard_item_id",
+                  "id": null,
+                  "name": "dashboard_item_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "dashboard_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "dashboard_id",
+                  "id": null,
+                  "name": "dashboard_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_by_id": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_by_id",
+                  "id": null,
+                  "name": "created_by_id",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "integer"
+              },
+              "created_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "created_at",
+                  "id": null,
+                  "name": "created_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              },
+              "updated_at": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "updated_at",
+                  "id": null,
+                  "name": "updated_at",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "datetime"
+              }
+          },
+          "id": "system.annotations",
+          "name": "system.annotations",
           "row_count": null,
           "type": "system"
       },

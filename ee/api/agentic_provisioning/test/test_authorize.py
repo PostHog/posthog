@@ -1,6 +1,7 @@
 import json
 import time
 
+import pytest
 from posthog.test.base import APIBaseTest
 
 from django.core.cache import cache
@@ -73,6 +74,7 @@ class TestAgenticAuthorize(APIBaseTest):
         assert code_data["team_id"] == self.team.id
         assert code_data["scopes"] == ["query:read", "project:read"]
 
+    @pytest.mark.requires_secrets
     @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET, STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
     def test_full_a1_flow_with_token_exchange(self):
         self._set_pending_auth("state_e2e", self.user.email)

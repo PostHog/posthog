@@ -370,7 +370,7 @@ class SurveySerializerCreateUpdateOnly(serializers.ModelSerializer):
             raise serializers.ValidationError("whiteLabel must be a boolean")
 
         # Check if the organization has the white labelling feature available
-        use_survey_white_labelling = self.context["request"].user.organization.is_feature_available(
+        use_survey_white_labelling = self.context["get_organization"]().is_feature_available(
             AvailableFeature.WHITE_LABELLING
         )
 

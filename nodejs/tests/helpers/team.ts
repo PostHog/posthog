@@ -13,6 +13,7 @@ export function createTestTeam(overrides: Partial<Team> = {}): Team {
         organization_id: 'test-org-id',
         name: 'Test Team',
         api_token: 'test-token',
+        secret_api_token: null,
         anonymize_ips: false,
         slack_incoming_webhook: null,
         session_recording_opt_in: false,

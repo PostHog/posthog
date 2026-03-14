@@ -1,6 +1,6 @@
 # Dockerfile for local agent development - builds on top of sandbox-base
 # This image should be rebuilt when the local agent package changes
-# Set LOCAL_TWIG_MONOREPO_ROOT to the path to the twig monorepo to use this in DockerSandbox
+# Set LOCAL_POSTHOG_CODE_MONOREPO_ROOT to the path to the PostHog Code monorepo to use this in DockerSandbox
 
 FROM posthog-sandbox-base
 

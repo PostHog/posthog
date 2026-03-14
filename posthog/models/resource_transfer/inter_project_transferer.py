@@ -1,9 +1,11 @@
+import re
 from collections.abc import Generator, Iterable
 from graphlib import TopologicalSorter
 from typing import Any, cast
 
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import models, transaction
+from django.db.models import Q
 
 import structlog
 
@@ -463,6 +465,39 @@ def _find_resource_with_same_name(
     return matching_resource
 
 
+def _model_has_name_field(model: type[models.Model]) -> bool:
+    return any(f.name == "name" for f in model._meta.get_fields())
+
+
+def _deduplicate_name(model: type[models.Model], name: str, team: Team) -> str:
+    """
+    Return a unique name for a resource being copied into *team*.
+
+    If no resource with *name* exists yet, return it unchanged.
+    Otherwise try ``"<name> (Copy)"``, then ``"<name> (Copy 2)"``,
+    ``"<name> (Copy 3)"`` … until a free slot is found.
+    """
+    taken_names: set[str] = set(
+        model.objects.filter(
+            Q(name=name) | Q(name=f"{name} (Copy)") | Q(name__regex=rf"^{re.escape(name)} \(Copy \d+\)$"),
+            team=team,
+        ).values_list("name", flat=True)
+    )
+
+    if name not in taken_names:
+        return name
+
+    candidate = f"{name} (Copy)"
+    if candidate not in taken_names:
+        return candidate
+
+    counter = 2
+    while f"{name} (Copy {counter})" in taken_names:
+        counter += 1
+
+    return f"{name} (Copy {counter})"
+
+
 def _get_mapped_substitutions(
     substitutions: list[tuple[ResourceTransferKey, ResourceTransferKey]],
     target_team: Team | None = None,
@@ -606,6 +641,9 @@ def _duplicate_vertex(
                 target_model=edge.target_model.__name__,
                 target_pk=str(edge.target_primary_key),
             )
+
+    if "name" in payload and payload["name"] and _model_has_name_field(visitor.get_model()):
+        payload["name"] = _deduplicate_name(visitor.get_model(), payload["name"], new_team)
 
     new_resource = visitor.get_model().objects.create(**payload)
     logger.info(

@@ -121,7 +121,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
 
             await self._post_slack_update()
 
-            # Start agent-server for direct connection from Twig
+            # Start agent-server for direct connection from PostHog Code
             agent_server_output = await self._start_agent_server(sandbox_output)
 
             await self._track_workflow_event(
