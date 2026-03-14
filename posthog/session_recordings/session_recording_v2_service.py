@@ -47,7 +47,7 @@ def listing_cache_key(recording: SessionRecording) -> str | None:
         return None
 
 
-async def _fetch_blocks_from_recording_api(session_id: str, team_id: int) -> list[RecordingBlock]:
+async def fetch_blocks_from_recording_api(session_id: str, team_id: int) -> list[RecordingBlock]:
     async with recording_api_client() as client:
         raw_blocks = await client.list_blocks(session_id, team_id)
 
@@ -78,7 +78,7 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
             BLOCK_LISTING_CACHE_HIT_COUNTER.labels(cache_hit=False).inc()
 
     try:
-        blocks = async_to_sync(_fetch_blocks_from_recording_api)(recording.session_id, recording.team_id)
+        blocks = async_to_sync(fetch_blocks_from_recording_api)(recording.session_id, recording.team_id)
     except Exception:
         logger.exception(
             "recording_api_list_blocks_failed",

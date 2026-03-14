@@ -18,7 +18,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import recording_api_client
-from posthog.session_recordings.session_recording_v2_service import _fetch_blocks_from_recording_api
+from posthog.session_recordings.session_recording_v2_service import fetch_blocks_from_recording_api
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -135,7 +135,7 @@ async def export_recording_data_prefix(input: ExportContext) -> None:
     logger = LOGGER.bind()
     logger.info(f"Exporting recording data prefix for session {input.session_id}")
 
-    recording_blocks = await _fetch_blocks_from_recording_api(input.session_id, input.team_id)
+    recording_blocks = await fetch_blocks_from_recording_api(input.session_id, input.team_id)
 
     if not recording_blocks:
         logger.warning("No recording blocks found, skipping prefix export...")
@@ -160,7 +160,7 @@ async def export_recording_data(input: ExportContext) -> None:
     logger = LOGGER.bind()
     logger.info(f"Exporting recording data for session {input.session_id}")
 
-    recording_blocks = await _fetch_blocks_from_recording_api(input.session_id, input.team_id)
+    recording_blocks = await fetch_blocks_from_recording_api(input.session_id, input.team_id)
 
     logger.info(f"Found {len(recording_blocks)} blocks to export")
 

@@ -187,7 +187,9 @@ async def test_export_recording_data_prefix_success():
     mock_redis = AsyncMock()
 
     with (
-        patch("posthog.temporal.export_recording.activities._list_blocks", return_value=[mock_block]),
+        patch(
+            "posthog.temporal.export_recording.activities.fetch_blocks_from_recording_api", return_value=[mock_block]
+        ),
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         mock_get_async_client.return_value = mock_redis
@@ -213,7 +215,7 @@ async def test_export_recording_data_prefix_no_blocks():
     )
 
     with (
-        patch("posthog.temporal.export_recording.activities._list_blocks", return_value=[]),
+        patch("posthog.temporal.export_recording.activities.fetch_blocks_from_recording_api", return_value=[]),
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
         await export_recording_data_prefix(export_context)
@@ -245,7 +247,9 @@ async def test_export_recording_data_success():
     mock_redis = AsyncMock()
 
     with (
-        patch("posthog.temporal.export_recording.activities._list_blocks", return_value=[mock_block]),
+        patch(
+            "posthog.temporal.export_recording.activities.fetch_blocks_from_recording_api", return_value=[mock_block]
+        ),
         patch("posthog.temporal.export_recording.activities.recording_api_client") as mock_storage_client,
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
@@ -290,7 +294,7 @@ async def test_export_recording_data_no_blocks():
     mock_storage = AsyncMock()
 
     with (
-        patch("posthog.temporal.export_recording.activities._list_blocks", return_value=[]),
+        patch("posthog.temporal.export_recording.activities.fetch_blocks_from_recording_api", return_value=[]),
         patch("posthog.temporal.export_recording.activities.recording_api_client") as mock_storage_client,
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):
@@ -329,7 +333,9 @@ async def test_export_recording_data_block_fetch_error():
     mock_redis = AsyncMock()
 
     with (
-        patch("posthog.temporal.export_recording.activities._list_blocks", return_value=[mock_block]),
+        patch(
+            "posthog.temporal.export_recording.activities.fetch_blocks_from_recording_api", return_value=[mock_block]
+        ),
         patch("posthog.temporal.export_recording.activities.recording_api_client") as mock_storage_client,
         patch("posthog.temporal.export_recording.activities.get_async_client") as mock_get_async_client,
     ):

@@ -25,7 +25,7 @@ class TestSessionRecordingV2Service(TestCase):
 
         cache.clear()
 
-    @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
     def test_list_blocks_returns_blocks_from_recording_api(self, mock_fetch):
         mock_fetch.return_value = [
             RecordingBlock(
@@ -64,7 +64,7 @@ class TestSessionRecordingV2Service(TestCase):
         ]
         mock_fetch.assert_called_once_with("test_session", 1)
 
-    @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
     def test_list_blocks_returns_empty_list_on_error(self, mock_fetch):
         mock_fetch.side_effect = Exception("connection refused")
 
@@ -72,7 +72,7 @@ class TestSessionRecordingV2Service(TestCase):
 
         assert blocks == []
 
-    @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
     def test_list_blocks_returns_empty_list_when_no_blocks(self, mock_fetch):
         mock_fetch.return_value = []
 
@@ -81,7 +81,7 @@ class TestSessionRecordingV2Service(TestCase):
         assert blocks == []
 
     @patch("posthog.session_recordings.session_recording_v2_service.cache")
-    @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
     def test_list_blocks_caches_result(self, mock_fetch, mock_cache):
         mock_cache.get.return_value = None
         mock_fetch.return_value = [
@@ -112,7 +112,7 @@ class TestSessionRecordingV2Service(TestCase):
         )
 
     @patch("posthog.session_recordings.session_recording_v2_service.cache")
-    @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
     def test_list_blocks_does_not_cache_empty_result(self, mock_fetch, mock_cache):
         mock_cache.get.return_value = None
         mock_fetch.return_value = []
@@ -122,7 +122,7 @@ class TestSessionRecordingV2Service(TestCase):
         mock_cache.set.assert_not_called()
 
     @patch("posthog.session_recordings.session_recording_v2_service.cache")
-    @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
     def test_list_blocks_returns_cached_data_without_calling_api(self, mock_fetch, mock_cache):
         cached_blocks = [
             RecordingBlock(
@@ -142,7 +142,7 @@ class TestSessionRecordingV2Service(TestCase):
         mock_cache.set.assert_not_called()
 
     @patch("posthog.session_recordings.session_recording_v2_service.cache")
-    @patch("posthog.session_recordings.session_recording_v2_service._fetch_blocks_from_recording_api")
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
     def test_list_blocks_does_not_cache_on_error(self, mock_fetch, mock_cache):
         mock_cache.get.return_value = None
         mock_fetch.side_effect = Exception("timeout")
