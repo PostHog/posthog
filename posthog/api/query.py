@@ -142,7 +142,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
     def _try_coalesce(
         self, query: BaseModel, execution_mode: ExecutionMode, client_query_id: str
     ) -> Optional[Response]:
-        """Attempt HTTP-layer query coalescing. Returns Response for follower-error, None otherwise."""
+        """Attempt query coalescing. Returns Response for follower-error, None otherwise."""
         if execution_mode != ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE:
             return None
 
@@ -160,50 +160,50 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
         try:
             is_leader = coalescer.try_acquire()
         except RedisError:
-            log.warning("http_query_coalescing_redis_error", msg="redis unavailable, skipping coalescing")
+            log.warning("query_coalescing_redis_error", msg="redis unavailable, skipping coalescing")
             return None
 
         if is_leader:
-            log.info("http_query_coalescing_leader_start")
+            log.info("query_coalescing_leader_start")
             self._coalescer = coalescer
             return None
 
         # Follower path
         log = log.bind(dry_run=dry_run)
-        log.info("http_query_coalescing_follower_waiting")
+        log.info("query_coalescing_follower_waiting")
 
         signal = coalescer.wait_for_signal(max_wait=settings.QUERY_COALESCING_MAX_WAIT_SECONDS)
 
         if signal == "done":
-            log.info("http_query_coalescing_follower_done")
+            log.info("query_coalescing_follower_done")
             return None
 
         if signal == "error":
             error_data = coalescer.get_error_response()
             if error_data:
-                log.info("http_query_coalescing_follower_replaying_error", status=error_data["status"])
+                log.info("query_coalescing_follower_replaying_error", status=error_data["status"])
                 try:
                     body = orjson.loads(error_data["body"])
                 except Exception:
-                    log.warning("http_query_coalescing_follower_body_parse_failed")
+                    log.warning("query_coalescing_follower_body_parse_failed")
                     return None
                 return Response(
                     data=body,
                     status=error_data["status"],
                 )
             # Couldn't read error, fall through
-            log.warning("http_query_coalescing_follower_error_read_failed")
+            log.warning("query_coalescing_follower_error_read_failed")
             return None
 
         if signal == "timeout":
-            log.warning("http_query_coalescing_follower_timeout")
+            log.warning("query_coalescing_follower_timeout")
             return Response(
                 data={"type": "server_error", "detail": "Query is still running, please try again shortly."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
         # crashed — leader is gone, fall through to re-execute
-        log.info("http_query_coalescing_follower_fallthrough", signal=signal)
+        log.info("query_coalescing_follower_fallthrough", signal=signal)
         return None
 
     def finalize_response(self, request, response, *args, **kwargs):
@@ -217,7 +217,7 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
                 else:
                     self._coalescer.mark_done()
             except Exception:
-                logger.warning("http_query_coalescing_finalize_error", exc_info=True)
+                logger.warning("query_coalescing_finalize_error", exc_info=True)
             finally:
                 self._coalescer.cleanup()
 
