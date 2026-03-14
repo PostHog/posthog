@@ -642,7 +642,7 @@ describe('taxonomicBreakdownFilterLogic', () => {
         })
 
         it('resets the map view when adding a next breakdown', async () => {
-            const logic = taxonomicBreakdownFilterLogic(
+            logic = taxonomicBreakdownFilterLogic(
                 makeProps({
                     breakdownFilter: {
                         breakdowns: [{ property: '$geoip_country_code', type: 'person' }],
@@ -1021,16 +1021,15 @@ describe('taxonomicBreakdownFilterLogic', () => {
         })
 
         it('setHistogramBinCount: updates correctly', async () => {
-            logic = taxonomicBreakdownFilterLogic({
-                ...makeProps({
+            logic = taxonomicBreakdownFilterLogic(
+                makeProps({
                     breakdownFilter: {
                         breakdown: 'prop',
                         breakdown_type: 'event',
                         breakdown_histogram_bin_count: 5,
                     },
-                }),
-                histogramBinsUsed: true,
-            } as any)
+                })
+            )
             logic.mount()
 
             await expectLogic(logic, () => {
