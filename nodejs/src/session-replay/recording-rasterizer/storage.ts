@@ -27,5 +27,5 @@ export async function uploadToS3(localPath: string, bucket: string, keyPrefix: s
         })
     )
 
-    return key
+    return `s3://${bucket}/${key}`
 }

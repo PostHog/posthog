@@ -1,13 +1,25 @@
-import puppeteer, { Browser, Page } from 'puppeteer'
+import { Browser, Page } from 'puppeteer'
 
 import { config } from './config'
 
-const LAUNCH_ARGS = ['--no-sandbox', '--disable-dev-shm-usage', '--use-gl=swiftshader', '--disable-software-rasterizer']
+// puppeteer-capture's launch() forces headless:'shell' and appends
+// the required deterministic rendering flags automatically.
+
+const launchForCapture = (opts: any): Promise<Browser> => require('puppeteer-capture').launch(opts) as Promise<Browser>
+
+const LAUNCH_ARGS = [
+    '--no-sandbox',
+    '--disable-dev-shm-usage',
+    '--mute-audio',
+    ...(process.env.CHROME_HOST_RESOLVER_RULES
+        ? [`--host-resolver-rules=${process.env.CHROME_HOST_RESOLVER_RULES}`]
+        : []),
+]
 
 export class BrowserPool {
     private browser: Browser | null = null
     private usageCount = 0
-    private activePages = 0
+    private pages = new Set<Page>()
     private recycling: Promise<void> | null = null
 
     constructor(private recycleAfter: number = config.browserRecycleAfter) {}
@@ -22,10 +34,10 @@ export class BrowserPool {
             return this.launching
         }
         this.launching = (async () => {
-            this.browser = await puppeteer.launch({
-                headless: config.headless,
+            const args = config.disableBrowserSecurity ? [...LAUNCH_ARGS, '--disable-web-security'] : LAUNCH_ARGS
+            this.browser = await launchForCapture({
                 executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
-                args: LAUNCH_ARGS,
+                args,
             })
             this.usageCount = 0
         })()
@@ -37,7 +49,6 @@ export class BrowserPool {
     }
 
     async getPage(): Promise<Page> {
-        // Wait if a recycle is in progress
         if (this.recycling) {
             await this.recycling
         }
@@ -47,28 +58,39 @@ export class BrowserPool {
         }
 
         const page = await this.browser!.newPage()
-        this.activePages++
+        this.pages.add(page)
         this.usageCount++
         return page
     }
 
     async releasePage(page: Page): Promise<void> {
+        this.pages.delete(page)
         try {
             await page.close()
         } catch {
             // Page may already be closed
         }
-        if (this.activePages > 0) {
-            this.activePages--
-        }
 
-        if (this.usageCount >= this.recycleAfter && this.activePages === 0) {
+        if (this.usageCount >= this.recycleAfter && this.pages.size === 0) {
             try {
                 await this.recycle()
             } catch (err) {
                 console.error('Browser recycle failed:', err)
             }
         }
+    }
+
+    /** Close all tracked pages without shutting down the browser. */
+    async releaseAllPages(): Promise<void> {
+        const pages = [...this.pages]
+        this.pages.clear()
+        await Promise.all(
+            pages.map((p) =>
+                p.close().catch(() => {
+                    /* already closed */
+                })
+            )
+        )
     }
 
     async recycle(): Promise<void> {
@@ -89,6 +111,7 @@ export class BrowserPool {
     }
 
     async shutdown(): Promise<void> {
+        this.pages.clear()
         if (this.browser) {
             try {
                 await this.browser.close()
@@ -100,6 +123,6 @@ export class BrowserPool {
     }
 
     get stats(): { usageCount: number; activePages: number } {
-        return { usageCount: this.usageCount, activePages: this.activePages }
+        return { usageCount: this.usageCount, activePages: this.pages.size }
     }
 }

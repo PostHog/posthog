@@ -15,14 +15,14 @@ jest.mock('fs', () => ({
 describe('uploadToS3', () => {
     it('uses the provided id for the S3 key', async () => {
         const key = await uploadToS3('/tmp/video.mp4', 'my-bucket', 'exports/team-1', 'activity-123')
-        expect(key).toBe('exports/team-1/activity-123.mp4')
+        expect(key).toBe('s3://my-bucket/exports/team-1/activity-123.mp4')
     })
 
     it('produces different keys for different ids', async () => {
         const key1 = await uploadToS3('/tmp/a.mp4', 'bucket', 'prefix', 'id-aaa')
         const key2 = await uploadToS3('/tmp/b.mp4', 'bucket', 'prefix', 'id-bbb')
-        expect(key1).toBe('prefix/id-aaa.mp4')
-        expect(key2).toBe('prefix/id-bbb.mp4')
+        expect(key1).toBe('s3://bucket/prefix/id-aaa.mp4')
+        expect(key2).toBe('s3://bucket/prefix/id-bbb.mp4')
     })
 
     it('produces the same key for the same id (idempotent retries)', async () => {
