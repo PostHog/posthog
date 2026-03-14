@@ -30,11 +30,14 @@
 
 .ActivityLogRow-wrapper {
     .ActivityLogRow__copy-link {
+        pointer-events: none;
         opacity: 0;
         transition: opacity 0.15s ease-in-out;
     }
 
-    &:hover .ActivityLogRow__copy-link {
+    &:hover .ActivityLogRow__copy-link,
+    &:focus-within .ActivityLogRow__copy-link {
+        pointer-events: auto;
         opacity: 1;
     }
 }

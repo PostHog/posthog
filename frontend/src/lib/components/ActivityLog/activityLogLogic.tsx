@@ -290,6 +290,8 @@ export const activityLogLogic = kea<activityLogLogicType>([
             const activityId = searchParams['activity']
             if (activityId && activityId !== values.highlightedActivityId) {
                 actions.setHighlightedActivityId(activityId)
+            } else if (!activityId && values.highlightedActivityId !== null) {
+                actions.setHighlightedActivityId(null)
             }
         }
         return {

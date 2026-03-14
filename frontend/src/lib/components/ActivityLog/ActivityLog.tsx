@@ -156,7 +156,7 @@ export const ActivityLogRow = ({
         if (!logItem.id) {
             return
         }
-        const { pathname, searchParams } = router.values.currentLocation
+        const { pathname, searchParams, hash } = router.values.currentLocation
         const newParams = new URLSearchParams()
         for (const [key, value] of Object.entries(searchParams)) {
             if (key !== 'activity') {
@@ -164,7 +164,7 @@ export const ActivityLogRow = ({
             }
         }
         newParams.set('activity', logItem.id)
-        const url = `${window.location.origin}${pathname}?${newParams.toString()}`
+        const url = `${window.location.origin}${pathname}?${newParams.toString()}${hash || ''}`
         void copyToClipboard(url, 'activity link')
     }
 
