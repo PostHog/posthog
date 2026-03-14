@@ -261,12 +261,16 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
         )
 
         if self.should_add_not_in_cohort_group:
-            synthetic_steps = ", ".join([f"0 AS step_{i + 1}" for i in range(self.context.max_steps)])
-            synthetic_times = ", ".join([f"[] AS step_{i}_conversion_times" for i in range(1, self.context.max_steps)])
-            synthetic_row = parse_select(
-                f"SELECT {synthetic_steps}, {synthetic_times}, 0 AS row_number, {{not_in_cohort_id}} AS final_prop",
-                {"not_in_cohort_id": ast.Constant(value=NOT_IN_COHORT_ID)},
+            columns: list[ast.Expr] = [
+                ast.Alias(alias=f"step_{i + 1}", expr=ast.Constant(value=0)) for i in range(self.context.max_steps)
+            ]
+            columns.extend(
+                ast.Alias(alias=f"step_{i}_conversion_times", expr=ast.Array(exprs=[]))
+                for i in range(1, self.context.max_steps)
             )
+            columns.append(ast.Alias(alias="row_number", expr=ast.Constant(value=0)))
+            columns.append(ast.Alias(alias="final_prop", expr=ast.Constant(value=NOT_IN_COHORT_ID)))
+            synthetic_row = ast.SelectQuery(select=columns)
             s = ast.SelectSetQuery.create_from_queries([s, synthetic_row], "UNION ALL")
 
         mean_conversion_times = ",".join(
