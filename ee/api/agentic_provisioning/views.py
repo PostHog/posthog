@@ -308,14 +308,20 @@ def _handle_new_user(
     first_name = name.split(" ")[0] if name else ""
 
     try:
-        with transaction.atomic():
-            organization, team, user = User.objects.bootstrap(
-                organization_name=f"Stripe ({email})",
-                email=email,
-                password=None,
-                first_name=first_name,
-            )
+        organization, team, user = User.objects.bootstrap(
+            organization_name=f"Stripe ({email})",
+            email=email,
+            password=None,
+            first_name=first_name,
+        )
     except (IntegrityError, InternalError):
+        from django.db import connection
+
+        if connection.needs_rollback:
+            try:
+                connection.rollback()
+            except Exception:
+                connection.close()
         existing = User.objects.filter(email=email).first()
         if existing:
             return _handle_existing_user(
