@@ -371,3 +371,14 @@ body:not(.storybook-test-runner) {
         }
     }
 }
+
+.LemonTable--show-scrollbar {
+    .LemonTable__scroll-viewport.show-scrollbar-on-hover {
+        scrollbar-color: var(--color-bg-fill-scroll-thumb) transparent;
+
+        &::-webkit-scrollbar-thumb {
+            background: var(--color-bg-fill-scroll-thumb);
+            border-radius: 8px;
+        }
+    }
+}

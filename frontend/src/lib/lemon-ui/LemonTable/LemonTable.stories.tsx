@@ -419,7 +419,7 @@ export const WithCellActions = (): JSX.Element => {
 export const WithHiddenHorizontalScrollbar = (): JSX.Element => {
     return (
         <div className="w-80">
-            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} hideScrollbar />
+            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} scrollbarVisibility="hidden" />
         </div>
     )
 }
@@ -427,7 +427,7 @@ export const WithHiddenHorizontalScrollbar = (): JSX.Element => {
 export const WithVisibleHorizontalScrollbar = (): JSX.Element => {
     return (
         <div className="w-80">
-            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} />
+            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} scrollbarVisibility="always" />
         </div>
     )
 }
