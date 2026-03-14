@@ -128,7 +128,7 @@ class ExternalTicketView(APIView):
         return Response(
             {
                 "id": str(ticket.id),
-                "ticket_number": ticket.ticket_number,
+                "number": ticket.ticket_number,
                 "status": ticket.status,
                 "priority": ticket.priority,
                 "channel_source": ticket.channel_source,
@@ -140,9 +140,9 @@ class ExternalTicketView(APIView):
                 "last_message_text": ticket.last_message_text,
                 "unread_team_count": ticket.unread_team_count,
                 "unread_customer_count": ticket.unread_customer_count,
-                "sla_due_at": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
+                "sla": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
                 "assignee": assignee,
-                "current_url": session_context.get("current_url"),
+                "url": session_context.get("current_url"),
                 "tags": tags,
             }
         )

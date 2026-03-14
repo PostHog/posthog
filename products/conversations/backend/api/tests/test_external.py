@@ -79,7 +79,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
         self.assertEqual(data["id"], str(self.ticket.id))
-        self.assertEqual(data["ticket_number"], self.ticket.ticket_number)
+        self.assertEqual(data["number"], self.ticket.ticket_number)
         self.assertEqual(data["status"], "new")
         self.assertIsNone(data["priority"])
         self.assertEqual(data["channel_source"], "widget")
@@ -89,9 +89,9 @@ class TestExternalTicketAPI(BaseTest):
         self.assertIsNone(data["last_message_text"])
         self.assertEqual(data["unread_team_count"], 0)
         self.assertEqual(data["unread_customer_count"], 0)
-        self.assertIsNone(data["sla_due_at"])
+        self.assertIsNone(data["sla"])
         self.assertIsNone(data["assignee"])
-        self.assertIsNone(data["current_url"])
+        self.assertIsNone(data["url"])
         self.assertEqual(data["tags"], [])
         self.assertIn("created_at", data)
         self.assertIn("updated_at", data)
@@ -239,7 +239,7 @@ class TestExternalTicketAPI(BaseTest):
 
         response = self.client.get(self.url, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertIsNotNone(response.json()["sla_due_at"])
+        self.assertIsNotNone(response.json()["sla"])
 
     # -- GET enriched fields -----------------------------------------------
 
@@ -270,12 +270,12 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(assignee["role"]["name"], "Support")
         self.assertIsNone(assignee["user"])
 
-    def test_get_ticket_returns_current_url(self):
+    def test_get_ticket_returns_url(self):
         self.ticket.session_context = {"current_url": "https://example.com/page"}
         self.ticket.save(update_fields=["session_context"])
         response = self.client.get(self.url, **self._auth_headers())
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.json()["current_url"], "https://example.com/page")
+        self.assertEqual(response.json()["url"], "https://example.com/page")
 
     def test_get_ticket_returns_tags(self):
         from posthog.models import Tag
