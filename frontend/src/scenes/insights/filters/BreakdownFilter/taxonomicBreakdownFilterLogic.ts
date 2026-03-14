@@ -26,6 +26,7 @@ export type TaxonomicBreakdownFilterLogicProps = {
     breakdownFilter: BreakdownFilter
     display?: ChartDisplayType | null
     isTrends: boolean
+    isFunnels: boolean
     updateBreakdownFilter: ((breakdownFilter: BreakdownFilter) => void) | null
     updateDisplay: ((display: ChartDisplayType | undefined) => void) | null
 }
@@ -148,8 +149,13 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
         breakdownFilter: [(_, p) => [p.breakdownFilter], (breakdownFilter) => breakdownFilter],
         includeSessions: [(_, p) => [p.isTrends], (isTrends) => isTrends],
         isAddBreakdownDisabled: [
-            (s) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.hasDataWarehouseSeries],
-            ({ breakdown, breakdowns, breakdown_type }, isMultipleBreakdownsEnabled, hasDataWarehouseSeries) => {
+            (s, p) => [s.breakdownFilter, s.isMultipleBreakdownsEnabled, s.hasDataWarehouseSeries, p.isFunnels],
+            (
+                { breakdown, breakdowns, breakdown_type },
+                isMultipleBreakdownsEnabled,
+                hasDataWarehouseSeries,
+                isFunnels
+            ) => {
                 // Multiple breakdowns don't yet support the data warehouse, so it fallbacks to a single breakdown.
                 if (
                     isMultipleBreakdownsEnabled &&
@@ -157,6 +163,13 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                     (!breakdown_type || isMultipleBreakdownType(breakdown_type))
                 ) {
                     return !!breakdowns && breakdowns.length >= 3
+                }
+
+                // Funnels only supports a single cohort breakdown
+                const hasFunnelCohortBreakdown =
+                    isFunnels && breakdown_type === 'cohort' && Array.isArray(breakdown) && breakdown.length >= 1
+                if (hasFunnelCohortBreakdown) {
+                    return true
                 }
 
                 return !Array.isArray(breakdown) && breakdown != null
@@ -442,6 +455,14 @@ export const taxonomicBreakdownFilterLogic = kea<taxonomicBreakdownFilterLogicTy
                         breakdowns,
                     })
                 }
+            } else if (breakdownType === 'cohort') {
+                const newCohortBreakdown = values.breakdownCohortArray.map((cohort) =>
+                    cohort === previousBreakdown.value ? breakdownValue : cohort
+                ) as (string | number)[]
+                props.updateBreakdownFilter({
+                    breakdown: newCohortBreakdown,
+                    breakdown_type: 'cohort',
+                })
             } else {
                 actions.addBreakdown(newBreakdown.value, newBreakdown.group)
             }

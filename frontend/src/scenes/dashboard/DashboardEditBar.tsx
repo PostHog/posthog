@@ -112,6 +112,7 @@ export function DashboardEditBar(): JSX.Element {
                         insightProps={insightProps}
                         breakdownFilter={effectiveEditBarFilters.breakdown_filter}
                         isTrends={false}
+                        isFunnels={false}
                         showLabel={false}
                         updateBreakdownFilter={(breakdown_filter) => {
                             if (dashboardMode !== DashboardMode.Edit) {
