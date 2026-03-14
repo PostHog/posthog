@@ -19926,6 +19926,10 @@
                     "$ref": "#/definitions/ConversionGoalFilter",
                     "description": "Draft conversion goal that can be set in the UI without saving"
                 },
+                "drillDownLevel": {
+                    "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel",
+                    "description": "Drill-down hierarchy level: channel, source, or campaign (default)"
+                },
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
@@ -20115,6 +20119,26 @@
             "enum": ["Goal", "Cost per", "const:"],
             "type": "string"
         },
+        "MarketingAnalyticsDrillDownConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "columnAlias": {
+                    "type": "string"
+                },
+                "excludedBaseColumns": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsBaseColumns"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["columnAlias", "excludedBaseColumns"],
+            "type": "object"
+        },
+        "MarketingAnalyticsDrillDownLevel": {
+            "enum": ["channel", "source", "campaign"],
+            "type": "string"
+        },
         "MarketingAnalyticsItem": {
             "additionalProperties": false,
             "properties": {
@@ -20228,6 +20252,10 @@
                         }
                     ],
                     "description": "Draft conversion goal that can be set in the UI without saving"
+                },
+                "drillDownLevel": {
+                    "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel",
+                    "description": "Drill-down hierarchy level: channel, source, or campaign (default)"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",

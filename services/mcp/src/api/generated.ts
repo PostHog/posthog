@@ -9578,6 +9578,15 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type MarketingAnalyticsDrillDownLevel = typeof MarketingAnalyticsDrillDownLevel[keyof typeof MarketingAnalyticsDrillDownLevel];
+
+
+    export const MarketingAnalyticsDrillDownLevel = {
+      Channel: 'channel',
+      Source: 'source',
+      Campaign: 'campaign',
+    } as const;
+
     export interface IntegrationFilter {
       /**
        * Selected integration source IDs to filter by (e.g., table IDs or source map IDs)
@@ -9656,6 +9665,8 @@ export namespace Schemas {
       doPathCleaning?: boolean | null;
       /** Draft conversion goal that can be set in the UI without saving */
       draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
+      /** Drill-down hierarchy level: channel, source, or campaign (default) */
+      drillDownLevel?: MarketingAnalyticsDrillDownLevel | null;
       /**
        * Filter test accounts
        * @nullable
@@ -9761,6 +9772,8 @@ export namespace Schemas {
       doPathCleaning?: boolean | null;
       /** Draft conversion goal that can be set in the UI without saving */
       draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
+      /** Drill-down hierarchy level: channel, source, or campaign (default) */
+      drillDownLevel?: MarketingAnalyticsDrillDownLevel | null;
       /** @nullable */
       filterTestAccounts?: boolean | null;
       /** @nullable */

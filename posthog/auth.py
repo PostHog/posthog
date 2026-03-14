@@ -170,6 +170,18 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
     personal_api_key: PersonalAPIKey
+    personal_api_key_source: Optional[str] = None
+
+    # Normalized source identifiers returned by find_key_with_source
+    SOURCE_HEADER = "header"
+    SOURCE_BODY = "body"
+    SOURCE_QUERY_STRING = "query_string"
+
+    _SOURCE_DISPLAY = {
+        SOURCE_HEADER: "Authorization header",
+        SOURCE_BODY: "body",
+        SOURCE_QUERY_STRING: "query string",
+    }
 
     message = "Invalid personal API key."
 
@@ -190,13 +202,13 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                     "pha_"
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
                     return None
-                return token, "Authorization header"
+                return token, cls.SOURCE_HEADER
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
         if data and "personal_api_key" in data:
-            return data["personal_api_key"], "body"
+            return data["personal_api_key"], cls.SOURCE_BODY
         if "personal_api_key" in request.GET:
-            return request.GET["personal_api_key"], "query string"
+            return request.GET["personal_api_key"], cls.SOURCE_QUERY_STRING
         return None
 
     @classmethod
@@ -234,7 +246,8 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                 pass
 
         if not personal_api_key_object:
-            raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
+            source_display = cls._SOURCE_DISPLAY.get(source, source)
+            raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
 
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
@@ -243,7 +256,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_to_update.secure_value = hash_key_value(personal_api_key)
             key_to_update.save(update_fields=["secure_value"])
 
-        if source == "query string":
+        if source == cls.SOURCE_QUERY_STRING:
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
 
         return personal_api_key_object
@@ -253,6 +266,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         if not personal_api_key_with_source:
             return None
 
+        _, source = personal_api_key_with_source
         personal_api_key_object = self.validate_key(personal_api_key_with_source)
 
         now = timezone.now()
@@ -274,6 +288,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         )
 
         self.personal_api_key = personal_api_key_object
+        self.personal_api_key_source = source
 
         return personal_api_key_object.user, None
 
