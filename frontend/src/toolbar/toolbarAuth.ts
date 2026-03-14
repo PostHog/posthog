@@ -1,5 +1,5 @@
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
-import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 
@@ -17,6 +17,7 @@ export async function refreshOAuthTokens(
     }
 
     refreshPromise = (async () => {
+        const startTime = performance.now()
         try {
             const response = await fetch(`${uiHost}/api/user/toolbar_oauth_refresh/`, {
                 method: 'POST',
@@ -26,10 +27,19 @@ export async function refreshOAuthTokens(
 
             if (!response.ok) {
                 const err = new Error(`Refresh failed: ${response.status}`)
+                toolbarPosthogJS.capture('toolbar token refresh', {
+                    status: 'error',
+                    http_status: response.status,
+                    duration_ms: Math.round(performance.now() - startTime),
+                })
                 captureToolbarException(err, 'token_refresh')
                 throw err
             }
 
+            toolbarPosthogJS.capture('toolbar token refresh', {
+                status: 'success',
+                duration_ms: Math.round(performance.now() - startTime),
+            })
             return await response.json()
         } finally {
             refreshPromise = null
