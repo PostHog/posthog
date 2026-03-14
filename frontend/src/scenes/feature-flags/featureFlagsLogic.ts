@@ -357,9 +357,9 @@ export const featureFlagsLogic = kea<featureFlagsLogicType>([
             }
             searchParams['tab'] = values.activeTab
 
-            // Preserve the activity deep-link param if present
+            // Preserve the activity deep-link param only when on the history tab
             const currentActivity = router.values.searchParams['activity']
-            if (currentActivity) {
+            if (currentActivity && values.activeTab === FeatureFlagsTab.HISTORY) {
                 searchParams['activity'] = currentActivity
             }
 

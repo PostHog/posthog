@@ -120,6 +120,22 @@ describe('the feature flags logic', () => {
             activeTab: FeatureFlagsTab.HISTORY,
         })
     })
+
+    it('preserves the activity deep-link param when staying on the history tab', async () => {
+        router.actions.push(urls.featureFlags(), { tab: 'history', activity: 'some-uuid' })
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab(FeatureFlagsTab.HISTORY)
+        })
+        expect(router.values.searchParams['activity']).toEqual('some-uuid')
+    })
+
+    it('drops the activity deep-link param when switching away from the history tab', async () => {
+        router.actions.push(urls.featureFlags(), { tab: 'history', activity: 'some-uuid' })
+        await expectLogic(logic, () => {
+            logic.actions.setActiveTab(FeatureFlagsTab.OVERVIEW)
+        })
+        expect(router.values.searchParams['activity']).toBeUndefined()
+    })
 })
 
 describe('updateFeatureFlag 409 handling', () => {
