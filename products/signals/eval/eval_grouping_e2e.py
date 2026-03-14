@@ -327,7 +327,7 @@ class TestGroupingPipeline:
                     score=1.0 if correct else 0.0,
                     score_min=0,
                     score_max=1,
-                    reasoning=failure_mode.value,
+                    reasoning=None if correct else f"Failure mode: {failure_mode.value}",
                 ),
             ],
         )
