@@ -130,16 +130,14 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
           )
     "#;
 
-    let row = 
-    sqlx::query(query)
+    let row = sqlx::query(query)
         .bind(&secure_value)
         .fetch_optional(&mut *conn)
         .await?
         .ok_or_else(|| {
             warn!("Personal API key not found or doesn't have required scopes");
             FlagError::PersonalApiKeyInvalid
-        }
-)?;
+        })?;
 
     // Validate scoped_teams restriction
     let scoped_teams: Option<Vec<i32>> = row.try_get("scoped_teams").ok();
