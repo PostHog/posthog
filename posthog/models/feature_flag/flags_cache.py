@@ -50,6 +50,7 @@ from posthog.models.feature_flag.feature_flag import (
     get_feature_flags,
     serialize_feature_flags,
 )
+from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.storage.cache_expiry_manager import (
@@ -69,6 +70,68 @@ logger = structlog.get_logger(__name__)
 FLAGS_CACHE_EXPIRY_SORTED_SET = "flags_cache_expiry"
 
 
+def _compute_evaluation_info(flags_data: list[dict]) -> dict[str, bool]:
+    """
+    Pre-compute which database resources are needed to evaluate the given flags.
+
+    The Rust feature flags service uses these booleans to short-circuit DB calls
+    for teams whose flags never touch person properties, group properties, or
+    experience continuity. When all three are False the service can skip the
+    persons DB entirely.
+    """
+    requires_person_properties = False
+    requires_group_type_mappings = False
+    requires_experience_continuity = False
+
+    person_property_types = (PropertyFilterType.PERSON, PropertyFilterType.COHORT)
+
+    for flag in flags_data:
+        # Inactive flags evaluate to false without DB lookups, so they
+        # don't contribute to resource requirements.
+        if not flag.get("active", True):
+            continue
+
+        filters = flag.get("filters") or {}
+
+        if filters.get("aggregation_group_type_index") is not None:
+            requires_group_type_mappings = True
+
+        if flag.get("ensure_experience_continuity"):
+            requires_experience_continuity = True
+
+        # Super groups always contain person properties ($feature_enrollment/{key}),
+        # so their presence alone is sufficient.
+        if not requires_person_properties and filters.get("super_groups"):
+            requires_person_properties = True
+
+        # holdout_groups are not scanned because they only support percentage rollouts,
+        # not property filters.
+        # Scan group properties for person/group requirements.
+        if not (requires_person_properties and requires_group_type_mappings):
+            for group in filters.get("groups") or []:
+                if group.get("rollout_percentage") == 0:
+                    continue
+                for prop in group.get("properties") or []:
+                    prop_type = prop.get("type")
+                    if prop_type in person_property_types:
+                        requires_person_properties = True
+                    elif prop_type == PropertyFilterType.GROUP:
+                        requires_group_type_mappings = True
+                    if requires_person_properties and requires_group_type_mappings:
+                        break
+                if requires_person_properties and requires_group_type_mappings:
+                    break
+
+        if requires_person_properties and requires_group_type_mappings and requires_experience_continuity:
+            break
+
+    return {
+        "requires_person_properties": requires_person_properties,
+        "requires_group_type_mappings": requires_group_type_mappings,
+        "requires_experience_continuity": requires_experience_continuity,
+    }
+
+
 def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     """
     Get feature flags for the feature-flags service.
@@ -82,7 +145,9 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     in /flags would return unusable encrypted ciphertext.
 
     Returns:
-        dict: {"flags": [...]} where flags is a list of flag dictionaries
+        dict: {"flags": [...], "evaluation_info": {...}} where flags is a list of flag
+        dictionaries and evaluation_info contains pre-computed booleans for the Rust
+        flags service to short-circuit DB lookups.
     """
     # Exclude encrypted remote config flags at DB level for efficiency
     flags = get_feature_flags(team=team, exclude_encrypted_remote_config=True)
@@ -96,7 +161,7 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     )
 
     # Wrap in dict for HyperCache compatibility
-    return {"flags": flags_data}
+    return {"flags": flags_data, "evaluation_info": _compute_evaluation_info(flags_data)}
 
 
 def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
@@ -114,7 +179,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
         teams: List of Team objects to load flags for
 
     Returns:
-        Dict mapping team_id to {"flags": [...]} for each team
+        Dict mapping team_id to {"flags": [...], "evaluation_info": {...}} for each team
     """
     if not teams:
         return {}
@@ -162,7 +227,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
             flag_count=len(flags_data),
         )
 
-        result[team.id] = {"flags": flags_data}
+        result[team.id] = {"flags": flags_data, "evaluation_info": _compute_evaluation_info(flags_data)}
 
     return result
 

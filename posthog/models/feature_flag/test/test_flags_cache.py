@@ -19,6 +19,7 @@ from parameterized import parameterized
 from posthog.models import FeatureFlag, Tag, Team
 from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.flags_cache import (
+    _compute_evaluation_info,
     _get_feature_flags_for_service,
     _get_feature_flags_for_teams_batch,
     _get_team_ids_with_recently_updated_flags,
@@ -48,7 +49,14 @@ class TestServiceFlagsCache(BaseTest):
         """Test fetching flags when team has no flags."""
         result = _get_feature_flags_for_service(self.team)
 
-        assert result == {"flags": []}
+        assert result == {
+            "flags": [],
+            "evaluation_info": {
+                "requires_person_properties": False,
+                "requires_group_type_mappings": False,
+                "requires_experience_continuity": False,
+            },
+        }
 
     def test_get_feature_flags_for_service_with_flags(self):
         """Test fetching flags returns correct format for service."""
@@ -2240,3 +2248,375 @@ class TestGetTeamsWithFlagsQueryset(BaseTest):
         qs = get_teams_with_flags_queryset()
         team_ids = list(qs.values_list("id", flat=True))
         assert team_ids.count(self.team.id) == 1
+
+
+class TestComputeEvaluationInfo(BaseTest):
+    def test_empty_flags_list(self):
+        result = _compute_evaluation_info([])
+        assert result == {
+            "requires_person_properties": False,
+            "requires_group_type_mappings": False,
+            "requires_experience_continuity": False,
+        }
+
+    def test_percentage_only_flags(self):
+        flags = [
+            {
+                "key": "simple-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result == {
+            "requires_person_properties": False,
+            "requires_group_type_mappings": False,
+            "requires_experience_continuity": False,
+        }
+
+    def test_person_property_filter(self):
+        flags = [
+            {
+                "key": "person-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"type": "person", "key": "email", "value": "test@example.com"}],
+                        }
+                    ]
+                },
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is True
+        assert result["requires_group_type_mappings"] is False
+
+    def test_cohort_filter(self):
+        flags = [
+            {
+                "key": "cohort-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"type": "cohort", "key": "id", "value": 1}],
+                        }
+                    ]
+                },
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is True
+
+    def test_group_aggregation(self):
+        flags = [
+            {
+                "key": "group-flag",
+                "filters": {
+                    "aggregation_group_type_index": 0,
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                },
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is False
+        assert result["requires_group_type_mappings"] is True
+
+    def test_experience_continuity(self):
+        flags = [
+            {
+                "key": "continuity-flag",
+                "ensure_experience_continuity": True,
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 100}]},
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_experience_continuity"] is True
+        assert result["requires_person_properties"] is False
+
+    def test_zero_rollout_with_person_properties(self):
+        flags = [
+            {
+                "key": "zero-rollout",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 0,
+                            "properties": [{"type": "person", "key": "email", "value": "test@example.com"}],
+                        }
+                    ]
+                },
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is False
+
+    def test_super_group_sets_requires_person_properties(self):
+        flags = [
+            {
+                "key": "early-access-flag",
+                "filters": {
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                    "super_groups": [
+                        {
+                            "properties": [
+                                {
+                                    "key": "$feature_enrollment/early-access-flag",
+                                    "type": "person",
+                                    "operator": "exact",
+                                    "value": ["true"],
+                                }
+                            ],
+                            "rollout_percentage": 100,
+                        }
+                    ],
+                },
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is True
+
+    @parameterized.expand(
+        [
+            (
+                "mixed_simple_and_person",
+                [
+                    {
+                        "key": "simple-flag",
+                        "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+                    },
+                    {
+                        "key": "person-flag",
+                        "filters": {
+                            "groups": [
+                                {
+                                    "rollout_percentage": 100,
+                                    "properties": [{"type": "person", "key": "email", "value": "x"}],
+                                }
+                            ]
+                        },
+                    },
+                ],
+                True,
+                False,
+                False,
+            ),
+            (
+                "all_requirements",
+                [
+                    {
+                        "key": "group-flag",
+                        "ensure_experience_continuity": True,
+                        "filters": {
+                            "aggregation_group_type_index": 1,
+                            "groups": [
+                                {
+                                    "rollout_percentage": 100,
+                                    "properties": [{"type": "person", "key": "k", "value": "v"}],
+                                }
+                            ],
+                        },
+                    },
+                ],
+                True,
+                True,
+                True,
+            ),
+        ]
+    )
+    def test_mixed_flags(self, _name, flags, expect_person, expect_group, expect_continuity):
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is expect_person
+        assert result["requires_group_type_mappings"] is expect_group
+        assert result["requires_experience_continuity"] is expect_continuity
+
+    def test_group_property_without_aggregation_index_sets_only_group_type_mappings(self):
+        flags = [
+            {
+                "key": "group-prop-no-agg",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"type": "group", "key": "industry", "value": "tech"}],
+                        }
+                    ]
+                },
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is False
+        assert result["requires_group_type_mappings"] is True
+
+    @parameterized.expand(
+        [
+            ("event", "event"),
+            ("flag", "flag"),
+        ]
+    )
+    def test_non_person_property_types_do_not_trigger_person_properties(self, _name, prop_type):
+        flags = [
+            {
+                "key": f"{prop_type}-prop-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"type": prop_type, "key": "url", "value": "/home"}],
+                        }
+                    ]
+                },
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is False
+
+    def test_zero_rollout_skipped_but_nonzero_rollout_still_detected(self):
+        flags = [
+            {
+                "key": "multi-group-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 0,
+                            "properties": [{"type": "person", "key": "email", "value": "skip@me.com"}],
+                        },
+                        {
+                            "rollout_percentage": 50,
+                            "properties": [{"type": "person", "key": "plan", "value": "pro"}],
+                        },
+                    ]
+                },
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is True
+
+    def test_inactive_flag_excluded_from_evaluation_info(self):
+        flags = [
+            {
+                "key": "inactive-person-flag",
+                "active": False,
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"type": "person", "key": "email", "value": "test@example.com"}],
+                        }
+                    ]
+                },
+            },
+            {
+                "key": "active-simple-flag",
+                "filters": {"groups": [{"properties": [], "rollout_percentage": 50}]},
+            },
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is False
+
+    def test_null_rollout_percentage_treated_as_active(self):
+        """When rollout_percentage is None (not set), the group is active and should be checked."""
+        flags = [
+            {
+                "key": "no-rollout",
+                "filters": {
+                    "groups": [
+                        {
+                            "properties": [{"type": "person", "key": "email", "value": "test@example.com"}],
+                        }
+                    ]
+                },
+            }
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is True
+
+    def _get_evaluation_info_via_service(self) -> dict:
+        result = _get_feature_flags_for_service(self.team)
+        return result.get("evaluation_info", {})
+
+    def _get_evaluation_info_via_batch(self) -> dict:
+        results = _get_feature_flags_for_teams_batch([self.team])
+        return results[self.team.id].get("evaluation_info", {})
+
+    @parameterized.expand([("service",), ("batch",)])
+    @override_settings(FLAGS_REDIS_URL="redis://test")
+    def test_response_includes_evaluation_info(self, path):
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="simple-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        info = getattr(self, f"_get_evaluation_info_via_{path}")()
+
+        assert info["requires_person_properties"] is False
+        assert info["requires_group_type_mappings"] is False
+        assert info["requires_experience_continuity"] is False
+
+    @override_settings(FLAGS_REDIS_URL="redis://test")
+    def test_batch_response_evaluation_info_for_team_with_no_flags(self):
+        FeatureFlag.objects.filter(team=self.team).delete()
+
+        info = self._get_evaluation_info_via_batch()
+
+        assert info == {
+            "requires_person_properties": False,
+            "requires_group_type_mappings": False,
+            "requires_experience_continuity": False,
+        }
+
+    @parameterized.expand([("service",), ("batch",)])
+    @override_settings(FLAGS_REDIS_URL="redis://test")
+    def test_response_evaluation_info_detects_person_properties(self, path):
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="person-flag",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "rollout_percentage": 100,
+                        "properties": [{"type": "person", "key": "email", "value": "test@example.com"}],
+                    }
+                ]
+            },
+        )
+
+        info = getattr(self, f"_get_evaluation_info_via_{path}")()
+
+        assert info["requires_person_properties"] is True
+
+    def test_group_type_mapping_detected_when_person_properties_already_set(self):
+        """Group property in a later flag must set requires_group_type_mappings even
+        when requires_person_properties was already set by an earlier flag."""
+        flags = [
+            {
+                "key": "person-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"type": "person", "key": "email", "value": "a@b.com"}],
+                        }
+                    ]
+                },
+            },
+            {
+                "key": "group-flag",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [{"type": "group", "key": "industry", "value": "tech"}],
+                        }
+                    ]
+                },
+            },
+        ]
+        result = _compute_evaluation_info(flags)
+        assert result["requires_person_properties"] is True
+        assert result["requires_group_type_mappings"] is True
