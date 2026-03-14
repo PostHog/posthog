@@ -1189,12 +1189,7 @@ impl TestContext {
         let pak_id = format!("test_pak_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let api_key_value = format!("phx_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
-        // Hash the key using SHA256
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(api_key_value.as_bytes());
-        let hash_result = hasher.finalize();
-        let secure_value = format!("sha256${}", hex::encode(hash_result));
+        let secure_value = crate::api::auth::hash_personal_api_key(&api_key_value);
 
         let mut conn = self.non_persons_writer.get_connection().await?;
 
