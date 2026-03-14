@@ -1216,6 +1216,12 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 })
 
                 if (hasMatchingRecentFilters && !filtered.includes(TaxonomicFilterGroupType.RecentFilters)) {
+                    const suggestedIndex = filtered.indexOf(TaxonomicFilterGroupType.SuggestedFilters)
+                    if (suggestedIndex >= 0) {
+                        const result = [...filtered]
+                        result.splice(suggestedIndex + 1, 0, TaxonomicFilterGroupType.RecentFilters)
+                        return result
+                    }
                     return [TaxonomicFilterGroupType.RecentFilters, ...filtered]
                 }
 
