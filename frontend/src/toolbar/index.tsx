@@ -80,6 +80,9 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
 const win = window as any
 
 win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?: PostHog) {
+    // Store the start time so we can measure total load duration in initInstrumentation
+    ;(window as any).__posthog_toolbar_load_start = performance.now()
+
     // If posthog and toolbarFlagsKey is present, fetch the feature flags from the backend
     if (posthog && toolbarParams.toolbarFlagsKey) {
         const apiHost = posthog.config?.api_host || toolbarParams.apiURL || window.location.origin
