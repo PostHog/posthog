@@ -343,51 +343,54 @@ class TestGroupingPipeline:
             if not signals:
                 continue
 
-            dominant_group = GROUP_DATA[report.true_group_index]
-            expected_safe = dominant_group.safe
-            expected_actionable = dominant_group.actionable
+            try:
+                dominant_group = GROUP_DATA[report.true_group_index]
+                expected_safe = dominant_group.safe
+                expected_actionable = dominant_group.actionable
 
-            title, summary = await summarize_signals(signals)
+                title, summary = await summarize_signals(signals)
 
-            safety_result, actionability_result = await asyncio.gather(
-                judge_report_safety(title=title, summary=summary, signals=signals),
-                judge_report_actionability(title=title, summary=summary, signals=signals),
-            )
+                safety_result, actionability_result = await asyncio.gather(
+                    judge_report_safety(title=title, summary=summary, signals=signals),
+                    judge_report_actionability(title=title, summary=summary, signals=signals),
+                )
 
-            report.safety_choice = safety_result.choice
+                report.safety_choice = safety_result.choice
 
-            self._capture(
-                eval_name="report-safety-check",
-                item_name=f"report-{report_id[:12]}",
-                input=f"{title}\n\n{summary}",
-                output="SAFE" if safety_result.choice else "UNSAFE",
-                expected="SAFE" if expected_safe else "UNSAFE",
-                metrics=[
-                    EvalMetric(
-                        name="correct_safety",
-                        result_type="binary",
-                        score=1.0 if safety_result.choice == expected_safe else 0.0,
-                        reasoning=safety_result.explanation,
-                    ),
-                ],
-            )
+                self._capture(
+                    eval_name="report-safety-check",
+                    item_name=f"report-{report_id[:12]}",
+                    input=f"{title}\n\n{summary}",
+                    output="SAFE" if safety_result.choice else "UNSAFE",
+                    expected="SAFE" if expected_safe else "UNSAFE",
+                    metrics=[
+                        EvalMetric(
+                            name="correct_safety",
+                            result_type="binary",
+                            score=1.0 if safety_result.choice == expected_safe else 0.0,
+                            reasoning=safety_result.explanation,
+                        ),
+                    ],
+                )
 
-            is_actionable = actionability_result.choice != ActionabilityChoice.NOT_ACTIONABLE
-            self._capture(
-                eval_name="report-actionability-check",
-                item_name=f"report-{report_id[:12]}",
-                input=f"{title}\n\n{summary}",
-                output=actionability_result.choice.value.upper(),
-                expected="ACTIONABLE" if expected_actionable else "NOT_ACTIONABLE",
-                metrics=[
-                    EvalMetric(
-                        name="correct_classification",
-                        result_type="binary",
-                        score=1.0 if is_actionable == expected_actionable else 0.0,
-                        reasoning=actionability_result.explanation,
-                    ),
-                ],
-            )
+                is_actionable = actionability_result.choice == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
+                self._capture(
+                    eval_name="report-actionability-check",
+                    item_name=f"report-{report_id[:12]}",
+                    input=f"{title}\n\n{summary}",
+                    output=actionability_result.choice.value.upper(),
+                    expected="ACTIONABLE" if expected_actionable else "NOT_ACTIONABLE",
+                    metrics=[
+                        EvalMetric(
+                            name="correct_classification",
+                            result_type="binary",
+                            score=1.0 if is_actionable == expected_actionable else 0.0,
+                            reasoning=actionability_result.explanation,
+                        ),
+                    ],
+                )
+            except Exception:
+                logger.exception("report=%s Judging failed, skipping", report_id[:12])
 
     def _capture_grouping_quality(self):
         """Per-report metrics: purity, is_pure, group_recall."""
