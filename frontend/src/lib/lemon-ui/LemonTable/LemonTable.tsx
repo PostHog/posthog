@@ -86,19 +86,8 @@ export interface LemonTableProps<T extends Record<string, any>> {
     pinnedColumns?: string[]
     // Max width for the column headers
     maxHeaderWidth?: string
-    /**
-     * Controls horizontal scrollbar visibility when content overflows.
-     * - `hidden` hides the scrollbar entirely
-     * - `on-hover` shows a styled scrollbar on hover
-     * - `always` keeps the styled scrollbar visible
-     *
-     * Defaults to `on-hover`.
-     */
-    scrollbarVisibility?: 'hidden' | 'on-hover' | 'always'
-    /** @deprecated Use `scrollbarVisibility="hidden"` instead. */
+    /** Whether to hide the scrollbar. */
     hideScrollbar?: boolean
-    /** @deprecated Use `scrollbarVisibility="always"` instead. */
-    showScrollbar?: boolean
     /**
      * Whether the table content is allowed to scroll inside its container.
      */
@@ -143,18 +132,11 @@ export function LemonTable<T extends Record<string, any>>({
     firstColumnSticky,
     pinnedColumns,
     maxHeaderWidth,
-    scrollbarVisibility,
     hideScrollbar,
-    showScrollbar,
     allowContentScroll = false,
     rowActions,
     hideSortingIndicatorWhenInactive = false,
 }: LemonTableProps<T>): JSX.Element {
-    const effectiveScrollbarVisibility =
-        scrollbarVisibility ?? (hideScrollbar ? 'hidden' : showScrollbar ? 'always' : 'on-hover')
-    const isScrollbarHidden = effectiveScrollbarVisibility === 'hidden'
-    const isScrollbarAlwaysVisible = effectiveScrollbarVisibility === 'always'
-
     /** Search param that will be used for storing and syncing sorting */
     const currentSortingParam = id ? `${id}_order` : 'order'
 
@@ -283,7 +265,6 @@ export function LemonTable<T extends Record<string, any>>({
                 rowRibbonColor !== undefined && `LemonTable--with-ribbon`,
                 stealth && 'LemonTable--stealth',
                 !uppercaseHeader && 'LemonTable--lowercase-header',
-                isScrollbarAlwaysVisible && 'LemonTable--show-scrollbar',
                 className
             )}
             // eslint-disable-next-line react/forbid-dom-props
@@ -291,11 +272,10 @@ export function LemonTable<T extends Record<string, any>>({
             data-attr={dataAttr}
         >
             <ScrollableShadows
-                innerClassName={clsx('LemonTable__scroll-viewport', isScrollbarHidden && 'hide-scrollbar')}
+                innerClassName={hideScrollbar ? 'hide-scrollbar' : undefined}
                 direction="horizontal"
                 constrainToDirection={!allowContentScroll}
                 scrollRef={scrollRef}
-                styledScrollbars={!isScrollbarHidden}
             >
                 <div className="LemonTable__content">
                     <table ref={tableRef}>

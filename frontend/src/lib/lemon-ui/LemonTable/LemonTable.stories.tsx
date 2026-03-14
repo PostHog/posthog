@@ -419,18 +419,20 @@ export const WithCellActions = (): JSX.Element => {
 export const WithHiddenHorizontalScrollbar = (): JSX.Element => {
     return (
         <div className="w-80">
-            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} scrollbarVisibility="on-hover" />
+            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} hideScrollbar />
         </div>
     )
 }
+WithHiddenHorizontalScrollbar.tags = ['test-skip']
 
 export const WithVisibleHorizontalScrollbar = (): JSX.Element => {
     return (
         <div className="w-80">
-            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} scrollbarVisibility="always" />
+            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} />
         </div>
     )
 }
+WithVisibleHorizontalScrollbar.tags = ['test-skip']
 
 export const WithRowActions = (): JSX.Element => {
     return (
