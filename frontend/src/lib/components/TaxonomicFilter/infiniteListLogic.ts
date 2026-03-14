@@ -26,9 +26,9 @@ import { captureTimeToSeeData } from '../../internalMetrics'
 import { getItemGroup } from './InfiniteList'
 import type { infiniteListLogicType } from './infiniteListLogicType'
 
-/** Properties that should be promoted to the top of search results when their search terms match. */
-const PROMOTED_PROPERTY_SEARCH_TERMS: Record<string, string[]> = {
-    $current_url: ['url'],
+/** Search terms mapped to properties that should be promoted when that exact term is searched. */
+const PROMOTED_PROPERTIES_BY_SEARCH_TERM: Record<string, string[]> = {
+    url: ['$current_url'],
 }
 
 /**
@@ -42,7 +42,14 @@ function promoteMatchingProperties<T extends TaxonomicDefinitionTypes | Skeleton
     if (!searchQuery) {
         return results
     }
+
     const query = searchQuery.toLowerCase().trim()
+    const promotedPropertyNames = PROMOTED_PROPERTIES_BY_SEARCH_TERM[query]
+    if (!promotedPropertyNames?.length) {
+        return results
+    }
+
+    const promotedPropertyNameSet = new Set(promotedPropertyNames)
     const promoted: T[] = []
     const rest: T[] = []
 
@@ -52,7 +59,7 @@ function promoteMatchingProperties<T extends TaxonomicDefinitionTypes | Skeleton
             continue
         }
         const name = 'name' in item ? (item as { name?: string }).name : undefined
-        if (name && PROMOTED_PROPERTY_SEARCH_TERMS[name]?.some((term) => query.includes(term))) {
+        if (name && promotedPropertyNameSet.has(name)) {
             promoted.push(item)
         } else {
             rest.push(item)
