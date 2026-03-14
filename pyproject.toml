@@ -269,7 +269,7 @@ sentiment = [
 required-version = "~=0.10.2"
 
 [tool.uv.sources]
-infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
+infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 
 
 [tool.isort]
