@@ -43,7 +43,7 @@ class EvalSignalSpec:
     def _to_record(self) -> dict[str, Any]:
         title_field, body_field = _RECORD_FIELD_MAP[self.source]
         record: dict[str, Any] = {
-            "id": 0,
+            "id": 1,
             title_field: self.title,
             body_field: self.body,
         }

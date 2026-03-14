@@ -33,7 +33,6 @@ from typing import Any
 
 import pytest
 
-from posthog.temporal.data_imports.signals.registry import SignalEmitterOutput
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     _check_actionability,
     _summarize_long_descriptions,
@@ -160,7 +159,7 @@ class TestGroupingPipeline:
     async def store_signal(self, record_id: int, description: str, report_id: str, case: EvalSignalCase):
         signal_embedding = await self.store.embed(description)
         self.store.store(
-            signal_id=str(record_id),
+            signal_id=f"sig-{record_id}",
             content=description,
             embedding=signal_embedding,
             report_id=report_id,
@@ -180,7 +179,7 @@ class TestGroupingPipeline:
             signal_type_examples=self.store.get_type_examples(),
         )
 
-        query_embeddings = [self.store.embed(q) for q in queries]
+        query_embeddings = [await self.store.embed(q) for q in queries]
         candidates = [self.store.search(emb) for emb in query_embeddings]
 
         match_result = await match_signal_to_report(
@@ -228,15 +227,15 @@ class TestGroupingPipeline:
         self.report_store.insert(report_id, match_result, case.group_index)
         return report_id
 
-    async def pre_emit(self, record_id: int, case: EvalSignalCase) -> str:
-        content = case.signal.content
+    async def pre_emit(self, record_id: int, case: EvalSignalCase) -> str | None:
+        output = case.signal.content
         config = case.signal.config
 
-        outputs = [content]
-
-        if case.signal.content is None:
+        if output is None:
             logger.warning("Emitter returned None for record %d, skipping", record_id)
-            return
+            return None
+
+        outputs = [output]
 
         if config.summarization_prompt is not None and config.description_summarization_threshold_chars is not None:
             outputs = await _summarize_long_descriptions(
@@ -246,27 +245,21 @@ class TestGroupingPipeline:
                 extra={},
             )
 
-        content = outputs[0]
+        output = outputs[0]
 
         if config.actionability_prompt:
-            stub = SignalEmitterOutput(
-                source_product=config.source_product,
-                source_type=config.source_type,
-                source_id="",
-                description=content,
-                weight=1.0,
-                extra={},
+            is_actionable, thoughts = await _check_actionability(
+                self.gemini_client, output, config.actionability_prompt
             )
-            is_actionable, thoughts = await _check_actionability(self.gemini_client, stub, config.actionability_prompt)
-            self._capture_pre_emit_actionability(case, thoughts, is_actionable)
+            await self._capture_pre_emit_actionability(case, thoughts, is_actionable)
             if not is_actionable:
                 return None
 
-        return content or None
+        return output.description or None
 
     async def _capture_pre_emit_actionability(self, case: EvalSignalCase, thoughts: str, outcome: bool):
         self._capture(
-            eval_name=f"{case.signal.source}-actionability-check",
+            eval_name=f"{case.signal.source.value.lower()}-actionability-check",
             item_name=f"case-{case.group_index}-{case.signal_index}",
             input=case.signal.content,
             output=thoughts,
@@ -287,7 +280,7 @@ class TestGroupingPipeline:
         """Captures whether the matching decision was correct and classifies the failure mode."""
         is_existing = isinstance(match_result, ExistingReportMatch)
         expected_report = self.report_store.find_report_by_group_index(case.group_index)
-        expected_id = expected_report.context.report_id
+        expected_id = expected_report.context.report_id if expected_report else None
         has_specificity_rejection = (
             isinstance(match_result, NewReportMatch) and match_result.match_metadata.specificity_rejection is not None
         )
@@ -315,11 +308,14 @@ class TestGroupingPipeline:
                 failure_mode = MatchFailureMode.UNDERGROUP
                 correct = False
 
-        outcome = f"EXISTING_REPORT" if is_existing else f"NEW_REPORT"
         reasoning = match_result.match_metadata.reason if hasattr(match_result.match_metadata, "reason") else ""
+        outcome = {
+            "report": f"EXISTING_REPORT" if is_existing else f"NEW_REPORT",
+            "specificity_reasoning": reasoning,
+        }
 
         self._capture(
-            eval_name="match-quality-check",
+            eval_name="match-quality",
             item_name=f"match-{case.group_index}-{case.signal_index}",
             input=case.signal.content,
             output=outcome,
@@ -331,15 +327,9 @@ class TestGroupingPipeline:
                     score=1.0 if correct else 0.0,
                     score_min=0,
                     score_max=1,
-                    reasoning=reasoning,
-                ),
-                EvalMetric(
-                    name="failure_mode",
-                    result_type="categorical",
-                    score=failure_mode.value,
+                    reasoning=failure_mode.value,
                 ),
             ],
-            report_id=report_id,
         )
 
     async def _judge_reports(self):
@@ -375,7 +365,6 @@ class TestGroupingPipeline:
                         reasoning=safety_result.explanation,
                     ),
                 ],
-                report_id=report_id,
             )
 
             is_actionable = actionability_result.choice != ActionabilityChoice.NOT_ACTIONABLE
@@ -383,22 +372,16 @@ class TestGroupingPipeline:
                 eval_name="report-actionability-check",
                 item_name=f"report-{report_id[:12]}",
                 input=f"{title}\n\n{summary}",
-                output=actionability_result.choice.value,
+                output=actionability_result.choice.value.upper(),
                 expected="ACTIONABLE" if expected_actionable else "NOT_ACTIONABLE",
                 metrics=[
                     EvalMetric(
-                        name="correct_actionability",
+                        name="correct_classification",
                         result_type="binary",
                         score=1.0 if is_actionable == expected_actionable else 0.0,
                         reasoning=actionability_result.explanation,
                     ),
-                    EvalMetric(
-                        name="actionability_choice",
-                        result_type="categorical",
-                        score=actionability_result.choice.value,
-                    ),
                 ],
-                report_id=report_id,
             )
 
     def _capture_grouping_quality(self):
@@ -430,7 +413,6 @@ class TestGroupingPipeline:
                     EvalMetric(name="is_pure", result_type="binary", score=1.0 if is_pure else 0.0),
                     EvalMetric(name="group_recall", result_type="numeric", score=group_recall),
                 ],
-                report_id=report.context.report_id,
             )
 
     def _capture_aggregate_metrics(self, stream: list[EvalSignalCase]):
@@ -519,12 +501,11 @@ class TestGroupingPipeline:
         output: Any,
         expected: Any,
         metrics: list[EvalMetric],
-        report_id: int | str = 0,
     ):
         if self.no_capture:
             return
         experiment_id = deterministic_uuid(eval_name)
-        item_id = deterministic_uuid(f"{eval_name}:{report_id}")
+        item_id = deterministic_uuid(f"{eval_name}:{item_name}")
         capture_evaluation(
             client=self.posthog_client,
             experiment_id=experiment_id,

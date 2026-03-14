@@ -1,6 +1,8 @@
+import json
 import logging
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
 import numpy as np
 
@@ -10,6 +12,7 @@ from products.signals.backend.temporal.types import (
     ReportContext,
     SignalCandidate,
     SignalData,
+    SignalTypeExample,
 )
 
 logger = logging.getLogger(__name__)
@@ -37,10 +40,23 @@ class EmbeddingStore:
     and supports cosine search against stored signals.
     """
 
+    CACHE_PATH = Path(__file__).parent / "cache" / "embeddings.json"
+
     def __init__(self, openai_client):
         self._signals: list[StoredSignal] = []
-        self._embedding_cache: dict[str, list[float]] = {}
+        self._embedding_cache: dict[str, list[float]] = self._load_disk_cache()
         self._client = openai_client
+
+    def _load_disk_cache(self) -> dict[str, list[float]]:
+        if self.CACHE_PATH.exists():
+            with open(self.CACHE_PATH) as f:
+                return json.load(f)
+        return {}
+
+    def _save_disk_cache(self) -> None:
+        self.CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.CACHE_PATH, "w") as f:
+            json.dump(self._embedding_cache, f)
 
     async def embed(self, content: str) -> list[float]:
         """Generate and cache an embedding. Returns cached result if available."""
@@ -52,6 +68,7 @@ class EmbeddingStore:
         )
         embedding = response.data[0].embedding
         self._embedding_cache[content] = embedding
+        self._save_disk_cache()
         return embedding
 
     def store(
@@ -141,7 +158,7 @@ class EmbeddingStore:
             if sig.report_id == report_id and not sig.deleted
         ]
 
-    def get_type_examples(self) -> list[SignalData]:
+    def get_type_examples(self) -> list[SignalTypeExample]:
         """Return one example signal per unique (source_product, source_type) pair."""
         seen: dict[tuple[str, str], StoredSignal] = {}
         for sig in self._signals:
@@ -151,14 +168,11 @@ class EmbeddingStore:
             if key not in seen:
                 seen[key] = sig
         return [
-            SignalData(
-                signal_id=sig.signal_id,
-                content=sig.content,
+            SignalTypeExample(
                 source_product=sig.source_product,
                 source_type=sig.source_type,
-                source_id=sig.source_id,
-                weight=sig.weight,
-                timestamp=sig.timestamp,
+                content=sig.content,
+                timestamp=sig.timestamp.isoformat(),
                 extra=sig.extra,
             )
             for sig in seen.values()
@@ -223,12 +237,12 @@ class ReportStore:
                 r.true_group_index = group_index
 
         else:
-            self._store[report_id] = {
-                "context": ReportContext(
+            self._store[report_id] = StoredReport(
+                context=ReportContext(
                     report_id=report_id,
                     title=match_result.title,
                     signal_count=1,
                 ),
-                "true_signal_groups": [group_index],
-                "true_group_index": group_index,
-            }
+                true_signal_groups=[group_index],
+                true_group_index=group_index,
+            )
