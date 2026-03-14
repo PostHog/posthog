@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+#[cfg(test)]
+use petgraph::visit::EdgeRef;
 use petgraph::{
     algo::toposort,
     graph::{DiGraph, NodeIndex},
-    visit::EdgeRef,
 };
 
 use crate::api::errors::FlagError;
@@ -457,6 +458,10 @@ where
     }
 }
 
+// TODO: Remove these #[cfg(test)] items (DependencyGraphResult, build_dependency_graph,
+// FilteredGraphResult, filter_graph_by_keys) and the petgraph dependency once the
+// precomputed path is validated in production and the fallback path is removed.
+#[cfg(test)]
 /// Result of building a dependency graph, including the graph, errors, and flags with missing dependencies.
 pub struct DependencyGraphResult {
     /// The dependency graph (may include nodes with missing dependencies)
@@ -467,6 +472,7 @@ pub struct DependencyGraphResult {
     pub flags_with_missing_deps: HashSet<i32>,
 }
 
+#[cfg(test)]
 /// Builds a dependency graph for flag evaluation.
 /// Returns None only for fatal errors. Partial errors (cycles, missing dependencies)
 /// are returned in the result and nodes with missing dependencies are kept in the graph.
@@ -573,6 +579,7 @@ pub fn build_dependency_graph(
     })
 }
 
+#[cfg(test)]
 /// Result of filtering a dependency graph.
 pub struct FilteredGraphResult {
     /// The filtered dependency graph
@@ -581,6 +588,7 @@ pub struct FilteredGraphResult {
     pub flags_with_missing_deps: HashSet<i32>,
 }
 
+#[cfg(test)]
 /// Filters a dependency graph to include only the requested flags and their dependencies.
 /// Also filters the flags_with_missing_deps set to only include flags in the filtered graph.
 /// Returns None if:
@@ -681,6 +689,275 @@ pub fn filter_graph_by_keys(
         },
         flags_with_missing_deps: filtered_missing_deps,
     })
+}
+
+/// Pre-computed dependency graph data, built once when flags are loaded from cache.
+/// All fields are derived deterministically from the flag list.
+#[derive(Debug)]
+pub struct PrecomputedDependencyGraph {
+    /// Topologically sorted evaluation stages. Each inner Vec contains flags
+    /// that can be evaluated in parallel (all their dependencies appear in
+    /// earlier stages).
+    pub evaluation_stages: Vec<Vec<FeatureFlag>>,
+
+    /// Set of flag IDs whose dependencies are missing or transitively broken.
+    /// These flags evaluate to false (fail closed).
+    pub flags_with_missing_deps: HashSet<i32>,
+
+    /// For each flag ID, the set of all transitive dependency flag IDs.
+    pub transitive_deps: HashMap<i32, HashSet<i32>>,
+
+    /// Mapping from flag key to flag ID, for efficient key-based lookups.
+    pub key_to_id: HashMap<String, i32>,
+
+    /// Number of flags affected by dependency errors (missing deps + cycles).
+    pub error_count: usize,
+
+    /// Whether any graph construction errors were dependency cycles.
+    pub has_cycle_errors: bool,
+}
+
+/// Result of filtering pre-computed stages by requested flag keys.
+#[derive(Debug)]
+pub struct FilteredStagesResult {
+    /// Filtered evaluation stages containing only the requested flags and their dependencies.
+    pub evaluation_stages: Vec<Vec<FeatureFlag>>,
+    /// Subset of flags_with_missing_deps that are relevant to the filtered stages.
+    pub flags_with_missing_deps: HashSet<i32>,
+}
+
+impl PrecomputedDependencyGraph {
+    /// Builds a `PrecomputedDependencyGraph` from a flag list.
+    /// Uses the fast path when Django-precomputed `evaluation_context` is present,
+    /// falls back to full graph construction otherwise.
+    /// Returns `None` only for fatal errors (same semantics as `build_dependency_graph`).
+    pub fn build(
+        feature_flags: &crate::flags::flag_models::FeatureFlagList,
+        team_id: common_types::TeamId,
+    ) -> Option<Self> {
+        if let Some(ref ctx) = feature_flags.evaluation_context {
+            Self::build_from_precomputed(
+                &feature_flags.flags,
+                ctx,
+                &feature_flags.filtered_out_flag_ids,
+            )
+        } else {
+            Self::build_from_graph(&feature_flags.flags, team_id)
+        }
+    }
+
+    /// Fast path: consumes the top-level `EvaluationContext` directly.
+    /// No Kahn's algorithm, no per-flag scanning, no ID→key conversion loops.
+    fn build_from_precomputed(
+        flags: &[FeatureFlag],
+        ctx: &crate::flags::flag_models::EvaluationContext,
+        filtered_out_flag_ids: &HashSet<i32>,
+    ) -> Option<Self> {
+        let id_to_flag: HashMap<i32, &FeatureFlag> = flags.iter().map(|f| (f.id, f)).collect();
+
+        // Assemble stages from pre-grouped IDs, excluding runtime-filtered flags
+        let evaluation_stages: Vec<Vec<FeatureFlag>> = ctx
+            .dependency_stages
+            .iter()
+            .filter_map(|stage_ids| {
+                let stage: Vec<FeatureFlag> = stage_ids
+                    .iter()
+                    .filter(|id| !filtered_out_flag_ids.contains(id))
+                    .filter_map(|id| id_to_flag.get(id).map(|f| (*f).clone()))
+                    .collect();
+                if stage.is_empty() {
+                    None
+                } else {
+                    Some(stage)
+                }
+            })
+            .collect();
+
+        let flags_with_missing_deps: HashSet<i32> =
+            ctx.flags_with_missing_deps.iter().copied().collect();
+
+        let transitive_deps = ctx.transitive_deps.clone();
+
+        // Cycle detection: flags not in any stage
+        let flags_in_stages: HashSet<i32> = evaluation_stages
+            .iter()
+            .flat_map(|s| s.iter().map(|f| f.id))
+            .collect();
+        let cycle_count = (flags.len() - filtered_out_flag_ids.len()) - flags_in_stages.len();
+
+        let key_to_id: HashMap<String, i32> = flags.iter().map(|f| (f.key.clone(), f.id)).collect();
+
+        // Django's flags_with_missing_deps already includes cycle participants
+        // (in_degree > 0 after Kahn's), so don't add cycle_count separately.
+        Some(Self {
+            evaluation_stages,
+            error_count: flags_with_missing_deps.len(),
+            has_cycle_errors: cycle_count > 0,
+            flags_with_missing_deps,
+            transitive_deps,
+            key_to_id,
+        })
+    }
+
+    /// Fallback path: builds a full petgraph-based dependency graph when
+    /// precomputed data is absent (old cache format or PG fallback).
+    fn build_from_graph(flags: &[FeatureFlag], team_id: common_types::TeamId) -> Option<Self> {
+        // Extract edges from each flag's property filters
+        let mut edges: HashMap<i32, HashSet<i32>> = HashMap::with_capacity(flags.len());
+        for flag in flags {
+            match flag.extract_dependencies() {
+                Ok(deps) => {
+                    edges.insert(flag.id, deps);
+                }
+                Err(e) => {
+                    log_dependency_graph_operation_error(
+                        "extract dependencies for graph fallback",
+                        &e,
+                        team_id,
+                    );
+                    return None;
+                }
+            }
+        }
+
+        let (graph, errors, flags_with_missing_deps) =
+            match DependencyGraph::from_nodes(flags.to_vec(), &edges) {
+                Ok(result) => result,
+                Err(e) => {
+                    log_dependency_graph_operation_error(
+                        "build global dependency graph",
+                        &e,
+                        team_id,
+                    );
+                    return None;
+                }
+            };
+
+        if !errors.is_empty() {
+            log_dependency_graph_construction_errors(&errors, team_id);
+        }
+
+        let has_cycle_errors = errors.iter().any(|e| e.is_cycle());
+        let cycle_count = errors.iter().filter(|e| e.is_cycle()).count();
+        let error_count = flags_with_missing_deps.len() + cycle_count;
+        let transitive_deps = Self::build_transitive_deps_map_from_graph(&graph);
+        let key_to_id: HashMap<String, i32> = flags.iter().map(|f| (f.key.clone(), f.id)).collect();
+
+        let evaluation_stages = match graph.into_evaluation_stages() {
+            Ok(stages) => stages,
+            Err(e) => {
+                log_dependency_graph_operation_error("get evaluation stages", &e, team_id);
+                return None;
+            }
+        };
+
+        Some(Self {
+            evaluation_stages,
+            flags_with_missing_deps,
+            transitive_deps,
+            key_to_id,
+            error_count,
+            has_cycle_errors,
+        })
+    }
+
+    /// Filters evaluation stages to only include the requested flags and their
+    /// transitive dependencies. Uses ID-based filtering for speed.
+    pub fn filter_stages_by_keys(&self, requested_keys: &[String]) -> FilteredStagesResult {
+        let mut needed_ids: HashSet<i32> = HashSet::new();
+        for key in requested_keys {
+            if let Some(&id) = self.key_to_id.get(key.as_str()) {
+                needed_ids.insert(id);
+                if let Some(dep_ids) = self.transitive_deps.get(&id) {
+                    needed_ids.extend(dep_ids);
+                }
+            } else {
+                warn!("Requested flag key not found: {}", key);
+                inc(
+                    FLAG_EVALUATION_ERROR_COUNTER,
+                    &[(
+                        "reason".to_string(),
+                        "missing_requested_flag_key".to_string(),
+                    )],
+                    1,
+                );
+            }
+        }
+
+        // Filter stages by flag ID, dropping empty stages
+        let evaluation_stages: Vec<Vec<FeatureFlag>> = self
+            .evaluation_stages
+            .iter()
+            .filter_map(|stage| {
+                let filtered: Vec<FeatureFlag> = stage
+                    .iter()
+                    .filter(|flag| needed_ids.contains(&flag.id))
+                    .cloned()
+                    .collect();
+                if filtered.is_empty() {
+                    None
+                } else {
+                    Some(filtered)
+                }
+            })
+            .collect();
+
+        // Filter missing deps to only include flags in the filtered stages
+        let filtered_flag_ids: HashSet<i32> = evaluation_stages
+            .iter()
+            .flat_map(|stage| stage.iter().map(|flag| flag.id))
+            .collect();
+        let flags_with_missing_deps: HashSet<i32> = self
+            .flags_with_missing_deps
+            .intersection(&filtered_flag_ids)
+            .copied()
+            .collect();
+
+        FilteredStagesResult {
+            evaluation_stages,
+            flags_with_missing_deps,
+        }
+    }
+
+    /// Builds a map from each flag ID to the set of all its transitive dependency IDs.
+    /// Used by the fallback (petgraph) path.
+    fn build_transitive_deps_map_from_graph(
+        graph: &DependencyGraph<FeatureFlag>,
+    ) -> HashMap<i32, HashSet<i32>> {
+        use petgraph::Direction::Outgoing;
+        let inner = &graph.graph;
+
+        let mut result = HashMap::new();
+        let mut visited = HashSet::new();
+        let mut stack = Vec::new();
+        for node_idx in inner.node_indices() {
+            let flag_id = inner[node_idx].id;
+            let mut deps = HashSet::new();
+            visited.clear();
+            stack.clear();
+
+            // Seed with direct dependencies
+            for neighbor in inner.neighbors_directed(node_idx, Outgoing) {
+                if visited.insert(neighbor) {
+                    stack.push(neighbor);
+                }
+            }
+
+            // DFS through transitive dependencies
+            while let Some(dep_idx) = stack.pop() {
+                deps.insert(inner[dep_idx].id);
+                for neighbor in inner.neighbors_directed(dep_idx, Outgoing) {
+                    if visited.insert(neighbor) {
+                        stack.push(neighbor);
+                    }
+                }
+            }
+
+            result.insert(flag_id, deps);
+        }
+
+        result
+    }
 }
 
 /// Handles errors during dependency graph operations.

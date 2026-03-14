@@ -1,7 +1,7 @@
 use crate::api::errors::{simplify_serde_error, FlagError};
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
-    FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
+    EvaluationContext, FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
 };
 use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
@@ -17,28 +17,28 @@ impl FeatureFlagList {
         }
     }
 
-    /// Parses a JSON Value from hypercache into a list of feature flags.
+    /// Parses a JSON Value from hypercache into flags and optional evaluation context.
     ///
     /// Handles:
     /// - Null values (returns empty vec)
     /// - Sentinel "__missing__" value (returns empty vec)
-    /// - Standard hypercache format `{"flags": [...]}`
+    /// - Standard hypercache format `{"flags": [...], "evaluation_context": {...}}`
     pub fn parse_hypercache_value(
         data: serde_json::Value,
         team_id: TeamId,
-    ) -> Result<Vec<FeatureFlag>, FlagError> {
+    ) -> Result<(Vec<FeatureFlag>, Option<EvaluationContext>), FlagError> {
         // Handle null (can happen when hypercache returns empty)
         if data.is_null() {
-            return Ok(vec![]);
+            return Ok((vec![], None));
         }
 
         // Check for the sentinel value indicating no flags for this team
         if data.as_str() == Some(HYPER_CACHE_EMPTY_VALUE) {
             tracing::debug!("Hypercache sentinel (no flags) for team {}", team_id);
-            return Ok(vec![]);
+            return Ok((vec![], None));
         }
 
-        // Parse the hypercache format: {"flags": [...]}
+        // Parse the hypercache format: {"flags": [...], "evaluation_context": {...}}
         let wrapper: HypercacheFlagsWrapper =
             serde_json::from_value(data.clone()).map_err(|e| {
                 let data_str = data.to_string();
@@ -63,7 +63,7 @@ impl FeatureFlagList {
 
         tracing::debug!("Parsed {} flags for team {}", wrapper.flags.len(), team_id);
 
-        Ok(wrapper.flags)
+        Ok((wrapper.flags, wrapper.evaluation_context))
     }
 
     /// Returns feature flags from postgres given a team_id
@@ -648,7 +648,7 @@ mod tests {
 
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
-        let flags = result.unwrap();
+        let (flags, _ctx) = result.unwrap();
         assert_eq!(flags.len(), 2);
         assert_eq!(flags[0].key, "test_flag");
         assert!(flags[0].active);
@@ -661,7 +661,7 @@ mod tests {
         let data = serde_json::Value::Null;
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.unwrap().0.is_empty());
     }
 
     #[test]
@@ -669,7 +669,7 @@ mod tests {
         let data = json!("__missing__");
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.unwrap().0.is_empty());
     }
 
     #[test]
@@ -677,7 +677,7 @@ mod tests {
         let data = json!({"flags": []});
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
-        assert!(result.unwrap().is_empty());
+        assert!(result.unwrap().0.is_empty());
     }
 
     #[test]
@@ -751,7 +751,7 @@ mod tests {
 
         let result = FeatureFlagList::parse_hypercache_value(data, 123);
         assert!(result.is_ok());
-        let flags = result.unwrap();
+        let (flags, _ctx) = result.unwrap();
         assert_eq!(flags.len(), 1);
         let flag = &flags[0];
         assert_eq!(flag.id, 42);
