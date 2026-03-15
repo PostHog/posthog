@@ -39,9 +39,11 @@ def capture_evaluation(
     dataset_id: str | None = None,
     passed: bool = True,
     eval_type: str = "offline",
+    eval_source: str = "signals-grouping",
 ) -> None:
     for metric in metrics:
         properties: dict[str, Any] = {
+            "$ai_eval_source": eval_source,
             "$ai_evaluation_type": eval_type,
             "$ai_experiment_id": experiment_id,
             "$ai_experiment_name": experiment_name,

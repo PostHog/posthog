@@ -521,7 +521,7 @@ class TestGroupingPipeline:
                     description="Adjusted rand index — chance-corrected clustering similarity, -1 (worst) to 1 (perfect)",
                     result_type="numeric",
                     score=ari,
-                    score_min=-1,
+                    score_min=0,
                     score_max=1,
                 ),
                 EvalMetric(
