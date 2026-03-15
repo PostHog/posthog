@@ -239,6 +239,31 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.json()["description"], "Test description")
         self.assertEqual(response.json()["query"]["kind"], "ExperimentMetric")
         self.assertEqual(response.json()["query"]["metric_type"], "mean")
+        # uuid must be auto-generated when not provided so the metric renders correctly in the UI
+        self.assertIsNotNone(response.json()["query"]["uuid"])
+
+    def test_create_saved_metric_with_experiment_metric_preserves_provided_uuid(self):
+        provided_uuid = "e1882559-cda9-466d-9fe5-3f9d21015847"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Experiment saved metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentMetric",
+                    "metric_type": "mean",
+                    "uuid": provided_uuid,
+                    "source": {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    },
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["query"]["uuid"], provided_uuid)
 
     def test_create_saved_metric_with_experiment_metric_invalid_metric_type(self):
         response = self.client.post(

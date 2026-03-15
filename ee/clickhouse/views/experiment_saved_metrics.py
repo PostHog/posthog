@@ -1,3 +1,5 @@
+import uuid
+
 from django.db.models.functions import Lower
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
@@ -108,6 +110,9 @@ class ExperimentSavedMetricSerializer(
                 ExperimentFunnelsQuery(**metric_query)
         except pydantic.ValidationError as e:
             raise ValidationError(str(e.errors())) from e
+
+        if metric_query.get("kind") == "ExperimentMetric" and not metric_query.get("uuid"):
+            value["uuid"] = str(uuid.uuid4())
 
         return value
 
