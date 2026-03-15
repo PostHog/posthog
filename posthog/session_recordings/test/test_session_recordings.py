@@ -437,9 +437,59 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
                 "viewers": [],
                 "ongoing": True,
                 "activity_score": ANY,
+                "has_summary": False,
                 "external_references": [],
             },
         ]
+
+    @freeze_time("2023-01-01T12:00:00.000Z")
+    def test_get_session_recordings_list_metadata_includes_has_summary(self):
+        try:
+            from ee.models.session_summaries import SingleSessionSummary
+        except ImportError:
+            pytest.skip("EE summary models are not available in this build")
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["d1"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
+        )
+
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        summarized_session_id = str(uuid7())
+        unsummarized_session_id = str(uuid7())
+
+        produce_replay_summary(
+            session_id=summarized_session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+            distinct_id="d1",
+            retention_period_days=30,
+        )
+        produce_replay_summary(
+            session_id=unsummarized_session_id,
+            team_id=self.team.pk,
+            first_timestamp=(base_time + relativedelta(seconds=45)).isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=60)).isoformat(),
+            distinct_id="d1",
+            retention_period_days=30,
+        )
+
+        SingleSessionSummary.objects.create(
+            team=self.team,
+            session_id=summarized_session_id,
+            summary={"content": "existing summary"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        has_summary_by_session_id = {
+            recording["id"]: recording["has_summary"] for recording in response.json()["results"]
+        }
+        assert has_summary_by_session_id[summarized_session_id] is True
+        assert has_summary_by_session_id[unsummarized_session_id] is False
 
     def test_session_recording_for_user_with_multiple_distinct_ids(self) -> None:
         base_time = (now() - timedelta(days=1)).replace(microsecond=0)
@@ -684,8 +734,76 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "snapshot_library": None,
             "ongoing": None,
             "activity_score": None,
+            "has_summary": False,
             "external_references": [],
         }
+
+    @freeze_time("2023-01-01T12:00:00.000Z")
+    def test_get_single_session_recording_metadata_has_summary_true(self):
+        try:
+            from ee.models.session_summaries import SingleSessionSummary
+        except ImportError:
+            pytest.skip("EE summary models are not available in this build")
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["d1"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
+        )
+        session_recording_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_recording_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+            distinct_id="d1",
+            retention_period_days=30,
+        )
+
+        SingleSessionSummary.objects.create(
+            team=self.team,
+            session_id=session_recording_id,
+            summary={"content": "existing summary"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["has_summary"] is True
+
+    @freeze_time("2023-01-01T12:00:00.000Z")
+    def test_get_single_session_recording_metadata_has_summary_false_for_contextual_summary(self):
+        try:
+            from ee.models.session_summaries import SingleSessionSummary
+        except ImportError:
+            pytest.skip("EE summary models are not available in this build")
+
+        Person.objects.create(
+            team=self.team,
+            distinct_ids=["d1"],
+            properties={"$some_prop": "something", "email": "bob@bob.com"},
+        )
+        session_recording_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_recording_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time.isoformat(),
+            last_timestamp=(base_time + relativedelta(seconds=30)).isoformat(),
+            distinct_id="d1",
+            retention_period_days=30,
+        )
+
+        SingleSessionSummary.objects.create(
+            team=self.team,
+            session_id=session_recording_id,
+            summary={"content": "contextual summary"},
+            extra_summary_context={"focus_area": "checkout"},
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_recording_id}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["has_summary"] is False
 
     def test_get_single_session_recording_viewed_stats_someone_else_viewed(self):
         with freeze_time("2023-01-01T12:00:00.000Z"):

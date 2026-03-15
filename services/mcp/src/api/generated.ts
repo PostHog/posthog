@@ -15930,6 +15930,8 @@ export namespace Schemas {
        * @nullable
        */
       external_references?: SessionRecordingExternalReference[] | null;
+      /** @nullable */
+      has_summary?: boolean | null;
       id: string;
       /** @nullable */
       inactive_seconds?: number | null;
@@ -18651,6 +18653,7 @@ export namespace Schemas {
       readonly ongoing: boolean;
       /** @nullable */
       readonly activity_score: number | null;
+      readonly has_summary: boolean;
       /** Load external references (linked issues) for this recording */
       readonly external_references: readonly SessionRecordingExternalReferencesItem[];
     }
@@ -21929,6 +21932,7 @@ export namespace Schemas {
       readonly ongoing?: boolean;
       /** @nullable */
       readonly activity_score?: number | null;
+      readonly has_summary?: boolean;
       /** Load external references (linked issues) for this recording */
       readonly external_references?: readonly PatchedSessionRecordingExternalReferencesItem[];
     }
