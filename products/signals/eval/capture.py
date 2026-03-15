@@ -36,7 +36,8 @@ def capture_evaluation(
     input: Any = None,
     output: Any = None,
     expected: Any = None,
-    dataset: Any = None,
+    dataset_id: str | None = None,
+    passed: bool = True,
     eval_type: str = "offline",
 ) -> None:
     for metric in metrics:
@@ -49,8 +50,9 @@ def capture_evaluation(
             "$ai_metric_name": metric.name,
             "$ai_metric_version": metric.version,
             "$ai_result_type": metric.result_type,
+            "$ai_evaluation_result": 1.0 if passed else 0.0,
             "$ai_status": metric.status,
-            "$ai_dataset": dataset,
+            "$ai_dataset_id": dataset_id,
         }
 
         if metric.description:

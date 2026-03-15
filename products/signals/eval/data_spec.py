@@ -2,7 +2,11 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Any
 
-from posthog.temporal.data_imports.signals.registry import SignalSourceTableConfig, get_signal_config
+from posthog.temporal.data_imports.signals.registry import (
+    SignalEmitterOutput,
+    SignalSourceTableConfig,
+    get_signal_config,
+)
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
 
@@ -60,7 +64,7 @@ class EvalSignalSpec:
         return config
 
     @cached_property
-    def content(self) -> str:
+    def content(self) -> SignalEmitterOutput | None:
         record = self._to_record()
         return self.config.emitter(0, record)
 

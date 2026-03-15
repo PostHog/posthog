@@ -34,7 +34,7 @@ class StoredSignal:
 
 
 class EmbeddingStore:
-    """In-process embedding store that replaces ClickHouse + Kafka + embedding API.
+    """Replaces ClickHouse — stores signal content + embeddings for vector search.
 
     Generates real embeddings via OpenAI, stores them immediately (no fire-and-forget),
     and supports cosine search against stored signals.
@@ -196,7 +196,7 @@ class StoredReport:
 
 
 class ReportStore:
-    """In-process report context store that replaces Postgres report lookups."""
+    """Replaces Postgres — stores report metadata for LLM context, plus ground-truth labels for eval."""
 
     def __init__(self):
         self._store: dict[str, StoredReport] = {}

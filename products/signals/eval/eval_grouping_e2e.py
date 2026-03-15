@@ -60,7 +60,7 @@ from products.signals.eval.fixtures.grouping_data import GROUP_DATA
 from products.signals.eval.mock import EmbeddingStore, ReportStore
 
 RNG_SEED = 1337
-MAX_CONCURRENT_RUNS = 50
+MAX_CONCURRENT_RUNS = 70
 
 
 class MatchFailureMode(Enum):
@@ -166,26 +166,13 @@ class TestGroupingPipeline:
             )
 
             async with self._match_lock:
-                report_id = await self.match_signal(record_id, description, case)
-                await self.store_signal(record_id, description, report_id, case)
+                match_result, queries = await self._match(record_id, description, case)
+                await self._persist_signal(record_id, description, case, match_result, queries)
         except Exception:
             logger.exception("record=%d group=%d Signal pipeline failed, skipping", record_id, case.group_index)
 
-    async def store_signal(self, record_id: int, description: str, report_id: str, case: EvalSignalCase):
-        signal_embedding = await self.store.embed(description)
-        self.store.store(
-            signal_id=f"sig-{record_id}",
-            content=description,
-            embedding=signal_embedding,
-            report_id=report_id,
-            source_product=case.signal.config.source_product,
-            source_type=case.signal.config.source_type,
-            source_id="",
-            weight=1.0,
-        )
-
-    async def match_signal(self, record_id: int, description: str, case: EvalSignalCase) -> str:
-        """Match a single signal to an existing report or create a new one. Returns report_id."""
+    async def _match(self, record_id: int, description: str, case: EvalSignalCase) -> tuple[MatchResult, list[str]]:
+        """Generate queries, embed, search, LLM-match, and verify specificity. No side effects."""
 
         queries = await generate_search_queries(
             description=description,
@@ -237,9 +224,35 @@ class TestGroupingPipeline:
                     ),
                 )
 
+        return match_result, queries
+
+    async def _persist_signal(
+        self,
+        record_id: int,
+        description: str,
+        case: EvalSignalCase,
+        match_result: MatchResult,
+        queries: list[str],
+    ) -> str:
+        """Write match result to both stores and capture eval metrics. Single place for all writes."""
+
         report_id = match_result.report_id if isinstance(match_result, ExistingReportMatch) else str(uuid.uuid4())
-        self._capture_match_quality(case, report_id, match_result)
+
+        self._capture_match_quality(case, report_id, match_result, queries)
         self.report_store.insert(report_id, match_result, case.group_index)
+
+        signal_embedding = await self.store.embed(description)
+        self.store.store(
+            signal_id=f"sig-{record_id}",
+            content=description,
+            embedding=signal_embedding,
+            report_id=report_id,
+            source_product=case.signal.config.source_product,
+            source_type=case.signal.config.source_type,
+            source_id="",
+            weight=1.0,
+        )
+
         return report_id
 
     async def pre_emit(self, record_id: int, case: EvalSignalCase) -> str | None:
@@ -273,25 +286,29 @@ class TestGroupingPipeline:
         return output.description or None
 
     async def _capture_pre_emit_actionability(self, case: EvalSignalCase, thoughts: str, outcome: bool):
+        passed = outcome == case.actionable
         self._capture(
             eval_name=f"{case.signal.source.value.lower()}-actionability-check",
             item_name=f"case-{case.group_index}-{case.signal_index}",
-            input=case.signal.content,
+            input=case.signal.content.description,
             output=thoughts,
             expected="ACTIONABLE" if case.actionable else "NOT_ACTIONABLE",
             metrics=[
                 EvalMetric(
                     name="correct_classification",
                     result_type="binary",
-                    score=1.0 if outcome == case.actionable else 0.0,
+                    score=1.0 if passed else 0.0,
                     score_min=0,
                     score_max=1,
                     reasoning=thoughts,
                 )
             ],
+            passed=passed,
         )
 
-    def _capture_match_quality(self, case: EvalSignalCase, report_id: str, match_result: MatchResult):
+    def _capture_match_quality(
+        self, case: EvalSignalCase, report_id: str, match_result: MatchResult, queries: list[str]
+    ):
         """Captures whether the matching decision was correct and classifies the failure mode."""
         is_existing = isinstance(match_result, ExistingReportMatch)
         expected_report = self.report_store.find_report_by_group_index(case.group_index)
@@ -324,16 +341,21 @@ class TestGroupingPipeline:
                 correct = False
 
         reasoning = match_result.match_metadata.reason if hasattr(match_result.match_metadata, "reason") else ""
-        outcome = {
+
+        output = {
             "report": f"EXISTING_REPORT" if is_existing else f"NEW_REPORT",
             "specificity_reasoning": reasoning,
+            "queries": queries,
+            "report_signals": [sig.content for sig in self.store.get_signals_for_report(report_id)]
+            if is_existing
+            else None,
         }
 
         self._capture(
             eval_name="match-quality",
             item_name=f"match-{case.group_index}-{case.signal_index}",
-            input=case.signal.content,
-            output=outcome,
+            input=case.signal.content.description,
+            output=output,
             expected=expected,
             metrics=[
                 EvalMetric(
@@ -345,6 +367,7 @@ class TestGroupingPipeline:
                     reasoning=None if correct else f"Failure mode: {failure_mode.value}",
                 ),
             ],
+            passed=correct,
         )
 
     async def _judge_reports(self):
@@ -370,6 +393,7 @@ class TestGroupingPipeline:
             )
 
             report.safety_choice = safety_result.choice
+            passed = safety_result.choice == expected_safe
 
             self._capture(
                 eval_name="report-safety-check",
@@ -379,12 +403,13 @@ class TestGroupingPipeline:
                 expected="SAFE" if expected_safe else "UNSAFE",
                 metrics=[
                     EvalMetric(
-                        name="correct_safety",
+                        name="correct_classification",
                         result_type="binary",
-                        score=1.0 if safety_result.choice == expected_safe else 0.0,
+                        score=1.0 if passed else 0.0,
                         reasoning=safety_result.explanation,
                     ),
                 ],
+                passed=passed,
             )
 
             is_actionable = actionability_result.choice == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
@@ -402,6 +427,7 @@ class TestGroupingPipeline:
                         reasoning=actionability_result.explanation,
                     ),
                 ],
+                passed=is_actionable == expected_actionable,
             )
         except Exception:
             logger.exception("report=%s Judging failed, skipping", report_id[:12])
@@ -423,12 +449,13 @@ class TestGroupingPipeline:
             # recall: what fraction of the dominant group's total signals landed here
             total_in_group = len(GROUP_DATA[dominant_group].signals)
             group_recall = dominant_count / total_in_group
+            input = [sig.description for sig in self.store.get_signals_for_report(report.context.report_id)]
 
             self._capture(
                 eval_name="grouping-quality",
                 item_name=f"report-{report.context.report_id[:12]}",
-                input=report.context.title,
-                output=f"purity={purity:.2f} recall={group_recall:.2f} signals={total}",
+                input=input,
+                output=report.context.title,
                 expected=f"group-{dominant_group}",
                 metrics=[
                     EvalMetric(name="purity", result_type="numeric", score=purity),
@@ -539,6 +566,7 @@ class TestGroupingPipeline:
         output: Any,
         expected: Any,
         metrics: list[EvalMetric],
+        passed: bool = True,
     ):
         if self.no_capture:
             return
@@ -546,7 +574,7 @@ class TestGroupingPipeline:
         item_id = deterministic_uuid(f"{eval_name}:{item_name}:{self.start_time}")
         capture_evaluation(
             client=self.posthog_client,
-            dataset="Synthetic Zendesk/Github/Linear",
+            dataset_id="Synthetic Zendesk/Github/Linear",
             experiment_id=experiment_id,
             experiment_name=eval_name,
             item_id=item_id,
@@ -556,4 +584,5 @@ class TestGroupingPipeline:
             expected=expected,
             metrics=metrics,
             eval_type="offline" if self.offline else "online",
+            passed=passed,
         )
