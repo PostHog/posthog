@@ -1815,6 +1815,7 @@ export const FeatureFlagsActivityRetrieveResponse = zod
     .object({
         results: zod.array(
             zod.object({
+                id: zod.string().optional(),
                 user: zod.string().optional(),
                 activity: zod.string().optional(),
                 scope: zod.string().optional(),

@@ -1373,6 +1373,7 @@ export namespace Schemas {
     }
 
     export interface ActivityLogEntry {
+      readonly id: string;
       readonly user: string;
       readonly activity: string;
       readonly scope: string;

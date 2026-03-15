@@ -671,6 +671,7 @@ export interface DetailApi {
 }
 
 export interface ActivityLogEntryApi {
+    readonly id: string
     readonly user: string
     readonly activity: string
     readonly scope: string
