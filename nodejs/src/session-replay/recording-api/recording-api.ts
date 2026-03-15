@@ -127,7 +127,8 @@ export class RecordingApi {
             username: this.config.CLICKHOUSE_USER,
             password: this.config.CLICKHOUSE_PASSWORD || undefined,
             database: this.config.CLICKHOUSE_DATABASE,
-            request_timeout: 30000,
+            request_timeout: 30_000,
+            max_open_connections: 10,
         })
 
         // Create the service layer

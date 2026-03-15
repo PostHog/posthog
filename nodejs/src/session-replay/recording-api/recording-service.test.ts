@@ -395,7 +395,13 @@ describe('RecordingService', () => {
                 expect.objectContaining({
                     query_params: { team_id: 1, session_id: 'sess-1' },
                     format: 'JSONEachRow',
-                    clickhouse_settings: { date_time_output_format: 'iso' },
+                    clickhouse_settings: expect.objectContaining({
+                        date_time_output_format: 'iso',
+                        log_comment: expect.stringContaining('"team_id":1'),
+                        max_execution_time: 30,
+                        max_threads: 45,
+                        max_bytes_to_read: '5000000000000',
+                    }),
                 })
             )
         })
