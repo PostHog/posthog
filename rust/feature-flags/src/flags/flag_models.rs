@@ -48,7 +48,10 @@ where
     S: Serializer,
 {
     let mut ser_map = serializer.serialize_map(Some(map.len()))?;
-    for (k, v) in map {
+    let mut keys: Vec<&i32> = map.keys().collect();
+    keys.sort_unstable();
+    for k in keys {
+        let v = &map[k];
         let sorted: Vec<i32> = {
             let mut s: Vec<i32> = v.iter().copied().collect();
             s.sort_unstable();

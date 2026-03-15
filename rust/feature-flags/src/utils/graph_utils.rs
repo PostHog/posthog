@@ -787,7 +787,10 @@ impl PrecomputedDependencyGraph {
             .iter()
             .flat_map(|s| s.iter().map(|f| f.id))
             .collect();
-        let cycle_count = (flags.len() - filtered_out_flag_ids.len()) - flags_in_stages.len();
+        let cycle_count = flags
+            .len()
+            .saturating_sub(filtered_out_flag_ids.len())
+            .saturating_sub(flags_in_stages.len());
 
         let key_to_id: HashMap<String, i32> = flags.iter().map(|f| (f.key.clone(), f.id)).collect();
 
