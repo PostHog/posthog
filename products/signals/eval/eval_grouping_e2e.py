@@ -19,10 +19,11 @@ Captures four levels of metrics:
   mean_group_recall, unsafe_blocked_rate
 
 Run:
-    pytest products/signals/eval/eval_grouping_e2e.py -xvs --log-cli-level=WARNING
-    pytest products/signals/eval/eval_grouping_e2e.py -xvs --log-cli-level=WARNING --limit 10 --no-capture
+    pytest products/signals/eval/eval_grouping_e2e.py -xvs
+    pytest products/signals/eval/eval_grouping_e2e.py -xvs --limit 10 --no-capture
 """
 
+import sys
 import uuid
 import random
 import asyncio
@@ -33,6 +34,8 @@ from time import time
 from typing import Any
 
 import pytest
+
+from tqdm import tqdm
 
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
     _check_actionability,
@@ -63,14 +66,53 @@ RNG_SEED = 1337
 MAX_CONCURRENT_RUNS = 70
 
 
+class EvalProgress:
+    """Encapsulates tqdm progress bars and error counters for the eval run."""
+
+    def __init__(self, n_signals: int, n_groups: int):
+        self.n_signals = n_signals
+        self.n_groups = n_groups
+        self.dropped = 0
+        self.failed = 0
+        self._bar = tqdm(total=n_signals, desc="Signals", unit="sig", file=sys.stderr)
+
+    def signal_done(self):
+        self._bar.update(1)
+
+    def signal_dropped(self):
+        self.dropped += 1
+        self._bar.update(1)
+        self._update_postfix()
+
+    def signal_failed(self):
+        self.failed += 1
+        self._bar.update(1)
+        self._update_postfix()
+
+    def _update_postfix(self):
+        parts: dict[str, int] = {}
+        if self.dropped:
+            parts["dropped"] = self.dropped
+        if self.failed:
+            parts["failed"] = self.failed
+        self._bar.set_postfix(parts)
+
+    def start_judging(self, n_reports: int):
+        self._bar.close()
+        self._bar = tqdm(total=n_reports, desc="Judging", unit="report", file=sys.stderr)
+
+    def report_judged(self):
+        self._bar.update(1)
+
+    def done(self):
+        self._bar.close()
+
+
 class MatchFailureMode(Enum):
     NONE = "NONE"  # correct match
     UNDERGROUP = "UNDERGROUP"  # created new report when should have joined existing
     OVERGROUP = "OVERGROUP"  # joined a report belonging to a different ground-truth group
     SPECIFICITY_SPLIT = "SPECIFICITY_SPLIT"  # specificity check split a correct match
-
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -124,22 +166,33 @@ class TestGroupingPipeline:
         self._match_lock = asyncio.Lock()
         self.start_time = time()
 
+        # Suppress structlog noise from downstream modules during the eval
+        root_logger = logging.getLogger()
+        previous_level = root_logger.level
+        root_logger.setLevel(logging.ERROR)
+        yield
+        root_logger.setLevel(previous_level)
+
     @pytest.mark.django_db(transaction=True)
     async def test_grouping_pipeline(self):
         stream = get_signals_stream()
         if self.limit:
             stream = stream[: self.limit]
-            logger.warning("Limiting to %d signals.", self.limit)
+            tqdm.write(f"Limiting to {self.limit} signals.", file=sys.stderr)
 
         n_groups = len({case.group_index for case in stream})
-        logger.warning("Emitting %d signals from %d ground-truth groups...", len(stream), n_groups)
+        self.progress = EvalProgress(n_signals=len(stream), n_groups=n_groups)
 
         sem = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
         await asyncio.gather(
             *[self.run_signal_pipeline_concurrently(sem, record_id=i, case=case) for i, case in enumerate(stream)]
         )
 
+        reports = self.report_store.all_reports()
+        self.progress.start_judging(len(reports))
         await self._judge_reports()
+        self.progress.done()
+
         self._capture_grouping_quality()
         self._capture_aggregate_metrics(stream)
 
@@ -154,22 +207,16 @@ class TestGroupingPipeline:
             description = await self.pre_emit(record_id, case)
 
             if not description:
-                logger.warning("record=%d Signal dropped", record_id)
+                self.progress.signal_dropped()
                 return
-
-            logger.warning(
-                "record=%d group=%d source=%s description=%.80s",
-                record_id,
-                case.group_index,
-                case.signal.source.value,
-                description.replace("\n", " "),
-            )
 
             async with self._match_lock:
                 match_result, queries = await self._match(record_id, description, case)
                 await self._persist_signal(record_id, description, case, match_result, queries)
+
+            self.progress.signal_done()
         except Exception:
-            logger.exception("record=%d group=%d Signal pipeline failed, skipping", record_id, case.group_index)
+            self.progress.signal_dropped()
 
     async def _match(self, record_id: int, description: str, case: EvalSignalCase) -> tuple[MatchResult, list[str]]:
         """Generate queries, embed, search, LLM-match, and verify specificity. No side effects."""
@@ -260,7 +307,6 @@ class TestGroupingPipeline:
         config = case.signal.config
 
         if output is None:
-            logger.warning("Emitter returned None for record %d, skipping", record_id)
             return None
 
         outputs = [output]
@@ -429,8 +475,9 @@ class TestGroupingPipeline:
                 ],
                 passed=is_actionable == expected_actionable,
             )
+            self.progress.report_judged()
         except Exception:
-            logger.exception("report=%s Judging failed, skipping", report_id[:12])
+            self.progress.report_judged()
 
     def _capture_grouping_quality(self):
         """Per-report metrics: purity, is_pure, group_recall."""
@@ -508,6 +555,18 @@ class TestGroupingPipeline:
                 unsafe_leaked += sum(1 for gi in report.true_signal_groups if gi in unsafe_group_indices)
 
         unsafe_leaked_rate = unsafe_leaked / total_unsafe if total_unsafe > 0 else 1.0
+
+        # Print readable results summary
+        tqdm.write(
+            f"\nResults ({n_groups_expected} groups → {n_reports_actual} reports):\n"
+            f"  ARI              {ari:.2f}\n"
+            f"  Homogeneity      {homogeneity:.2f}\n"
+            f"  Completeness     {completeness:.2f}\n"
+            f"  Mean purity      {mean_purity:.2f}\n"
+            f"  Mean recall      {mean_group_recall:.2f}\n"
+            f"  Malicious leaked {unsafe_leaked}/{total_unsafe}",
+            file=sys.stderr,
+        )
 
         self._capture(
             eval_name="grouping-aggregate",
