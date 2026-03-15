@@ -14,6 +14,7 @@ class Migration(migrations.Migration):
                     model_name="node",
                     name="dag",
                     field=models.ForeignKey(
+                        db_column="dag_fk_id",
                         on_delete=django.db.models.deletion.CASCADE,
                         to="data_modeling.dag",
                     ),
@@ -22,6 +23,7 @@ class Migration(migrations.Migration):
                     model_name="edge",
                     name="dag",
                     field=models.ForeignKey(
+                        db_column="dag_fk_id",
                         on_delete=django.db.models.deletion.CASCADE,
                         to="data_modeling.dag",
                     ),
@@ -41,38 +43,10 @@ class Migration(migrations.Migration):
                         " ALTER TABLE posthog_datamodelingedge VALIDATE CONSTRAINT edge_dag_fk_id_not_null;"
                         " ALTER TABLE posthog_datamodelingedge ALTER COLUMN dag_fk_id SET NOT NULL; -- not-null-ignore"
                         " ALTER TABLE posthog_datamodelingedge DROP CONSTRAINT edge_dag_fk_id_not_null;"
-                        # Rename columns
-                        " ALTER TABLE posthog_datamodelingnode RENAME COLUMN dag_fk_id TO dag_id;"
-                        " ALTER TABLE posthog_datamodelingedge RENAME COLUMN dag_fk_id TO dag_id;"
-                        # Rename indexes
-                        " ALTER INDEX IF EXISTS posthog_datamodelingnode_dag_fk_id_a152d589"
-                        " RENAME TO posthog_datamodelingnode_dag_id_a152d589;"
-                        " ALTER INDEX IF EXISTS posthog_datamodelingedge_dag_fk_id_af85451c"
-                        " RENAME TO posthog_datamodelingedge_dag_id_af85451c;"
-                        # Rename FK constraints
-                        " ALTER TABLE posthog_datamodelingnode RENAME CONSTRAINT"
-                        " posthog_datamodeling_dag_fk_id_a152d589_fk_posthog_d"
-                        " TO posthog_datamodeling_dag_id_a152d589_fk_posthog_d;"
-                        " ALTER TABLE posthog_datamodelingedge RENAME CONSTRAINT"
-                        " posthog_datamodeling_dag_fk_id_af85451c_fk_posthog_d"
-                        " TO posthog_datamodeling_dag_id_af85451c_fk_posthog_d;"
-                        " -- rename-ignore"
                     ),
                     reverse_sql=(
-                        "ALTER TABLE posthog_datamodelingnode RENAME COLUMN dag_id TO dag_fk_id;"
-                        " ALTER TABLE posthog_datamodelingedge RENAME COLUMN dag_id TO dag_fk_id;"
-                        " ALTER TABLE posthog_datamodelingnode ALTER COLUMN dag_fk_id DROP NOT NULL;"
+                        "ALTER TABLE posthog_datamodelingnode ALTER COLUMN dag_fk_id DROP NOT NULL;"
                         " ALTER TABLE posthog_datamodelingedge ALTER COLUMN dag_fk_id DROP NOT NULL;"
-                        " ALTER INDEX IF EXISTS posthog_datamodelingnode_dag_id_a152d589"
-                        " RENAME TO posthog_datamodelingnode_dag_fk_id_a152d589;"
-                        " ALTER INDEX IF EXISTS posthog_datamodelingedge_dag_id_af85451c"
-                        " RENAME TO posthog_datamodelingedge_dag_fk_id_af85451c;"
-                        " ALTER TABLE posthog_datamodelingnode RENAME CONSTRAINT"
-                        " posthog_datamodeling_dag_id_a152d589_fk_posthog_d"
-                        " TO posthog_datamodeling_dag_fk_id_a152d589_fk_posthog_d;"
-                        " ALTER TABLE posthog_datamodelingedge RENAME CONSTRAINT"
-                        " posthog_datamodeling_dag_id_af85451c_fk_posthog_d"
-                        " TO posthog_datamodeling_dag_fk_id_af85451c_fk_posthog_d;"
                     ),
                 ),
             ],

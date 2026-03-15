@@ -9,8 +9,10 @@ LOG_INTERVAL = 25
 
 
 def backfill_endpoint_edges(apps, _):
-    from products.data_modeling.backend.models import Node, NodeType
+    from products.data_modeling.backend.models import NodeType
     from products.data_modeling.backend.services.saved_query_dag_sync import sync_saved_query_to_dag
+
+    Node = apps.get_model("data_modeling", "Node")
 
     # Find endpoint nodes that have no incoming edges (missing edges from 0019)
     endpoint_nodes_without_edges = (
