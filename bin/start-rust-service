@@ -82,6 +82,26 @@ case "$RS_SVC" in
     export DEV_RUST_SVC_OVERRIDE=capture # we want to run the same "capture" binary in a separate mode
     ;;
 
+  capture-logs)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export BIND_HOST=0.0.0.0
+    export BIND_PORT=4320 # Offset from 4318 to avoid conflict with otel-collector host port mapping
+    export MANAGEMENT_BIND_PORT=8081 # Avoid clash with other Rust services on 8080
+    export KAFKA_HOSTS=localhost:9092
+    export KAFKA_TOPIC=logs_ingestion
+    ;;
+
+  capture-metrics)
+    export RUST_LOG=debug,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export BIND_HOST=0.0.0.0
+    export BIND_PORT=4319
+    export MANAGEMENT_BIND_PORT=8082 # Avoid clash with other Rust services on 8080
+    export KAFKA_HOSTS=localhost:9092
+    export KAFKA_TOPIC=metrics_ingestion
+    ;;
+
   cymbal)
     # NOTE: to ensure the exceptions topic exists and avoid crash loops in dev:
     # cd rust

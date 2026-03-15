@@ -16,6 +16,7 @@ import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import { KafkaProducerWrapper } from './kafka/producer'
 import type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
+import type { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
@@ -47,6 +48,7 @@ export {
     PersonBatchWritingMode,
 } from './ingestion/config'
 export { LogsIngestionConsumerConfig } from './logs-ingestion/config'
+export { MetricsIngestionConsumerConfig } from './metrics-ingestion/config'
 export { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 
 interface HealthCheckResultResponse {
@@ -115,6 +117,7 @@ export interface PluginsServerConfig
         CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
+        MetricsIngestionConsumerConfig,
         SessionRecordingConfig,
         SessionRecordingApiConfig {}
 
@@ -147,6 +150,7 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     logsIngestion?: boolean
+    metricsIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
     cdpProcessedEvents?: boolean

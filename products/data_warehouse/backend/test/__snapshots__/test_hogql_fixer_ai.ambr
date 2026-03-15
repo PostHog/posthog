@@ -1,50 +1,4 @@
 # serializer version: 1
-# name: test_get_schema_description
-  '''
-  This is the schema of tables currently used in the provided query:
-  
-  Table `events` with fields:
-  - uuid (string)
-  - event (string)
-  - properties (json)
-  - timestamp (datetime)
-  - distinct_id (string)
-  - elements_chain (string)
-  - created_at (datetime)
-  - $session_id (string)
-  - $window_id (string)
-  - person_mode (string)
-  - pdi (lazy_table)
-  - poe (virtual_table)
-  - goe_0 (virtual_table)
-  - goe_1 (virtual_table)
-  - goe_2 (virtual_table)
-  - goe_3 (virtual_table)
-  - goe_4 (virtual_table)
-  - person (lazy_table)
-  - person_id (expression)
-  - $group_0 (string)
-  - group_0 (lazy_table)
-  - $group_1 (string)
-  - group_1 (lazy_table)
-  - $group_2 (string)
-  - group_2 (lazy_table)
-  - $group_3 (string)
-  - group_3 (lazy_table)
-  - $group_4 (string)
-  - group_4 (lazy_table)
-  - session (lazy_table)
-  - elements_chain_href (string)
-  - elements_chain_texts (array)
-  - elements_chain_ids (array)
-  - elements_chain_elements (array)
-  - event_person_id (string)
-  - override (lazy_table)
-  - event_issue_id (expression)
-  - exception_issue_override (lazy_table)
-  - issue_id (expression)
-  '''
-# ---
 # name: test_get_system_prompt
   '''
   HogQL is PostHog's variant of SQL. HogQL is based on Clickhouse SQL with a few small adjustments.
@@ -97,71 +51,10 @@
   
   This is a list of all the available tables in the database:
   ```
-  ['events', 'groups', 'persons', 'sessions', 'logs', 'query_log', 'system.actions', 'system.annotations', 'system.cohort_calculation_history', 'system.cohorts', 'system.dashboards', 'system.data_warehouse_sources', 'system.data_warehouse_tables', 'system.error_tracking_issue_assignments', 'system.error_tracking_issue_fingerprints', 'system.error_tracking_issues', 'system.experiments', 'system.exports', 'system.feature_flags', 'system.groups', 'system.group_type_mappings', 'system.hog_flows', 'system.hog_functions', 'system.ingestion_warnings', 'system.insight_variables', 'system.insights', 'system.notebooks', 'system.surveys', 'system.teams']
+  ['events', 'groups', 'persons', 'sessions', 'logs', 'posthog.metrics', 'query_log', 'system.actions', 'system.annotations', 'system.cohort_calculation_history', 'system.cohorts', 'system.dashboards', 'system.data_warehouse_sources', 'system.data_warehouse_tables', 'system.error_tracking_issue_assignments', 'system.error_tracking_issue_fingerprints', 'system.error_tracking_issues', 'system.experiments', 'system.exports', 'system.feature_flags', 'system.groups', 'system.group_type_mappings', 'system.hog_flows', 'system.hog_functions', 'system.ingestion_warnings', 'system.insight_variables', 'system.insights', 'system.notebooks', 'system.surveys', 'system.teams']
   ```
   
   `person` or `event` metadata unspecified above (emails, names, etc.) is stored in `properties` fields, accessed like: `properties.foo.bar`.
   Note: "persons" means "users" here - instead of a "users" table, we have a "persons" table.
-  '''
-# ---
-# name: test_get_user_prompt
-  '''
-  
-  Fix the errors in the HogQL query below and only return the new updated query in your response.
-  
-  - Don't update any other part of the query if it's not relevant to the error, including rewriting shorthand clickhouse SQL to the full version.
-  - Don't change the capitalisation of the query if it's not relevant to the error, such as rewriting `select` as `SELECT` or `from` as `FROM`
-  - Don't convert syntax to an alternative if it's not relevant to the error, such as changing `toIntervalDay(1)` to `INTERVAL 1 DAY`
-  - There may also be more than one error in the syntax.
-  
-  This is the schema of tables currently used in the provided query:
-  
-  Table `events` with fields:
-  - uuid (string)
-  - event (string)
-  - properties (json)
-  - timestamp (datetime)
-  - distinct_id (string)
-  - elements_chain (string)
-  - created_at (datetime)
-  - $session_id (string)
-  - $window_id (string)
-  - person_mode (string)
-  - pdi (lazy_table)
-  - poe (virtual_table)
-  - goe_0 (virtual_table)
-  - goe_1 (virtual_table)
-  - goe_2 (virtual_table)
-  - goe_3 (virtual_table)
-  - goe_4 (virtual_table)
-  - person (lazy_table)
-  - person_id (expression)
-  - $group_0 (string)
-  - group_0 (lazy_table)
-  - $group_1 (string)
-  - group_1 (lazy_table)
-  - $group_2 (string)
-  - group_2 (lazy_table)
-  - $group_3 (string)
-  - group_3 (lazy_table)
-  - $group_4 (string)
-  - group_4 (lazy_table)
-  - session (lazy_table)
-  - elements_chain_href (string)
-  - elements_chain_texts (array)
-  - elements_chain_ids (array)
-  - elements_chain_elements (array)
-  - event_person_id (string)
-  - override (lazy_table)
-  - event_issue_id (expression)
-  - exception_issue_override (lazy_table)
-  - issue_id (expression)
-  
-  Below is the current HogQL query and the error message
-  
-  
-  <hogql_query>{{{hogql_query}}}</hogql_query>
-  
-  <error>{{{error_message}}}</error>
   '''
 # ---

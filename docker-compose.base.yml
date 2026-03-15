@@ -52,6 +52,12 @@ services:
                         path /i/v1/logs/*
                     }
 
+                    @capture-metrics {
+                        path /i/v1/metrics
+                        path /i/v1/metrics/
+                        path /i/v1/metrics/*
+                    }
+
                     @flags {
                         path /flags
                         path /flags/
@@ -93,6 +99,10 @@ services:
 
                     handle @capture-logs {
                         reverse_proxy capture-logs:4318
+                    }
+
+                    handle @capture-metrics {
+                        reverse_proxy capture-metrics:4319
                     }
 
                     handle @flags {
@@ -335,6 +345,24 @@ services:
             KAFKA_HOSTS: kafka:9092
             JWT_SECRET: '<randomly generated secret key>'
             KAFKA_TOPIC: logs_ingestion
+        networks:
+            - otel_network
+            - default
+
+    capture-metrics:
+        image: ghcr.io/posthog/posthog/capture-metrics:master
+        build:
+            context: rust/
+            args:
+                BIN: capture-metrics
+        restart: on-failure
+        environment:
+            BIND_HOST: '0.0.0.0'
+            BIND_PORT: '4319'
+            RUST_LOG: info,rdkafka=warn
+            RUST_BACKTRACE: '1'
+            KAFKA_HOSTS: kafka:9092
+            KAFKA_TOPIC: metrics_ingestion
         networks:
             - otel_network
             - default

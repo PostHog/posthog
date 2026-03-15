@@ -54,6 +54,14 @@ receivers:
                 endpoint: 0.0.0.0:4317 # Collector receiving OTLP gRPC
             http:
                 endpoint: 0.0.0.0:4318 # Collector receiving OTLP HTTP
+    prometheus:
+        config:
+            scrape_configs:
+                - job_name: 'nodejs'
+                  scrape_interval: 15s
+                  metrics_path: /_metrics
+                  static_configs:
+                      - targets: ['host.docker.internal:6738']
 
 exporters:
     otlp: # Using the standard OTLP exporter
@@ -61,12 +69,19 @@ exporters:
         tls:
             insecure: true # For local communication to Jaeger
     otlphttp/logs:
-        endpoint: 'http://capture-logs:4318'
+        endpoint: 'http://host.docker.internal:4320'
         compression: none
         tls:
             insecure: true
         headers:
             # special "local" token is automatically mapped to team_id 1 in dev environments
+            authorization: Bearer phc_local
+    otlphttp/metrics:
+        endpoint: 'http://host.docker.internal:4319'
+        compression: none
+        tls:
+            insecure: true
+        headers:
             authorization: Bearer phc_local
 
 processors:
@@ -86,4 +101,8 @@ service:
             receivers:
                 - otlp
                 - receiver_creator
+        metrics:
+            receivers: [otlp, prometheus]
+            processors: [batch]
+            exporters: [otlphttp/metrics]
     extensions: [docker_observer, health_check, zpages] # Enabling the declared extensions

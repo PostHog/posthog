@@ -51,7 +51,7 @@ procs:
         ready_pattern: 'All systems go'
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags
+        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, metrics, feature_flags
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
 
     frontend:
@@ -155,6 +155,18 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service capture-ai
         capability: ai_capture
+
+    capture-logs:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service capture-logs
+        capability: logs_ingestion
+
+    capture-metrics:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service capture-metrics
+        capability: metrics_ingestion
 
     batch-import-worker:
         shell: |-

@@ -82,6 +82,7 @@ from posthog.hogql.database.schema.log_entries import (
     ReplayConsoleLogsLogEntriesTable,
 )
 from posthog.hogql.database.schema.logs import LogAttributesTable, LogsKafkaMetricsTable, LogsTable
+from posthog.hogql.database.schema.metrics import MetricAttributesTable, MetricsKafkaMetricsTable, MetricsTable
 from posthog.hogql.database.schema.numbers import NumbersTable
 from posthog.hogql.database.schema.person_distinct_id_overrides import (
     PersonDistinctIdOverridesTable,
@@ -248,8 +249,11 @@ def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNod
             **root_tables,
             "posthog": TableNode(
                 children={
-                    **clone_root_tables()
+                    **clone_root_tables(),
                     # Add new tables here
+                    "metrics": TableNode(name="metrics", table=MetricsTable()),
+                    "metric_attributes": TableNode(name="metric_attributes", table=MetricAttributesTable()),
+                    "metrics_kafka_metrics": TableNode(name="metrics_kafka_metrics", table=MetricsKafkaMetricsTable()),
                 }
             ),
             "system": SystemTables(),
@@ -355,7 +359,13 @@ class Database(BaseModel):
     # These are the tables exposed via SQL editor autocomplete and data management
     def get_posthog_table_names(self, include_hidden: bool = False) -> list[str]:
         if include_hidden:
-            return sorted(ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys())
+            root_keys = set(ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys())
+            posthog_node = self.tables.children.get("posthog")
+            if posthog_node and posthog_node.children:
+                posthog_only_keys = {f"posthog.{k}" for k in posthog_node.children.keys() if k not in root_keys}
+            else:
+                posthog_only_keys = set()
+            return sorted(root_keys | posthog_only_keys)
 
         return [
             "events",
@@ -363,6 +373,7 @@ class Database(BaseModel):
             "persons",
             "sessions",
             "logs",
+            "posthog.metrics",
             *self.get_system_table_names(),
         ]
 
