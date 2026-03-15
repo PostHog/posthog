@@ -148,13 +148,19 @@ jobs:
                         "timestamp": "${{ github.event.head_commit.timestamp }}"
                       }
 
+            # Common paths that must trigger ALL temporal workers (migrations, shared code, entrypoints)
+            - name: Check for common changes that affect all temporal workers
+              id: check_common_temporal_changes
+              run: |
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/clickhouse/migrations|^posthog/migrations|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+
             - name: Check for changes that affect batch exports temporal worker
               id: check_changes_batch_exports_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/batch_exports/backend/temporal|^posthog/batch_exports/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^products/batch_exports/backend/temporal|^posthog/batch_exports/' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Batch Exports Sync Temporal Worker Cloud deployment
-              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -175,7 +181,7 @@ jobs:
                       }
 
             - name: Trigger Batch Exports Temporal Worker Cloud deployment
-              if: steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_batch_exports_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -198,10 +204,10 @@ jobs:
             - name: Check for changes that affect Max AI Temporal worker
               id: check_changes_max_ai_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '\.py$|^pyproject\.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '\.py$' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Max AI Temporal worker cloud deployment
-              if: steps.check_changes_max_ai_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_max_ai_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -224,10 +230,10 @@ jobs:
             - name: Check for changes that affect Tasks Agent Temporal worker
               id: check_changes_tasks_agent_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/common|^products/tasks/backend|^posthog/tasks/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^products/tasks/backend|^posthog/tasks/' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Tasks Agent Temporal worker cloud deployment
-              if: steps.check_changes_tasks_agent_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_tasks_agent_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -250,32 +256,32 @@ jobs:
             - name: Check for changes that affect general purpose temporal worker
               id: check_changes_general_purpose_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/subscriptions|^posthog/temporal/common|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/usage_reports|^posthog/temporal/llm_analytics|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/ingestion_acceptance_test|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/subscriptions|^posthog/temporal/session_recordings|^posthog/temporal/proxy_service|^posthog/temporal/usage_reports|^posthog/temporal/llm_analytics|^posthog/temporal/product_analytics|^posthog/temporal/delete_persons|^posthog/temporal/ingestion_acceptance_test' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect billing temporal worker
               id: check_changes_billing_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^ee/billing/|^posthog/temporal/quota_limiting|^posthog/temporal/salesforce_enrichment' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect video export temporal worker
               id: check_changes_video_export_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^posthog/temporal/ai/session_summary|^posthog/temporal/ai/video_segment_clustering|^ee/hogai/session_summaries|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/exports_video|^posthog/tasks/exports/video_exporter.py|^products/signals/backend/|^posthog/temporal/data_imports/workflow_activities/emit_signals|^posthog/temporal/data_imports/signals/|^nodejs/src/scripts/record-replay|^posthog/temporal/ai/session_summary|^posthog/temporal/ai/video_segment_clustering|^ee/hogai/session_summaries' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect session replay temporal worker
               id: check_changes_session_replay_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/enforce_max_replay_retention|^posthog/temporal/delete_recordings|^posthog/temporal/export_recording|^posthog/temporal/import_recording|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/enforce_max_replay_retention|^posthog/temporal/delete_recordings|^posthog/temporal/export_recording|^posthog/temporal/import_recording' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect weekly digest temporal worker
               id: check_changes_weekly_digest_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/weekly_digest|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/weekly_digest' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for changes that affect messaging temporal worker
               id: check_changes_messaging_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/messaging|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/messaging' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Check for config file changes that affect analytics platform temporal worker
               id: check_non_python_changes_analytics_platform_temporal_worker
@@ -296,7 +302,7 @@ jobs:
                   echo "changed=$RESULT" >> $GITHUB_OUTPUT
 
             - name: Trigger Billing Temporal Worker Cloud deployment
-              if: steps.check_changes_billing_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_billing_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -317,7 +323,7 @@ jobs:
                       }
 
             - name: Trigger Video Export Temporal Worker Cloud deployment
-              if: steps.check_changes_video_export_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_video_export_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -338,7 +344,7 @@ jobs:
                       }
 
             - name: Trigger Session Replay Temporal Worker Cloud deployment
-              if: steps.check_changes_session_replay_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_session_replay_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -359,7 +365,7 @@ jobs:
                       }
 
             - name: Trigger Weekly Digest Temporal Worker Cloud deployment
-              if: steps.check_changes_weekly_digest_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_weekly_digest_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -380,7 +386,7 @@ jobs:
                       }
 
             - name: Trigger Analytics Platform Temporal Worker Cloud deployment
-              if: steps.check_non_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true' || steps.check_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_non_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true' || steps.check_python_changes_analytics_platform_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -401,7 +407,7 @@ jobs:
                       }
 
             - name: Trigger General Purpose Temporal Worker Cloud deployment
-              if: steps.check_changes_general_purpose_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_general_purpose_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -458,10 +464,10 @@ jobs:
             - name: Check for changes that affect llm analytics evals temporal worker
               id: check_changes_llm_analytics_evals_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/llm_analytics|^products/llm_analytics|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/llm_analytics|^products/llm_analytics' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger LLM Analytics Evals Temporal Worker Cloud deployment
-              if: steps.check_changes_llm_analytics_evals_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_llm_analytics_evals_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -485,7 +491,7 @@ jobs:
             # which builds and deploys a separate Docker image with ML dependencies.
 
             - name: Trigger Messaging Temporal Worker Cloud deployment
-              if: steps.check_changes_messaging_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_messaging_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -508,10 +514,10 @@ jobs:
             - name: Check for changes that affect ducklake temporal worker
               id: check_changes_ducklake_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/ducklake|^posthog/ducklake|^posthog/temporal/common|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/temporal/ducklake|^posthog/ducklake' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger DuckLake Temporal Worker Cloud deployment
-              if: steps.check_changes_ducklake_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_ducklake_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -534,10 +540,10 @@ jobs:
             - name: Check for changes that affect data warehouse temporal worker
               id: check_changes_data_warehouse_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/common|^posthog/temporal/data_imports|^posthog/warehouse/|^posthog/management/commands/start_temporal_worker.py$|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/data_imports|^posthog/warehouse/' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Data Warehouse Temporal Worker Cloud deployment
-              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -558,7 +564,7 @@ jobs:
                       }
 
             - name: Trigger Data Warehouse CDP Producer Temporal Worker Cloud deployment
-              if: steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_data_warehouse_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
@@ -581,10 +587,10 @@ jobs:
             - name: Check for changes that affect data modeling temporal worker
               id: check_changes_data_modeling_temporal_worker
               run: |
-                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/data_warehouse|^posthog/temporal/common|^posthog/warehouse|^products/data_modeling|^products/data_warehouse|^posthog/management/commands|^pyproject.toml$|^bin/temporal-django-worker$' && echo true) || echo false)" >> $GITHUB_OUTPUT
+                  echo "changed=$((git diff --name-only HEAD^ HEAD | grep -qE '^posthog/hogql|^posthog/temporal/data_modeling|^posthog/temporal/data_warehouse|^posthog/warehouse|^products/data_modeling|^products/data_warehouse|^posthog/management/commands' && echo true) || echo false)" >> $GITHUB_OUTPUT
 
             - name: Trigger Data Warehouse Modeling Temporal Worker Cloud deployment
-              if: steps.check_changes_data_modeling_temporal_worker.outputs.changed == 'true'
+              if: steps.check_common_temporal_changes.outputs.changed == 'true' || steps.check_changes_data_modeling_temporal_worker.outputs.changed == 'true'
               uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
               with:
                   token: ${{ steps.deployer.outputs.token }}
