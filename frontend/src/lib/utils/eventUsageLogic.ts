@@ -921,6 +921,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportUsageMetricCreated: () => true,
         reportUsageMetricUpdated: () => true,
         reportUsageMetricDeleted: () => true,
+        // navbar starred
+        reportNavbarStarredItemAdded: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+            itemType,
+            itemName,
+            isAIFirst,
+        }),
+        reportNavbarStarredItemRemoved: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+            itemType,
+            itemName,
+            isAIFirst,
+        }),
+        reportNavbarStarredItemClicked: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+            itemType,
+            itemName,
+            isAIFirst,
+        }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -2206,6 +2222,27 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
             posthog.capture(eventName, { delay })
+        },
+        reportNavbarStarredItemAdded: ({ itemType, itemName, isAIFirst }) => {
+            posthog.capture('navbar starred item added', {
+                item_type: itemType,
+                item_name: itemName,
+                is_ai_first: isAIFirst,
+            })
+        },
+        reportNavbarStarredItemRemoved: ({ itemType, itemName, isAIFirst }) => {
+            posthog.capture('navbar starred item removed', {
+                item_type: itemType,
+                item_name: itemName,
+                is_ai_first: isAIFirst,
+            })
+        },
+        reportNavbarStarredItemClicked: ({ itemType, itemName, isAIFirst }) => {
+            posthog.capture('navbar starred item clicked', {
+                item_type: itemType,
+                item_name: itemName,
+                is_ai_first: isAIFirst,
+            })
         },
     })),
 ])
