@@ -550,7 +550,7 @@ export function InsightMetaContent({
         <h4
             title={!compact ? title : undefined}
             data-attr="insight-card-title"
-            className={clsx(infoPopover && 'flex items-center')}
+            className={clsx(infoPopover && 'inline-flex items-center')}
         >
             <span className={clsx(infoPopover && 'truncate')}>{title || <i>{fallbackTitle || 'Untitled'}</i>}</span>
             {(loading || loadingQueued) && (
