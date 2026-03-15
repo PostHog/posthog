@@ -29,6 +29,7 @@ import asyncio
 import logging
 from dataclasses import dataclass
 from enum import Enum
+from time import time
 from typing import Any
 
 import pytest
@@ -59,6 +60,7 @@ from products.signals.eval.fixtures.grouping_data import GROUP_DATA
 from products.signals.eval.mock import EmbeddingStore, ReportStore
 
 RNG_SEED = 1337
+MAX_CONCURRENT_RUNS = 50
 
 
 class MatchFailureMode(Enum):
@@ -118,6 +120,8 @@ class TestGroupingPipeline:
         self.report_store = ReportStore()
         self.limit = limit
         self.no_capture = no_capture
+        self._match_lock = asyncio.Lock()
+        self.start_time = time.now()
 
     @pytest.mark.django_db(transaction=True)
     async def test_grouping_pipeline(self):
@@ -129,12 +133,18 @@ class TestGroupingPipeline:
         n_groups = len({case.group_index for case in stream})
         logger.warning("Emitting %d signals from %d ground-truth groups...", len(stream), n_groups)
 
-        for i, case in enumerate(stream):
-            await self.run_signal_pipeline(record_id=i, case=case)
+        sem = asyncio.Semaphore(MAX_CONCURRENT_RUNS)
+        await asyncio.gather(
+            *[self.run_signal_pipeline_concurrently(sem, record_id=i, case=case) for i, case in enumerate(stream)]
+        )
 
         await self._judge_reports()
         self._capture_grouping_quality()
         self._capture_aggregate_metrics(stream)
+
+    async def run_signal_pipeline_concurrently(self, sem: asyncio.Semaphore, record_id: int, case: EvalSignalCase):
+        async with sem:
+            await self.run_signal_pipeline(record_id, case)
 
     async def run_signal_pipeline(self, record_id: int, case: EvalSignalCase):
         """Run a single signal through the pre-emit pipeline."""
@@ -154,8 +164,9 @@ class TestGroupingPipeline:
                 description.replace("\n", " "),
             )
 
-            report_id = await self.match_signal(record_id, description, case)
-            await self.store_signal(record_id, description, report_id, case)
+            async with self._match_lock:
+                report_id = await self.match_signal(record_id, description, case)
+                await self.store_signal(record_id, description, report_id, case)
         except Exception:
             logger.exception("record=%d group=%d Signal pipeline failed, skipping", record_id, case.group_index)
 
@@ -379,7 +390,7 @@ class TestGroupingPipeline:
                     item_name=f"report-{report_id[:12]}",
                     input=f"{title}\n\n{summary}",
                     output=actionability_result.choice.value.upper(),
-                    expected="ACTIONABLE" if expected_actionable else "NOT_ACTIONABLE",
+                    expected="IMMEDIATELY_ACTIONABLE" if expected_actionable else "NOT_IMMEDIATELY_ACTIONABLE",
                     metrics=[
                         EvalMetric(
                             name="correct_classification",
@@ -536,7 +547,7 @@ class TestGroupingPipeline:
         if self.no_capture:
             return
         experiment_id = deterministic_uuid(eval_name)
-        item_id = deterministic_uuid(f"{eval_name}:{item_name}")
+        item_id = deterministic_uuid(f"{eval_name}:{item_name}:{self.start_time}")
         capture_evaluation(
             client=self.posthog_client,
             experiment_id=experiment_id,
