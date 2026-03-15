@@ -121,6 +121,11 @@ export async function capturePlayback(
                 break
             }
 
+            const playerError = player.getError()
+            if (playerError) {
+                throw playerError
+            }
+
             if (player.isEnded()) {
                 log.info({ virtual_s: virtualElapsed / 1000, frames: frameCount }, 'recording ended')
                 break

@@ -41,6 +41,9 @@ export function validateInput(input: RasterizeRecordingInput): void {
     if (input.recording_fps !== undefined && input.recording_fps <= 0) {
         throw new RasterizationError(`recording_fps must be positive, got: ${input.recording_fps}`, false)
     }
+    if (input.trim != null && input.trim <= 0) {
+        throw new RasterizationError(`trim must be positive, got: ${input.trim}`, false)
+    }
 }
 
 /**

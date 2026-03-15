@@ -9,4 +9,12 @@ export class RasterizationError extends Error {
             this.cause = cause
         }
     }
+
+    toJSON(): Record<string, unknown> {
+        return {
+            name: this.name,
+            message: this.message,
+            retryable: this.retryable,
+        }
+    }
 }

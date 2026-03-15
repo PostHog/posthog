@@ -7,9 +7,9 @@ import { createReplayer } from './replayer-factory'
 import { ViewportScaler } from './viewport-scaler'
 
 async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
-    const rootEl = document.querySelector('.PlayerFrame__content') as HTMLElement
+    const contentEl = document.querySelector('.PlayerFrame__content') as HTMLElement
 
-    const setup = await createReplayer(config, rootEl, bridge)
+    const setup = await createReplayer(config, contentEl, bridge)
     if (!setup) {
         console.error('[headless-player] No snapshots after processing')
         bridge.setError({ code: 'NO_SNAPSHOTS', message: 'No snapshots after processing', retryable: true })
@@ -19,7 +19,6 @@ async function init(config: PlayerConfig, bridge: HostBridge): Promise<void> {
 
     const { replayer, segments, firstTimestamp } = setup
 
-    const contentEl = document.querySelector('.PlayerFrame__content') as HTMLElement
     const footerHeight = config.showMetadataFooter ? 32 : 0
     const scaler = new ViewportScaler(contentEl, footerHeight)
     scaler.attachToReplayer(replayer)

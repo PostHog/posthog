@@ -41,50 +41,113 @@ export function buildPlayerConfig(
  */
 export class PlayerController {
     private state = {
-        ready: false,
-        started: false,
         ended: false,
-        error: null as { code: string; message: string; retryable: boolean } | null,
-        lastProgressAt: 0,
         inactivityPeriods: [] as InactivityPeriod[],
     }
+
+    // Resolved by handleMessage when the corresponding state transition occurs.
+    // readyPromise is created eagerly so 'ready' messages arriving between
+    // load() and waitForStart() are not lost.
+    private readyResolve: (() => void) | null = null
+    private readyPromise: Promise<void>
+    private startedResolve: (() => void) | null = null
+    private errorReject: ((err: RasterizationError) => void) | null = null
+    private playbackError: RasterizationError | null = null
+    private resetStaleTimer: (() => void) | null = null
 
     constructor(
         private page: Page,
         private log: Logger = createLogger()
-    ) {}
+    ) {
+        this.readyPromise = new Promise<void>((resolve) => {
+            this.readyResolve = resolve
+        })
+    }
 
-    private throwIfError(): void {
-        if (this.state.error) {
-            throw new RasterizationError(
-                `[${this.state.error.code}] ${this.state.error.message}`,
-                this.state.error.retryable
-            )
+    private toError(err: { code: string; message: string; retryable: boolean }): RasterizationError {
+        return new RasterizationError(`[${err.code}] ${err.message}`, err.retryable)
+    }
+
+    private rejectWithError(err: { code: string; message: string; retryable: boolean }): void {
+        const rasterErr = this.toError(err)
+        if (this.errorReject) {
+            this.errorReject(rasterErr)
+            this.errorReject = null
+        } else {
+            // No active promise to reject — store for polling during capture.
+            this.playbackError = rasterErr
         }
     }
 
     private handleMessage(msg: PlayerMessage): void {
         switch (msg.type) {
             case 'ready':
-                this.state.ready = true
+                this.readyResolve?.()
+                this.readyResolve = null
                 break
             case 'loading_progress':
-                this.state.lastProgressAt = Date.now()
+                this.resetStaleTimer?.()
                 this.log.info({ loaded: msg.loaded, total: msg.total }, 'loading blocks')
                 break
             case 'started':
-                this.state.started = true
+                this.startedResolve?.()
+                this.startedResolve = null
                 break
             case 'ended':
                 this.state.ended = true
                 break
             case 'error':
-                this.state.error = { code: msg.code, message: msg.message, retryable: msg.retryable }
+                this.rejectWithError(msg)
                 break
             case 'inactivity_periods':
                 this.state.inactivityPeriods = msg.periods
                 break
         }
+    }
+
+    /**
+     * Wait for `promise` to resolve, but reject if `ms` elapses or the
+     * player sends an error. When `resetOnProgress` is true the timer
+     * resets on each loading_progress message — so we only time out when
+     * progress stalls, not when loading takes a long time overall.
+     */
+    private awaitWithTimeout(
+        promise: Promise<void>,
+        ms: number,
+        timeoutMsg: string,
+        resetOnProgress = false
+    ): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            const onTimeout = (): void => {
+                this.errorReject = null
+                this.resetStaleTimer = null
+                reject(new RasterizationError(timeoutMsg, true))
+            }
+
+            const cleanup = (): void => {
+                clearTimeout(timer)
+                this.errorReject = null
+                this.resetStaleTimer = null
+            }
+
+            let timer = setTimeout(onTimeout, ms)
+            this.errorReject = (err) => {
+                cleanup()
+                reject(err)
+            }
+
+            if (resetOnProgress) {
+                this.resetStaleTimer = () => {
+                    clearTimeout(timer)
+                    timer = setTimeout(onTimeout, ms)
+                }
+            }
+
+            void promise.then(() => {
+                cleanup()
+                resolve()
+            })
+        })
     }
 
     async load(html: string, siteUrl: string): Promise<void> {
@@ -121,21 +184,12 @@ export class PlayerController {
      * player sends 'started'.
      */
     async waitForStart(playerConfig: PlayerConfig, staleMs = 30000): Promise<void> {
-        // Wait for the player to signal it's ready for config.
-        const readyStart = Date.now()
-        while (!this.state.ready && !this.state.error) {
-            if (Date.now() - readyStart > staleMs) {
-                throw new RasterizationError(
-                    `Player did not become ready for session ${playerConfig.sessionId} (waited ${staleMs / 1000}s)`,
-                    true
-                )
-            }
-            await new Promise((resolve) => setTimeout(resolve, 100))
-        }
+        await this.awaitWithTimeout(
+            this.readyPromise,
+            staleMs,
+            `Player did not become ready for session ${playerConfig.sessionId} (waited ${staleMs / 1000}s)`
+        )
 
-        this.throwIfError()
-
-        // Send config to the player via CustomEvent.
         await this.page.evaluate(
             (evt, config) => {
                 window.dispatchEvent(new CustomEvent(evt, { detail: config }))
@@ -144,26 +198,15 @@ export class PlayerController {
             playerConfig
         )
 
-        // Wait for the player to finish loading and signal started.
-        // Time out if no progress arrives for staleMs (covers both
-        // "never got any progress" and "progress stalled" cases).
-        const configSentAt = Date.now()
-        while (!this.state.started && !this.state.error) {
-            const lastActivity = this.state.lastProgressAt || configSentAt
-            if (Date.now() - lastActivity > staleMs) {
-                break
-            }
-            await new Promise((resolve) => setTimeout(resolve, 500))
-        }
-
-        this.throwIfError()
-
-        if (!this.state.started) {
-            throw new RasterizationError(
-                `Recording did not start for session ${playerConfig.sessionId} (no progress for ${staleMs / 1000}s)`,
-                true
-            )
-        }
+        const startedPromise = new Promise<void>((resolve) => {
+            this.startedResolve = resolve
+        })
+        await this.awaitWithTimeout(
+            startedPromise,
+            staleMs,
+            `Recording did not start for session ${playerConfig.sessionId} (no progress for ${staleMs / 1000}s)`,
+            true
+        )
 
         this.log.info('loading complete')
     }
@@ -180,13 +223,7 @@ export class PlayerController {
     }
 
     getError(): RasterizationError | null {
-        if (!this.state.error) {
-            return null
-        }
-        return new RasterizationError(
-            `[${this.state.error.code}] ${this.state.error.message}`,
-            this.state.error.retryable
-        )
+        return this.playbackError
     }
 
     getInactivityPeriods(): InactivityPeriod[] {

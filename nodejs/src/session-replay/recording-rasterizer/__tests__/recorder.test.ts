@@ -23,6 +23,8 @@ describe('validateInput', () => {
         { field: 'capture_timeout', value: -5, error: 'capture_timeout must be positive' },
         { field: 'recording_fps', value: 0, error: 'recording_fps must be positive' },
         { field: 'recording_fps', value: -10, error: 'recording_fps must be positive' },
+        { field: 'trim', value: 0, error: 'trim must be positive' },
+        { field: 'trim', value: -5, error: 'trim must be positive' },
     ])('rejects $field=$value', ({ field, value, error }) => {
         expect(() => validateInput(baseInput({ [field]: value }))).toThrow(error)
     })

@@ -78,16 +78,19 @@ export class HostBridge {
     }
 
     async waitForStart(timeoutMs = 30000): Promise<void> {
-        await Promise.race([
-            new Promise<void>((resolve) => {
-                window.addEventListener(PLAYER_START_EVENT, () => resolve(), { once: true })
-            }),
-            new Promise<void>((_, reject) =>
-                setTimeout(
-                    () => reject(new Error(`${PLAYER_START_EVENT} not received within ${timeoutMs / 1000}s`)),
-                    timeoutMs
-                )
-            ),
-        ])
+        await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(
+                () => reject(new Error(`${PLAYER_START_EVENT} not received within ${timeoutMs / 1000}s`)),
+                timeoutMs
+            )
+            window.addEventListener(
+                PLAYER_START_EVENT,
+                () => {
+                    clearTimeout(timer)
+                    resolve()
+                },
+                { once: true }
+            )
+        })
     }
 }

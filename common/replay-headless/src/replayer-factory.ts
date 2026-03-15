@@ -20,6 +20,14 @@ import { loadAllSources } from './data-loader'
 import type { HostBridge } from './host-bridge'
 import type { PlayerConfig, ViewportEvent } from './types'
 
+/** Extract the page URL from an rrweb Meta event, if present. */
+export function getMetaHref(event: eventWithTime): string | undefined {
+    if (event.type === EventType.Meta) {
+        return (event.data as { href?: string })?.href
+    }
+    return undefined
+}
+
 export interface ReplayerSetup {
     replayer: Replayer
     events: eventWithTime[]
@@ -113,8 +121,14 @@ export async function createReplayer(
         speed: config.playbackSpeed,
     })
 
-    const firstMeta = events.find((e) => e.type === EventType.Meta && (e.data as any)?.href)
-    const initialURL = firstMeta ? (firstMeta.data as any).href : ''
+    let initialURL = ''
+    for (const e of events) {
+        const href = getMetaHref(e)
+        if (href) {
+            initialURL = href
+            break
+        }
+    }
 
     return { replayer, events, segments, firstTimestamp, initialURL }
 }

@@ -1,8 +1,9 @@
 import type { RecordingSegment } from '@posthog/replay-shared'
 import type { Replayer } from '@posthog/rrweb'
-import { EventType, type eventWithTime } from '@posthog/rrweb-types'
+import type { eventWithTime } from '@posthog/rrweb-types'
 
 import type { PlaybackController } from './playback-controller'
+import { getMetaHref } from './replayer-factory'
 
 /**
  * Renders an overlay footer showing the current page URL, recording
@@ -30,8 +31,9 @@ export class MetadataFooter {
         this.metaStatusEl = document.getElementById('meta-status')
 
         this.replayer.on('event-cast', (event: eventWithTime) => {
-            if (event.type === EventType.Meta && (event.data as any)?.href) {
-                this.currentURL = (event.data as any).href
+            const href = getMetaHref(event)
+            if (href) {
+                this.currentURL = href
             }
         })
     }
