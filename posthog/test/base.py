@@ -849,6 +849,42 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
                 call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
+class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
+    """
+    Like NonAtomicBaseTest but uses TRUNCATE without RESTART IDENTITY, so PG
+    sequences keep incrementing across tests. Useful when ClickHouse data from
+    earlier tests is scoped by auto-incrementing IDs (e.g. team_id) and you
+    need later tests to get fresh, non-overlapping values.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.setUpTestData()
+
+    def _fixture_teardown(self):
+        for db_name in self._databases_names(include_mirrors=False):
+            conn = connections[db_name]
+            with conn.cursor() as cursor:
+                if db_name in ("persons_db_writer", "persons_db_reader"):
+                    cursor.execute("""
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                        AND tablename NOT LIKE 'pg_%'
+                        AND tablename NOT LIKE '_sqlx_%'
+                        AND tablename NOT LIKE '_persons_migrations'
+                    """)
+                else:
+                    cursor.execute("""
+                        SELECT tablename FROM pg_tables
+                        WHERE schemaname = 'public'
+                        AND tablename NOT LIKE 'pg_%'
+                        AND tablename NOT LIKE 'django_%'
+                    """)
+                tables = [row[0] for row in cursor.fetchall()]
+                if tables:
+                    cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
+
+
 class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     """
     Functional API tests using Django REST Framework test suite.

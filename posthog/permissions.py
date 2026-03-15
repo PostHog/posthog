@@ -304,10 +304,12 @@ class PremiumFeaturePermission(BasePermission):
         else:
             feature = always_feature
 
-        if not request.user or not request.user.organization:  # type: ignore
+        try:
+            organization = get_organization_from_view(view)
+        except ValueError:
             return True
 
-        if not request.user.organization.is_feature_available(feature):  # type: ignore
+        if not organization.is_feature_available(feature):
             if cloud_only_feature:
                 raise PaidFeatureException(feature)
             raise EnterpriseFeatureException(feature)
@@ -765,35 +767,25 @@ class UserCanInvitePermission(BasePermission):
     """
 
     def has_permission(self, request: Request, view) -> bool:
-        user = cast(User, request.user)
-        org_invite_settings_available = user.organization and user.organization.is_feature_available(
-            AvailableFeature.ORGANIZATION_INVITE_SETTINGS
-        )
+        try:
+            organization = get_organization_from_view(view)
+        except ValueError:
+            return True
+
+        org_invite_settings_available = organization.is_feature_available(AvailableFeature.ORGANIZATION_INVITE_SETTINGS)
 
         if not org_invite_settings_available:
             return True
 
         try:
-            membership = OrganizationMembership.objects.get(user=cast(User, user), organization=user.organization)
+            membership = OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization)
         except OrganizationMembership.DoesNotExist:
             raise NotFound("Organization not found.")
 
-        members_can_invite = bool(user.organization and user.organization.members_can_invite)
+        members_can_invite = bool(organization.members_can_invite)
         user_is_admin = membership.level >= OrganizationMembership.Level.ADMIN
 
         if user_is_admin:
             return True
 
         return members_can_invite
-
-
-class OrganizationInviteSettingsPermission(BasePermission):
-    """
-    Only Admins+ can update org invite settings
-    """
-
-    def has_permission(self, request: Request, view) -> bool:
-        user = cast(User, request.user)
-        membership = user.organization_memberships.get(organization=user.organization)
-
-        return membership.level >= OrganizationMembership.Level.ADMIN

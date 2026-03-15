@@ -250,10 +250,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind == 'slack')
             },
         ],
-        twigSlackIntegrations: [
+        posthogCodeSlackIntegrations: [
             (s) => [s.integrations],
             (integrations) => {
-                return integrations?.filter((x) => x.kind === 'slack-twig')
+                return integrations?.filter((x) => x.kind === 'slack-posthog-code')
             },
         ],
         getIntegrationsByKind: [
@@ -270,10 +270,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return preflight?.slack_service?.available
             },
         ],
-        twigSlackAvailable: [
+        posthogCodeSlackAvailable: [
             (s) => [s.preflight],
             (preflight) => {
-                return preflight?.twig_slack_service?.available
+                return preflight?.posthog_code_slack_service?.available
             },
         ],
         getGitHubRepositories: [

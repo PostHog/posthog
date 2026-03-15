@@ -9,6 +9,7 @@ import temporalio.converter
 from temporalio import activity as temporal_activity
 from temporalio.testing import WorkflowEnvironment
 
+from posthog.ducklake.storage import compute_staging_uri
 from posthog.ducklake.verification import DuckLakeCopyVerificationParameter, DuckLakeCopyVerificationQuery
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ducklake import ducklake_copy_data_imports_workflow as ducklake_module
@@ -18,6 +19,7 @@ from posthog.temporal.ducklake.ducklake_copy_data_imports_workflow import (
     DuckLakeCopyDataImportsMetadata,
     DuckLakeCopyDataImportsWorkflow,
     DuckLakeCopyWorkflowGateInputs,
+    DuckLakeDataImportsStagingCleanupInputs,
     copy_data_imports_to_ducklake_activity,
     ducklake_copy_data_imports_gate_activity,
     prepare_data_imports_ducklake_metadata_activity,
@@ -251,6 +253,9 @@ def _create_mock_catalog():
         "DUCKLAKE_S3_ACCESS_KEY": "",
         "DUCKLAKE_S3_SECRET_KEY": "",
     }
+    mock_catalog.bucket = "test-bucket"
+    mock_catalog.cross_account_role_arn = "arn:aws:iam::123456789012:role/test-role"
+    mock_catalog.cross_account_external_id = "external-id-123"
     mock_cross_account_dest = MagicMock()
     mock_cross_account_dest.role_arn = "arn:aws:iam::123456789012:role/test-role"
     mock_cross_account_dest.bucket_name = "test-bucket"
@@ -258,15 +263,10 @@ def _create_mock_catalog():
     return mock_catalog
 
 
-def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch):
+def test_copy_data_imports_to_ducklake_activity_via_duckgres(monkeypatch):
     mock_conn = MagicMock()
     mock_conn.__enter__ = MagicMock(return_value=mock_conn)
     mock_conn.__exit__ = MagicMock(return_value=False)
-    mock_duckdb_connect = MagicMock(return_value=mock_conn)
-    monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.duckdb.connect",
-        mock_duckdb_connect,
-    )
 
     mock_heartbeater = MagicMock()
     mock_heartbeater.__enter__ = MagicMock(return_value=mock_heartbeater)
@@ -284,16 +284,22 @@ def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_ducklake_catalog_for_team",
         MagicMock(return_value=_create_mock_catalog()),
     )
+    mock_server = MagicMock()
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.configure_cross_account_connection",
-        MagicMock(),
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.get_duckgres_server_for_team",
+        MagicMock(return_value=mock_server),
+    )
+    mock_stage = MagicMock()
+    monkeypatch.setattr(
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.stage_delta_table",
+        mock_stage,
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.ensure_ducklake_bucket_exists",
-        MagicMock(),
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.connect_to_duckgres",
+        MagicMock(return_value=mock_conn),
     )
     monkeypatch.setattr(
-        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow._attach_ducklake_catalog",
+        "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.setup_duckgres_session",
         MagicMock(),
     )
 
@@ -305,16 +311,20 @@ def test_copy_data_imports_to_ducklake_activity_executes_correct_sql(monkeypatch
         source_table_uri="s3://bucket/team_1/customers",
         ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
+        staging_uri="s3://test-bucket/__posthog_staging/team_1/customers",
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
     copy_data_imports_to_ducklake_activity(inputs)
 
+    mock_stage.assert_called_once()
     execute_calls = mock_conn.execute.call_args_list
     assert any("CREATE SCHEMA IF NOT EXISTS" in str(call) for call in execute_calls)
     assert any("CREATE OR REPLACE TABLE" in str(call) for call in execute_calls)
     assert any("delta_scan" in str(call) for call in execute_calls)
-    mock_conn.__exit__.assert_called_once()
+    # Verify staging URI used, not source URI
+    table_call = next(call for call in execute_calls if "delta_scan" in str(call))
+    assert "s3://test-bucket/__posthog_staging/team_1/customers" in str(table_call)
 
 
 def test_verify_data_imports_ducklake_copy_activity_returns_empty_when_no_queries(monkeypatch):
@@ -591,7 +601,6 @@ def test_ducklake_copy_data_imports_workflow_parse_inputs():
 
 
 def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypatch):
-    """Test that copy activity raises ApplicationError when no DuckLakeCatalog is configured."""
     from temporalio.exceptions import ApplicationError
 
     mock_heartbeater = MagicMock()
@@ -602,7 +611,6 @@ def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypat
         MagicMock(return_value=mock_heartbeater),
     )
 
-    # Return None to simulate no DuckLakeCatalog configured
     monkeypatch.setattr(
         "posthog.temporal.ducklake.ducklake_copy_data_imports_workflow.is_dev_mode",
         MagicMock(return_value=False),
@@ -620,6 +628,7 @@ def test_copy_data_imports_to_ducklake_activity_raises_when_no_catalog(monkeypat
         source_table_uri="s3://bucket/team_1/customers",
         ducklake_schema_name="posthog_data_imports_team_1",
         ducklake_table_name="postgres_customers_abc12345",
+        staging_uri="s3://test-bucket/__posthog_staging/team_1/customers",
     )
     inputs = DuckLakeCopyDataImportsActivityInputs(team_id=1, job_id="job-123", model=metadata)
 
@@ -748,7 +757,7 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
     call_counts = {"metadata": 0, "copy": 0, "verify": 0}
 
     @temporal_activity.defn
-    async def metadata_stub(inputs: DataImportsDuckLakeCopyInputs):
+    async def metadata_stub(inputs: DataImportsDuckLakeCopyInputs) -> list[DuckLakeCopyDataImportsMetadata]:
         call_counts["metadata"] += 1
         return [
             DuckLakeCopyDataImportsMetadata(
@@ -810,3 +819,95 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
     assert call_counts["metadata"] == 1
     assert call_counts["copy"] == 1
     assert call_counts["verify"] == 1
+
+
+@pytest.mark.parametrize(
+    ("source_uri", "catalog_bucket", "expected"),
+    [
+        (
+            "s3://source-bucket/team_1/customers",
+            "catalog-bucket",
+            "s3://catalog-bucket/__posthog_staging/team_1/customers",
+        ),
+        ("s3://my-bucket/a/b/c", "other-bucket", "s3://other-bucket/__posthog_staging/a/b/c"),
+    ],
+)
+def test_compute_staging_uri(source_uri, catalog_bucket, expected):
+    assert compute_staging_uri(source_uri, catalog_bucket) == expected
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(monkeypatch, ateam):
+    call_counts = {"metadata": 0, "copy": 0, "verify": 0, "cleanup": 0}
+
+    @temporal_activity.defn
+    async def metadata_stub(inputs: DataImportsDuckLakeCopyInputs) -> list[DuckLakeCopyDataImportsMetadata]:
+        call_counts["metadata"] += 1
+        return [
+            DuckLakeCopyDataImportsMetadata(
+                model_label="postgres_customers",
+                source_schema_id="schema-123",
+                source_schema_name="customers",
+                source_normalized_name="customers",
+                source_table_uri="s3://bucket/team_1/customers",
+                ducklake_schema_name="data_imports_team_1",
+                ducklake_table_name="postgres_customers_abc12345",
+                staging_uri="s3://test-bucket/__posthog_staging/team_1/customers",
+            )
+        ]
+
+    @temporal_activity.defn
+    async def copy_stub(inputs: DuckLakeCopyDataImportsActivityInputs):
+        call_counts["copy"] += 1
+
+    @temporal_activity.defn
+    async def verify_stub(inputs: DuckLakeCopyDataImportsActivityInputs):
+        call_counts["verify"] += 1
+        return []
+
+    @temporal_activity.defn
+    async def cleanup_stub(inputs: DuckLakeDataImportsStagingCleanupInputs):
+        call_counts["cleanup"] += 1
+
+    monkeypatch.setattr(
+        ducklake_module.posthoganalytics,
+        "feature_enabled",
+        lambda *args, **kwargs: True,
+    )
+    monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
+    monkeypatch.setattr(ducklake_module, "copy_data_imports_to_ducklake_activity", copy_stub)
+    monkeypatch.setattr(ducklake_module, "verify_data_imports_ducklake_copy_activity", verify_stub)
+    monkeypatch.setattr(ducklake_module, "cleanup_data_imports_staging_activity", cleanup_stub)
+
+    inputs = DataImportsDuckLakeCopyInputs(
+        team_id=ateam.pk,
+        job_id="job",
+        schema_ids=[uuid.uuid4()],
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with temporalio.worker.Worker(
+            env.client,
+            task_queue="ducklake-data-imports-test",
+            workflows=[DuckLakeCopyDataImportsWorkflow],
+            activities=[
+                ducklake_copy_data_imports_gate_activity,
+                ducklake_module.prepare_data_imports_ducklake_metadata_activity,
+                ducklake_module.copy_data_imports_to_ducklake_activity,
+                ducklake_module.verify_data_imports_ducklake_copy_activity,
+                ducklake_module.cleanup_data_imports_staging_activity,
+            ],
+            workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                DuckLakeCopyDataImportsWorkflow.run,
+                inputs,
+                id=str(uuid.uuid4()),
+                task_queue="ducklake-data-imports-test",
+                execution_timeout=dt.timedelta(seconds=30),
+            )
+
+    assert call_counts["copy"] == 1
+    assert call_counts["verify"] == 1
+    assert call_counts["cleanup"] == 1

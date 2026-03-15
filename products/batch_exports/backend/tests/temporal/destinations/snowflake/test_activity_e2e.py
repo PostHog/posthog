@@ -14,9 +14,9 @@ import pytest
 
 from django.test import override_settings
 
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
+from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.snowflake_batch_export import (
     SnowflakeInsertInputs,
     insert_into_snowflake_activity_from_stage,

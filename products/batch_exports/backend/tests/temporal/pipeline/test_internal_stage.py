@@ -17,9 +17,9 @@ import pyarrow as pa
 import pytest_asyncio
 from temporalio.testing import ActivityEnvironment
 
-from posthog.batch_exports.service import BackfillDetails, BatchExportModel
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
+from products.batch_exports.backend.service import BackfillDetails, BatchExportModel
 from products.batch_exports.backend.temporal.pipeline.internal_stage import (
     BatchExportInsertIntoInternalStageInputs,
     insert_into_internal_stage_activity,

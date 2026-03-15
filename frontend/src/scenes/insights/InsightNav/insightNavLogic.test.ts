@@ -11,6 +11,7 @@ import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
 import { FunnelsQuery, InsightVizNode, Node, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import {
+    ChartDisplayType,
     FunnelVizType,
     InsightLogicProps,
     InsightShortId,
@@ -419,6 +420,136 @@ describe('insightNavLogic', () => {
                         },
                     } as Node),
                 ])
+            })
+
+            it('does not carry trends-only display settings into funnels', async () => {
+                const trendsQueryWithDisplay: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        interval: 'hour',
+                        version: 2,
+                        trendsFilter: {
+                            display: ChartDisplayType.ActionsBar,
+                            showPercentStackView: true,
+                            showValuesOnSeries: true,
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryWithDisplay)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.FUNNELS)
+                }).toDispatchActions([
+                    builtInsightDataLogic.actionCreators.setQuery({
+                        kind: 'InsightVizNode',
+                        source: {
+                            kind: 'FunnelsQuery',
+                            series: [{ kind: 'EventsNode', name: '$pageview', event: '$pageview' }],
+                            funnelsFilter: { funnelVizType: 'steps', showValuesOnSeries: true },
+                            filterTestAccounts: true,
+                            interval: 'hour',
+                        },
+                    } as Node),
+                ])
+            })
+
+            it('does not carry showValuesOnSeries into retention', async () => {
+                const funnelsQueryWithValuesOnSeries: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.FunnelsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageleave',
+                                event: '$pageleave',
+                            },
+                        ],
+                        funnelsFilter: {
+                            funnelOrderType: StepOrderValue.STRICT,
+                            funnelVizType: FunnelVizType.Steps,
+                            showValuesOnSeries: true,
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(funnelsQueryWithValuesOnSeries)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.RETENTION)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'RetentionQuery',
+                        filterTestAccounts: true,
+                    },
+                })
+                expect((builtInsightDataLogic.values.query as InsightVizNode).source).not.toMatchObject({
+                    retentionFilter: expect.objectContaining({ showValuesOnSeries: true }),
+                })
+            })
+
+            it('keeps display when switching from trends to stickiness', async () => {
+                const trendsQueryForStickiness: InsightVizNode = {
+                    kind: NodeKind.InsightVizNode,
+                    source: {
+                        kind: NodeKind.TrendsQuery,
+                        series: [
+                            {
+                                kind: NodeKind.EventsNode,
+                                name: '$pageview',
+                                event: '$pageview',
+                            },
+                        ],
+                        interval: 'hour',
+                        version: 2,
+                        trendsFilter: {
+                            display: ChartDisplayType.ActionsBar,
+                            showValuesOnSeries: true,
+                        },
+                    },
+                }
+
+                await expectLogic(logic, () => {
+                    builtInsightDataLogic.actions.setQuery(trendsQueryForStickiness)
+                })
+
+                await expectLogic(builtInsightDataLogic, () => {
+                    logic.actions.setActiveView(InsightType.STICKINESS)
+                }).toFinishAllListeners()
+
+                expect(builtInsightDataLogic.values.query).toMatchObject({
+                    kind: 'InsightVizNode',
+                    source: {
+                        kind: 'StickinessQuery',
+                        filterTestAccounts: true,
+                        interval: 'hour',
+                        stickinessFilter: expect.objectContaining({
+                            display: ChartDisplayType.ActionsBar,
+                            showValuesOnSeries: true,
+                        }),
+                    },
+                })
             })
         })
     })

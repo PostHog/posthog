@@ -10,6 +10,7 @@ from prometheus_client import Counter, Gauge
 
 from posthog.api.services.query import process_query_dict
 from posthog.clickhouse.query_tagging import tag_queries
+from posthog.event_usage import EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import Dashboard, Insight, InsightCachingState
@@ -75,6 +76,7 @@ def update_cache(caching_state_id: UUID):
                 insight.query,
                 dashboard_filters_json=dashboard.filters if dashboard is not None else None,
                 execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props={"source": EventSource.CACHE_WARMING},
             )
             # TRICKY: `result` is null, because `process_query` already set the cache. `cache_type` also irrelevant
             cache_key, cache_type, result = getattr(response, "cache_key", None), None, None

@@ -239,11 +239,11 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         choices=SurveySamplingIntervalType.choices,
         default=SurveySamplingIntervalType.WEEK,
     )
-    response_sampling_interval = models.PositiveIntegerField(null=True)
+    response_sampling_interval = models.PositiveIntegerField(null=True, blank=True)
     # Upper limit of responses that should be accepted in a given response sampling interval.
-    response_sampling_limit = models.PositiveIntegerField(null=True)
+    response_sampling_limit = models.PositiveIntegerField(null=True, blank=True)
     # { 'daily_limits' : [{'date': <Date> , 'limit': <number of expected responses by this day>'}]
-    response_sampling_daily_limits = models.JSONField(null=True)
+    response_sampling_daily_limits = models.JSONField(null=True, blank=True)
 
     iteration_count = models.PositiveIntegerField(null=True)
     iteration_frequency_days = models.PositiveIntegerField(null=True)

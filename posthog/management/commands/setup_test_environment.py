@@ -61,6 +61,8 @@ class Command(BaseCommand):
             verify_ssl_cert=CLICKHOUSE_VERIFY,
             autocreate=False,
             randomize_replica_paths=True,
+            # don't use the egress proxy, clickhouse is internal
+            trust_env=False,
         )
         if database.db_exists:
             print(  # noqa: T201

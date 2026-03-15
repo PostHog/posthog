@@ -77,6 +77,7 @@ from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.signals.backend.views import SignalViewSet
+from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.visual_review.backend.presentation.views import (
     RepoViewSet as VisualReviewRepoViewSet,
@@ -1130,6 +1131,13 @@ projects_router.register(
     r"visual_review/runs",
     VisualReviewRunViewSet,
     "project_visual_review_runs",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"tracing/spans",
+    TracingSpansViewSet,
+    "project_tracing_spans",
     ["project_id"],
 )
 

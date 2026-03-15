@@ -136,7 +136,7 @@ export interface FeatureFlagApi {
     readonly last_modified_by: UserBasicApi
     /** @nullable */
     ensure_experience_continuity?: boolean | null
-    readonly experiment_set: string
+    readonly experiment_set: readonly number[]
     readonly surveys: FeatureFlagApiSurveys
     readonly features: FeatureFlagApiFeatures
     rollback_conditions?: unknown | null
@@ -199,84 +199,445 @@ export interface PaginatedFeatureFlagListApi {
     results: FeatureFlagApi[]
 }
 
-export type PatchedFeatureFlagApiFilters = { [key: string]: unknown }
+/**
+ * * `cohort` - cohort
+ * `person` - person
+ * `group` - group
+ */
+export type Type380EnumApi = (typeof Type380EnumApi)[keyof typeof Type380EnumApi]
 
-export type PatchedFeatureFlagApiSurveys = { [key: string]: unknown }
-
-export type PatchedFeatureFlagApiFeatures = { [key: string]: unknown }
+export const Type380EnumApi = {
+    Cohort: 'cohort',
+    Person: 'person',
+    Group: 'group',
+} as const
 
 /**
- * Serializer mixin that handles tags for objects.
+ * * `exact` - exact
+ * `is_not` - is_not
+ * `icontains` - icontains
+ * `not_icontains` - not_icontains
+ * `regex` - regex
+ * `not_regex` - not_regex
+ * `gt` - gt
+ * `gte` - gte
+ * `lt` - lt
+ * `lte` - lte
  */
-export interface PatchedFeatureFlagApi {
-    readonly id?: number
-    /** contains the description for the flag (field name `name` is kept for backwards-compatibility) */
+export type FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi = {
+    Exact: 'exact',
+    IsNot: 'is_not',
+    Icontains: 'icontains',
+    NotIcontains: 'not_icontains',
+    Regex: 'regex',
+    NotRegex: 'not_regex',
+    Gt: 'gt',
+    Gte: 'gte',
+    Lt: 'lt',
+    Lte: 'lte',
+} as const
+
+export interface FeatureFlagFilterPropertyGenericSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+
+* `cohort` - cohort
+* `person` - person
+* `group` - group */
+    type?: Type380EnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Comparison value for the property filter. Supports strings, numbers, booleans, and arrays. */
+    value: unknown
+    /** Operator used to compare the property value.
+
+* `exact` - exact
+* `is_not` - is_not
+* `icontains` - icontains
+* `not_icontains` - not_icontains
+* `regex` - regex
+* `not_regex` - not_regex
+* `gt` - gt
+* `gte` - gte
+* `lt` - lt
+* `lte` - lte */
+    operator: FeatureFlagFilterPropertyGenericSchemaOperatorEnumApi
+}
+
+/**
+ * * `is_set` - is_set
+ * `is_not_set` - is_not_set
+ */
+export type Operator3e6EnumApi = (typeof Operator3e6EnumApi)[keyof typeof Operator3e6EnumApi]
+
+export const Operator3e6EnumApi = {
+    IsSet: 'is_set',
+    IsNotSet: 'is_not_set',
+} as const
+
+export interface FeatureFlagFilterPropertyExistsSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+
+* `cohort` - cohort
+* `person` - person
+* `group` - group */
+    type?: Type380EnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Existence operator.
+
+* `is_set` - is_set
+* `is_not_set` - is_not_set */
+    operator: Operator3e6EnumApi
+    /** Optional value. Runtime behavior determines whether this is ignored. */
+    value?: unknown
+}
+
+/**
+ * * `is_date_exact` - is_date_exact
+ * `is_date_after` - is_date_after
+ * `is_date_before` - is_date_before
+ */
+export type FeatureFlagFilterPropertyDateSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyDateSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyDateSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyDateSchemaOperatorEnumApi = {
+    IsDateExact: 'is_date_exact',
+    IsDateAfter: 'is_date_after',
+    IsDateBefore: 'is_date_before',
+} as const
+
+export interface FeatureFlagFilterPropertyDateSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+
+* `cohort` - cohort
+* `person` - person
+* `group` - group */
+    type?: Type380EnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Date comparison operator.
+
+* `is_date_exact` - is_date_exact
+* `is_date_after` - is_date_after
+* `is_date_before` - is_date_before */
+    operator: FeatureFlagFilterPropertyDateSchemaOperatorEnumApi
+    /** Date value in ISO format or relative date expression. */
+    value: string
+}
+
+/**
+ * * `semver_gt` - semver_gt
+ * `semver_gte` - semver_gte
+ * `semver_lt` - semver_lt
+ * `semver_lte` - semver_lte
+ * `semver_eq` - semver_eq
+ * `semver_neq` - semver_neq
+ * `semver_tilde` - semver_tilde
+ * `semver_caret` - semver_caret
+ * `semver_wildcard` - semver_wildcard
+ */
+export type FeatureFlagFilterPropertySemverSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertySemverSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertySemverSchemaOperatorEnumApi = {
+    SemverGt: 'semver_gt',
+    SemverGte: 'semver_gte',
+    SemverLt: 'semver_lt',
+    SemverLte: 'semver_lte',
+    SemverEq: 'semver_eq',
+    SemverNeq: 'semver_neq',
+    SemverTilde: 'semver_tilde',
+    SemverCaret: 'semver_caret',
+    SemverWildcard: 'semver_wildcard',
+} as const
+
+export interface FeatureFlagFilterPropertySemverSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+
+* `cohort` - cohort
+* `person` - person
+* `group` - group */
+    type?: Type380EnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Semantic version comparison operator.
+
+* `semver_gt` - semver_gt
+* `semver_gte` - semver_gte
+* `semver_lt` - semver_lt
+* `semver_lte` - semver_lte
+* `semver_eq` - semver_eq
+* `semver_neq` - semver_neq
+* `semver_tilde` - semver_tilde
+* `semver_caret` - semver_caret
+* `semver_wildcard` - semver_wildcard */
+    operator: FeatureFlagFilterPropertySemverSchemaOperatorEnumApi
+    /** Semantic version string. */
+    value: string
+}
+
+/**
+ * * `icontains_multi` - icontains_multi
+ * `not_icontains_multi` - not_icontains_multi
+ */
+export type FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi = {
+    IcontainsMulti: 'icontains_multi',
+    NotIcontainsMulti: 'not_icontains_multi',
+} as const
+
+export interface FeatureFlagFilterPropertyMultiContainsSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Property filter type. Common values are 'person' and 'cohort'.
+
+* `cohort` - cohort
+* `person` - person
+* `group` - group */
+    type?: Type380EnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Multi-contains operator.
+
+* `icontains_multi` - icontains_multi
+* `not_icontains_multi` - not_icontains_multi */
+    operator: FeatureFlagFilterPropertyMultiContainsSchemaOperatorEnumApi
+    /** List of strings to evaluate against. */
+    value: string[]
+}
+
+/**
+ * * `cohort` - cohort
+ */
+export type FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi =
+    (typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi)[keyof typeof FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi]
+
+export const FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi = {
+    Cohort: 'cohort',
+} as const
+
+/**
+ * * `in` - in
+ * `not_in` - not_in
+ */
+export type FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi = {
+    In: 'in',
+    NotIn: 'not_in',
+} as const
+
+export interface FeatureFlagFilterPropertyCohortInSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Cohort property type required for in/not_in operators.
+
+* `cohort` - cohort */
+    type: FeatureFlagFilterPropertyCohortInSchemaTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Membership operator for cohort properties.
+
+* `in` - in
+* `not_in` - not_in */
+    operator: FeatureFlagFilterPropertyCohortInSchemaOperatorEnumApi
+    /** Cohort comparison value (single or list, depending on usage). */
+    value: unknown
+}
+
+/**
+ * * `flag` - flag
+ */
+export type FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi =
+    (typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi)[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi]
+
+export const FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi = {
+    Flag: 'flag',
+} as const
+
+/**
+ * * `flag_evaluates_to` - flag_evaluates_to
+ */
+export type FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi =
+    (typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi)[keyof typeof FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi]
+
+export const FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi = {
+    FlagEvaluatesTo: 'flag_evaluates_to',
+} as const
+
+export interface FeatureFlagFilterPropertyFlagEvaluatesSchemaApi {
+    /** Property key used in this feature flag condition. */
+    key: string
+    /** Flag property type required for flag dependency checks.
+
+* `flag` - flag */
+    type: FeatureFlagFilterPropertyFlagEvaluatesSchemaTypeEnumApi
+    /**
+     * Resolved cohort name for cohort-type filters.
+     * @nullable
+     */
+    cohort_name?: string | null
+    /**
+     * Group type index when using group-based filters.
+     * @nullable
+     */
+    group_type_index?: number | null
+    /** Operator for feature flag dependency evaluation.
+
+* `flag_evaluates_to` - flag_evaluates_to */
+    operator: FeatureFlagFilterPropertyFlagEvaluatesSchemaOperatorEnumApi
+    /** Value to compare flag evaluation against. */
+    value: unknown
+}
+
+export type FeatureFlagFilterPropertySchemaApi =
+    | FeatureFlagFilterPropertyGenericSchemaApi
+    | FeatureFlagFilterPropertyExistsSchemaApi
+    | FeatureFlagFilterPropertyDateSchemaApi
+    | FeatureFlagFilterPropertySemverSchemaApi
+    | FeatureFlagFilterPropertyMultiContainsSchemaApi
+    | FeatureFlagFilterPropertyCohortInSchemaApi
+    | FeatureFlagFilterPropertyFlagEvaluatesSchemaApi
+
+export interface FeatureFlagConditionGroupSchemaApi {
+    /** Property conditions for this release condition group. */
+    properties?: FeatureFlagFilterPropertySchemaApi[]
+    /** Rollout percentage for this release condition group. */
+    rollout_percentage?: number
+    /**
+     * Variant key override for multivariate flags.
+     * @nullable
+     */
+    variant?: string | null
+}
+
+export interface FeatureFlagMultivariateVariantSchemaApi {
+    /** Unique key for this variant. */
+    key: string
+    /** Human-readable name for this variant. */
     name?: string
-    /** @maxLength 400 */
+    /** Variant rollout percentage. */
+    rollout_percentage: number
+}
+
+export interface FeatureFlagMultivariateSchemaApi {
+    /** Variant definitions for multivariate feature flags. */
+    variants: FeatureFlagMultivariateVariantSchemaApi[]
+}
+
+/**
+ * Optional payload values keyed by variant key.
+ */
+export type FeatureFlagFiltersSchemaApiPayloads = { [key: string]: string }
+
+export type FeatureFlagFiltersSchemaApiSuperGroupsItem = { [key: string]: unknown }
+
+export interface FeatureFlagFiltersSchemaApi {
+    /** Release condition groups for the feature flag. */
+    groups?: FeatureFlagConditionGroupSchemaApi[]
+    /** Multivariate configuration for variant-based rollouts. */
+    multivariate?: FeatureFlagMultivariateSchemaApi | null
+    /**
+     * Group type index for group-based feature flags.
+     * @nullable
+     */
+    aggregation_group_type_index?: number | null
+    /** Optional payload values keyed by variant key. */
+    payloads?: FeatureFlagFiltersSchemaApiPayloads
+    /** Additional super condition groups used by experiments. */
+    super_groups?: FeatureFlagFiltersSchemaApiSuperGroupsItem[]
+}
+
+export interface FeatureFlagCreateRequestSchemaApi {
+    /** Feature flag key. */
     key?: string
-    filters?: PatchedFeatureFlagApiFilters
-    deleted?: boolean
+    /** Feature flag description (stored in the `name` field for backwards compatibility). */
+    name?: string
+    /** Feature flag targeting configuration. */
+    filters?: FeatureFlagFiltersSchemaApi
+    /** Whether the feature flag is active. */
     active?: boolean
-    readonly created_by?: UserBasicApi
-    created_at?: string
-    /** @nullable */
-    readonly updated_at?: string | null
-    version?: number
-    readonly last_modified_by?: UserBasicApi
-    /** @nullable */
-    ensure_experience_continuity?: boolean | null
-    readonly experiment_set?: string
-    readonly surveys?: PatchedFeatureFlagApiSurveys
-    readonly features?: PatchedFeatureFlagApiFeatures
-    rollback_conditions?: unknown | null
-    /** @nullable */
-    performed_rollback?: boolean | null
-    readonly can_edit?: boolean
-    tags?: unknown[]
-    evaluation_tags?: unknown[]
-    readonly usage_dashboard?: number
-    analytics_dashboards?: number[]
-    /** @nullable */
-    has_enriched_analytics?: boolean | null
-    /**
-     * The effective access level the user has for this object
-     * @nullable
-     */
-    readonly user_access_level?: string | null
-    /** Indicates the origin product of the feature flag. Choices: 'feature_flags', 'experiments', 'surveys', 'early_access_features', 'web_experiments', 'product_tours'.
+    /** Organizational tags for this feature flag. */
+    tags?: string[]
+    /** Evaluation context tags. Must be a subset of `tags`. */
+    evaluation_tags?: string[]
+}
 
-* `feature_flags` - feature_flags
-* `experiments` - experiments
-* `surveys` - surveys
-* `early_access_features` - early_access_features
-* `web_experiments` - web_experiments
-* `product_tours` - product_tours */
-    creation_context?: FeatureFlagCreationContextEnumApi
-    /** @nullable */
-    is_remote_configuration?: boolean | null
-    /** @nullable */
-    has_encrypted_payloads?: boolean | null
-    readonly status?: string
-    /** Specifies where this feature flag should be evaluated
-
-* `server` - Server
-* `client` - Client
-* `all` - All */
-    evaluation_runtime?: EvaluationRuntimeEnumApi | BlankEnumApi | NullEnumApi | null
-    /** Identifier used for bucketing users into rollout and variants
-
-* `distinct_id` - User ID (default)
-* `device_id` - Device ID */
-    bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
-    /**
-     * Last time this feature flag was called (from $feature_flag_called events)
-     * @nullable
-     */
-    last_called_at?: string | null
-    _create_in_folder?: string
-    _should_create_usage_dashboard?: boolean
-    /** Check if this feature flag is used in any team's session recording linked flag setting. */
-    readonly is_used_in_replay_settings?: boolean
+export interface PatchedFeatureFlagPartialUpdateRequestSchemaApi {
+    /** Feature flag key. */
+    key?: string
+    /** Feature flag description (stored in the `name` field for backwards compatibility). */
+    name?: string
+    /** Feature flag targeting configuration. */
+    filters?: FeatureFlagFiltersSchemaApi
+    /** Whether the feature flag is active. */
+    active?: boolean
+    /** Organizational tags for this feature flag. */
+    tags?: string[]
+    /** Evaluation context tags. Must be a subset of `tags`. */
+    evaluation_tags?: string[]
 }
 
 export interface ChangeApi {
@@ -453,6 +814,7 @@ export const FeatureFlagsListType = {
     Boolean: 'boolean',
     Experiment: 'experiment',
     Multivariant: 'multivariant',
+    RemoteConfig: 'remote_config',
 } as const
 
 export type FeatureFlagsActivityRetrieve2Params = {

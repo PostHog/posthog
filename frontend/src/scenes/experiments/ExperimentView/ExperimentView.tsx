@@ -5,6 +5,7 @@ import { LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { PendingChangeRequestBanner } from 'scenes/approvals/PendingChangeRequestBanner'
 import { EXPERIMENT_MIN_EXPOSURES_FOR_RESULTS } from 'scenes/experiments/constants'
 import { WebExperimentImplementationDetails } from 'scenes/experiments/WebExperimentImplementationDetails'
 
@@ -279,6 +280,13 @@ export function ExperimentView({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId
             ) : (
                 <>
                     <ExperimentWarningBanner />
+                    {experiment.feature_flag?.id && (
+                        <PendingChangeRequestBanner
+                            resourceType="feature_flag"
+                            resourceId={experiment.feature_flag.id}
+                            context="experiment"
+                        />
+                    )}
                     {usesNewQueryRunner ? <Info tabId={tabId} /> : <LegacyExperimentInfo />}
                     {usesNewQueryRunner ? <ExperimentHeader /> : <LegacyExperimentHeader />}
                     <LemonTabs

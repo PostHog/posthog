@@ -74,6 +74,81 @@
             "readOnlyHint": false
         }
     },
+    "annotations-list": {
+        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "List annotations",
+        "title": "List annotations",
+        "required_scopes": ["annotation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "annotation-create": {
+        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Create annotation",
+        "title": "Create annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-retrieve": {
+        "description": "Retrieve a single annotation by ID from the current project. Use this when you already know the annotation ID and want complete details.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Retrieve annotation",
+        "title": "Retrieve annotation",
+        "required_scopes": ["annotation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "annotations-partial-update": {
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), or its visibility scope (`project` or `organization`). Only the fields you provide are updated.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Update annotation",
+        "title": "Update annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-delete": {
+        "description": "Soft-delete an annotation by ID. This hides the annotation from normal lists while preserving historical records.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Delete annotation",
+        "title": "Delete annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "cdp-function-templates-list": {
         "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
         "category": "Function templates",
@@ -299,6 +374,96 @@
             "readOnlyHint": false
         }
     },
+    "dashboards-get-all": {
+        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Get all dashboards",
+        "title": "Get all dashboards",
+        "required_scopes": ["dashboard:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "dashboard-create": {
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Create dashboard",
+        "title": "Create dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-get": {
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Get dashboard",
+        "title": "Get dashboard",
+        "required_scopes": ["dashboard:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "dashboard-update": {
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard",
+        "title": "Update dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-delete": {
+        "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Delete dashboard",
+        "title": "Delete dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-reorder-tiles": {
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a 2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile IDs.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Reorder dashboard tiles",
+        "title": "Reorder dashboard tiles",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",
@@ -339,6 +504,81 @@
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "feature-flag-get-all": {
+        "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get all feature flags",
+        "title": "Get all feature flags",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flag-get-definition": {
+        "description": "Get a feature flag by ID.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get feature flag definition",
+        "title": "Get feature flag definition",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "create-feature-flag": {
+        "description": "Create a feature flag in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Create feature flag",
+        "title": "Create feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "update-feature-flag": {
+        "description": "Update a feature flag by ID in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Update feature flag",
+        "title": "Update feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "delete-feature-flag": {
+        "description": "Soft-delete a feature flag by ID in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Delete feature flag",
+        "title": "Delete feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -399,6 +639,81 @@
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "proxy-list": {
+        "description": "List all managed reverse proxies configured for the current organization. Returns each proxy's domain, CNAME target, provisioning status, and the maximum number of proxies allowed by the current plan. Use this to check whether a reverse proxy is set up before recommending one.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "List reverse proxies",
+        "title": "List reverse proxies",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "proxy-get": {
+        "description": "Get full details of a specific reverse proxy by ID. Returns the domain, CNAME target (the DNS record value the user needs to configure), current provisioning status, and any error or warning messages. Use this to debug why a proxy isn't working or to check DNS verification status.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Get reverse proxy details",
+        "title": "Get reverse proxy details",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "proxy-create": {
+        "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Create reverse proxy",
+        "title": "Create reverse proxy",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "proxy-retry": {
+        "description": "Retry provisioning a reverse proxy that has failed. Only works for proxies in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' and restarts the DNS verification and certificate provisioning workflow.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Retry reverse proxy provisioning",
+        "title": "Retry reverse proxy provisioning",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "proxy-delete": {
+        "description": "Delete a managed reverse proxy. For proxies still being set up (waiting, erroring, timed_out), the record is removed immediately. For active proxies, a cleanup workflow is started to remove the provisioned infrastructure.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Delete reverse proxy",
+        "title": "Delete reverse proxy",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
