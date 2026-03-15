@@ -128,6 +128,12 @@ The goal is for this Rust endpoint to replace the Django local evaluation endpoi
 
 Current implementation returns flag definitions with cohort data from HyperCache, with PostgreSQL fallback on cache miss. Supports ETag-based conditional requests (`If-None-Match` header) to avoid re-transferring unchanged definitions. Rate limited per team (default 600/minute, per-team overrides via `LOCAL_EVAL_RATE_LIMITS`).
 
+Billing quota enforcement matches Django's `/api/feature_flag/local_evaluation` behavior:
+
+- **Quota check**: Uses `FeatureFlagsLimiter.is_limited(token)` to verify the team hasn't exceeded their feature flag request quota. Returns HTTP 402 with a JSON body (`{"type": "quota_limited", "code": "payment_required", ...}`) when the quota is exceeded.
+- **Non-billable flag filtering**: Usage tracking skips requests where the response contains only non-billable flags — i.e., flags with keys starting with `survey-targeting-` or `product-tour-targeting-`. The shared `is_billable_flag_key()` predicate (in `flag_analytics.rs`) is used by both this endpoint and the `/flags` billing handler.
+- **304 responses skip billing**: Usage is recorded after the ETag/304 path, so conditional responses that return `304 Not Modified` are not counted toward billing. This matches Django's behavior.
+
 ## Request and response types
 
 ### `FlagRequest` (POST body)
