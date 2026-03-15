@@ -331,16 +331,6 @@ class SignupEmailPrecheckThrottle(IPThrottle):
     rate = "30/minute"
 
 
-class OnboardingIPThrottle(IPThrottle):
-    """
-    Rate limit onboarding product recommendations by IP address.
-    This endpoint uses an LLM, so we want to be conservative with rate limits.
-    """
-
-    scope = "onboarding_ip"
-    rate = "10/hour"
-
-
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project

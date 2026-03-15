@@ -364,7 +364,6 @@
                 "plan",
                 "execution",
                 "survey",
-                "onboarding",
                 "research",
                 "flags",
                 "llm_analytics",
@@ -2002,7 +2001,6 @@
                 "upsert_alert",
                 "finalize_plan",
                 "call_mcp_server",
-                "recommend_products",
                 "search_llm_traces"
             ],
             "type": "string"
