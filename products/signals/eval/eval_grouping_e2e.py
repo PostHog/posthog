@@ -35,6 +35,7 @@ from typing import Any
 
 import pytest
 
+from sklearn.metrics import adjusted_rand_score, homogeneity_completeness_v_measure
 from tqdm import tqdm
 
 from posthog.temporal.data_imports.workflow_activities.emit_signals import (
@@ -72,29 +73,31 @@ class EvalProgress:
     def __init__(self, n_signals: int, n_groups: int):
         self.n_signals = n_signals
         self.n_groups = n_groups
+        self.active = 0
         self.dropped = 0
-        self.failed = 0
-        self._bar = tqdm(total=n_signals, desc="Signals", unit="sig", file=sys.stderr)
+        self._bar = tqdm(total=n_signals, desc="Matching", unit="sig", file=sys.stderr)
+
+    def signal_started(self):
+        self.active += 1
+        self._update_postfix()
 
     def signal_done(self):
-        self._bar.update(1)
-
-    def signal_dropped(self):
-        self.dropped += 1
+        self.active -= 1
         self._bar.update(1)
         self._update_postfix()
 
-    def signal_failed(self):
-        self.failed += 1
+    def signal_dropped(self):
+        self.active -= 1
+        self.dropped += 1
         self._bar.update(1)
         self._update_postfix()
 
     def _update_postfix(self):
         parts: dict[str, int] = {}
+        if self.active:
+            parts["processing"] = self.active
         if self.dropped:
-            parts["dropped"] = self.dropped
-        if self.failed:
-            parts["failed"] = self.failed
+            parts["filtered"] = self.dropped
         self._bar.set_postfix(parts)
 
     def start_judging(self, n_reports: int):
@@ -203,6 +206,7 @@ class TestGroupingPipeline:
     async def run_signal_pipeline(self, record_id: int, case: EvalSignalCase):
         """Run a single signal through the pre-emit pipeline."""
 
+        self.progress.signal_started()
         try:
             description = await self.pre_emit(record_id, case)
 
@@ -496,7 +500,7 @@ class TestGroupingPipeline:
             # recall: what fraction of the dominant group's total signals landed here
             total_in_group = len(GROUP_DATA[dominant_group].signals)
             group_recall = dominant_count / total_in_group
-            input = [sig.description for sig in self.store.get_signals_for_report(report.context.report_id)]
+            input = [sig.content for sig in self.store.get_signals_for_report(report.context.report_id)]
 
             self._capture(
                 eval_name="grouping-quality",
@@ -513,7 +517,6 @@ class TestGroupingPipeline:
 
     def _capture_aggregate_metrics(self, stream: list[EvalSignalCase]):
         """Global clustering metrics: ARI, homogeneity, completeness, v_measure, mean_purity, mean_group_recall."""
-        from sklearn.metrics import adjusted_rand_score, homogeneity_completeness_v_measure
 
         true_labels: list[int] = []
         pred_labels: list[str] = []
