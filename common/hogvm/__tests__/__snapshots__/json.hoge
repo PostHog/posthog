@@ -22,4 +22,11 @@
 "JSONExtractBool", 2, 2, "print", 1, 35, 32, "{\"a\": \"hello\", \"b\": \"false\"}", 32, "b", 2, "JSONExtractBool", 2,
 2, "print", 1, 35, 29, 2, "JSONExtractBool", 1, 2, "print", 1, 35, 30, 2, "JSONExtractBool", 1, 2, "print", 1, 35, 33,
 1, 2, "JSONExtractBool", 1, 2, "print", 1, 35, 33, 0, 2, "JSONExtractBool", 1, 2, "print", 1, 35, 32, "true", 2,
-"JSONExtractBool", 1, 2, "print", 1, 35, 32, "false", 2, "JSONExtractBool", 1, 2, "print", 1, 35, 35, 35]
+"JSONExtractBool", 1, 2, "print", 1, 35, 32, "false", 2, "JSONExtractBool", 1, 2, "print", 1, 35, 32,
+"-- JSONExtract --", 2, "print", 1, 35, 32, "{\"name\": \"John\", \"age\": 30}", 32, "name", 32, "String", 2,
+"JSONExtract", 3, 2, "print", 1, 35, 32, "{\"name\": \"John\", \"age\": 30}", 32, "age", 32, "Int", 2, "JSONExtract", 3,
+2, "print", 1, 35, 32, "{\"name\": \"John\", \"age\": 30}", 32, "unknown", 32, "String", 2, "JSONExtract", 3, 2,
+"print", 1, 35, 32, "{\"a\": {\"b\": \"nested\"}}", 32, "a", 32, "b", 32, "String", 2, "JSONExtract", 4, 2, "print", 1,
+35, 32, "key", 32, "value", 42, 1, 32, "key", 32, "String", 2, "JSONExtract", 3, 2, "print", 1, 35, 32,
+"not valid json", 32, "key", 32, "String", 2, "JSONExtract", 3, 2, "print", 1, 35, 32, "{\"a\": 1}", 32, "String", 2,
+"JSONExtract", 2, 2, "print", 1, 35, 35, 35]

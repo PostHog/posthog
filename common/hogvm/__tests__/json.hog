@@ -51,3 +51,12 @@ print(JSONExtractBool(1)) // false
 print(JSONExtractBool(0)) // false
 print(JSONExtractBool('true')) // true
 print(JSONExtractBool('false')) // false
+
+print('-- JSONExtract --')
+print(JSONExtract('{"name": "John", "age": 30}', 'name', 'String')) // John
+print(JSONExtract('{"name": "John", "age": 30}', 'age', 'Int')) // 30
+print(JSONExtract('{"name": "John", "age": 30}', 'unknown', 'String')) // null
+print(JSONExtract('{"a": {"b": "nested"}}', 'a', 'b', 'String')) // nested
+print(JSONExtract({'key': 'value'}, 'key', 'String')) // value
+print(JSONExtract('not valid json', 'key', 'String')) // null
+print(JSONExtract('{"a": 1}', 'String')) // {'a': 1}
