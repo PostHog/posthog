@@ -560,6 +560,32 @@ FEATURE_FLAG_TOTAL_VOLUME_INSIGHT_NAME = "Feature Flag Called Total Volume"
 FEATURE_FLAG_UNIQUE_USERS_INSIGHT_NAME = "Feature Flag calls made by unique users per variant"
 
 
+def _get_default_flag_properties(feature_flag) -> dict:
+    base_filter = {
+        "key": "$feature_flag",
+        "operator": "exact",
+        "type": "event",
+        "value": feature_flag.key,
+    }
+
+    values = [base_filter]
+
+    # If flag targets groups, add a filter requiring groups to be set
+    if feature_flag.aggregation_group_type_index is not None:
+        values.append(
+            {
+                "key": "$groups",
+                "operator": "is_set",
+                "type": "event",
+            }
+        )
+
+    return {
+        "type": "AND",
+        "values": [{"type": "AND", "values": values}],
+    }
+
+
 def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> None:
     dashboard.filters = {"date_from": "-30d"}
     tag, _ = Tag.objects.get_or_create(
@@ -583,22 +609,8 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> N
                 "filterTestAccounts": False,
                 "interval": "day",
                 "kind": "TrendsQuery",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "operator": "exact",
-                                    "type": "event",
-                                    "value": feature_flag.key,
-                                }
-                            ],
-                        }
-                    ],
-                },
+                "aggregation_group_type_index": feature_flag.aggregation_group_type_index,
+                "properties": _get_default_flag_properties(feature_flag),
                 "series": [{"event": "$feature_flag_called", "kind": "EventsNode", "name": "$feature_flag_called"}],
                 "trendsFilter": {
                     "aggregationAxisFormat": "numeric",
@@ -640,22 +652,8 @@ def create_feature_flag_dashboard(feature_flag, dashboard: Dashboard, user) -> N
                 "filterTestAccounts": False,
                 "interval": "day",
                 "kind": "TrendsQuery",
-                "properties": {
-                    "type": "AND",
-                    "values": [
-                        {
-                            "type": "AND",
-                            "values": [
-                                {
-                                    "key": "$feature_flag",
-                                    "operator": "exact",
-                                    "type": "event",
-                                    "value": feature_flag.key,
-                                }
-                            ],
-                        }
-                    ],
-                },
+                "aggregation_group_type_index": feature_flag.aggregation_group_type_index,
+                "properties": _get_default_flag_properties(feature_flag),
                 "series": [
                     {
                         "event": "$feature_flag_called",
@@ -984,14 +982,17 @@ def _update_tile_with_new_key(insight, new_key: str, old_key: str, descriptionFu
 
         property_group = property_values[0]
         values = property_group.get("values", [])
-        # Only proceed if there's exactly one value and it's a feature flag
-        if len(values) == 1 and values[0].get("key") == "$feature_flag" and values[0].get("value") == old_key:
-            values[0]["value"] = new_key
-            insight.query = insight.query  # Trigger field update
-            # Only update the insight if it matches what we expect for the system created insights
-            insight.description = new_description
-            insight.save()
+        # Allow 1 value (user flag) or 2 values (group flag: $feature_flag + $groups)
+        feature_flag_filter = next(
+            (v for v in values if v.get("key") == "$feature_flag" and v.get("value") == old_key),
+            None,
+        )
+        if feature_flag_filter is None:
             return
+        feature_flag_filter["value"] = new_key
+        insight.query = insight.query  # Trigger field update
+        insight.description = new_description
+        insight.save()
 
 
 def add_enriched_insights_to_feature_flag_dashboard(feature_flag, dashboard: Dashboard) -> None:
