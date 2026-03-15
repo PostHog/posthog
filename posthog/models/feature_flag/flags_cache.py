@@ -82,7 +82,7 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
 
     dep_ids: set[int] = set()
     filters = flag_data.get("filters", {})
-    for group in filters.get("groups", []):
+    for group in filters.get("groups") or []:
         for prop in group.get("properties") or []:
             if prop.get("type") == "flag":
                 try:
