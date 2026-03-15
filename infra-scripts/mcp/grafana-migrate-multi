@@ -1,0 +1,279 @@
+#!/usr/bin/env bash
+# Migrate from single-server Grafana MCP setup to multi-server (US + EU simultaneous)
+#
+# Usage:
+#   grafana-migrate-multi            # Run migration with confirmation prompt
+#   grafana-migrate-multi --dry-run  # Show what would change without writing
+#   grafana-migrate-multi --slim     # Also normalize to recommended (smaller) disable-flag set
+#
+# This script automates the steps in the README under "Migrating from single-server
+# to multi-server". It is idempotent and safe to run multiple times.
+#
+# Scans for 'grafana' MCP entries in:
+#   - ~/.config/claude-code/.mcp.json  (Claude Code global config)
+#   - .claude.json                     (Claude Code project config, in current directory)
+#
+# Prerequisites:
+#   - macOS (uses Keychain for token verification)
+#   - US and EU tokens stored in Keychain (see grafana-token)
+#   - At least one MCP config file with a 'grafana' entry
+
+set -euo pipefail
+
+SETTINGS_JSON="$HOME/.claude/settings.json"
+DRY_RUN=false
+SLIM=false
+
+show_usage() {
+    echo "Usage: grafana-migrate-multi [--dry-run] [--slim]"
+    echo ""
+    echo "Migrates your Grafana MCP setup from a single server to multi-server"
+    echo "(US + EU available simultaneously, no restart needed to switch regions)."
+    echo ""
+    echo "Scans for MCP config in:"
+    echo "  ~/.config/claude-code/.mcp.json  (Claude Code global)"
+    echo "  .claude.json                     (Claude Code project, current directory)"
+    echo ""
+    echo "Options:"
+    echo "  --dry-run  Show what would change without writing"
+    echo "  --slim     Normalize args to the recommended (smaller) disable-flag set"
+    echo "  -h, --help Show this help message"
+    echo ""
+    echo "Prerequisites:"
+    echo "  - US and EU tokens in Keychain (use grafana-token to add them)"
+    echo "  - Existing 'grafana' entry in at least one MCP config file"
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --dry-run) DRY_RUN=true ;;
+        --slim)    SLIM=true ;;
+        -h|--help) show_usage; exit 0 ;;
+        *) echo "Error: Unknown argument '$1'" >&2; echo ""; show_usage; exit 1 ;;
+    esac
+    shift
+done
+
+# macOS check
+if [[ "$OSTYPE" != "darwin"* ]]; then
+    echo "Error: This script requires macOS Keychain." >&2
+    exit 1
+fi
+
+# Token checks
+missing_tokens=()
+if ! security find-generic-password -a "$USER" -s "grafana-service-account-token-us" &>/dev/null; then
+    missing_tokens+=("us")
+fi
+if ! security find-generic-password -a "$USER" -s "grafana-service-account-token-eu" &>/dev/null; then
+    missing_tokens+=("eu")
+fi
+
+if [ ${#missing_tokens[@]} -gt 0 ]; then
+    echo "Error: Missing Grafana tokens for: ${missing_tokens[*]}" >&2
+    echo "" >&2
+    for region in "${missing_tokens[@]}"; do
+        echo "  Add with: grafana-token $region <your-token>" >&2
+    done
+    exit 1
+fi
+
+# Build list of MCP config files to check
+MCP_FILES=()
+GLOBAL_MCP="$HOME/.config/claude-code/.mcp.json"
+PROJECT_MCP=".claude.json"
+
+if [ -f "$GLOBAL_MCP" ]; then
+    MCP_FILES+=("$GLOBAL_MCP")
+fi
+if [ -f "$PROJECT_MCP" ]; then
+    MCP_FILES+=("$PWD/$PROJECT_MCP")
+fi
+
+if [ ${#MCP_FILES[@]} -eq 0 ]; then
+    echo "Error: No MCP config files found." >&2
+    echo "Checked:" >&2
+    echo "  $GLOBAL_MCP" >&2
+    echo "  $PWD/$PROJECT_MCP" >&2
+    echo "Set up a single-server Grafana MCP first (see README)." >&2
+    exit 1
+fi
+
+# Analyze and optionally apply changes
+python3 - "$DRY_RUN" "$SLIM" "$SETTINGS_JSON" "${MCP_FILES[@]}" << 'PYEOF'
+import copy, json, sys, os, shutil
+
+dry_run = sys.argv[1] == "true"
+slim = sys.argv[2] == "true"
+settings_path = sys.argv[3]
+mcp_paths = sys.argv[4:]
+
+SLIM_ARGS = ["-disable-admin", "-disable-alerting", "-disable-incident", "-disable-oncall"]
+
+# --- Load MCP config files and find ones with a 'grafana' entry ---
+
+mcp_configs = []  # list of (path, data, servers) tuples
+for path in mcp_paths:
+    with open(path) as f:
+        data = json.load(f)
+    servers = data.get("mcpServers", {})
+    if "grafana" in servers:
+        mcp_configs.append((path, data, servers))
+
+if not mcp_configs:
+    checked = "\n  ".join(mcp_paths)
+    print(f"Error: No 'grafana' entry found in any MCP config file.\nChecked:\n  {checked}", file=sys.stderr)
+    sys.exit(1)
+
+# --- Load settings ---
+
+settings = None
+if os.path.isfile(settings_path):
+    with open(settings_path) as f:
+        settings = json.load(f)
+
+# --- Analyze MCP changes across all config files ---
+
+all_mcp_changes = []  # list of (path, data, servers, changes_list) tuples
+
+for path, data, servers in mcp_configs:
+    changes = []
+    grafana = servers["grafana"]
+    env = grafana.get("env", {})
+
+    if env.get("GRAFANA_REGION") != "us":
+        changes.append("Pin GRAFANA_REGION=us on existing 'grafana' entry")
+
+    if "grafana-eu" not in servers:
+        changes.append("Add new 'grafana-eu' entry (clone of 'grafana' with GRAFANA_REGION=eu)")
+    elif servers["grafana-eu"].get("env", {}).get("GRAFANA_REGION") != "eu":
+        changes.append("Pin GRAFANA_REGION=eu on existing 'grafana-eu' entry")
+
+    if slim:
+        if grafana.get("args", []) != SLIM_ARGS:
+            changes.append(f"Normalize 'grafana' args to recommended set: {' '.join(SLIM_ARGS)}")
+        eu_entry = servers.get("grafana-eu")
+        if eu_entry is None or eu_entry.get("args", []) != SLIM_ARGS:
+            changes.append(f"Normalize 'grafana-eu' args to recommended set: {' '.join(SLIM_ARGS)}")
+
+    if changes:
+        all_mcp_changes.append((path, data, servers, changes))
+
+# --- Analyze settings changes ---
+
+settings_changes = []
+if settings is not None:
+    allow = settings.get("permissions", {}).get("allow", [])
+    existing = set(allow)
+    grafana_perms = [p for p in allow if p.startswith("mcp__grafana__")]
+    for perm in grafana_perms:
+        eu_perm = perm.replace("mcp__grafana__", "mcp__grafana-eu__", 1)
+        if eu_perm not in existing:
+            settings_changes.append(eu_perm)
+
+# --- Check if anything to do ---
+
+if not all_mcp_changes and not settings_changes:
+    print("Already migrated, nothing to do.")
+    sys.exit(0)
+
+# --- Print summary ---
+
+for path, _data, _servers, changes in all_mcp_changes:
+    print(f"Changes to {path}:")
+    for c in changes:
+        print(f"  + {c}")
+    print()
+
+if settings_changes:
+    print(f"Changes to {settings_path}:")
+    for p in settings_changes:
+        print(f"  + Allow {p}")
+    print()
+elif settings is None:
+    print(f"Note: {settings_path} not found — permissions will not be migrated.")
+    print("  You may need to grant permissions manually after restarting.")
+    print()
+elif not grafana_perms:
+    print(f"Note: No mcp__grafana__* permissions found in {settings_path}.")
+    print("  You may need to add permissions manually after restarting.")
+    print()
+
+if dry_run:
+    print("(Dry run -- no changes written)")
+    sys.exit(0)
+
+# --- Prompt for confirmation ---
+
+try:
+    confirm = input("Apply these changes? [y/N] ")
+except EOFError:
+    confirm = ""
+
+if confirm.strip().lower() != "y":
+    print("Aborted.")
+    sys.exit(0)
+
+# --- Apply MCP changes ---
+
+for path, data, servers, _changes in all_mcp_changes:
+    grafana = servers["grafana"]
+
+    bak_path = path + ".bak"
+    if not os.path.exists(bak_path):
+        shutil.copy2(path, bak_path)
+
+    # Clone for EU before mutating the US entry
+    if "grafana-eu" not in servers:
+        eu_entry = copy.deepcopy(grafana)
+        eu_entry.setdefault("env", {})["GRAFANA_REGION"] = "eu"
+        servers["grafana-eu"] = eu_entry
+    else:
+        servers["grafana-eu"].setdefault("env", {})["GRAFANA_REGION"] = "eu"
+
+    # Pin GRAFANA_REGION on existing entry
+    grafana.setdefault("env", {})["GRAFANA_REGION"] = "us"
+
+    # Normalize args to recommended set
+    if slim:
+        grafana["args"] = SLIM_ARGS
+        if "grafana-eu" in servers:
+            servers["grafana-eu"]["args"] = SLIM_ARGS
+
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+
+# --- Apply settings changes ---
+
+if settings_changes and settings is not None:
+    bak_path = settings_path + ".bak"
+    if not os.path.exists(bak_path):
+        shutil.copy2(settings_path, bak_path)
+
+    if "permissions" not in settings:
+        settings["permissions"] = {}
+    if "allow" not in settings["permissions"]:
+        settings["permissions"]["allow"] = []
+
+    settings["permissions"]["allow"].extend(settings_changes)
+
+    with open(settings_path, "w") as f:
+        json.dump(settings, f, indent=2)
+        f.write("\n")
+
+# --- Summary ---
+
+print()
+print("Migration complete!")
+print()
+for path, _data, _servers, changes in all_mcp_changes:
+    print(f"  {path}  -- {len(changes)} change(s) applied")
+if settings_changes:
+    print(f"  {settings_path}  -- {len(settings_changes)} permission(s) added")
+print()
+print("Restart your MCP client to apply changes:")
+print("  Claude Code: type /exit then restart")
+print("  Cursor: close and reopen the editor")
+print("  VS Code: Cmd+Shift+P > Developer: Reload Window")
+PYEOF
