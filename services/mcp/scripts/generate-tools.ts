@@ -770,6 +770,7 @@ function generateDefinitionsJson(
                     openWorldHint: true,
                     readOnlyHint: toolConfig.annotations.readOnly,
                 },
+                ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
             }
         }
     }

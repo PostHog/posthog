@@ -12,6 +12,7 @@ export const ToolDefinitionSchema = z.object({
     title: z.string(),
     required_scopes: z.array(z.string()),
     new_mcp: z.boolean().optional(),
+    requires_ai_consent: z.boolean().optional(),
     annotations: z.object({
         destructiveHint: z.boolean(),
         idempotentHint: z.boolean(),
@@ -72,10 +73,11 @@ export interface ToolFilterOptions {
     version?: number | undefined
     excludeTools?: string[] | undefined
     readOnly?: boolean | undefined
+    aiConsentGiven?: boolean | undefined
 }
 
 export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
-    const { features, version, readOnly } = options || {}
+    const { features, version, readOnly, aiConsentGiven } = options || {}
     const toolDefinitions = getToolDefinitions(version)
 
     let entries = Object.entries(toolDefinitions)
@@ -93,6 +95,11 @@ export function getToolsForFeatures(options?: ToolFilterOptions): string[] {
     // In read-only mode, only expose tools annotated as read-only
     if (readOnly) {
         entries = entries.filter(([_, definition]) => definition.annotations.readOnlyHint === true)
+    }
+
+    // When AI consent is not given or not yet fetched, exclude tools that require it
+    if (!aiConsentGiven) {
+        entries = entries.filter(([_, definition]) => !definition.requires_ai_consent)
     }
 
     return entries.map(([toolName, _]) => toolName)

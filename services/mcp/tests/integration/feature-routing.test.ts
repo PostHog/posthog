@@ -17,6 +17,7 @@ const createMockContext = (): Context => ({
     },
     stateManager: {
         getApiKey: async () => ({ scopes: ['*'] }),
+        getAiConsentGiven: async () => undefined,
     } as any,
     sessionManager: new SessionManager({} as any),
 })

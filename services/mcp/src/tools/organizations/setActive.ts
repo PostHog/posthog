@@ -15,6 +15,7 @@ export const setActiveHandler: ToolBase<typeof schema, Result>['handler'] = asyn
 ) => {
     const { orgId } = params
     await context.cache.set('orgId', orgId)
+    await context.stateManager.invalidateAiConsent()
 
     return {
         content: [{ type: 'text', text: `Switched to organization ${orgId}` }],
