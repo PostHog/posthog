@@ -1,0 +1,214 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "data": {
+            "description": "The experiment data to update using user-friendly format",
+            "properties": {
+                "archive": {
+                    "description": "Archive or unarchive experiment",
+                    "type": "boolean"
+                },
+                "conclude": {
+                    "description": "Conclude experiment with result",
+                    "enum": ["won", "lost", "inconclusive", "stopped_early", "invalid"],
+                    "type": "string"
+                },
+                "conclusion_comment": {
+                    "description": "Comment about experiment conclusion",
+                    "type": "string"
+                },
+                "description": {
+                    "description": "Update experiment description",
+                    "type": "string"
+                },
+                "launch": {
+                    "description": "Launch experiment (set start_date) or keep as draft",
+                    "type": "boolean"
+                },
+                "minimum_detectable_effect": {
+                    "description": "Update minimum detectable effect in percentage",
+                    "type": "number"
+                },
+                "name": {
+                    "description": "Update experiment name",
+                    "type": "string"
+                },
+                "primary_metrics": {
+                    "description": "Update primary metrics",
+                    "items": {
+                        "properties": {
+                            "description": {
+                                "description": "What this metric measures",
+                                "type": "string"
+                            },
+                            "event_name": {
+                                "description": "PostHog event name (e.g., '$pageview', 'add_to_cart', 'purchase')",
+                                "type": "string"
+                            },
+                            "funnel_steps": {
+                                "description": "For funnel metrics only: Array of event names for each funnel step",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "metric_type": {
+                                "description": "Metric type: 'mean' for average values, 'funnel' for conversion flows, 'ratio' for comparing two metrics",
+                                "enum": ["mean", "funnel", "ratio"],
+                                "type": "string"
+                            },
+                            "name": {
+                                "description": "Human-readable metric name",
+                                "type": "string"
+                            },
+                            "properties": {
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
+                                "items": {
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "items": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": "array"
+                                                        },
+                                                        {
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "type": "array"
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "required": ["key"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "required": ["metric_type", "event_name"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "restart": {
+                    "description": "Restart concluded experiment as draft (clears start_date, end_date, and conclusion)",
+                    "type": "boolean"
+                },
+                "secondary_metrics": {
+                    "description": "Update secondary metrics",
+                    "items": {
+                        "properties": {
+                            "description": {
+                                "description": "What this metric measures",
+                                "type": "string"
+                            },
+                            "event_name": {
+                                "description": "PostHog event name",
+                                "type": "string"
+                            },
+                            "funnel_steps": {
+                                "description": "For funnel metrics only: Array of event names",
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            "metric_type": {
+                                "description": "Metric type",
+                                "enum": ["mean", "funnel", "ratio"],
+                                "type": "string"
+                            },
+                            "name": {
+                                "description": "Human-readable metric name",
+                                "type": "string"
+                            },
+                            "properties": {
+                                "description": "Event property filters as an array, e.g. [{ key: \"$browser\", value: \"Chrome\", operator: \"exact\", type: \"event\" }]",
+                                "items": {
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "operator": {
+                                            "type": "string"
+                                        },
+                                        "type": {
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "string"
+                                                        },
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "items": {
+                                                                "type": "string"
+                                                            },
+                                                            "type": "array"
+                                                        },
+                                                        {
+                                                            "items": {
+                                                                "type": "number"
+                                                            },
+                                                            "type": "array"
+                                                        }
+                                                    ]
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "required": ["key"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            }
+                        },
+                        "required": ["metric_type", "event_name"],
+                        "type": "object"
+                    },
+                    "type": "array"
+                }
+            },
+            "type": "object"
+        },
+        "experimentId": {
+            "description": "The ID of the experiment to update",
+            "type": "number"
+        }
+    },
+    "required": ["experimentId", "data"],
+    "type": "object"
+}

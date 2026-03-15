@@ -1,0 +1,867 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "appearance": {
+            "properties": {
+                "autoDisappear": {
+                    "type": "boolean"
+                },
+                "backgroundColor": {
+                    "type": "string"
+                },
+                "borderColor": {
+                    "type": "string"
+                },
+                "boxPadding": {
+                    "type": "string"
+                },
+                "descriptionTextColor": {
+                    "type": "string"
+                },
+                "disabledButtonOpacity": {
+                    "type": "string"
+                },
+                "displayThankYouMessage": {
+                    "type": "boolean"
+                },
+                "fontFamily": {
+                    "type": "string"
+                },
+                "maxWidth": {
+                    "type": "string"
+                },
+                "placeholder": {
+                    "type": "string"
+                },
+                "ratingButtonActiveColor": {
+                    "type": "string"
+                },
+                "ratingButtonColor": {
+                    "type": "string"
+                },
+                "ratingButtonHoverColor": {
+                    "type": "string"
+                },
+                "shuffleQuestions": {
+                    "type": "boolean"
+                },
+                "submitButtonColor": {
+                    "type": "string"
+                },
+                "submitButtonText": {
+                    "type": "string"
+                },
+                "submitButtonTextColor": {
+                    "type": "string"
+                },
+                "surveyPopupDelaySeconds": {
+                    "type": "number"
+                },
+                "textColor": {
+                    "type": "string"
+                },
+                "thankYouMessageCloseButtonText": {
+                    "type": "string"
+                },
+                "thankYouMessageDescription": {
+                    "type": "string"
+                },
+                "thankYouMessageDescriptionContentType": {
+                    "enum": ["html", "text"],
+                    "type": "string"
+                },
+                "thankYouMessageHeader": {
+                    "type": "string"
+                },
+                "whiteLabel": {
+                    "type": "boolean"
+                },
+                "widgetColor": {
+                    "type": "string"
+                },
+                "widgetLabel": {
+                    "type": "string"
+                },
+                "widgetSelector": {
+                    "type": "string"
+                },
+                "widgetType": {
+                    "enum": ["button", "tab", "selector"],
+                    "type": "string"
+                },
+                "zIndex": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "archived": {
+            "type": "boolean"
+        },
+        "conditions": {
+            "properties": {
+                "deviceTypes": {
+                    "items": {
+                        "enum": ["Desktop", "Mobile", "Tablet"],
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "deviceTypesMatchType": {
+                    "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain)",
+                    "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
+                    "type": "string"
+                },
+                "events": {
+                    "properties": {
+                        "repeatedActivation": {
+                            "description": "Whether to show the survey every time one of the events is triggered (true), or just once (false)",
+                            "type": "boolean"
+                        },
+                        "values": {
+                            "description": "Array of event names that trigger the survey",
+                            "items": {
+                                "properties": {
+                                    "name": {
+                                        "type": "string"
+                                    }
+                                },
+                                "required": ["name"],
+                                "type": "object"
+                            },
+                            "type": "array"
+                        }
+                    },
+                    "type": "object"
+                },
+                "linkedFlagVariant": {
+                    "description": "The variant of the feature flag linked to this survey",
+                    "type": "string"
+                },
+                "seenSurveyWaitPeriodInDays": {
+                    "description": "Don't show this survey to users who saw any survey in the last x days.",
+                    "type": "number"
+                },
+                "selector": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "urlMatchType": {
+                    "description": "URL/device matching types: 'regex' (matches regex pattern), 'not_regex' (does not match regex pattern), 'exact' (exact string match), 'is_not' (not exact match), 'icontains' (case-insensitive contains), 'not_icontains' (case-insensitive does not contain)",
+                    "enum": ["regex", "not_regex", "exact", "is_not", "icontains", "not_icontains"],
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "description": {
+            "type": "string"
+        },
+        "enable_partial_responses": {
+            "description": "When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).",
+            "type": "boolean"
+        },
+        "end_date": {
+            "description": "When the survey stopped being shown to users. Setting this will complete the survey.",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+        },
+        "iteration_count": {
+            "anyOf": [
+                {
+                    "exclusiveMinimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule."
+        },
+        "iteration_frequency_days": {
+            "anyOf": [
+                {
+                    "exclusiveMinimum": 0,
+                    "maximum": 365,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "For a recurring schedule, this field specifies the interval in days between each survey instance shown to the user, used alongside iteration_count for precise scheduling."
+        },
+        "linked_flag_id": {
+            "anyOf": [
+                {
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The feature flag to link to this survey"
+        },
+        "name": {
+            "minLength": 1,
+            "type": "string"
+        },
+        "questions": {
+            "items": {
+                "anyOf": [
+                    {
+                        "properties": {
+                            "buttonText": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "descriptionContentType": {
+                                "enum": ["html", "text"],
+                                "type": "string"
+                            },
+                            "optional": {
+                                "type": "boolean"
+                            },
+                            "question": {
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "open",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["question", "type"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "buttonText": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "descriptionContentType": {
+                                "enum": ["html", "text"],
+                                "type": "string"
+                            },
+                            "link": {
+                                "format": "uri",
+                                "type": "string"
+                            },
+                            "optional": {
+                                "type": "boolean"
+                            },
+                            "question": {
+                                "type": "string"
+                            },
+                            "type": {
+                                "const": "link",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["question", "type", "link"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "branching": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "type": {
+                                                "const": "next_question",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "type": {
+                                                "const": "end",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "description": "For rating questions: use sentiment keys based on scale thirds - negative (lower third), neutral (middle third), positive (upper third)",
+                                        "properties": {
+                                            "responseValues": {
+                                                "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
+                                                "properties": {
+                                                    "negative": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "const": "end",
+                                                                "type": "string"
+                                                            }
+                                                        ],
+                                                        "description": "Lower third of scale"
+                                                    },
+                                                    "neutral": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "const": "end",
+                                                                "type": "string"
+                                                            }
+                                                        ],
+                                                        "description": "Middle third of scale"
+                                                    },
+                                                    "positive": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "const": "end",
+                                                                "type": "string"
+                                                            }
+                                                        ],
+                                                        "description": "Upper third of scale"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            },
+                                            "type": {
+                                                "const": "response_based",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type", "responseValues"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "index": {
+                                                "type": "number"
+                                            },
+                                            "type": {
+                                                "const": "specific_question",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type", "index"],
+                                        "type": "object"
+                                    }
+                                ]
+                            },
+                            "buttonText": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "descriptionContentType": {
+                                "enum": ["html", "text"],
+                                "type": "string"
+                            },
+                            "display": {
+                                "description": "Display format: 'number' shows numeric scale, 'emoji' shows emoji scale",
+                                "enum": ["number", "emoji"],
+                                "type": "string"
+                            },
+                            "lowerBoundLabel": {
+                                "description": "Label for the lowest rating (e.g., 'Very Poor')",
+                                "type": "string"
+                            },
+                            "optional": {
+                                "type": "boolean"
+                            },
+                            "question": {
+                                "type": "string"
+                            },
+                            "scale": {
+                                "anyOf": [
+                                    {
+                                        "const": 3,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 5,
+                                        "type": "number"
+                                    },
+                                    {
+                                        "const": 7,
+                                        "type": "number"
+                                    }
+                                ],
+                                "description": "Rating scale can be one of 3, 5, or 7"
+                            },
+                            "type": {
+                                "const": "rating",
+                                "type": "string"
+                            },
+                            "upperBoundLabel": {
+                                "description": "Label for the highest rating (e.g., 'Excellent')",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["question", "type"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "branching": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "type": {
+                                                "const": "next_question",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "type": {
+                                                "const": "end",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "description": "For NPS rating questions: use sentiment keys based on score ranges - detractors (0-6), passives (7-8), promoters (9-10)",
+                                        "properties": {
+                                            "responseValues": {
+                                                "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
+                                                "properties": {
+                                                    "detractors": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "const": "end",
+                                                                "type": "string"
+                                                            }
+                                                        ],
+                                                        "description": "NPS detractors (0-6)"
+                                                    },
+                                                    "passives": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "const": "end",
+                                                                "type": "string"
+                                                            }
+                                                        ],
+                                                        "description": "NPS passives (7-8)"
+                                                    },
+                                                    "promoters": {
+                                                        "anyOf": [
+                                                            {
+                                                                "type": "number"
+                                                            },
+                                                            {
+                                                                "const": "end",
+                                                                "type": "string"
+                                                            }
+                                                        ],
+                                                        "description": "NPS promoters (9-10)"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            },
+                                            "type": {
+                                                "const": "response_based",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type", "responseValues"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "index": {
+                                                "type": "number"
+                                            },
+                                            "type": {
+                                                "const": "specific_question",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type", "index"],
+                                        "type": "object"
+                                    }
+                                ]
+                            },
+                            "buttonText": {
+                                "type": "string"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "descriptionContentType": {
+                                "enum": ["html", "text"],
+                                "type": "string"
+                            },
+                            "display": {
+                                "const": "number",
+                                "description": "NPS questions always use numeric scale",
+                                "type": "string"
+                            },
+                            "lowerBoundLabel": {
+                                "description": "Label for 0 rating (typically 'Not at all likely')",
+                                "type": "string"
+                            },
+                            "optional": {
+                                "type": "boolean"
+                            },
+                            "question": {
+                                "type": "string"
+                            },
+                            "scale": {
+                                "const": 10,
+                                "description": "NPS questions always use 0-10 scale",
+                                "type": "number"
+                            },
+                            "type": {
+                                "const": "rating",
+                                "type": "string"
+                            },
+                            "upperBoundLabel": {
+                                "description": "Label for 10 rating (typically 'Extremely likely')",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["question", "type", "display", "scale"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "branching": {
+                                "anyOf": [
+                                    {
+                                        "properties": {
+                                            "type": {
+                                                "const": "next_question",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "type": {
+                                                "const": "end",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "description": "For single choice questions: use choice indices as string keys (\"0\", \"1\", \"2\", etc.)",
+                                        "properties": {
+                                            "responseValues": {
+                                                "additionalProperties": {
+                                                    "anyOf": [
+                                                        {
+                                                            "type": "number"
+                                                        },
+                                                        {
+                                                            "const": "end",
+                                                            "type": "string"
+                                                        }
+                                                    ]
+                                                },
+                                                "description": "Only include keys for responses that should branch to a specific question or 'end'. Omit keys for responses that should proceed to the next question (default behavior).",
+                                                "propertyNames": {
+                                                    "type": "string"
+                                                },
+                                                "type": "object"
+                                            },
+                                            "type": {
+                                                "const": "response_based",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type", "responseValues"],
+                                        "type": "object"
+                                    },
+                                    {
+                                        "properties": {
+                                            "index": {
+                                                "type": "number"
+                                            },
+                                            "type": {
+                                                "const": "specific_question",
+                                                "type": "string"
+                                            }
+                                        },
+                                        "required": ["type", "index"],
+                                        "type": "object"
+                                    }
+                                ]
+                            },
+                            "buttonText": {
+                                "type": "string"
+                            },
+                            "choices": {
+                                "description": "Array of choice options. Choice indices (0, 1, 2, etc.) are used for branching logic",
+                                "items": {
+                                    "minLength": 1,
+                                    "type": "string"
+                                },
+                                "maxItems": 20,
+                                "minItems": 2,
+                                "type": "array"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "descriptionContentType": {
+                                "enum": ["html", "text"],
+                                "type": "string"
+                            },
+                            "hasOpenChoice": {
+                                "description": "Whether the last choice (typically 'Other', is an open text input question",
+                                "type": "boolean"
+                            },
+                            "optional": {
+                                "type": "boolean"
+                            },
+                            "question": {
+                                "type": "string"
+                            },
+                            "shuffleOptions": {
+                                "description": "Whether to randomize the order of choices for each respondent",
+                                "type": "boolean"
+                            },
+                            "type": {
+                                "const": "single_choice",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["question", "type", "choices"],
+                        "type": "object"
+                    },
+                    {
+                        "properties": {
+                            "buttonText": {
+                                "type": "string"
+                            },
+                            "choices": {
+                                "description": "Array of choice options. Multiple selections allowed. No branching logic supported.",
+                                "items": {
+                                    "minLength": 1,
+                                    "type": "string"
+                                },
+                                "maxItems": 20,
+                                "minItems": 2,
+                                "type": "array"
+                            },
+                            "description": {
+                                "type": "string"
+                            },
+                            "descriptionContentType": {
+                                "enum": ["html", "text"],
+                                "type": "string"
+                            },
+                            "hasOpenChoice": {
+                                "description": "Whether the last choice (typically 'Other', is an open text input question",
+                                "type": "boolean"
+                            },
+                            "optional": {
+                                "type": "boolean"
+                            },
+                            "question": {
+                                "type": "string"
+                            },
+                            "shuffleOptions": {
+                                "description": "Whether to randomize the order of choices for each respondent",
+                                "type": "boolean"
+                            },
+                            "type": {
+                                "const": "multiple_choice",
+                                "type": "string"
+                            }
+                        },
+                        "required": ["question", "type", "choices"],
+                        "type": "object"
+                    }
+                ]
+            },
+            "minItems": 1,
+            "type": "array"
+        },
+        "remove_targeting_flag": {
+            "description": "Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).",
+            "type": "boolean"
+        },
+        "responses_limit": {
+            "anyOf": [
+                {
+                    "exclusiveMinimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "The maximum number of responses before automatically stopping the survey."
+        },
+        "schedule": {
+            "description": "Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)",
+            "enum": ["once", "recurring", "always"],
+            "type": "string"
+        },
+        "start_date": {
+            "description": "When the survey should start being shown to users. Setting this will launch the survey",
+            "format": "date-time",
+            "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+            "type": "string"
+        },
+        "surveyId": {
+            "type": "string"
+        },
+        "targeting_flag_filters": {
+            "description": "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 50}]}",
+            "properties": {
+                "groups": {
+                    "items": {
+                        "properties": {
+                            "properties": {
+                                "items": {
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "operator": {
+                                            "enum": [
+                                                "exact",
+                                                "is_not",
+                                                "is_set",
+                                                "is_not_set",
+                                                "icontains",
+                                                "not_icontains",
+                                                "regex",
+                                                "not_regex",
+                                                "gt",
+                                                "gte",
+                                                "lt",
+                                                "lte"
+                                            ],
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "boolean"
+                                                },
+                                                {
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                {
+                                                    "items": {
+                                                        "type": "number"
+                                                    },
+                                                    "type": "array"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "required": ["key", "value"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "rollout_percentage": {
+                                "type": "number"
+                            },
+                            "variant": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Variant key to serve for this condition (for multivariate flags)"
+                            }
+                        },
+                        "required": ["properties", "rollout_percentage"],
+                        "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                },
+                "multivariate": {
+                    "description": "Multivariate configuration with variant definitions",
+                    "properties": {
+                        "variants": {
+                            "items": {
+                                "properties": {
+                                    "key": {
+                                        "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")",
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "description": "Human-readable name for this variant",
+                                        "type": "string"
+                                    },
+                                    "rollout_percentage": {
+                                        "description": "Percentage of users who will see this variant (0-100). Must be an integer.",
+                                        "maximum": 100,
+                                        "minimum": 0,
+                                        "type": "integer"
+                                    }
+                                },
+                                "required": ["key", "rollout_percentage"],
+                                "type": "object"
+                            },
+                            "minItems": 2,
+                            "type": "array"
+                        }
+                    },
+                    "required": ["variants"],
+                    "type": "object"
+                }
+            },
+            "required": ["groups"],
+            "type": "object"
+        },
+        "targeting_flag_id": {
+            "description": "An existing targeting flag to use for this survey",
+            "type": "number"
+        },
+        "type": {
+            "enum": ["popover", "api", "widget", "external_survey"],
+            "type": "string"
+        }
+    },
+    "required": ["surveyId"],
+    "type": "object"
+}

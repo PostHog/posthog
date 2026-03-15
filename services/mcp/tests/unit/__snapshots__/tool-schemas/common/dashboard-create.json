@@ -1,0 +1,29 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "data": {
+            "properties": {
+                "description": {
+                    "type": "string"
+                },
+                "name": {
+                    "minLength": 1,
+                    "type": "string"
+                },
+                "pinned": {
+                    "type": "boolean"
+                },
+                "tags": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["name"],
+            "type": "object"
+        }
+    },
+    "required": ["data"],
+    "type": "object"
+}

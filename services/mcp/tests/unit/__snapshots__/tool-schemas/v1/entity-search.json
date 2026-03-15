@@ -1,0 +1,30 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "entities": {
+            "description": "Entity types to search. If not specified, searches all types. Available: insight, dashboard, experiment, feature_flag, notebook, action, cohort, event_definition, survey",
+            "items": {
+                "enum": [
+                    "insight",
+                    "dashboard",
+                    "experiment",
+                    "feature_flag",
+                    "notebook",
+                    "action",
+                    "cohort",
+                    "event_definition",
+                    "survey"
+                ],
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "query": {
+            "description": "Search query to find entities by name or description",
+            "minLength": 1,
+            "type": "string"
+        }
+    },
+    "required": ["query"],
+    "type": "object"
+}

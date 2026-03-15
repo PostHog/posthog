@@ -1,0 +1,140 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "active": {
+            "type": "boolean"
+        },
+        "description": {
+            "type": "string"
+        },
+        "filters": {
+            "properties": {
+                "groups": {
+                    "items": {
+                        "properties": {
+                            "properties": {
+                                "items": {
+                                    "properties": {
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "operator": {
+                                            "enum": [
+                                                "exact",
+                                                "is_not",
+                                                "is_set",
+                                                "is_not_set",
+                                                "icontains",
+                                                "not_icontains",
+                                                "regex",
+                                                "not_regex",
+                                                "gt",
+                                                "gte",
+                                                "lt",
+                                                "lte"
+                                            ],
+                                            "type": "string"
+                                        },
+                                        "value": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "boolean"
+                                                },
+                                                {
+                                                    "items": {
+                                                        "type": "string"
+                                                    },
+                                                    "type": "array"
+                                                },
+                                                {
+                                                    "items": {
+                                                        "type": "number"
+                                                    },
+                                                    "type": "array"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "required": ["key", "value"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "rollout_percentage": {
+                                "type": "number"
+                            },
+                            "variant": {
+                                "anyOf": [
+                                    {
+                                        "type": "string"
+                                    },
+                                    {
+                                        "type": "null"
+                                    }
+                                ],
+                                "description": "Variant key to serve for this condition (for multivariate flags)"
+                            }
+                        },
+                        "required": ["properties", "rollout_percentage"],
+                        "type": "object"
+                    },
+                    "minItems": 1,
+                    "type": "array"
+                },
+                "multivariate": {
+                    "description": "Multivariate configuration with variant definitions",
+                    "properties": {
+                        "variants": {
+                            "items": {
+                                "properties": {
+                                    "key": {
+                                        "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")",
+                                        "type": "string"
+                                    },
+                                    "name": {
+                                        "description": "Human-readable name for this variant",
+                                        "type": "string"
+                                    },
+                                    "rollout_percentage": {
+                                        "description": "Percentage of users who will see this variant (0-100). Must be an integer.",
+                                        "maximum": 100,
+                                        "minimum": 0,
+                                        "type": "integer"
+                                    }
+                                },
+                                "required": ["key", "rollout_percentage"],
+                                "type": "object"
+                            },
+                            "minItems": 2,
+                            "type": "array"
+                        }
+                    },
+                    "required": ["variants"],
+                    "type": "object"
+                }
+            },
+            "required": ["groups"],
+            "type": "object"
+        },
+        "key": {
+            "type": "string"
+        },
+        "name": {
+            "type": "string"
+        },
+        "tags": {
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["name", "key", "description", "filters", "active"],
+    "type": "object"
+}

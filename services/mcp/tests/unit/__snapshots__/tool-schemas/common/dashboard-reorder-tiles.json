@@ -1,0 +1,23 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "dashboardId": {
+            "description": "The ID of the dashboard to reorder tiles on",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "type": "integer"
+        },
+        "tileOrder": {
+            "description": "Array of tile IDs in the desired order from top to bottom",
+            "items": {
+                "exclusiveMinimum": 0,
+                "maximum": 9007199254740991,
+                "type": "integer"
+            },
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["dashboardId", "tileOrder"],
+    "type": "object"
+}

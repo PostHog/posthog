@@ -1,0 +1,62 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "data": {
+            "properties": {
+                "dashboard": {
+                    "type": "number"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "favorited": {
+                    "type": "boolean"
+                },
+                "filters": {
+                    "additionalProperties": {},
+                    "propertyNames": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "query": {
+                    "properties": {
+                        "kind": {
+                            "anyOf": [
+                                {
+                                    "const": "InsightVizNode",
+                                    "type": "string"
+                                },
+                                {
+                                    "const": "DataVisualizationNode",
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        "source": {
+                            "description": "For new insights, use the query from your successful query-run tool call. For updates, the existing query can optionally be reused"
+                        }
+                    },
+                    "required": ["kind", "source"],
+                    "type": "object"
+                },
+                "tags": {
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["query"],
+            "type": "object"
+        },
+        "insightId": {
+            "type": "string"
+        }
+    },
+    "required": ["insightId", "data"],
+    "type": "object"
+}
