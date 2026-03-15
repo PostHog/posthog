@@ -39,17 +39,9 @@ if not os.environ.get("GOOGLE_API_KEY") and os.environ.get("GEMINI_API_KEY"):
 
 
 def pytest_addoption(parser):
-    parser.addoption("--case-ids", default=None, help="Comma-separated ticket IDs to run (e.g. 00005,00010)")
     parser.addoption("--limit", default=None, type=int, help="Limit number of items to process (e.g. --limit 3)")
     parser.addoption("--no-capture", action="store_true", default=False, help="Skip emitting eval results to PostHog")
-
-
-@pytest.fixture
-def case_ids(request):
-    raw = request.config.getoption("--case-ids")
-    if raw is None:
-        return None
-    return {s.strip() for s in raw.split(",") if s.strip()}
+    parser.addoption("--offline", action="store_true", default=False, help="Capture as offline eval for development")
 
 
 @pytest.fixture
@@ -60,6 +52,11 @@ def limit(request):
 @pytest.fixture
 def no_capture(request):
     return request.config.getoption("--no-capture")
+
+
+@pytest.fixture
+def offline(request):
+    return request.config.getoption("--offline")
 
 
 @pytest.fixture

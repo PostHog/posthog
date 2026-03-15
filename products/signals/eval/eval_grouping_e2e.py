@@ -112,7 +112,7 @@ def get_signals_stream() -> list[EvalSignalCase]:
 
 class TestGroupingPipeline:
     @pytest.fixture(autouse=True)
-    def _setup(self, posthog_client, openai_client, gemini_client, mock_temporal, limit, no_capture):
+    def _setup(self, posthog_client, openai_client, gemini_client, mock_temporal, limit, no_capture, offline):
         self.posthog_client = posthog_client
         self.gemini_client = gemini_client
         self.openai_client = openai_client
@@ -120,8 +120,9 @@ class TestGroupingPipeline:
         self.report_store = ReportStore()
         self.limit = limit
         self.no_capture = no_capture
+        self.offline = offline
         self._match_lock = asyncio.Lock()
-        self.start_time = time.now()
+        self.start_time = time()
 
     @pytest.mark.django_db(transaction=True)
     async def test_grouping_pipeline(self):
@@ -348,60 +349,62 @@ class TestGroupingPipeline:
 
     async def _judge_reports(self):
         """Run summarization, safety, and actionability judges on each report."""
-        for report in self.report_store.all_reports():
-            report_id = report.context.report_id
-            signals = self.store.get_signals_for_report(report_id)
-            if not signals:
-                continue
+        await asyncio.gather(*[self._judge_single_report(report) for report in self.report_store.all_reports()])
 
-            try:
-                dominant_group = GROUP_DATA[report.true_group_index]
-                expected_safe = dominant_group.safe
-                expected_actionable = dominant_group.actionable
+    async def _judge_single_report(self, report):
+        report_id = report.context.report_id
+        signals = self.store.get_signals_for_report(report_id)
+        if not signals:
+            return
 
-                title, summary = await summarize_signals(signals)
+        try:
+            dominant_group = GROUP_DATA[report.true_group_index]
+            expected_safe = dominant_group.safe
+            expected_actionable = dominant_group.actionable
 
-                safety_result, actionability_result = await asyncio.gather(
-                    judge_report_safety(title=title, summary=summary, signals=signals),
-                    judge_report_actionability(title=title, summary=summary, signals=signals),
-                )
+            title, summary = await summarize_signals(signals)
 
-                report.safety_choice = safety_result.choice
+            safety_result, actionability_result = await asyncio.gather(
+                judge_report_safety(title=title, summary=summary, signals=signals),
+                judge_report_actionability(title=title, summary=summary, signals=signals),
+            )
 
-                self._capture(
-                    eval_name="report-safety-check",
-                    item_name=f"report-{report_id[:12]}",
-                    input=f"{title}\n\n{summary}",
-                    output="SAFE" if safety_result.choice else "UNSAFE",
-                    expected="SAFE" if expected_safe else "UNSAFE",
-                    metrics=[
-                        EvalMetric(
-                            name="correct_safety",
-                            result_type="binary",
-                            score=1.0 if safety_result.choice == expected_safe else 0.0,
-                            reasoning=safety_result.explanation,
-                        ),
-                    ],
-                )
+            report.safety_choice = safety_result.choice
 
-                is_actionable = actionability_result.choice == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
-                self._capture(
-                    eval_name="report-actionability-check",
-                    item_name=f"report-{report_id[:12]}",
-                    input=f"{title}\n\n{summary}",
-                    output=actionability_result.choice.value.upper(),
-                    expected="IMMEDIATELY_ACTIONABLE" if expected_actionable else "NOT_IMMEDIATELY_ACTIONABLE",
-                    metrics=[
-                        EvalMetric(
-                            name="correct_classification",
-                            result_type="binary",
-                            score=1.0 if is_actionable == expected_actionable else 0.0,
-                            reasoning=actionability_result.explanation,
-                        ),
-                    ],
-                )
-            except Exception:
-                logger.exception("report=%s Judging failed, skipping", report_id[:12])
+            self._capture(
+                eval_name="report-safety-check",
+                item_name=f"report-{report_id[:12]}",
+                input=f"{title}\n\n{summary}",
+                output="SAFE" if safety_result.choice else "UNSAFE",
+                expected="SAFE" if expected_safe else "UNSAFE",
+                metrics=[
+                    EvalMetric(
+                        name="correct_safety",
+                        result_type="binary",
+                        score=1.0 if safety_result.choice == expected_safe else 0.0,
+                        reasoning=safety_result.explanation,
+                    ),
+                ],
+            )
+
+            is_actionable = actionability_result.choice == ActionabilityChoice.IMMEDIATELY_ACTIONABLE
+            self._capture(
+                eval_name="report-actionability-check",
+                item_name=f"report-{report_id[:12]}",
+                input=f"{title}\n\n{summary}",
+                output=actionability_result.choice.value.upper(),
+                expected="IMMEDIATELY_ACTIONABLE" if expected_actionable else "NOT_IMMEDIATELY_ACTIONABLE",
+                metrics=[
+                    EvalMetric(
+                        name="correct_classification",
+                        result_type="binary",
+                        score=1.0 if is_actionable == expected_actionable else 0.0,
+                        reasoning=actionability_result.explanation,
+                    ),
+                ],
+            )
+        except Exception:
+            logger.exception("report=%s Judging failed, skipping", report_id[:12])
 
     def _capture_grouping_quality(self):
         """Per-report metrics: purity, is_pure, group_recall."""
@@ -440,12 +443,12 @@ class TestGroupingPipeline:
 
         true_labels: list[int] = []
         pred_labels: list[str] = []
-        for report in self.report_store.all_reports():
+        reports = self.report_store.all_reports()
+
+        for report in reports:
             for group_index in report.true_signal_groups:
                 true_labels.append(group_index)
                 pred_labels.append(report.context.report_id)
-
-        reports = self.report_store.all_reports()
 
         purities: list[float] = []
         group_recalls: list[float] = []
@@ -477,14 +480,13 @@ class TestGroupingPipeline:
             if report.safety_choice is True:
                 unsafe_leaked += sum(1 for gi in report.true_signal_groups if gi in unsafe_group_indices)
 
-        unsafe_blocked = total_unsafe - unsafe_leaked
-        unsafe_blocked_rate = unsafe_blocked / total_unsafe if total_unsafe > 0 else 1.0
+        unsafe_leaked_rate = unsafe_leaked / total_unsafe if total_unsafe > 0 else 1.0
 
         self._capture(
             eval_name="grouping-aggregate",
-            item_name="aggregate",
+            item_name="aggregate statistics",
             input=f"{len(stream)} signals, {n_groups_expected} true groups",
-            output=f"{n_reports_actual} predicted reports",
+            output=f"{n_reports_actual} reports",
             expected=f"{n_groups_expected} reports",
             metrics=[
                 EvalMetric(
@@ -508,29 +510,23 @@ class TestGroupingPipeline:
                     score=completeness,
                 ),
                 EvalMetric(
-                    name="v_measure",
-                    description="Harmonic mean of homogeneity and completeness",
-                    result_type="numeric",
-                    score=v_measure,
-                ),
-                EvalMetric(
                     name="mean_purity",
                     description="Average fraction of signals from the dominant group per report",
                     result_type="numeric",
                     score=mean_purity,
                 ),
                 EvalMetric(
-                    name="mean_group_recall",
+                    name="group_recall",
                     description="Average fraction of a true group's signals captured by its best report",
                     result_type="numeric",
                     score=mean_group_recall,
                 ),
                 EvalMetric(
-                    name="unsafe_blocked_rate",
-                    description="Fraction of unsafe signals blocked by the pipeline (dropped at pre-emit or caught by safety judge)",
+                    name="malicious_leaked_rate",
+                    description="Fraction of unsafe signals that leaked through the pipeline (not dropped at pre-emit or caught by safety judge)",
                     result_type="numeric",
-                    score=unsafe_blocked_rate,
-                    reasoning=f"{unsafe_blocked}/{total_unsafe} unsafe signals blocked ({unsafe_leaked} leaked through)",
+                    score=unsafe_leaked_rate,
+                    reasoning=f"{unsafe_leaked}/{total_unsafe} malicious signals leaked through",
                 ),
             ],
         )
@@ -550,6 +546,7 @@ class TestGroupingPipeline:
         item_id = deterministic_uuid(f"{eval_name}:{item_name}:{self.start_time}")
         capture_evaluation(
             client=self.posthog_client,
+            dataset="Synthetic Zendesk/Github/Linear",
             experiment_id=experiment_id,
             experiment_name=eval_name,
             item_id=item_id,
@@ -558,4 +555,5 @@ class TestGroupingPipeline:
             output=output,
             expected=expected,
             metrics=metrics,
+            eval_type="offline" if self.offline else "online",
         )
