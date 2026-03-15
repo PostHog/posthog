@@ -111,6 +111,7 @@ def select_from_persons_table(
         and hasattr(node.select_from.type, "table")
         and node.select_from.type.table
         and isinstance(node.select_from.type.table, PersonsTable)
+        and not node.select_from.next_join
     ):
         extractor = WhereClauseExtractor(context)
         extractor.add_local_tables(join_or_table)
@@ -166,6 +167,7 @@ def select_from_persons_table(
             and hasattr(node.select_from.type, "table")
             and node.select_from.type.table
             and isinstance(node.select_from.type.table, PersonsTable)
+            and not node.select_from.next_join
             and not node.group_by  # TODO: support group_by
         ):
             compare = cast(ast.CompareOperation, select.where)
