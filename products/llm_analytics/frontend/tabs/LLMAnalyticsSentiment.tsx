@@ -135,21 +135,21 @@ function SentimentFeedbackButtons({ card }: { card: SentimentCard }): JSX.Elemen
             emoji: '😠',
             tooltip: 'Label as negative',
             selectedBg: 'bg-danger-highlight',
-            hoverBg: 'hover:bg-danger-highlight',
+            hoverBg: 'hover:bg-danger/50',
         },
         {
             label: 'neutral',
             emoji: '😐',
             tooltip: 'Label as neutral',
             selectedBg: 'bg-border-light',
-            hoverBg: 'hover:bg-border-light',
+            hoverBg: '',
         },
         {
             label: 'positive',
             emoji: '😊',
             tooltip: 'Label as positive',
             selectedBg: 'bg-success-highlight',
-            hoverBg: 'hover:bg-success-highlight',
+            hoverBg: 'hover:bg-success/50',
         },
     ]
 
