@@ -1442,14 +1442,14 @@ async fn test_fetch_and_filter_preserves_evaluation_metadata() {
     ];
 
     // Write to cache WITH evaluation_metadata
-    let eval_context = EvaluationMetadata {
+    let eval_metadata = EvaluationMetadata {
         dependency_stages: vec![vec![1], vec![2]],
         flags_with_missing_deps: vec![],
         transitive_deps: HashMap::from([(2, std::collections::HashSet::from([1]))]),
     };
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.clone(),
-        evaluation_metadata: Some(eval_context),
+        evaluation_metadata: Some(eval_metadata),
     };
     let json_string = serde_json::to_string(&wrapper).unwrap();
     let pickled_bytes = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
