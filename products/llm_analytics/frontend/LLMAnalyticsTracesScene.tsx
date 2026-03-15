@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions, useMountedLogic, useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 
 import { LemonTag } from '@posthog/lemon-ui'
@@ -18,6 +18,7 @@ import { LLMMessageDisplay } from './ConversationDisplay/ConversationMessagesDis
 import { llmAnalyticsColumnRenderers } from './llmAnalyticsColumnRenderers'
 import { llmAnalyticsSharedLogic } from './llmAnalyticsSharedLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
+import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
 import {
     formatLLMCost,
     formatLLMLatency,
@@ -28,6 +29,8 @@ import {
 } from './utils'
 
 export function LLMAnalyticsTraces(): JSX.Element {
+    useMountedLogic(traceReviewsLazyLoaderLogic)
+
     const { setDates, setShouldFilterTestAccounts, setShouldFilterSupportTraces, setPropertyFilters } =
         useActions(llmAnalyticsSharedLogic)
     const { propertyFilters: currentPropertyFilters } = useValues(llmAnalyticsSharedLogic)
@@ -86,6 +89,7 @@ export const useTracesQueryContext = (): QueryContext<DataTableNode> => {
                 title: 'Trace Name',
                 render: TraceNameColumn,
             },
+            review: llmAnalyticsColumnRenderers.review,
             promptVersion: {
                 title: 'Prompt version',
                 render: PromptVersionColumn,
