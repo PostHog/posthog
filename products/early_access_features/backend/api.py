@@ -92,7 +92,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         if instance.stage != stage:
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
-        if stage in EarlyAccessFeature.ActiveStage and rollout_to_all:
+        if instance.stage != stage and stage == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY and rollout_to_all:
             # When promoting to GA with rollout_to_all, clear super_groups (removing opt-in/opt-out
             # conditions) and set the flag to 100% rollout so all users see the feature regardless
             # of their previous enrollment status.
