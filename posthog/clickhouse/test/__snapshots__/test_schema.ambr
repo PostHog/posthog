@@ -3392,6 +3392,12 @@
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
+      -- Hosts - store unique hostnames seen in this session (extracted from $host property)
+      hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
+  
+      -- Emails - store unique emails seen in this session (extracted from person_properties.email)
+      emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
+  
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
   ) ENGINE = Distributed('posthog', 'posthog_test', 'sharded_raw_sessions_v3', cityHash64(session_id_v7))
@@ -3431,6 +3437,7 @@
               `gclid` Nullable(String),
               `gad_source` Nullable(String),
               `fbclid` Nullable(String),
+              `$host` Nullable(String),
               `gclsrc` Nullable(String),
               `dclid` Nullable(String),
               `gbraid` Nullable(String),
@@ -3447,6 +3454,7 @@
               `_kx` Nullable(String),
               `irclid` Nullable(String)
           )') as p,
+          JSONExtractString(person_properties, 'email') as _person_email,
           tupleElement(p, '$current_url') as _current_url,
           tupleElement(p, '$external_click_url') as _external_click_url,
           tupleElement(p, '$browser') as _browser,
@@ -3519,6 +3527,7 @@
               if(_kx IS NOT NULL, '_kx', NULL),
               if(irclid IS NOT NULL, 'irclid', NULL)
           ]) AS Array(String)) as ad_ids_set,
+          tupleElement(p, '$host') as _host,
       -- attribution properties from non-pageview/screen events should be deprioritized, so make the timestamp +/- 1 year so they sort last
       if (event = '$pageview' OR event = '$screen', timestamp, timestamp + toIntervalYear(1)) as pageview_prio_timestamp_min,
       if (event = '$pageview' OR event = '$screen', timestamp, timestamp - toIntervalYear(1)) as pageview_prio_timestamp_max
@@ -3594,6 +3603,12 @@
   
       -- event names
       [event] as event_names,
+  
+      -- hosts
+      if(_host IS NOT NULL AND _host != '', [_host], []) AS hosts,
+  
+      -- emails
+      if(_person_email IS NOT NULL AND _person_email != '', [_person_email], []) AS emails,
   
       false as has_replay_events
   FROM posthog_test.sharded_events AS source_table
@@ -3687,6 +3702,12 @@
   
       -- event names
       CAST([], 'Array(String)') as event_names,
+  
+      -- hosts
+      CAST([], 'Array(String)') as hosts,
+  
+      -- emails
+      CAST([], 'Array(String)') as emails,
   
       -- replay
       true as has_replay_events
@@ -4675,13 +4696,21 @@
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
+      -- Hosts - store unique hostnames seen in this session (extracted from $host property)
+      hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
+  
+      -- Emails - store unique emails seen in this session (extracted from person_properties.email)
+      emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
+  
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
   ,
   
       -- Indexes
       INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
-      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
+      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
+      INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
+      INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
   PARTITION BY toYYYYMM(session_timestamp)
@@ -5735,6 +5764,12 @@
   
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
+  
+      -- Hosts - store unique hostnames seen in this session (extracted from $host property)
+      hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
+  
+      -- Emails - store unique emails seen in this session (extracted from person_properties.email)
+      emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
   
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
@@ -7381,13 +7416,21 @@
       -- Event names - store unique event names seen in this session
       event_names SimpleAggregateFunction(groupUniqArrayArray(2000), Array(String)),
   
+      -- Hosts - store unique hostnames seen in this session (extracted from $host property)
+      hosts SimpleAggregateFunction(groupUniqArrayArray(100), Array(String)),
+  
+      -- Emails - store unique emails seen in this session (extracted from person_properties.email)
+      emails SimpleAggregateFunction(groupUniqArrayArray(10), Array(String)),
+  
       -- Replay
       has_replay_events SimpleAggregateFunction(max, Boolean)
   ,
   
       -- Indexes
       INDEX event_names_bloom_filter event_names TYPE bloom_filter() GRANULARITY 1,
-      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1
+      INDEX flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRANULARITY 1,
+      INDEX hosts_bloom_filter hosts TYPE bloom_filter() GRANULARITY 1,
+      INDEX emails_bloom_filter emails TYPE bloom_filter() GRANULARITY 1
   ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_{shard}/posthog.raw_sessions_v3', '{replica}')
   
   PARTITION BY toYYYYMM(session_timestamp)

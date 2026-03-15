@@ -84,6 +84,8 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "screen_uniq": DatabaseField(name="screen_uniq", nullable=False),
     "page_screen_uniq_up_to": DatabaseField(name="page_screen_uniq_up_to", nullable=False),
     "has_autocapture": BooleanDatabaseField(name="has_autocapture", nullable=False),
+    "hosts": StringArrayDatabaseField(name="hosts", nullable=False),
+    "emails": StringArrayDatabaseField(name="emails", nullable=False),
     "has_replay_events": BooleanDatabaseField(name="has_replay_events", nullable=False),
 }
 
@@ -140,6 +142,8 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
         name="duration"
     ),  # alias of $session_duration, deprecated but included for backwards compatibility
     "$is_bounce": BooleanDatabaseField(name="$is_bounce"),
+    "$hosts": StringArrayDatabaseField(name="$hosts"),
+    "$emails": StringArrayDatabaseField(name="$emails"),
     "$has_replay_events": BooleanDatabaseField(name="$has_replay_events", nullable=False),
 }
 
@@ -188,6 +192,17 @@ def select_from_sessions_table_v3(
     def arg_max_merge_field(field_name: str) -> ast.Call:
         return ast.Call(name="argMaxMerge", args=[ast.Field(chain=[table_name, field_name])])
 
+    def collect_array_field(field_name: str) -> ast.Call:
+        return ast.Call(
+            name="arrayDistinct",
+            args=[
+                ast.Call(
+                    name="arrayFlatten",
+                    args=[ast.Call(name="groupArray", args=[ast.Field(chain=[table_name, field_name])])],
+                )
+            ],
+        )
+
     aggregate_fields: dict[str, ast.Expr] = {
         "session_id": ast.Call(
             name="toString",
@@ -216,15 +231,9 @@ def select_from_sessions_table_v3(
         "$start_timestamp": ast.Call(name="min", args=[ast.Field(chain=[table_name, "min_timestamp"])]),
         "$end_timestamp": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_timestamp"])]),
         "max_inserted_at": ast.Call(name="max", args=[ast.Field(chain=[table_name, "max_inserted_at"])]),
-        "$urls": ast.Call(
-            name="arrayDistinct",
-            args=[
-                ast.Call(
-                    name="arrayFlatten",
-                    args=[ast.Call(name="groupArray", args=[ast.Field(chain=[table_name, "urls"])])],
-                )
-            ],
-        ),
+        "$urls": collect_array_field("urls"),
+        "$hosts": collect_array_field("hosts"),
+        "$emails": collect_array_field("emails"),
         "$entry_current_url": (arg_min_merge_field("entry_url")),
         "$end_current_url": (arg_max_merge_field("end_url")),
         "$last_external_click_url": arg_max_merge_field("last_external_click_url"),
