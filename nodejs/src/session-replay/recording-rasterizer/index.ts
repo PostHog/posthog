@@ -5,6 +5,7 @@ import { rasterizeRecordingActivity, setBrowserPool } from './activities'
 import { BrowserPool } from './browser-pool'
 import { EncryptionCodec } from './codec'
 import { config } from './config'
+import { loadPlayerHtml } from './recorder'
 
 async function buildTLSConfig() {
     const { temporalClientRootCA, temporalClientCert, temporalClientKey } = config
@@ -48,6 +49,9 @@ async function main(): Promise<void> {
     setBrowserPool(pool)
 
     console.log('Browser pool launched')
+
+    await loadPlayerHtml()
+    console.log(`Player HTML loaded from ${config.playerHtmlPath}`)
 
     const worker = Worker.create({
         connection,

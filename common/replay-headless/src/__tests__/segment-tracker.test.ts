@@ -20,37 +20,38 @@ describe('segment-tracker', () => {
     })
 
     describe('publishSegments', () => {
-        it('converts segments to inactivity periods on the window', () => {
+        it('converts segments to relative inactivity periods on the window', () => {
             const segments: RecordingSegment[] = [
                 makeSegment({ startTimestamp: 1000000, endTimestamp: 2000000, isActive: true }),
                 makeSegment({ startTimestamp: 2000000, endTimestamp: 3000000, isActive: false, kind: 'gap' }),
                 makeSegment({ startTimestamp: 3000000, endTimestamp: 5000000, isActive: true }),
             ]
 
-            publishSegments(segments)
+            publishSegments(segments, 1000000)
 
             expect(window.__POSTHOG_INACTIVITY_PERIODS__).toEqual([
-                { ts_from_s: 1000, ts_to_s: 2000, active: true },
-                { ts_from_s: 2000, ts_to_s: 3000, active: false },
-                { ts_from_s: 3000, ts_to_s: 5000, active: true },
+                { ts_from_s: 0, ts_to_s: 1000, active: true },
+                { ts_from_s: 1000, ts_to_s: 2000, active: false },
+                { ts_from_s: 2000, ts_to_s: 4000, active: true },
             ])
             expect(window.__POSTHOG_SEGMENT_COUNTER__).toBe(0)
         })
     })
 
     describe('createSegmentTracker', () => {
-        it('increments counter when crossing segment boundaries', () => {
+        it('increments counter and publishes relative timestamps', () => {
+            const firstTimestamp = 1000
             const segments: RecordingSegment[] = [
                 makeSegment({ startTimestamp: 1000, endTimestamp: 2000 }),
                 makeSegment({ startTimestamp: 2001, endTimestamp: 3000, kind: 'gap', isActive: false }),
                 makeSegment({ startTimestamp: 3001, endTimestamp: 5000 }),
             ]
-            publishSegments(segments)
-            const track = createSegmentTracker(segments)
+            publishSegments(segments, firstTimestamp)
+            const track = createSegmentTracker(segments, firstTimestamp)
 
             track(1500)
             expect(window.__POSTHOG_SEGMENT_COUNTER__).toBe(1)
-            expect(window.__POSTHOG_CURRENT_SEGMENT_START_TS__).toBe(1)
+            expect(window.__POSTHOG_CURRENT_SEGMENT_START_TS__).toBe(0)
 
             // same segment — no increment
             track(1800)
@@ -58,17 +59,17 @@ describe('segment-tracker', () => {
 
             track(2500)
             expect(window.__POSTHOG_SEGMENT_COUNTER__).toBe(2)
-            expect(window.__POSTHOG_CURRENT_SEGMENT_START_TS__).toBe(2.001)
+            expect(window.__POSTHOG_CURRENT_SEGMENT_START_TS__).toBe(1.001)
 
             track(4000)
             expect(window.__POSTHOG_SEGMENT_COUNTER__).toBe(3)
-            expect(window.__POSTHOG_CURRENT_SEGMENT_START_TS__).toBe(3.001)
+            expect(window.__POSTHOG_CURRENT_SEGMENT_START_TS__).toBe(2.001)
         })
 
         it('does nothing for timestamps outside all segments', () => {
             const segments: RecordingSegment[] = [makeSegment({ startTimestamp: 1000, endTimestamp: 2000 })]
-            publishSegments(segments)
-            const track = createSegmentTracker(segments)
+            publishSegments(segments, 1000)
+            const track = createSegmentTracker(segments, 1000)
 
             track(500)
             expect(window.__POSTHOG_SEGMENT_COUNTER__).toBe(0)

@@ -42,6 +42,8 @@ COPY ./common/esbuilder/ ./common/esbuilder/
 COPY ./common/plugin_transpiler/ ./common/plugin_transpiler/
 COPY ./common/hogvm/typescript/ ./common/hogvm/typescript/
 COPY ./nodejs/package.json ./nodejs/tsconfig.json ./nodejs/
+COPY ./common/replay-shared/package.json ./common/replay-shared/
+COPY ./common/replay-headless/package.json ./common/replay-headless/
 
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 ENV BUILD_LIBRDKAFKA=0 \
@@ -50,6 +52,7 @@ ENV BUILD_LIBRDKAFKA=0 \
 RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
     corepack enable && \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/nodejs... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
+    NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/replay-headless... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" CI=1 pnpm --filter=@posthog/plugin-transpiler... install --frozen-lockfile --store-dir /tmp/pnpm-store-v24 && \
     NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/plugin-transpiler build
 
@@ -57,19 +60,28 @@ COPY ./nodejs/src/ ./nodejs/src/
 COPY ./nodejs/tests/ ./nodejs/tests/
 COPY ./nodejs/assets/ ./nodejs/assets/
 COPY ./nodejs/bin/ ./nodejs/bin/
+COPY ./common/replay-shared/src/ ./common/replay-shared/src/
+COPY ./common/replay-shared/tsconfig.json ./common/replay-shared/
+COPY ./common/replay-headless/src/ ./common/replay-headless/src/
+COPY ./common/replay-headless/build.mjs ./common/replay-headless/
 
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/cyclotron build
+RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/replay-headless build
 RUN NODE_OPTIONS="--max-old-space-size=16384" bin/turbo --filter=@posthog/nodejs build
 
 
 #
-# Runtime stage: Node.js + Chromium + ffmpeg
+# Runtime stage: Node.js + chrome-headless-shell + ffmpeg
+#
+# Uses chrome-headless-shell instead of full Chromium. This binary supports
+# HeadlessExperimental.beginFrame for deterministic frame-by-frame capture
+# via puppeteer-capture (virtual time, no rAF dependency).
 #
 FROM node:24.13.0-bookworm-slim
 WORKDIR /code
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
-# Install runtime dependencies: librdkafka, Chromium, ffmpeg
+# Install runtime dependencies: librdkafka, chrome-headless-shell deps, ffmpeg
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     "ca-certificates" \
@@ -84,10 +96,35 @@ RUN apt-get update && \
     "librdkafka1=2.10.1-1.cflt~deb12" \
     "librdkafka++1=2.10.1-1.cflt~deb12" \
     "libssl3=3.0.18-1~deb12u2" \
-    "chromium" \
     "ffmpeg=7:5.1.8-0+deb12u1" \
+    # Shared libraries required by chrome-headless-shell
+    libasound2 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
+    libcups2 \
+    libdbus-1-3 \
+    libdrm2 \
+    libgbm1 \
+    libglib2.0-0 \
+    libnspr4 \
+    libnss3 \
+    libpango-1.0-0 \
+    libx11-6 \
+    libxcb1 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxext6 \
+    libxfixes3 \
+    libxkbcommon0 \
+    libxrandr2 \
     && \
     rm -rf /var/lib/apt/lists/*
+
+# Install chrome-headless-shell via @puppeteer/browsers CLI.
+# This provides the minimal Chrome binary that supports HeadlessExperimental.
+RUN npx --yes @puppeteer/browsers install chrome-headless-shell@stable \
+    --path /opt/chrome-headless-shell && \
+    ln -s "$(find /opt/chrome-headless-shell -name chrome-headless-shell -type f | head -1)" /usr/local/bin/chrome-headless-shell
 
 RUN groupadd -g 1000 posthog || groupmod -n posthog $(getent group 1000 | cut -d: -f1) && \
     useradd -u 1000 -g posthog posthog || usermod -l posthog -d /code -g posthog $(getent passwd 1000 | cut -d: -f1) && \
@@ -111,13 +148,13 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/dist /code/nodejs/
 COPY --from=nodejs-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/node_modules /code/nodejs/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/package.json /code/nodejs/package.json
-
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/replay-headless/dist/player.html /code/common/replay-headless/dist/player.html
 ENV NODE_ENV=production \
     BUILD_LIBRDKAFKA=0 \
-    PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium \
+    PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chrome-headless-shell \
     PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 
 # Validate runtime dependencies
-RUN chromium --version && ffmpeg -version
+RUN chrome-headless-shell --version && ffmpeg -version
 
 CMD ["node", "nodejs/dist/session-replay/recording-rasterizer/index.js"]

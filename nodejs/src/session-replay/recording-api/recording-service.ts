@@ -171,7 +171,8 @@ export class RecordingService {
 
         try {
             const result = await this.clickhouse.query({
-                query: `/* team_id:${teamId} kind:recording_api_list_blocks */ SELECT
+                query: `
+                    SELECT
                         min(min_first_timestamp) as start_time,
                         groupArrayArray(block_first_timestamps) as block_first_timestamps,
                         groupArrayArray(block_last_timestamps) as block_last_timestamps,
@@ -195,15 +196,6 @@ export class RecordingService {
                 format: 'JSONEachRow',
                 clickhouse_settings: {
                     date_time_output_format: 'iso',
-                    log_comment: JSON.stringify({
-                        team_id: teamId,
-                        product: 'replay',
-                        kind: 'recording_api_list_blocks',
-                        access_method: 'recording_api',
-                    }),
-                    max_execution_time: 30,
-                    max_threads: 45,
-                    max_bytes_to_read: '5000000000000',
                 },
             })
 

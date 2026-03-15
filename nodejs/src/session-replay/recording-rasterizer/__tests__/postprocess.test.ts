@@ -1,91 +1,88 @@
-import { execFile } from 'child_process'
+import { computeVideoTimestamps } from '../postprocess'
+import { InactivityPeriod } from '../types'
 
-import { postProcessToMp4 } from '../postprocess'
+describe('computeVideoTimestamps', () => {
+    it('maps active periods to cumulative video time', () => {
+        const periods: InactivityPeriod[] = [
+            { ts_from_s: 0, ts_to_s: 10, active: true },
+            { ts_from_s: 10, ts_to_s: 20, active: true },
+        ]
 
-jest.mock('child_process', () => ({
-    execFile: jest.fn(),
-}))
+        const result = computeVideoTimestamps(periods)
 
-const mockExecFile = execFile as unknown as jest.Mock
-
-describe('postProcessToMp4', () => {
-    beforeEach(() => {
-        mockExecFile.mockImplementation((...args: any[]) => {
-            const cb = args[args.length - 1] as (err: unknown, stdout: string, stderr: string) => void
-            cb(null, '', '')
-        })
+        expect(result[0].recording_ts_from_s).toBe(0)
+        expect(result[0].recording_ts_to_s).toBe(10)
+        expect(result[1].recording_ts_from_s).toBe(10)
+        expect(result[1].recording_ts_to_s).toBe(20)
     })
 
-    const baseOpts = {
-        inputPath: '/tmp/raw.mp4',
-        outputPath: '/tmp/final.mp4',
-        preRoll: 2.5,
-        recordingDuration: 60,
-        playbackSpeed: 1,
-        customFps: null,
-    }
+    it('inactive periods get zero video duration', () => {
+        const periods: InactivityPeriod[] = [
+            { ts_from_s: 0, ts_to_s: 10, active: true },
+            { ts_from_s: 10, ts_to_s: 50, active: false },
+            { ts_from_s: 50, ts_to_s: 60, active: true },
+        ]
 
-    it('calls ffmpeg with correct base arguments', async () => {
-        await postProcessToMp4(baseOpts)
+        const result = computeVideoTimestamps(periods)
 
-        expect(mockExecFile).toHaveBeenCalledTimes(1)
-        const [cmd, args] = mockExecFile.mock.calls[0]
-        expect(cmd).toBe('ffmpeg')
-        expect(args).toContain('-ss')
-        expect(args).toContain('2.50')
-        expect(args).toContain('-t')
-        expect(args).toContain('60.00')
-        expect(args).toContain('-c:v')
-        expect(args).toContain('libx264')
-        expect(args).toContain('+faststart')
-        expect(args[args.length - 1]).toBe('/tmp/final.mp4')
+        expect(result[0].recording_ts_from_s).toBe(0)
+        expect(result[0].recording_ts_to_s).toBe(10)
+        // Inactive period points to same position
+        expect(result[1].recording_ts_from_s).toBe(10)
+        expect(result[1].recording_ts_to_s).toBe(10)
+        // Next active period starts where the last active ended
+        expect(result[2].recording_ts_from_s).toBe(10)
+        expect(result[2].recording_ts_to_s).toBe(20)
     })
 
-    it('does not add -vf when playback speed is 1 and no custom fps', async () => {
-        await postProcessToMp4(baseOpts)
-
-        const args = mockExecFile.mock.calls[0][1] as string[]
-        expect(args).not.toContain('-vf')
+    it('handles empty input', () => {
+        expect(computeVideoTimestamps([])).toEqual([])
     })
 
-    it.each([
-        { playbackSpeed: 8, customFps: 24, expectedFilter: 'setpts=8*PTS,fps=3' },
-        { playbackSpeed: 4, customFps: 24, expectedFilter: 'setpts=4*PTS,fps=6' },
-        { playbackSpeed: 8, customFps: null, expectedFilter: 'setpts=8*PTS' },
-        { playbackSpeed: 1, customFps: 30, expectedFilter: 'fps=30' },
-    ])(
-        'builds video filter "$expectedFilter" for speed=$playbackSpeed fps=$customFps',
-        async ({ playbackSpeed, customFps, expectedFilter }) => {
-            await postProcessToMp4({ ...baseOpts, playbackSpeed, customFps })
+    it('handles single active period', () => {
+        const periods: InactivityPeriod[] = [{ ts_from_s: 0, ts_to_s: 30, active: true }]
 
-            const args = mockExecFile.mock.calls[0][1] as string[]
-            const vfIndex = args.indexOf('-vf')
-            expect(vfIndex).toBeGreaterThan(-1)
-            expect(args[vfIndex + 1]).toBe(expectedFilter)
-        }
-    )
+        const result = computeVideoTimestamps(periods)
 
-    it('throws on ffmpeg failure', async () => {
-        mockExecFile.mockImplementation((...args: any[]) => {
-            const cb = args[args.length - 1] as (err: unknown, stdout: string, stderr: string) => void
-            cb({ code: 1, stderr: 'encoding error' }, '', '')
-        })
-
-        await expect(postProcessToMp4(baseOpts)).rejects.toThrow('ffmpeg failed with exit code 1: encoding error')
+        expect(result[0].recording_ts_from_s).toBe(0)
+        expect(result[0].recording_ts_to_s).toBe(30)
     })
 
-    it('uses FFMPEG_PATH env var when set', async () => {
-        const original = process.env.FFMPEG_PATH
-        process.env.FFMPEG_PATH = '/custom/ffmpeg'
-        try {
-            await postProcessToMp4(baseOpts)
-            expect(mockExecFile.mock.calls[0][0]).toBe('/custom/ffmpeg')
-        } finally {
-            if (original !== undefined) {
-                process.env.FFMPEG_PATH = original
-            } else {
-                delete process.env.FFMPEG_PATH
-            }
-        }
+    it('handles period with null ts_to_s', () => {
+        const periods: InactivityPeriod[] = [{ ts_from_s: 0, ts_to_s: null, active: true }]
+
+        const result = computeVideoTimestamps(periods)
+
+        expect(result[0].recording_ts_from_s).toBe(0)
+        expect(result[0].recording_ts_to_s).toBe(0) // duration is 0 when ts_to_s is null
+    })
+
+    it('handles multiple inactive gaps', () => {
+        const periods: InactivityPeriod[] = [
+            { ts_from_s: 0, ts_to_s: 5, active: true },
+            { ts_from_s: 5, ts_to_s: 100, active: false },
+            { ts_from_s: 100, ts_to_s: 110, active: true },
+            { ts_from_s: 110, ts_to_s: 200, active: false },
+            { ts_from_s: 200, ts_to_s: 205, active: true },
+        ]
+
+        const result = computeVideoTimestamps(periods)
+
+        // 5s active + 10s active + 5s active = 20s total video
+        expect(result[0]).toMatchObject({ recording_ts_from_s: 0, recording_ts_to_s: 5 })
+        expect(result[1]).toMatchObject({ recording_ts_from_s: 5, recording_ts_to_s: 5 })
+        expect(result[2]).toMatchObject({ recording_ts_from_s: 5, recording_ts_to_s: 15 })
+        expect(result[3]).toMatchObject({ recording_ts_from_s: 15, recording_ts_to_s: 15 })
+        expect(result[4]).toMatchObject({ recording_ts_from_s: 15, recording_ts_to_s: 20 })
+    })
+
+    it('preserves original fields', () => {
+        const periods: InactivityPeriod[] = [{ ts_from_s: 5, ts_to_s: 10, active: true }]
+
+        const result = computeVideoTimestamps(periods)
+
+        expect(result[0].ts_from_s).toBe(5)
+        expect(result[0].ts_to_s).toBe(10)
+        expect(result[0].active).toBe(true)
     })
 })
