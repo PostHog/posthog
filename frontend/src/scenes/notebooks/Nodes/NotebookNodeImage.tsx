@@ -1,4 +1,4 @@
-import { ReactEventHandler, useEffect, useMemo, useState } from 'react'
+import { ReactEventHandler, useEffect, useState } from 'react'
 
 import { uploadFile } from 'lib/hooks/useUploadFiles'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -9,7 +9,15 @@ import { NotebookNodeProps, NotebookNodeType } from '../types'
 
 const MAX_DEFAULT_HEIGHT = 1000
 
-const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookNodeImageAttributes>): JSX.Element => {
+type NotebookNodeImageAttributes = {
+    file?: File
+    src?: string
+}
+
+export const NotebookNodeImageComponent = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeProps<NotebookNodeImageAttributes>): JSX.Element => {
     const { file, src, height } = attributes
     const [uploading, setUploading] = useState(false)
     const [error, setError] = useState<string>()
@@ -40,10 +48,21 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
         // oxlint-disable-next-line exhaustive-deps
     }, [file])
 
-    const imageSource = useMemo(
-        () => (src ? src : file && file.type ? URL.createObjectURL(file) : undefined),
-        [src, file]
-    )
+    const [objectUrl, setObjectUrl] = useState<string | undefined>(undefined)
+
+    useEffect(() => {
+        if (!file || !file.type || src) return
+
+        const url = URL.createObjectURL(file)
+        setObjectUrl(url)
+
+        return () => {
+            URL.revokeObjectURL(url)
+            setObjectUrl(undefined)
+        }
+    }, [file, src])
+
+    const imageSource = src || objectUrl
 
     useEffect(() => {
         if (!file && !src) {
@@ -76,15 +95,10 @@ const Component = ({ attributes, updateAttributes }: NotebookNodeProps<NotebookN
     )
 }
 
-type NotebookNodeImageAttributes = {
-    file?: File
-    src?: string
-}
-
 export const NotebookNodeImage = createPostHogWidgetNode<NotebookNodeImageAttributes>({
     nodeType: NotebookNodeType.Image,
     titlePlaceholder: 'Image',
-    Component,
+    Component: NotebookNodeImageComponent,
     serializedText: (attrs) => {
         // TODO file is null when this runs... should it be?
         return attrs?.file?.name || ''
