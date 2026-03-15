@@ -58,7 +58,7 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
     source = models.ForeignKey(Node, related_name="outgoing_edges", on_delete=models.CASCADE, editable=False)
     # the target node of the edge (i.e. the node this edge is pointed toward)
     target = models.ForeignKey(Node, related_name="incoming_edges", on_delete=models.CASCADE, editable=False)
-    dag = models.ForeignKey(DAG, on_delete=models.CASCADE, null=True, blank=True, db_column="dag_fk_id")
+    dag = models.ForeignKey(DAG, on_delete=models.CASCADE)
     properties = models.JSONField(default=dict)
 
     class Meta:
@@ -96,7 +96,7 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
                 FROM posthog_datamodelingedge e
                 WHERE e.source_id = %s
                     AND e.team_id = %s
-                    AND e.dag_fk_id = %s
+                    AND e.dag_id = %s
                 UNION
                 SELECT e.target_id
                 FROM posthog_datamodelingedge e
@@ -104,7 +104,7 @@ class Edge(UUIDModel, CreatedMetaFields, UpdatedMetaFields):
                 ON e.source_id = r.node_id
                 WHERE e.target_id <> %s
                     AND e.team_id = %s
-                    AND e.dag_fk_id = %s
+                    AND e.dag_id = %s
             )
             SELECT 1 FROM reachable WHERE node_id = %s
         """

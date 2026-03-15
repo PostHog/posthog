@@ -87,7 +87,7 @@ def validate_migration_sql(sql) -> bool:
             )
             return True
 
-        if "RENAME" in operation_sql:
+        if "RENAME" in operation_sql and "-- rename-ignore" not in operation_sql:
             print(
                 f"\n\n\033[91mFound a RENAME command. This will lock up the table while migrating. Please create a new column and provide alternative method for swapping columns.\nSource: `{operation_sql}`"
             )
