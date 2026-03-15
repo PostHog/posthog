@@ -1,4 +1,5 @@
 // Utility functions for parsing PostHog exception events
+import { EventType } from '~/types'
 
 export interface ExceptionMetadata {
     uuid: string
@@ -19,7 +20,7 @@ export type ParsedExceptionData = string
 /**
  * Extracts basic metadata from a PostHog exception event
  */
-function extractExceptionMetadata(event: any): ExceptionMetadata {
+function extractExceptionMetadata(event: EventType | null | undefined): ExceptionMetadata {
     return {
         uuid: event?.uuid || 'Unknown',
         commitSha: event?.properties?.commit_sha || 'Unknown',
@@ -32,7 +33,7 @@ function extractExceptionMetadata(event: any): ExceptionMetadata {
 /**
  * Extracts stack trace information from exception frames
  */
-function extractStackTraceInfo(event: any): StackTraceInfo {
+function extractStackTraceInfo(event: EventType | null | undefined): StackTraceInfo {
     let filename = 'Unknown'
     let functionName = 'Unknown'
     let lineNumber = 'Unknown'
@@ -44,6 +45,7 @@ function extractStackTraceInfo(event: any): StackTraceInfo {
         // Check if there's a stack trace in the exception
         if (exception.stacktrace && exception.stacktrace.frames) {
             const frames = exception.stacktrace.frames
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const appFrames = frames.filter((frame: any) => frame.in_app === true)
             const componentFrame = appFrames[appFrames.length - 1]
             if (componentFrame) {
@@ -74,7 +76,7 @@ Line: ${stackTrace.lineNumber}`
 /**
  * Main function to parse a PostHog exception event into a structured format
  */
-export function parseExceptionEvent(event: any): ParsedExceptionData {
+export function parseExceptionEvent(event: EventType | null | undefined): ParsedExceptionData {
     const metadata = extractExceptionMetadata(event)
     const stackTrace = extractStackTraceInfo(event)
     const parsedData = formatExceptionSummary(metadata, stackTrace)
