@@ -5,9 +5,11 @@ import posthog from 'posthog-js'
 import React, { useEffect, useRef, useState } from 'react'
 
 import { IconPencil, IconPlusSmall, IconTrash } from '@posthog/icons'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 import { Chart } from 'lib/Chart'
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
+import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import { dayjs } from 'lib/dayjs'
 import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -232,8 +234,10 @@ function AnnotationsPopover({
         insightId,
         isPopoverShown,
         annotationsOverlayProps,
+        availableTags,
+        tagFilter,
     } = useValues(annotationsOverlayLogic)
-    const { closePopover } = useActions(annotationsOverlayLogic)
+    const { closePopover, setTagFilter } = useActions(annotationsOverlayLogic)
     const { openModalToCreateAnnotation } = useActions(annotationModalLogic)
 
     // Capture event when popup is shown with a system annotation
@@ -248,6 +252,11 @@ function AnnotationsPopover({
             })
         }
     }, [isPopoverShown, popoverAnnotations])
+
+    const tagFilterOptions = [
+        { value: null, label: 'All tags' },
+        ...availableTags.map((tag) => ({ value: tag, label: tag })),
+    ]
 
     return (
         <Popover
@@ -267,15 +276,31 @@ function AnnotationsPopover({
                         INTERVAL_UNIT_TO_HUMAN_DAYJS_FORMAT[intervalUnit]
                     )}`}
                     footer={
-                        <LemonButton
-                            type="primary"
-                            onClick={() =>
-                                openModalToCreateAnnotation(activeDate, insightId, annotationsOverlayProps.dashboardId)
-                            }
-                            disabled={!isDateLocked}
-                        >
-                            Add annotation
-                        </LemonButton>
+                        <div className="flex items-center justify-between w-full gap-2">
+                            {availableTags.length > 0 ? (
+                                <LemonSelect
+                                    options={tagFilterOptions}
+                                    value={tagFilter}
+                                    onSelect={setTagFilter}
+                                    size="small"
+                                />
+                            ) : (
+                                <div />
+                            )}
+                            <LemonButton
+                                type="primary"
+                                onClick={() =>
+                                    openModalToCreateAnnotation(
+                                        activeDate,
+                                        insightId,
+                                        annotationsOverlayProps.dashboardId
+                                    )
+                                }
+                                disabled={!isDateLocked}
+                            >
+                                Add annotation
+                            </LemonButton>
+                        </div>
                     }
                     closable={isDateLocked}
                     onClose={closePopover}
@@ -342,6 +367,11 @@ function AnnotationCard({ annotation }: { annotation: AnnotationType }): JSX.Ele
                 )}
                 <TextContent text={annotation.content ?? ''} data-attr="annotation-overlay-rendered-content" />
             </div>
+            {!isSystemAnnotation && annotation.tags && annotation.tags.length > 0 && (
+                <div className="mt-1">
+                    <ObjectTags tags={annotation.tags} staticOnly />
+                </div>
+            )}
             {!isSystemAnnotation && (
                 <div className="leading-6 mt-2 flex flex-row items-center justify-between">
                     <div>

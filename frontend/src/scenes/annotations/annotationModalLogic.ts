@@ -37,6 +37,7 @@ export interface AnnotationModalForm {
     content: AnnotationType['content']
     dashboardItemId: AnnotationType['dashboard_item'] | null
     dashboardId: AnnotationType['dashboard_id'] | null
+    tags: string[]
 }
 
 export const annotationModalLogic = kea<annotationModalLogicType>([
@@ -96,11 +97,12 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
         ],
     })),
     listeners(({ cache, actions, values }) => ({
-        openModalToEditAnnotation: ({ annotation: { date_marker, scope, content }, insightId, dashboardId }) => {
+        openModalToEditAnnotation: ({ annotation: { date_marker, scope, content, tags }, insightId, dashboardId }) => {
             actions.setAnnotationModalValues({
                 dateMarker: dayjs(date_marker).tz(values.timezone),
                 scope,
                 content,
+                tags: tags || [],
             })
             if (insightId) {
                 actions.setAnnotationModalValue('dashboardItemId', insightId)
@@ -148,12 +150,13 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                 scope: AnnotationScope.Project,
                 dashboardItemId: null,
                 dashboardId: null,
+                tags: [],
             } as AnnotationModalForm,
             errors: ({ content }) => ({
                 content: !content?.trim() ? 'An annotation must have text content.' : null,
             }),
             submit: async (data) => {
-                const { dateMarker, content, scope, dashboardItemId, dashboardId } = data
+                const { dateMarker, content, scope, dashboardItemId, dashboardId, tags } = data
 
                 if (values.existingModalAnnotation) {
                     // annotationsModel's updateAnnotation inlined so that isAnnotationModalSubmitting works
@@ -165,6 +168,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         dashboard_item: dashboardItemId,
                         // preserve existing dashboard id
                         dashboard_id: values.existingModalAnnotation.dashboard_id,
+                        tags,
                     })
                     actions.replaceAnnotation(updatedAnnotation)
                 } else {
@@ -175,6 +179,7 @@ export const annotationModalLogic = kea<annotationModalLogicType>([
                         scope,
                         dashboard_item: dashboardItemId,
                         dashboard_id: dashboardId,
+                        tags,
                     })
                     actions.appendAnnotations([createdAnnotation])
                 }

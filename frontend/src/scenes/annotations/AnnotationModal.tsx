@@ -4,6 +4,7 @@ import { Form } from 'kea-forms'
 import {
     LemonButton,
     LemonCalendarSelectInput,
+    LemonInputSelect,
     LemonModal,
     LemonModalProps,
     LemonSelect,
@@ -174,6 +175,14 @@ export function AnnotationModal({
                         onPressCmdEnter={submitAnnotationModal}
                         data-attr="create-annotation-input"
                         maxLength={400}
+                    />
+                </LemonField>
+                <LemonField name="tags" label="Tags">
+                    <LemonInputSelect
+                        mode="multiple"
+                        allowCustomValues
+                        placeholder='Add tags (e.g. "release", "incident")'
+                        data-attr="annotation-tags-input"
                     />
                 </LemonField>
             </Form>

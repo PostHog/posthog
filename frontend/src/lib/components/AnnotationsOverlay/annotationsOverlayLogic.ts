@@ -99,6 +99,7 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
         lockDate: true,
         unlockDate: true,
         closePopover: true,
+        setTagFilter: (tag: string | null) => ({ tag }),
     }),
     reducers({
         isPopoverShown: [
@@ -123,6 +124,12 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 lockDate: () => true,
                 unlockDate: () => false,
                 closePopover: () => false,
+            },
+        ],
+        tagFilter: [
+            null as string | null,
+            {
+                setTagFilter: (_, { tag }) => tag,
             },
         ],
     }),
@@ -256,10 +263,33 @@ export const annotationsOverlayLogic = kea<annotationsOverlayLogicType>([
                 return filteredAnnotations as DatedAnnotationType[]
             },
         ],
+        availableTags: [
+            (s) => [s.relevantAnnotations],
+            (relevantAnnotations): string[] => {
+                const tagSet = new Set<string>()
+                for (const annotation of relevantAnnotations) {
+                    for (const tag of annotation.tags || []) {
+                        tagSet.add(tag)
+                    }
+                }
+                return Array.from(tagSet).sort()
+            },
+        ],
+        filteredRelevantAnnotations: [
+            (s) => [s.relevantAnnotations, s.tagFilter],
+            (relevantAnnotations, tagFilter): DatedAnnotationType[] => {
+                if (!tagFilter) {
+                    return relevantAnnotations
+                }
+                return relevantAnnotations.filter(
+                    (annotation) => annotation.tags && annotation.tags.includes(tagFilter)
+                )
+            },
+        ],
         groupedAnnotations: [
-            (s) => [s.relevantAnnotations, s.intervalUnit, s.dateRange, s.pointsPerTick],
-            (relevantAnnotations, intervalUnit, dateRange, pointsPerTick) => {
-                return groupBy(relevantAnnotations, (annotation) => {
+            (s) => [s.filteredRelevantAnnotations, s.intervalUnit, s.dateRange, s.pointsPerTick],
+            (filteredRelevantAnnotations, intervalUnit, dateRange, pointsPerTick) => {
+                return groupBy(filteredRelevantAnnotations, (annotation) => {
                     return determineAnnotationsDateGroup(annotation.date_marker, intervalUnit, dateRange, pointsPerTick)
                 })
             },
