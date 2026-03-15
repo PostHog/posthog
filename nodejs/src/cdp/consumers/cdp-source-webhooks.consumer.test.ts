@@ -218,7 +218,7 @@ describe('SourceWebhooksConsumer', () => {
                 })
                 expect(res.status).toEqual(200)
                 expect(res.body).toBeInstanceOf(Buffer)
-                expect(res.headers['content-type']).toEqual('image/gif; charset=utf-8')
+                expect(res.headers['content-type']).toEqual('image/gif')
                 // parse body
                 const body = Buffer.from(res.body).toString()
                 expect(body).toContain('GIF')
@@ -234,7 +234,7 @@ describe('SourceWebhooksConsumer', () => {
                 })
                 expect(res.status).toEqual(200)
                 expect(res.body).toBeInstanceOf(Buffer)
-                expect(res.headers['content-type']).toEqual('image/gif; charset=utf-8')
+                expect(res.headers['content-type']).toEqual('image/gif')
                 // parse body
                 const body = Buffer.from(res.body).toString()
                 expect(body).toContain('GIF')
