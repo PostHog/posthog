@@ -546,6 +546,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             columns = EndpointVersion.extract_columns(query_dict, team_id=self.team.pk)
             EndpointVersion.objects.create(
                 endpoint=endpoint,
+                team=self.team,
                 version=1,
                 query=query_dict,
                 description=data.description or "",
@@ -650,6 +651,11 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         upgraded_query = upgrade(request.data)
         data = self.get_model(upgraded_query, EndpointRequest)
+
+        # Soft-delete via PATCH {deleted: true} — reuses destroy() logic, returns 200 with body for MCP
+        if data.deleted is True:
+            self.destroy(request, name=name)
+            return Response({"success": True}, status=status.HTTP_200_OK)
 
         self.validate_update_request(data, endpoint=endpoint, strict=False)
 

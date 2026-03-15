@@ -164,6 +164,49 @@ data_warehouse_tables: PostgresTable = PostgresTable(
     },
 )
 
+endpoint_versions: PostgresTable = PostgresTable(
+    name="endpoint_versions",
+    postgres_table_name="endpoints_endpointversion",
+    access_scope="endpoint",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "endpoint_id": StringDatabaseField(name="endpoint_id"),
+        "version": IntegerDatabaseField(name="version"),
+        "description": StringDatabaseField(name="description"),
+        "query": StringJSONDatabaseField(name="query"),
+        "cache_age_seconds": IntegerDatabaseField(name="cache_age_seconds"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "_is_active": BooleanDatabaseField(name="is_active", hidden=True),
+        "is_active": ExpressionField(
+            name="is_active", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_active"])])
+        ),
+        "columns": StringJSONDatabaseField(name="columns"),
+    },
+)
+
+endpoints: PostgresTable = PostgresTable(
+    name="endpoints",
+    postgres_table_name="endpoints_endpoint",
+    access_scope="endpoint",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "_is_active": BooleanDatabaseField(name="is_active", hidden=True),
+        "is_active": ExpressionField(
+            name="is_active", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_active"])])
+        ),
+        "current_version": IntegerDatabaseField(name="current_version"),
+        "derived_from_insight": StringDatabaseField(name="derived_from_insight"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "last_executed_at": DateTimeDatabaseField(name="last_executed_at"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+    },
+)
+
 feature_flags: PostgresTable = PostgresTable(
     name="feature_flags",
     postgres_table_name="posthog_featureflag",
@@ -416,6 +459,8 @@ class SystemTables(TableNode):
         "dashboards": TableNode(name="dashboards", table=dashboards),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
+        "endpoint_versions": TableNode(name="endpoint_versions", table=endpoint_versions),
+        "endpoints": TableNode(name="endpoints", table=endpoints),
         "error_tracking_issue_assignments": TableNode(
             name="error_tracking_issue_assignments", table=error_tracking_issue_assignments
         ),
