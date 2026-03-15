@@ -285,7 +285,7 @@ class TestGroupingPipeline:
         match_result: MatchResult,
         queries: list[str],
     ) -> str:
-        """Write match result to both stores and capture eval metrics. Single place for all writes."""
+        """Write match result to both stores and capture eval metrics."""
 
         report_id = match_result.report_id if isinstance(match_result, ExistingReportMatch) else str(uuid.uuid4())
 
@@ -518,7 +518,7 @@ class TestGroupingPipeline:
             )
 
     def _capture_aggregate_metrics(self, stream: list[EvalSignalCase]):
-        """Global clustering metrics: ARI, homogeneity, completeness, v_measure, mean_purity, mean_group_recall."""
+        """Global clustering metrics: ARI, homogeneity, completeness, mean_purity, mean_group_recall, malicious_leaked_rate."""
 
         true_labels: list[int] = []
         pred_labels: list[str] = []
