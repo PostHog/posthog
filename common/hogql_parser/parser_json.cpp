@@ -1933,6 +1933,24 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
   VISIT(TableExprSubquery) { return visit(ctx->selectSetStmt()); }
 
+  VISIT(TableExprValues) { return visit(ctx->valuesClause()); }
+
+  VISIT(ValuesClause) {
+    Json json = Json::object();
+    json["node"] = "ValuesQuery";
+    if (!is_internal) addPositionInfo(json, ctx);
+    Json rows = Json::array();
+    for (auto* row_ctx : ctx->valuesRow()) {
+      Json row = Json::array();
+      for (auto* expr_ctx : row_ctx->columnExpr()) {
+        row.pushBack(visitAsJSON(expr_ctx));
+      }
+      rows.pushBack(std::move(row));
+    }
+    json["rows"] = std::move(rows);
+    return json;
+  }
+
   VISIT(TableExprPlaceholder) { return visitAsJSON(ctx->placeholder()); }
 
   VISIT(TableExprAlias) {
@@ -1944,11 +1962,24 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
 
     Json table_json = visitAsJSON(ctx->tableExpr());
 
+    // Parse alias column names if present
+    Json alias_columns = nullptr;
+    auto column_name_list = ctx->tableAliasColumnNameList();
+    if (column_name_list) {
+      alias_columns = Json::array();
+      for (auto* ident : column_name_list->identifier()) {
+        alias_columns.pushBack(any_cast<string>(visit(ident)));
+      }
+    }
+
     // Check if table is already a JoinExpr
     bool is_table_a_join_expr = isNodeOfType(table_json, "JoinExpr");
     if (is_table_a_join_expr) {
       // Inject alias into the existing JoinExpr
       table_json["alias"] = alias;
+      if (!alias_columns.isNull()) {
+        table_json["alias_columns"] = std::move(alias_columns);
+      }
       return table_json;
     }
 
@@ -1959,6 +1990,9 @@ class HogQLParseTreeJSONConverter : public HogQLParserBaseVisitor {
     if (!is_internal) addPositionInfo(json, ctx);
     json["table"] = std::move(table_json);
     json["alias"] = alias;
+    if (!alias_columns.isNull()) {
+      json["alias_columns"] = std::move(alias_columns);
+    }
     json["next_join"] = nullptr;
     return json;
   }
