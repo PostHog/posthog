@@ -46,7 +46,7 @@ def capture_evaluation(
             "$ai_eval_source": eval_source,
             "$ai_evaluation_type": eval_type,
             "$ai_experiment_id": experiment_id,
-            "$ai_experiment_name": experiment_name,
+            "$ai_experiment_name": f"{eval_source}/{experiment_name}",
             "$ai_experiment_item_id": item_id,
             "$ai_experiment_item_name": item_name,
             "$ai_metric_name": metric.name,
