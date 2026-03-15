@@ -6,6 +6,7 @@ PostHog uses Temporal to power multiple products and features like:
 - Syncs for data warehouse,
 - Processing AI agent conversations,
 - Data warehouse model materialization,
+- Health checks across teams,
 - And more...
 
 All these products and features require a scheduling and orchestration system with idempotent execution, granular error management, and an observable history for debugging and maintenance. All while also being distributed across a scalable number of workers.
@@ -494,3 +495,4 @@ As you run workflows, you will be able to see the logs in the worker's logs, and
 - All of batch exports is built in Temporal, see [example workflows in batch exports](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/temporal/destinations).
 - [Examples on unit testing Temporal workflows](https://github.com/PostHog/posthog/tree/master/products/batch_exports/backend/tests/temporal) are available in the batch exports tests.
 - DuckLake data modeling writes leverage Temporal too; follow the [DuckLake copy workflow configuration guide](../ducklake/README.md) to see how we configure environment variables, bucket layouts, and IAM perms for the copy workflow.
+- Health checks framework runs scheduled health checks across PostHog teams; see [health checks documentation](health_checks/README.md) for implementation details.
