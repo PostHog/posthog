@@ -43,6 +43,7 @@ from .prompts import (
     CONTEXT_MODE_PROMPT,
     CONTEXT_MODE_SWITCH_PROMPT,
     CONTEXTUAL_TOOLS_REMINDER_PROMPT,
+    HOG_EVALUATION_REFERENCE,
     ROOT_DASHBOARD_CONTEXT_PROMPT,
     ROOT_DASHBOARDS_CONTEXT_PROMPT,
     ROOT_INSIGHT_CONTEXT_PROMPT,
@@ -271,6 +272,30 @@ class AssistantContextManager(AssistantContextMixin):
             if issue_details:
                 error_tracking_context = f"<error_tracking_context>Error tracking issues the user is referring to:\n{chr(10).join(issue_details)}\n</error_tracking_context>"
 
+        # Format evaluations context
+        evaluations_context = ""
+        if ui_context.evaluations:
+            eval_details = []
+            for evaluation in ui_context.evaluations:
+                name = evaluation.name or f"Evaluation {evaluation.id}"
+                lines = [f"- Name: {name}"]
+                if evaluation.description:
+                    lines.append(f"  Description: {evaluation.description}")
+                lines.append(f"  Type: {evaluation.evaluation_type}")
+                if evaluation.hog_source:
+                    lines.append(f"  Current Hog source:\n```hog\n{evaluation.hog_source}\n```")
+                eval_details.append("\n".join(lines))
+
+            has_hog_eval = any(e.evaluation_type == "hog" for e in ui_context.evaluations)
+            hog_reference = f"\n{HOG_EVALUATION_REFERENCE}" if has_hog_eval else ""
+
+            evaluations_context = (
+                f"<evaluations_context>The user is editing the following LLM evaluation(s):\n"
+                f"{chr(10).join(eval_details)}"
+                f"{hog_reference}\n"
+                f"</evaluations_context>"
+            )
+
         # Format notebooks context
         notebooks_context = ""
         if ui_context.notebooks:
@@ -296,6 +321,7 @@ class AssistantContextManager(AssistantContextMixin):
             or events_context
             or actions_context
             or error_tracking_context
+            or evaluations_context
         ):
             return self._render_user_context_template(
                 dashboard_context,
@@ -303,6 +329,7 @@ class AssistantContextManager(AssistantContextMixin):
                 events_context,
                 actions_context,
                 error_tracking_context,
+                evaluations_context,
                 notebooks_context,
             )
         return None
@@ -404,6 +431,7 @@ class AssistantContextManager(AssistantContextMixin):
         events_context: str,
         actions_context: str,
         error_tracking_context: str = "",
+        evaluations_context: str = "",
         notebooks_context: str = "",
     ) -> str:
         """Render the user context template with the provided context strings."""
@@ -415,6 +443,7 @@ class AssistantContextManager(AssistantContextMixin):
             ui_context_events=events_context,
             ui_context_actions=actions_context,
             ui_context_error_tracking=error_tracking_context,
+            ui_context_evaluations=evaluations_context,
         ).to_string()
 
     async def _get_context_messages(self, state: BaseStateWithMessages) -> list[ContextMessage]:

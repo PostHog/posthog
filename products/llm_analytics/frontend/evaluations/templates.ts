@@ -53,8 +53,8 @@ export const defaultEvaluationTemplates: readonly EvaluationTemplate[] = [
 let max_cost := 0.05
 let max_latency := 10
 
-let cost := properties.$ai_total_cost_usd
-let latency := properties.$ai_latency
+let cost := ifNull(properties.$ai_total_cost_usd, 0)
+let latency := ifNull(properties.$ai_latency, 0)
 
 if (cost > max_cost) {
     print(concat('Cost $', toString(cost), ' exceeds budget $', toString(max_cost)))

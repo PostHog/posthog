@@ -14,6 +14,7 @@ from posthog.schema import (
     ContextMessage,
     DashboardFilter,
     EntityType,
+    EvaluationType,
     EventsNode,
     FunnelsQuery,
     HogQLQuery,
@@ -24,6 +25,7 @@ from posthog.schema import (
     MaxBillingContextSubscriptionLevel,
     MaxBillingContextTrial,
     MaxDashboardContext,
+    MaxEvaluationContext,
     MaxEventContext,
     MaxInsightContext,
     MaxUIContext,
@@ -764,3 +766,87 @@ class TestAssistantContextManager(BaseTest):
         self.assertIn("sql", result.content)
         assert isinstance(result.meta, ModeContext)
         self.assertEqual(result.meta.mode, AgentMode.SQL)
+
+    @parameterized.expand(
+        [
+            [
+                "hog evaluation with source",
+                MaxEvaluationContext(
+                    id="eval-1",
+                    name="Check output",
+                    description="Validates output quality",
+                    evaluation_type=EvaluationType.HOG,
+                    hog_source="return length(output) > 0",
+                ),
+                [
+                    "<evaluations_context>",
+                    "Check output",
+                    "Validates output quality",
+                    "Type: hog",
+                    "return length(output) > 0",
+                    "Hog language reference for writing evaluations",
+                ],
+            ],
+            [
+                "llm judge evaluation without source",
+                MaxEvaluationContext(
+                    id="eval-2",
+                    name="LLM Judge Eval",
+                    evaluation_type=EvaluationType.LLM_JUDGE,
+                ),
+                [
+                    "<evaluations_context>",
+                    "LLM Judge Eval",
+                    "Type: llm_judge",
+                ],
+            ],
+            [
+                "evaluation with no name falls back",
+                MaxEvaluationContext(
+                    id="eval-3",
+                    evaluation_type=EvaluationType.HOG,
+                ),
+                ["<evaluations_context>", "Evaluation eval-3", "Type: hog"],
+            ],
+            [
+                "hog reference includes STL and example patterns",
+                MaxEvaluationContext(
+                    id="eval-4",
+                    name="STL test",
+                    evaluation_type=EvaluationType.HOG,
+                ),
+                [
+                    "Standard library — strings:",
+                    "Standard library — arrays:",
+                    "Standard library — type & conversion:",
+                    "arrayPushBack",
+                    "jsonParse",
+                    "splitByString",
+                    "Example patterns for evaluations:",
+                    "Refusal detection",
+                    "Cost/latency guard",
+                ],
+            ],
+        ]
+    )
+    async def test_format_ui_context_with_evaluation(self, _name, evaluation, expected_substrings):
+        ui_context = MaxUIContext(evaluations=[evaluation])
+        result = await self.context_manager._format_ui_context(ui_context)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        for substring in expected_substrings:
+            self.assertIn(substring, result)
+
+    async def test_format_ui_context_evaluation_no_hog_source(self):
+        evaluation = MaxEvaluationContext(
+            id="eval-4",
+            name="No source eval",
+            evaluation_type=EvaluationType.HOG,
+        )
+        ui_context = MaxUIContext(evaluations=[evaluation])
+        result = await self.context_manager._format_ui_context(ui_context)
+
+        self.assertIsNotNone(result)
+        assert result is not None
+        self.assertNotIn("Current Hog source:", result)
