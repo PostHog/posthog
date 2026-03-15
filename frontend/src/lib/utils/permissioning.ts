@@ -6,9 +6,18 @@ export function getReasonForAccessLevelChangeProhibition(
     currentMembershipLevel: OrganizationMembershipLevel | null,
     currentUser: UserType,
     memberToBeUpdated: OrganizationMemberType,
-    newLevelOrAllowedLevels: EitherMembershipLevel | EitherMembershipLevel[]
+    newLevelOrAllowedLevels: EitherMembershipLevel | EitherMembershipLevel[],
+    organizationHasOwner: boolean = true
 ): null | string {
-    if (memberToBeUpdated.user.uuid === currentUser.uuid) {
+    // Admins can rescue an ownerless organization by promoting someone (including themselves) to owner
+    const targetLevel = Array.isArray(newLevelOrAllowedLevels) ? null : newLevelOrAllowedLevels
+    const isOwnerlessRescue =
+        !organizationHasOwner &&
+        currentMembershipLevel !== null &&
+        currentMembershipLevel >= OrganizationMembershipLevel.Admin &&
+        (targetLevel === OrganizationMembershipLevel.Owner || targetLevel === null)
+
+    if (memberToBeUpdated.user.uuid === currentUser.uuid && !isOwnerlessRescue) {
         return "You can't change your own access level."
     }
     if (!currentMembershipLevel) {
@@ -19,6 +28,9 @@ export function getReasonForAccessLevelChangeProhibition(
         if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
             return null
         }
+        if (isOwnerlessRescue) {
+            return null
+        }
         if (!newLevelOrAllowedLevels.length) {
             return "You don't have permission to change this member's access level."
         }
@@ -27,6 +39,9 @@ export function getReasonForAccessLevelChangeProhibition(
             return "It doesn't make sense to set the same level as before."
         }
         if (currentMembershipLevel === OrganizationMembershipLevel.Owner) {
+            return null
+        }
+        if (isOwnerlessRescue) {
             return null
         }
         if (newLevelOrAllowedLevels > currentMembershipLevel) {

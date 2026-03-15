@@ -74,6 +74,7 @@ function RemoveMemberModal({ member }: { member: OrganizationMemberType }): JSX.
 function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element | null {
     const { user } = useValues(userLogic)
     const { currentOrganization } = useValues(organizationLogic)
+    const { organizationHasOwner } = useValues(membersLogic)
     const { removeMember, changeMemberAccessLevel, loadMemberScopedApiKeys } = useActions(membersLogic)
 
     if (!user) {
@@ -92,9 +93,22 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
     const myMembershipLevel = currentOrganization ? currentOrganization.membership_level : null
 
     const allowedLevels = organizationMembershipLevelIntegers.filter(
-        (listLevel) => !getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, listLevel)
+        (listLevel) =>
+            !getReasonForAccessLevelChangeProhibition(
+                myMembershipLevel,
+                user,
+                member,
+                listLevel,
+                organizationHasOwner
+            )
     )
-    const disallowedReason = getReasonForAccessLevelChangeProhibition(myMembershipLevel, user, member, allowedLevels)
+    const disallowedReason = getReasonForAccessLevelChangeProhibition(
+        myMembershipLevel,
+        user,
+        member,
+        allowedLevels,
+        organizationHasOwner
+    )
 
     if (disallowedReason && !allowDeletion) {
         return null
@@ -184,7 +198,7 @@ function ActionsComponent(_: any, member: OrganizationMemberType): JSX.Element |
 }
 
 export function Members(): JSX.Element | null {
-    const { filteredMembers, membersLoading, search } = useValues(membersLogic)
+    const { filteredMembers, membersLoading, search, organizationHasOwner } = useValues(membersLogic)
     const { currentOrganization } = useValues(organizationLogic)
     const { preflight } = useValues(preflightLogic)
     const { user } = useValues(userLogic)
@@ -205,6 +219,8 @@ export function Members(): JSX.Element | null {
     if (!user) {
         return null
     }
+
+    const isAdmin = (currentOrganization?.membership_level ?? 0) >= OrganizationMembershipLevel.Admin
 
     const columns: LemonTableColumns<OrganizationMemberType> = [
         {
@@ -325,6 +341,12 @@ export function Members(): JSX.Element | null {
 
     return (
         <>
+            {!organizationHasOwner && isAdmin && (
+                <LemonBanner type="warning" className="mb-4">
+                    This organization has no owner. As an admin, you can promote yourself or another member to owner
+                    using the actions menu.
+                </LemonBanner>
+            )}
             <LemonInput type="search" placeholder="Search for members" value={search} onChange={setSearch} />
 
             <LemonTable
