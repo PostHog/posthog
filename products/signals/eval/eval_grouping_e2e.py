@@ -574,7 +574,7 @@ class TestGroupingPipeline:
         item_id = deterministic_uuid(f"{eval_name}:{item_name}:{self.start_time}")
         capture_evaluation(
             client=self.posthog_client,
-            dataset_id="Synthetic Zendesk/Github/Linear",
+            dataset_id=None,
             experiment_id=experiment_id,
             experiment_name=eval_name,
             item_id=item_id,
