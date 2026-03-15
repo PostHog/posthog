@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { MessageSentimentBar, SENTIMENT_BAR_COLOR } from '../components/SentimentTag'
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
-import { formatScore } from '../sentimentUtils'
+import { extractContentText, formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
 import { normalizeMessages } from '../utils'
@@ -47,21 +47,6 @@ function getMessageAtIndex(aiInput: unknown, index: number): CompatMessage | nul
     }
 }
 
-function extractTextFromBlocks(blocks: unknown[]): string {
-    return blocks
-        .map((block) => {
-            if (typeof block === 'string') {
-                return block
-            }
-            if (block && typeof block === 'object' && 'text' in block) {
-                return (block as { text: string }).text
-            }
-            return ''
-        })
-        .filter(Boolean)
-        .join('\n')
-}
-
 function getTextContent(message: CompatMessage): string {
     if (typeof message.content === 'string') {
         // Detect JSON-encoded structured content (e.g. '{"content":[{"text":"..."}]}')
@@ -69,14 +54,9 @@ function getTextContent(message: CompatMessage): string {
         if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
             try {
                 const parsed = JSON.parse(trimmed)
-                if (Array.isArray(parsed)) {
-                    return extractTextFromBlocks(parsed)
-                }
-                if (parsed && typeof parsed === 'object' && 'content' in parsed && Array.isArray(parsed.content)) {
-                    return extractTextFromBlocks(parsed.content)
-                }
-                if (parsed && typeof parsed === 'object' && 'text' in parsed) {
-                    return (parsed as { text: string }).text
+                const extracted = extractContentText(parsed)
+                if (extracted) {
+                    return extracted
                 }
             } catch {
                 // Not valid JSON, return as-is
@@ -84,19 +64,7 @@ function getTextContent(message: CompatMessage): string {
         }
         return message.content
     }
-    if (Array.isArray(message.content)) {
-        return extractTextFromBlocks(message.content)
-    }
-    if (message.content && typeof message.content === 'object' && 'content' in message.content) {
-        const inner = (message.content as { content: unknown }).content
-        if (typeof inner === 'string') {
-            return inner
-        }
-        if (Array.isArray(inner)) {
-            return extractTextFromBlocks(inner)
-        }
-    }
-    return ''
+    return extractContentText(message.content)
 }
 
 function ContextMessage({ aiInput, index }: { aiInput: unknown; index: number }): JSX.Element | null {

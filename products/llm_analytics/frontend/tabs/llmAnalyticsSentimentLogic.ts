@@ -13,6 +13,7 @@ import sentimentGenerationsQueryTemplate from '../../backend/queries/sentiment_g
 import { llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import { llmGenerationSentimentLazyLoaderLogic } from '../llmGenerationSentimentLazyLoaderLogic'
 import type { GenerationSentiment, MessageSentiment } from '../llmSentimentLazyLoaderLogic'
+import { extractContentText } from '../sentimentUtils'
 import type { llmAnalyticsSentimentLogicType } from './llmAnalyticsSentimentLogicType'
 
 export type SentimentFilterLabel = 'positive' | 'negative' | 'both'
@@ -40,7 +41,8 @@ export interface LLMAnalyticsSentimentLogicProps {
 }
 
 const GENERATIONS_PAGE_SIZE = 200
-const SNIPPET_MAX_LENGTH = 500
+// Match backend MAX_MESSAGE_CHARS (2000) so training data captures the same text window the model classified
+const SNIPPET_MAX_LENGTH = 2000
 
 function getSnippetFromCard(card: SentimentCard): string {
     try {
@@ -50,7 +52,7 @@ function getSnippetFromCard(card: SentimentCard): string {
             return ''
         }
         const msg = parsed[card.messageIndex]
-        const text = typeof msg?.content === 'string' ? msg.content : JSON.stringify(msg?.content ?? '')
+        const text = extractContentText(msg?.content)
         return text.slice(-SNIPPET_MAX_LENGTH)
     } catch {
         return ''
