@@ -77,6 +77,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'cohort:write',
     'dashboard:read',
     'dashboard:write',
+    'endpoint:read',
+    'endpoint:write',
     'error_tracking:read',
     'error_tracking:write',
     'event_definition:read',
