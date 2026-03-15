@@ -2038,6 +2038,12 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         [urls.featureFlag(props.id ?? 'new')]: (_, searchParams, ___, { method }) => {
             // If the URL was pushed (user clicked on a link), reset the scene's data.
             // This avoids resetting form fields if you click back/forward.
+
+            // Open the History tab when deep-linking to a specific activity item
+            if (searchParams.activity != null) {
+                actions.setActiveTab(FeatureFlagsTab.HISTORY)
+            }
+
             if (method === 'PUSH') {
                 // Set editing state based on URL parameter, or reset to prevent persisting across flags
                 actions.editFeatureFlag(searchParams.edit === true || searchParams.edit === 'true')
@@ -2075,6 +2081,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         },
     })),
     afterMount(({ props, actions }) => {
+        // Open the History tab when deep-linking to a specific activity item on initial page load
+        if (router.values.searchParams.activity != null) {
+            actions.setActiveTab(FeatureFlagsTab.HISTORY)
+        }
+
         if (
             props.id === 'new' &&
             (router.values.searchParams.sourceId ||

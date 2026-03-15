@@ -28,6 +28,27 @@
     }
 }
 
+.ActivityLogRow-wrapper {
+    .ActivityLogRow__copy-link {
+        pointer-events: none;
+        visibility: hidden;
+        opacity: 0;
+        transition: opacity 0.15s ease-in-out;
+    }
+
+    &:hover .ActivityLogRow__copy-link,
+    &:focus-within .ActivityLogRow__copy-link {
+        pointer-events: auto;
+        visibility: visible;
+        opacity: 1;
+    }
+}
+
+.ActivityLogRow--highlighted {
+    border-radius: var(--radius);
+    animation: ActivityLogRow__HighlightFade 3s ease-out;
+}
+
 .ActivityLogRow {
     line-height: 24px;
     overflow-wrap: anywhere;
@@ -66,5 +87,15 @@
     .ActivityLogRow__description__extended {
         margin-top: 0.5rem;
         margin-bottom: 0.5rem;
+    }
+}
+
+@keyframes ActivityLogRow__HighlightFade {
+    0% {
+        background-color: var(--color-accent-highlight-secondary);
+    }
+
+    100% {
+        background-color: transparent;
     }
 }
