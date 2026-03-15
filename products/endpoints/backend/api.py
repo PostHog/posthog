@@ -86,6 +86,12 @@ from products.endpoints.backend.rate_limit import (
     EndpointSustainedThrottle,
     clear_endpoint_materialization_cache,
 )
+from products.endpoints.backend.serializers import (
+    EndpointMaterializationSerializer,
+    EndpointRequestSerializer,
+    EndpointResponseSerializer,
+    EndpointVersionResponseSerializer,
+)
 
 from common.hogvm.python.utils import HogVMException
 
@@ -208,6 +214,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         "run",
         "versions",
         "openapi_spec",
+        "materialization_status",
     ]
     scope_object_write_actions: list[str] = [
         "create",
@@ -327,12 +334,20 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
 
         return result
 
+    @extend_schema(
+        responses={200: EndpointResponseSerializer(many=True)},
+        description="List all endpoints for the team.",
+    )
     def list(self, request: Request, *args, **kwargs) -> Response:
         """List all endpoints for the team."""
         queryset = self.filter_queryset(self.get_queryset())
         results = [self._serialize(endpoint, request) for endpoint in queryset]
         return Response({"results": results})
 
+    @extend_schema(
+        responses={200: EndpointResponseSerializer},
+        description="Retrieve an endpoint, or a specific version via ?version=N.",
+    )
     def retrieve(self, request: Request, name=None, *args, **kwargs) -> Response:
         """Retrieve an endpoint, or a specific endpoint version."""
         endpoint = get_object_or_404(Endpoint.objects.all(), team=self.team, name=name, deleted=False)
@@ -520,8 +535,9 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         self._validate_cache_age_seconds(data.cache_age_seconds)
 
     @extend_schema(
-        request=EndpointRequest,
-        description="Create a new endpoint",
+        request=EndpointRequestSerializer,
+        responses={201: EndpointResponseSerializer},
+        description="Create a new endpoint.",
     )
     def create(self, request: Request, *args, **kwargs) -> Response:
         """Create a new endpoint."""
@@ -636,7 +652,8 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
             self._validate_hogql_query(data.query)
 
     @extend_schema(
-        request=EndpointRequest,
+        request=EndpointRequestSerializer,
+        responses={200: EndpointResponseSerializer},
         description="Update an existing endpoint. Parameters are optional. Pass version in body or ?version=N query param to target a specific version.",
     )
     def update(self, request: Request, name: str | None = None, *args, **kwargs) -> Response:
@@ -1966,6 +1983,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         tag_queries(client_query_id=query_id)
 
     @extend_schema(
+        responses={200: EndpointVersionResponseSerializer(many=True)},
         description="List all versions for an endpoint.",
     )
     @action(methods=["GET"], detail=True)
@@ -1981,6 +1999,7 @@ class EndpointViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.Model
         return Response(results)
 
     @extend_schema(
+        responses={200: EndpointMaterializationSerializer},
         description="Get materialization status for an endpoint. Supports ?version=N query param.",
     )
     @action(methods=["GET"], detail=True, url_path="materialization_status")
