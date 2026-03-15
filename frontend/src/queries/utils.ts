@@ -539,6 +539,13 @@ export const getYAxisScaleType = (query: InsightQueryNode): string | undefined =
     return undefined
 }
 
+export const getYAxisStartAtMin = (query: InsightQueryNode): boolean | undefined => {
+    if (isTrendsQuery(query)) {
+        return query.trendsFilter?.yAxisStartAtMin ?? undefined
+    }
+    return undefined
+}
+
 export const getShowMultipleYAxes = (query: InsightQueryNode): boolean | undefined => {
     if (isTrendsQuery(query)) {
         return query.trendsFilter?.showMultipleYAxes

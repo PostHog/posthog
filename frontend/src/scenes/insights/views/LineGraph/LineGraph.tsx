@@ -112,8 +112,14 @@ export function onChartClick(
 
     // Take first point when clicking a specific point.
     const referencePoint: GraphPoint = clickedPointNotLine
-        ? { ...pointsIntersectingClick[0], dataset: datasets[pointsIntersectingClick[0].datasetIndex] }
-        : { ...pointsIntersectingLine[0], dataset: datasets[pointsIntersectingLine[0].datasetIndex] }
+        ? {
+              ...pointsIntersectingClick[0],
+              dataset: datasets[pointsIntersectingClick[0].datasetIndex],
+          }
+        : {
+              ...pointsIntersectingLine[0],
+              dataset: datasets[pointsIntersectingLine[0].datasetIndex],
+          }
 
     const crossDataset = datasets
         .filter((_dt) => !_dt.dotted)
@@ -219,6 +225,7 @@ export interface LineGraphProps {
     isStacked?: boolean
     showTrendLines?: boolean
     ignoreActionsInSeriesLabels?: boolean
+    yAxisStartAtMin?: boolean | null
     datalabelFormatter?: (value: number, datasetIndex: number) => string
     onDateRangeZoom?: (dateFrom: string, dateTo: string) => void
 }
@@ -267,6 +274,7 @@ export function LineGraph_({
     isStacked = true,
     showTrendLines = false,
     ignoreActionsInSeriesLabels = false,
+    yAxisStartAtMin,
     datalabelFormatter,
     onDateRangeZoom,
 }: LineGraphProps): JSX.Element {
@@ -459,9 +467,12 @@ export function LineGraph_({
         const defaultYAxisConfig = {
             display: !hideYAxis,
             ...(isLog10
-                ? { type: 'logarithmic' as const, min: Math.pow(10, Math.ceil(Math.log10(seriesNonZeroMin)) - 1) }
+                ? {
+                      type: 'logarithmic' as const,
+                      min: Math.pow(10, Math.ceil(Math.log10(seriesNonZeroMin)) - 1),
+                  }
                 : { type: 'linear' as const }),
-            beginAtZero: true,
+            beginAtZero: !yAxisStartAtMin,
             stacked: showPercentStackView || isArea,
             ticks: {
                 ...tickOptions,
@@ -921,7 +932,11 @@ export function LineGraph_({
                             ...tickOptions,
                             precision,
                             ...(!inSurveyView && xAxisTickCallback
-                                ? { callback: xAxisTickCallback, maxRotation: 0, autoSkipPadding: 20 }
+                                ? {
+                                      callback: xAxisTickCallback,
+                                      maxRotation: 0,
+                                      autoSkipPadding: 20,
+                                  }
                                 : {}),
                             ...(inSurveyView
                                 ? {
@@ -972,7 +987,11 @@ export function LineGraph_({
                         ticks: {
                             ...tickOptions,
                             ...(xAxisTickCallback
-                                ? { callback: xAxisTickCallback, maxRotation: 0, autoSkipPadding: 20 }
+                                ? {
+                                      callback: xAxisTickCallback,
+                                      maxRotation: 0,
+                                      autoSkipPadding: 20,
+                                  }
                                 : {}),
                         },
                         grid: {
@@ -993,7 +1012,9 @@ export function LineGraph_({
                 }
             } else if (isHorizontal) {
                 if (hideXAxis || hideYAxis) {
-                    options.layout = { padding: inSurveyView ? { top: 20, bottom: 20, left: 20, right: 60 } : 20 }
+                    options.layout = {
+                        padding: inSurveyView ? { top: 20, bottom: 20, left: 20, right: 60 } : 20,
+                    }
                 } else if (inSurveyView) {
                     options.layout = { padding: { right: 60 } }
                 }
@@ -1115,6 +1136,7 @@ export function LineGraph_({
             hoveredDatasetIndex,
             setHoveredDatasetIndex,
             isHighlightBarMode,
+            yAxisStartAtMin,
             interval,
             timezone,
             effectiveZoomCallback,
@@ -1125,7 +1147,9 @@ export function LineGraph_({
     // Only observe canvas size when annotations are shown — avoids unnecessary ResizeObservers on dashboards.
     // When showAnnotations is false, noRef.current is null so the observer disconnects (verified in use-resize-observer v9.1.0 source).
     const noRef = useRef<HTMLCanvasElement>(null)
-    const { width: chartWidth, height: chartHeight } = useResizeObserver({ ref: showAnnotations ? canvasRef : noRef })
+    const { width: chartWidth, height: chartHeight } = useResizeObserver({
+        ref: showAnnotations ? canvasRef : noRef,
+    })
 
     return (
         <div className={clsx('LineGraph w-full grow relative overflow-hidden')} data-attr={dataAttr}>

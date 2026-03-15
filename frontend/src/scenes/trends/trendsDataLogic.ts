@@ -104,6 +104,7 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 'showLegend',
                 'vizSpecificOptions',
                 'yAxisScaleType',
+                'yAxisStartAtMin',
                 'showMultipleYAxes',
                 'resultCustomizationBy as resultCustomizationByRaw',
                 'getTheme',

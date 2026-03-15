@@ -29,6 +29,7 @@ import { ShowMultipleYAxesFilter } from 'scenes/insights/EditorFilters/ShowMulti
 import { ShowPieTotalFilter } from 'scenes/insights/EditorFilters/ShowPieTotalFilter'
 import { ShowTrendLinesFilter } from 'scenes/insights/EditorFilters/ShowTrendLinesFilter'
 import { ValueOnSeriesFilter } from 'scenes/insights/EditorFilters/ValueOnSeriesFilter'
+import { YAxisStartAtMinFilter } from 'scenes/insights/EditorFilters/YAxisStartAtMinFilter'
 import { InsightDateFilter } from 'scenes/insights/filters/InsightDateFilter'
 import { RetentionChartPicker } from 'scenes/insights/filters/RetentionChartPicker'
 import { RetentionDashboardDisplayPicker } from 'scenes/insights/filters/RetentionDashboardDisplayPicker'
@@ -177,7 +178,7 @@ export function InsightDisplayConfig(): JSX.Element {
             ? [
                   {
                       title: 'Y-axis scale',
-                      items: [{ label: () => <ScalePicker /> }],
+                      items: [{ label: () => <ScalePicker /> }, { label: () => <YAxisStartAtMinFilter /> }],
                   },
                   ...(display === ChartDisplayType.BoxPlot
                       ? []
@@ -287,6 +288,7 @@ export function InsightDisplayConfig(): JSX.Element {
         (hasLegend && showLegend ? 1 : 0) +
         (!!yAxisScaleType && yAxisScaleType !== 'linear' ? 1 : 0) +
         (showMultipleYAxes ? 1 : 0) +
+        (trendsFilter?.yAxisStartAtMin ? 1 : 0) +
         (trendsFilter?.hideWeekends && hideWeekendsEnabled ? 1 : 0)
 
     return (
