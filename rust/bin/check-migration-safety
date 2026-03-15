@@ -1,0 +1,80 @@
+#!/usr/bin/env python3
+"""
+Check SQLx migration files for unsafe operations that could cause downtime.
+
+Thin wrapper around posthog.management.migration_sql_checks for raw .sql files.
+The shared module contains the same validation logic used by the Django
+management command test_migrations_are_safe.
+
+Usage:
+    # Check specific files (CI mode - only changed files)
+    rust/bin/check-migration-safety rust/persons_migrations/20260301_add_col.sql
+
+    # Check all migrations in a directory
+    rust/bin/check-migration-safety rust/persons_migrations/*.sql
+
+Exit codes:
+    0 - all migrations are safe
+    1 - unsafe operations detected
+"""
+
+import importlib.util
+import os
+import sys
+
+# Load the shared module directly by file path to avoid importing the
+# posthog package (which pulls in Django/Celery via posthog/__init__.py).
+_repo_root = os.path.join(os.path.dirname(__file__), "..", "..")
+_module_path = os.path.join(_repo_root, "posthog", "management", "migration_sql_checks.py")
+_spec = importlib.util.spec_from_file_location("migration_sql_checks", _module_path)
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+
+normalize_sql_statements = _mod.normalize_sql_statements
+strip_plpgsql_blocks = _mod.strip_plpgsql_blocks
+validate_migration_sql = _mod.validate_migration_sql
+
+
+def check_file(filepath: str) -> bool:
+    """Check a single SQL file. Returns True if unsafe."""
+    try:
+        with open(filepath) as f:
+            sql = f.read()
+    except (FileNotFoundError, OSError) as e:
+        print(f"\033[91mError reading {filepath}: {e}\033[0m")
+        return True
+
+    # Preprocess for hand-written SQL:
+    # 1. Strip PL/pgSQL DO $$ blocks with IF NOT EXISTS guards (safe by construction)
+    # 2. Collapse multi-line statements into single lines so the line-by-line
+    #    checker sees complete statements (Django's sqlmigrate already does this)
+    preprocessed = strip_plpgsql_blocks(sql)
+    preprocessed = normalize_sql_statements(preprocessed)
+
+    print(f"Checking {filepath}...")
+    return validate_migration_sql(preprocessed)
+
+
+def main() -> int:
+    if len(sys.argv) < 2:
+        print("Usage: check-migration-safety <file1.sql> [file2.sql ...]", file=sys.stderr)
+        return 1
+
+    files = [f for f in sys.argv[1:] if f.endswith(".sql")]
+    if not files:
+        print("No .sql files provided")
+        return 0
+
+    has_errors = False
+    for filepath in files:
+        if check_file(filepath):
+            has_errors = True
+
+    if not has_errors:
+        print(f"\033[92mAll {len(files)} migration(s) passed safety checks.\033[0m")
+
+    return 1 if has_errors else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
