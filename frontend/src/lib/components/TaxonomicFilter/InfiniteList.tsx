@@ -383,8 +383,12 @@ const InfiniteListRow = ({
             (listGroupType === TaxonomicFilterGroupType.SuggestedFilters ||
                 listGroupType === TaxonomicFilterGroupType.RecentFilters) &&
             itemGroup.type !== listGroupType
+        const isRecentItem = listGroupType === TaxonomicFilterGroupType.RecentFilters && isExactMatchItem
+        const recentTooltip = isRecentItem
+            ? `${itemGroup.name} · ${group.getName?.(item) || item.name || ''}`
+            : undefined
 
-        return (
+        const row = (
             <div
                 {...commonDivProps}
                 className={clsx(commonDivProps.className, isDisabledItem && 'cursor-not-allowed opacity-60')}
@@ -406,8 +410,12 @@ const InfiniteListRow = ({
             >
                 {renderItemContents({
                     item,
-                    listGroupType: isExactMatchItem ? itemGroup.type : listGroupType,
-                    itemGroup,
+                    listGroupType: isExactMatchItem
+                        ? '_recentPropertyFilter' in item
+                            ? listGroupType
+                            : itemGroup.type
+                        : listGroupType,
+                    itemGroup: '_recentPropertyFilter' in item ? group : itemGroup,
                     eventNames,
                     isActive,
                 })}
@@ -418,6 +426,8 @@ const InfiniteListRow = ({
                 )}
             </div>
         )
+
+        return recentTooltip ? <Tooltip title={recentTooltip}>{row}</Tooltip> : row
     }
 
     const isExpandRow = !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading

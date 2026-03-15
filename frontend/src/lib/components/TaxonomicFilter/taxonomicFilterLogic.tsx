@@ -28,8 +28,10 @@ import {
     TaxonomicFilterValue,
     isQuickFilterItem,
 } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
 import {
     getEventDefinitionIcon,
@@ -251,6 +253,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             ['eventOrdering'],
             recentTaxonomicFiltersLogic,
             ['recentFilters'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
     actions(() => ({
@@ -1185,8 +1189,13 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
         ],
         hasMatchingRecentFilters: [
-            (s) => [s.recentFilters, s.requestedGroupTypes],
-            (recentFilters: RecentTaxonomicFilter[], requestedGroupTypes: TaxonomicFilterGroupType[]): boolean =>
+            (s) => [s.featureFlags, s.recentFilters, s.requestedGroupTypes],
+            (
+                featureFlags: Record<string, boolean | string>,
+                recentFilters: RecentTaxonomicFilter[],
+                requestedGroupTypes: TaxonomicFilterGroupType[]
+            ): boolean =>
+                !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS] &&
                 recentFilters.some((f) => requestedGroupTypes.includes(f.groupType)),
         ],
         taxonomicGroupTypes: [
@@ -1288,7 +1297,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     return Object.entries(logics).some(
                         ([type, logic]) =>
                             type !== TaxonomicFilterGroupType.SuggestedFilters &&
-                            type !== TaxonomicFilterGroupType.RecentFilters &&
                             logic.isMounted() &&
                             logic.selectors.isLoading(state, logic.props)
                     )
@@ -1304,7 +1312,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         .filter(
                             ([type, logic]) =>
                                 type !== TaxonomicFilterGroupType.SuggestedFilters &&
-                                type !== TaxonomicFilterGroupType.RecentFilters &&
                                 logic.isMounted() &&
                                 logic.selectors.isLoading(state, logic.props)
                         )
@@ -1364,8 +1371,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (s) => [s.topMatchItems, s.taxonomicGroupTypes],
             (topMatchItems: TopMatchItem[], taxonomicGroupTypes: TaxonomicFilterGroupType[]): TopMatchItem[] => {
                 const nonSuggestedGroups = taxonomicGroupTypes.filter(
-                    (t) =>
-                        t !== TaxonomicFilterGroupType.SuggestedFilters && t !== TaxonomicFilterGroupType.RecentFilters
+                    (t) => t !== TaxonomicFilterGroupType.SuggestedFilters
                 )
                 return redistributeTopMatches(topMatchItems, nonSuggestedGroups.length, nonSuggestedGroups)
             },
@@ -1390,8 +1396,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 }
 
                 const nonSuggestedGroups = taxonomicGroupTypes.filter(
-                    (t) =>
-                        t !== TaxonomicFilterGroupType.SuggestedFilters && t !== TaxonomicFilterGroupType.RecentFilters
+                    (t) => t !== TaxonomicFilterGroupType.SuggestedFilters
                 )
 
                 const result: (TopMatchItem | SkeletonItem)[] = []
@@ -1506,7 +1511,6 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             const shouldOtherwiseTabRight =
                 activeTaxonomicGroup &&
                 activeTaxonomicGroup.type !== TaxonomicFilterGroupType.SuggestedFilters &&
-                activeTaxonomicGroup.type !== TaxonomicFilterGroupType.RecentFilters &&
                 !activeTaxonomicGroup.endpoint &&
                 infiniteListCounts[activeTaxonomicGroup.type] === 0
             if (shouldTabRightBecauseReplay || shouldOtherwiseTabRight) {
@@ -1525,18 +1529,11 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
         infiniteListResultsReceived: ({ groupType, results }) => {
             const activeTabHasNoResults = groupType === values.activeTab && !results.count && !results.expandedCount
 
-            if (
-                activeTabHasNoResults &&
-                values.activeTab !== TaxonomicFilterGroupType.SuggestedFilters &&
-                values.activeTab !== TaxonomicFilterGroupType.RecentFilters
-            ) {
+            if (activeTabHasNoResults && values.activeTab !== TaxonomicFilterGroupType.SuggestedFilters) {
                 actions.tabRight()
             }
 
-            if (
-                groupType !== TaxonomicFilterGroupType.SuggestedFilters &&
-                groupType !== TaxonomicFilterGroupType.RecentFilters
-            ) {
+            if (groupType !== TaxonomicFilterGroupType.SuggestedFilters) {
                 const subLogic = values.infiniteListLogics[groupType]
                 if (subLogic?.isMounted()) {
                     const matches = subLogic.values.topMatchesForQuery

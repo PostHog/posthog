@@ -4,6 +4,9 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
@@ -38,6 +41,10 @@ describe('TaxonomicFilter', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS], {
+            [FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS]: true,
+        })
         actionsModel.mount()
         groupsModel.mount()
     })
@@ -270,7 +277,7 @@ describe('TaxonomicFilter', () => {
             expect(row).toHaveTextContent('Event properties')
         })
 
-        it('renders recent property filter items using the property key info path', async () => {
+        it('renders recent property filter items with the full filter expression', async () => {
             recentTaxonomicFiltersLogic.mount()
             recentTaxonomicFiltersLogic.actions.recordRecentFilter(
                 TaxonomicFilterGroupType.EventProperties,
@@ -295,7 +302,7 @@ describe('TaxonomicFilter', () => {
             })
 
             const row = screen.getByTestId('prop-filter-recent_filters-0')
-            expect(row).toHaveTextContent('Browser')
+            expect(row).toHaveTextContent('Browser = Chrome')
         })
 
         it('calls onChange with the recent filter group when clicking a recent property filter', async () => {
