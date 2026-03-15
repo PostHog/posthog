@@ -62,43 +62,34 @@ jobs:
                     --output-json /tmp/review.json
 
             - name: Post review
-              if: success()
+              if: always()
               env:
                   # Use GITHUB_TOKEN for approvals so github-actions[bot] is the
                   # reviewer — its approvals count toward branch protection rules,
                   # unlike GitHub App bot approvals which show author_association NONE.
                   GH_TOKEN_APPROVE: ${{ github.token }}
-                  GH_TOKEN_COMMENT: ${{ steps.app-token.outputs.token }}
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
               run: |
-                  VERDICT=$(jq -r '.final_verdict' /tmp/review.json)
-                  REASONING=$(jq -r '.reviewer.reasoning // "No reasoning provided"' /tmp/review.json)
                   PR=${{ github.event.pull_request.number }}
+                  VERDICT=$(jq -r '.final_verdict // ""' /tmp/review.json 2>/dev/null || echo "")
+                  REASONING=$(jq -r '.reviewer.reasoning // ""' /tmp/review.json 2>/dev/null || echo "")
 
                   if [ "$VERDICT" = "APPROVED" ]; then
                     GH_TOKEN="$GH_TOKEN_APPROVE" gh pr review "$PR" --approve --body "$REASONING" \
                       --repo ${{ github.repository }}
+                  elif [ -n "$REASONING" ]; then
+                    gh pr review "$PR" --comment --body "$REASONING" \
+                      --repo ${{ github.repository }}
                   else
-                    GH_TOKEN="$GH_TOKEN_COMMENT" gh pr review "$PR" --comment --body "$REASONING" \
+                    gh pr comment "$PR" \
+                      --body "Review agent failed — check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) and re-apply the label to retry." \
                       --repo ${{ github.repository }}
                   fi
 
-            - name: Post failure notice
-              if: failure()
-              env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-              run: |
-                  gh pr comment "${{ github.event.pull_request.number }}" \
-                    --body "Review agent failed — check the [workflow run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) and re-apply the label to retry." \
-                    --repo ${{ github.repository }}
-
-            - name: Remove label
-              if: always()
-              env:
-                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
-              run: |
-                  gh pr edit "${{ github.event.pull_request.number }}" \
-                    --remove-label stamphog \
-                    --repo ${{ github.repository }}
+                  if [ "$VERDICT" != "APPROVED" ]; then
+                    gh pr edit "$PR" --remove-label stamphog \
+                      --repo ${{ github.repository }}
+                  fi
 
             - name: Upload evidence
               if: always()

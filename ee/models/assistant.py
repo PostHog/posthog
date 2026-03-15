@@ -79,6 +79,22 @@ class Conversation(UUIDTModel):
         blank=True,
         help_text="Stores approval card metadata for dangerous operations (payload lives in checkpoint). Format: {proposal_id: {decision_status: 'pending' | 'approved' | 'rejected' | 'auto_rejected', tool_name: str, preview: str, ...}}",
     )
+    messages_json = models.JSONField(
+        null=True,
+        blank=True,
+        default=None,
+        help_text="Stored messages for non-LangGraph modes (e.g., sandbox).",
+    )
+    sandbox_task_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Permanent link to Task for sandbox conversations.",
+    )
+    sandbox_run_id = models.UUIDField(
+        null=True,
+        blank=True,
+        help_text="Permanent link to current TaskRun for sandbox conversations.",
+    )
 
 
 class ConversationCheckpoint(UUIDTModel):

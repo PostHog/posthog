@@ -226,6 +226,11 @@ class TaskRunAppendLogRequestSerializer(serializers.Serializer):
         return value
 
 
+class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
+    status = serializers.CharField(help_text="Relay status: 'accepted' or 'skipped'")
+    relay_id = serializers.CharField(required=False, help_text="Relay workflow ID when accepted")
+
+
 class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
     text = serializers.CharField(max_length=10000)
 
@@ -349,6 +354,17 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         default=None,
         max_length=255,
         help_text="Git branch to checkout in the sandbox",
+    )
+    resume_from_run_id = serializers.UUIDField(
+        required=False,
+        default=None,
+        help_text="ID of a previous run to resume from. Must belong to the same task.",
+    )
+    pending_user_message = serializers.CharField(
+        required=False,
+        default=None,
+        allow_blank=False,
+        help_text="Follow-up user message to include in the resumed run's prompt.",
     )
 
 

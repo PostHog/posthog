@@ -27,6 +27,7 @@ import type {
     TaskRunCreateRequestApi,
     TaskRunDetailApi,
     TaskRunRelayMessageRequestApi,
+    TaskRunRelayMessageResponseApi,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -443,8 +444,8 @@ export const tasksRunsRelayMessageCreate = async (
     id: string,
     taskRunRelayMessageRequestApi: TaskRunRelayMessageRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
+): Promise<TaskRunRelayMessageResponseApi> => {
+    return apiMutator<TaskRunRelayMessageResponseApi>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
@@ -507,6 +508,25 @@ export const tasksRunsSetOutputPartialUpdate = async (
     return apiMutator<TaskRunDetailApi>(getTasksRunsSetOutputPartialUpdateUrl(projectId, taskId, id), {
         ...options,
         method: 'PATCH',
+    })
+}
+
+/**
+ * API for managing task runs. Each run represents an execution of a task.
+ */
+export const getTasksRunsStreamRetrieveUrl = (projectId: string, taskId: string, id: string) => {
+    return `/api/projects/${projectId}/tasks/${taskId}/runs/${id}/stream/`
+}
+
+export const tasksRunsStreamRetrieve = async (
+    projectId: string,
+    taskId: string,
+    id: string,
+    options?: RequestInit
+): Promise<TaskRunDetailApi> => {
+    return apiMutator<TaskRunDetailApi>(getTasksRunsStreamRetrieveUrl(projectId, taskId, id), {
+        ...options,
+        method: 'GET',
     })
 }
 

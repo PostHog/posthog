@@ -1,14 +1,6 @@
 import { z } from 'zod'
 
-import {
-    AddInsightToDashboardSchema,
-    CreateDashboardInputSchema,
-    ListDashboardsSchema,
-    ReorderDashboardTilesSchema,
-    UpdateDashboardInputSchema,
-} from './dashboards'
 import { ErrorDetailsSchema, ListErrorsSchema, UpdateIssueStatusSchema } from './errors'
-import { FilterGroupsSchema, UpdateFeatureFlagInputSchema } from './flags'
 import { CreateInsightInputSchema, ListInsightsSchema, UpdateInsightInputSchema } from './insights'
 import { LogsListAttributeValuesInputSchema, LogsListAttributesInputSchema, LogsQueryInputSchema } from './logs'
 import { InsightQuerySchema, PropertyFilter } from './query'
@@ -19,33 +11,6 @@ import {
     ListSurveysInputSchema,
     UpdateSurveyInputSchema,
 } from './surveys'
-
-export const DashboardAddInsightSchema = z.object({
-    data: AddInsightToDashboardSchema,
-})
-
-export const DashboardCreateSchema = z.object({
-    data: CreateDashboardInputSchema,
-})
-
-export const DashboardDeleteSchema = z.object({
-    dashboardId: z.number(),
-})
-
-export const DashboardGetSchema = z.object({
-    dashboardId: z.number(),
-})
-
-export const DashboardGetAllSchema = z.object({
-    data: ListDashboardsSchema.optional(),
-})
-
-export const DashboardUpdateSchema = z.object({
-    dashboardId: z.number(),
-    data: UpdateDashboardInputSchema,
-})
-
-export const DashboardReorderTilesSchema = ReorderDashboardTilesSchema
 
 export const DocumentationSearchSchema = z.object({
     query: z.string(),
@@ -282,38 +247,6 @@ export const ExperimentCreateSchema = z.object({
         .number()
         .optional()
         .describe('Holdout group ID if this experiment should exclude users from other experiments'),
-})
-
-export const FeatureFlagCreateSchema = z.object({
-    name: z.string(),
-    key: z.string(),
-    description: z.string(),
-    filters: FilterGroupsSchema,
-    active: z.boolean(),
-    tags: z.array(z.string()).optional(),
-})
-
-export const FeatureFlagDeleteSchema = z.object({
-    flagKey: z.string(),
-})
-
-export const FeatureFlagGetAllSchema = z.object({
-    data: z
-        .object({
-            limit: z.number().int().positive().optional(),
-            offset: z.number().int().min(0).optional(),
-        })
-        .optional(),
-})
-
-export const FeatureFlagGetDefinitionSchema = z.object({
-    flagId: z.number().int().positive().optional(),
-    flagKey: z.string().optional(),
-})
-
-export const FeatureFlagUpdateSchema = z.object({
-    flagKey: z.string(),
-    data: UpdateFeatureFlagInputSchema,
 })
 
 export const InsightCreateSchema = z.object({

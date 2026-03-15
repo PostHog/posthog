@@ -11,7 +11,7 @@ This module exports:
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from enum import Enum
 from types import TracebackType
@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from django.conf import settings
 
+import structlog
 from pydantic import BaseModel
 
 if TYPE_CHECKING:
@@ -56,13 +57,17 @@ class ExecutionStream(Protocol):
     def wait(self) -> ExecutionResult: ...
 
 
+SANDBOX_TTL_SECONDS = 60 * 30  # 30 minutes
+
+
 class SandboxConfig(BaseModel):
     name: str
     template: SandboxTemplate = SandboxTemplate.DEFAULT_BASE
     default_execution_timeout_seconds: int = 10 * 60  # 10 minutes
     environment_variables: dict[str, str] | None = None
     snapshot_id: str | None = None
-    ttl_seconds: int = 60 * 30  # 30 minutes
+    snapshot_external_id: str | None = None
+    ttl_seconds: int = SANDBOX_TTL_SECONDS
     metadata: dict[str, str] | None = None
     memory_gb: float = 16
     cpu_cores: float = 4
@@ -144,6 +149,38 @@ class SandboxProtocol(Protocol):
     ) -> None: ...
 
 
+_ExecuteFn = Callable[..., ExecutionResult]
+
+_logger = structlog.get_logger(__name__)
+
+
+def wait_for_health_check(
+    execute: _ExecuteFn,
+    sandbox_id: str,
+    port: int,
+    max_attempts: int = 20,
+    poll_interval: float = 0.3,
+) -> bool:
+    """Poll health endpoint until server is ready (single remote call).
+
+    Runs a bash polling loop inside the sandbox so only one round-trip is
+    needed regardless of how many attempts are required.
+    """
+    health_script = (
+        f"for i in $(seq 1 {max_attempts}); do "
+        f"  status=$(curl -s -o /dev/null -w '%{{http_code}}' http://localhost:{port}/health); "
+        f'  [ "$status" = "200" ] && echo "ok:$i" && exit 0; '
+        f"  sleep {poll_interval}; "
+        f"done; "
+        f"exit 1"
+    )
+    result = execute(health_script, timeout_seconds=max(30, int(max_attempts * poll_interval) + 5))
+    if result.exit_code == 0:
+        _logger.info(f"Agent-server health check passed in sandbox {sandbox_id} ({result.stdout.strip()})")
+        return True
+    return False
+
+
 SandboxClass = type[SandboxProtocol]
 
 
@@ -191,7 +228,9 @@ __all__ = [
     "SandboxTemplate",
     "ExecutionResult",
     "ExecutionStream",
+    "SANDBOX_TTL_SECONDS",
     "SandboxProtocol",
     "get_sandbox_class",
     "get_sandbox_class_for_backend",
+    "wait_for_health_check",
 ]

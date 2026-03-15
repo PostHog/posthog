@@ -4,9 +4,8 @@ from django.conf import settings
 from django.core.cache import cache
 from django.http import HttpResponse
 
+import requests
 from rest_framework.exceptions import NotFound
-
-from posthog.security.outbound_proxy import external_requests
 
 
 class CDPIconsService:
@@ -22,7 +21,7 @@ class CDPIconsService:
         data = cache.get(cache_key)
 
         if data is None:
-            res = external_requests.get(
+            res = requests.get(
                 f"https://search.logo.dev/api/icons",
                 params={
                     "token": settings.LOGO_DEV_TOKEN,
@@ -48,7 +47,7 @@ class CDPIconsService:
         if not self.supported:
             raise NotFound()
 
-        res = external_requests.get(
+        res = requests.get(
             f"https://img.logo.dev/{id}",
             params={
                 "token": settings.LOGO_DEV_TOKEN,

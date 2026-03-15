@@ -202,7 +202,10 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             return_value=PropertyValuesQueryResponse(results=[]),
         ) as mock_run:
             self.client.get(url)
-            mock_run.assert_called_once_with(ExecutionMode[expected_mode_name])
+            mock_run.assert_called_once()
+            args, kwargs = mock_run.call_args
+            assert args[0] == ExecutionMode[expected_mode_name]
+            assert "analytics_props" in kwargs
 
     @also_test_with_materialized_columns(event_properties=["email"], person_properties=["email"])
     @snapshot_clickhouse_queries

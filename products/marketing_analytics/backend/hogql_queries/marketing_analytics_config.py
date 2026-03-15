@@ -2,7 +2,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from posthog.schema import AttributionMode, MarketingAnalyticsBaseColumns, MarketingAnalyticsConstants
+from posthog.schema import (
+    AttributionMode,
+    MarketingAnalyticsBaseColumns,
+    MarketingAnalyticsConstants,
+    MarketingAnalyticsDrillDownLevel,
+)
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -14,6 +19,7 @@ from .constants import (
     CONVERSION_GOAL_PREFIX_ABBREVIATION,
     DECIMAL_PRECISION,
     DEFAULT_DISTINCT_ID_FIELD,
+    DRILL_DOWN_LEVEL_CONFIG,
     ORGANIC_CAMPAIGN,
     ORGANIC_SOURCE,
     TOTAL_CLICKS_FIELD,
@@ -72,6 +78,9 @@ class MarketingAnalyticsConfig:
     # Precision settings
     decimal_precision: int = DECIMAL_PRECISION
 
+    # Drill-down level (defaults to campaign for backward compatibility)
+    drill_down_level: MarketingAnalyticsDrillDownLevel = MarketingAnalyticsDrillDownLevel.CAMPAIGN
+
     # Attribution settings (can be overridden by team settings)
     attribution_window_days: int = 90
     attribution_mode: str = AttributionMode.LAST_TOUCH
@@ -100,8 +109,18 @@ class MarketingAnalyticsConfig:
 
     @property
     def group_by_fields(self) -> list[str]:
-        """Get the list of fields to group by"""
-        return [self.campaign_field, self.id_field, self.source_field]
+        """Get the list of fields to group by based on drill-down level.
+        At channel/source level, we repurpose the standard field names since
+        the CTE already maps them to the correct values.
+        """
+        if self.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL:
+            # CTE repurposes campaign_name to hold the channel value
+            return [self.campaign_field]
+        elif self.drill_down_level == MarketingAnalyticsDrillDownLevel.SOURCE:
+            return [self.source_field]
+        else:
+            # Campaign level (default) — group by campaign name, id, and source
+            return [self.campaign_field, self.id_field, self.source_field]
 
     def get_campaign_cost_field_chain(self, field_name: str) -> list[str | int]:
         """Get field chain for campaign cost CTE fields"""
@@ -118,3 +137,7 @@ class MarketingAnalyticsConfig:
     def get_conversion_goal_alias(self, index: int) -> str:
         """Get conversion goal CTE alias"""
         return f"{self.conversion_goal_abbreviation}{index}"
+
+    def get_campaign_column_alias(self) -> str:
+        """Get the display alias for the campaign/grouping column based on drill-down level"""
+        return DRILL_DOWN_LEVEL_CONFIG[self.drill_down_level]["column_alias"]
