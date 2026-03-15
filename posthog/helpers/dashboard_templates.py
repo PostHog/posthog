@@ -453,7 +453,32 @@ def _create_website_dashboard(dashboard: Dashboard) -> None:
 
 
 def _create_default_app_items(dashboard: Dashboard) -> None:
+    from posthog.models.action.action import Action
+    from posthog.models.signals import mute_selected_signals
+
+    # Suppress activity logging for this system-generated Action
+    with mute_selected_signals():
+        action = Action.objects.create(
+            team=dashboard.team,
+            name="Pageview or screen",
+            steps_json=[{"event": "$pageview"}, {"event": "$screen"}],
+        )
+
     template = DashboardTemplate.original_template()
+
+    for tile in template.tiles:
+        source = tile.get("query", {}).get("source", {})
+        kind = source.get("kind")
+
+        if kind == "LifecycleQuery":
+            source["series"] = [{"kind": "ActionsNode", "id": action.pk, "name": "Pageview or screen"}]
+        elif kind == "RetentionQuery":
+            entity = {"id": action.pk, "type": "actions", "name": "Pageview or screen"}
+            retention_filter = source.get("retentionFilter", {})
+            retention_filter["targetEntity"] = entity
+            retention_filter["returningEntity"] = entity
+            source["retentionFilter"] = retention_filter
+
     create_from_template(dashboard, template)
 
 
@@ -547,11 +572,7 @@ def create_dashboard_from_template(template_key: str, dashboard: Dashboard) -> N
 
     template = DashboardTemplate.objects.filter(template_name=template_key).first()
     if not template:
-        original_template = DashboardTemplate.original_template()
-        if template_key == original_template.template_name:
-            template = original_template
-        else:
-            raise AttributeError(f"Invalid template key `{template_key}` provided.")
+        raise AttributeError(f"Invalid template key `{template_key}` provided.")
 
     create_from_template(dashboard, template)
 

@@ -2,16 +2,15 @@ from unittest import mock
 
 from django.core.cache import cache
 from django.test import TestCase
-
 from parameterized import parameterized
 
-from posthog.schema import PersonsOnEventsMode
-
 from posthog.models import Dashboard, DashboardTile, Organization, Team, User
+from posthog.models.action.action import Action
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.project import Project
 from posthog.models.team import get_team_in_cache, util
 from posthog.models.team.team import SessionRecordingRetentionPeriod
+from posthog.schema import PersonsOnEventsMode
 
 from .base import BaseTest
 
@@ -217,3 +216,54 @@ class TestTeam(BaseTest):
         with self.is_cloud(is_cloud):
             team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             assert getattr(team, field) == expected
+
+    def test_default_dashboard_creates_pageview_or_screen_action(self):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        action = Action.objects.get(team=team, name="Pageview or screen")
+        assert action.steps_json == [{"event": "$pageview"}, {"event": "$screen"}]
+
+    def test_default_dashboard_lifecycle_tile_references_action(self):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        action = Action.objects.get(team=team, name="Pageview or screen")
+
+        lifecycle_tile = DashboardTile.objects.get(
+            dashboard=team.primary_dashboard,
+            insight__name="Growth accounting",
+        )
+        assert lifecycle_tile.insight is not None
+        source = lifecycle_tile.insight.query["source"]
+        assert source["kind"] == "LifecycleQuery"
+        assert source["series"] == [{"kind": "ActionsNode", "id": action.pk, "name": "Pageview or screen"}]
+
+    def test_default_dashboard_retention_tile_references_action(self):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        action = Action.objects.get(team=team, name="Pageview or screen")
+
+        retention_tile = DashboardTile.objects.get(
+            dashboard=team.primary_dashboard,
+            insight__name="Retention",
+        )
+        assert retention_tile.insight is not None
+        source = retention_tile.insight.query["source"]
+        expected_entity = {"id": action.pk, "type": "actions", "name": "Pageview or screen"}
+        assert source["kind"] == "RetentionQuery"
+        assert source["retentionFilter"]["targetEntity"] == expected_entity
+        assert source["retentionFilter"]["returningEntity"] == expected_entity
+
+    @parameterized.expand(
+        [
+            ("Daily active users (DAUs)",),
+            ("Weekly active users (WAUs)",),
+        ]
+    )
+    def test_default_dashboard_dau_wau_tiles_use_group_node(self, tile_name):
+        team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
+        tile = DashboardTile.objects.get(
+            dashboard=team.primary_dashboard,
+            insight__name=tile_name,
+        )
+        assert tile.insight is not None
+        series = tile.insight.query["source"]["series"]
+        assert len(series) == 1
+        assert series[0]["kind"] == "GroupNode"
+        assert {n["event"] for n in series[0]["nodes"]} == {"$pageview", "$screen"}
