@@ -12,7 +12,8 @@ class Migration(migrations.Migration):
             database_operations=[
                 migrations.RunSQL(
                     "ALTER TABLE posthog_datamodelingnode DROP COLUMN IF EXISTS dag_id, DROP COLUMN IF EXISTS dag_id_text;"
-                    " ALTER TABLE posthog_datamodelingedge DROP COLUMN IF EXISTS dag_id, DROP COLUMN IF EXISTS dag_id_text;",
+                    " ALTER TABLE posthog_datamodelingedge DROP COLUMN IF EXISTS dag_id, DROP COLUMN IF EXISTS dag_id_text;"
+                    " -- drop-column-ignore: staged drop, fields removed from Django state in migration 0018",
                     migrations.RunSQL.noop,
                 ),
             ],
