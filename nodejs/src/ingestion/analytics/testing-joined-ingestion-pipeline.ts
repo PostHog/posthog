@@ -4,6 +4,7 @@ import { KafkaProducerWrapper } from '../../kafka/producer'
 import { Team } from '../../types'
 import { PromiseScheduler } from '../../utils/promise-scheduler'
 import { TeamManager } from '../../utils/team-manager'
+import { PersonsStore } from '../../worker/ingestion/persons/persons-store'
 import { EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { BatchPipelineBuilder } from '../pipelines/builders/batch-pipeline-builders'
 import { OkResultWithContext } from '../pipelines/filter-map-batch-pipeline'
@@ -24,6 +25,7 @@ export interface TestingJoinedIngestionPipelineConfig {
     dlqTopic: string
     groupId: string
     outputs: IngestionOutputs<EventOutput>
+    personsPrefetchEnabled: boolean
     perDistinctIdOptions: {
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
@@ -31,6 +33,7 @@ export interface TestingJoinedIngestionPipelineConfig {
 
 export interface TestingJoinedIngestionPipelineDeps {
     kafkaProducer: KafkaProducerWrapper
+    personsStore: PersonsStore
     promiseScheduler: PromiseScheduler
     teamManager: TeamManager
 }
@@ -86,9 +89,9 @@ export function createTestingJoinedIngestionPipeline<
     config: TestingJoinedIngestionPipelineConfig,
     deps: TestingJoinedIngestionPipelineDeps
 ) {
-    const { dlqTopic, groupId, outputs, perDistinctIdOptions } = config
+    const { dlqTopic, groupId, outputs, personsPrefetchEnabled, perDistinctIdOptions } = config
 
-    const { kafkaProducer, promiseScheduler } = deps
+    const { kafkaProducer, personsStore, promiseScheduler } = deps
 
     const pipelineConfig: PipelineConfig = {
         kafkaProducer,
@@ -99,15 +102,16 @@ export function createTestingJoinedIngestionPipeline<
     const perEventConfig: TestingPerDistinctIdPipelineConfig = {
         options: perDistinctIdOptions,
         outputs,
+        personsStore,
         kafkaProducer,
         groupId,
     }
 
     // Compared to joined-ingestion-pipeline.ts:
-    // CHANGED: uses createTestingPostTeamPreprocessingSubpipeline (no person prefetch, cookieless, or personless batch)
-    // CHANGED: uses createTestingPerDistinctIdPipeline (no person/group processing in event branches)
-    // REMOVED: createFlushBatchStoresStep (no person/group stores to flush)
-    // REMOVED: personsStore, groupStore, cookielessManager, groupTypeManager from deps/config
+    // CHANGED: uses createTestingPostTeamPreprocessingSubpipeline (prefetch persons, but no cookieless or personless batch)
+    // CHANGED: uses createTestingPerDistinctIdPipeline (readonly person processing, no group processing)
+    // REMOVED: createFlushBatchStoresStep (no person/group stores to flush — persons are read-only)
+    // REMOVED: groupStore, cookielessManager, groupTypeManager from deps/config
     return builder
         .messageAware((b) =>
             b
@@ -119,7 +123,10 @@ export function createTestingJoinedIngestionPipeline<
                 .filterMap(addTeamToContext, (b) =>
                     b
                         .teamAware((b) =>
-                            createTestingPostTeamPreprocessingSubpipeline(b)
+                            createTestingPostTeamPreprocessingSubpipeline(b, {
+                                personsStore,
+                                personsPrefetchEnabled,
+                            })
                                 .filterMap(mapToPerEventInput, (b) =>
                                     b
                                         .groupBy(getTokenAndDistinctId)
