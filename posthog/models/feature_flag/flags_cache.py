@@ -191,7 +191,9 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     in /flags would return unusable encrypted ciphertext.
 
     Returns:
-        dict: {"flags": [...]} where flags is a list of flag dictionaries
+        dict: {"flags": [...], "evaluation_context": {...}} where flags is a list
+        of flag dictionaries and evaluation_context contains pre-computed dependency
+        metadata (stages, missing deps, transitive deps).
     """
     # Exclude encrypted remote config flags at DB level for efficiency
     flags = get_feature_flags(team=team, exclude_encrypted_remote_config=True)
@@ -224,7 +226,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
         teams: List of Team objects to load flags for
 
     Returns:
-        Dict mapping team_id to {"flags": [...]} for each team
+        Dict mapping team_id to {"flags": [...], "evaluation_context": {...}} for each team
     """
     if not teams:
         return {}
