@@ -134,3 +134,37 @@ def test_backfill_range(start_at, end_at, step, expected):
         result = [next(generator) for _ in range(len(expected))]
 
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "start_at,end_at,expected_intervals",
+    [
+        pytest.param(
+            # Spring-forward: 2024-03-10 clocks skip 2am->3am
+            # Midnight EST = 05:00 UTC, midnight EDT = 04:00 UTC
+            dt.datetime(2024, 3, 9, 5, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2024, 3, 12, 4, 0, 0, tzinfo=dt.UTC),
+            [
+                (dt.datetime(2024, 3, 9, 5, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 3, 10, 5, 0, 0, tzinfo=dt.UTC)),
+                (dt.datetime(2024, 3, 10, 5, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 3, 11, 4, 0, 0, tzinfo=dt.UTC)),
+                (dt.datetime(2024, 3, 11, 4, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 3, 12, 4, 0, 0, tzinfo=dt.UTC)),
+            ],
+            id="spring_forward",
+        ),
+        pytest.param(
+            # Fall-back: 2024-11-03 clocks repeat 1am->2am
+            # Midnight EDT = 04:00 UTC, midnight EST = 05:00 UTC
+            dt.datetime(2024, 11, 2, 4, 0, 0, tzinfo=dt.UTC),
+            dt.datetime(2024, 11, 5, 5, 0, 0, tzinfo=dt.UTC),
+            [
+                (dt.datetime(2024, 11, 2, 4, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 11, 3, 4, 0, 0, tzinfo=dt.UTC)),
+                (dt.datetime(2024, 11, 3, 4, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 11, 4, 5, 0, 0, tzinfo=dt.UTC)),
+                (dt.datetime(2024, 11, 4, 5, 0, 0, tzinfo=dt.UTC), dt.datetime(2024, 11, 5, 5, 0, 0, tzinfo=dt.UTC)),
+            ],
+            id="fall_back",
+        ),
+    ],
+)
+def test_backfill_range_dst_transitions(start_at, end_at, expected_intervals):
+    result = list(backfill_range(start_at, end_at, dt.timedelta(days=1), timezone="US/Eastern"))
+    assert result == expected_intervals
