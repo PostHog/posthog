@@ -1,12 +1,15 @@
 """Experiment service — single source of truth for experiment business logic."""
 
+from collections.abc import Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from enum import Enum
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Count, Prefetch, Q, QuerySet
+from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models.functions import Now
 
 import pydantic
 from rest_framework.exceptions import ValidationError
@@ -30,6 +33,7 @@ from posthog.models.experiment import (
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team.team import Team
+from posthog.utils import str_to_bool
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
@@ -39,6 +43,18 @@ DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
+
+
+class ExperimentQueryStatus(str, Enum):
+    """
+    Note: The frontend still treats paused experiments as a UI-only variant of "running"
+    when the linked flag is disabled, so the API only filters on stored experiment statuses.
+    """
+
+    DRAFT = "draft"
+    RUNNING = "running"
+    STOPPED = "stopped"
+    ALL = "all"
 
 
 class ExperimentService:
@@ -855,6 +871,111 @@ class ExperimentService:
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return cohort
+
+    # ------------------------------------------------------------------
+    # Experiment list/querying
+    # ------------------------------------------------------------------
+
+    def filter_experiments_queryset(
+        self,
+        queryset: QuerySet[Experiment],
+        *,
+        action: str | None,
+        query_params: Mapping[str, Any] | None = None,
+        request_data: Mapping[str, Any] | None = None,
+    ) -> QuerySet[Experiment]:
+        """Apply experiment list/detail filtering and ordering rules."""
+        query_params = query_params or {}
+        request_data = request_data or {}
+
+        include_deleted = False
+        if action in ("partial_update", "update"):
+            deleted_value = request_data.get("deleted")
+            if deleted_value is not None:
+                include_deleted = not str_to_bool(deleted_value)
+
+        if not include_deleted:
+            queryset = queryset.exclude(deleted=True)
+
+        if action == "list":
+            status = query_params.get("status")
+            if status:
+                normalized_status = str(status).lower()
+                if normalized_status == "complete":
+                    normalized_status = ExperimentQueryStatus.STOPPED.value
+
+                try:
+                    status_enum = ExperimentQueryStatus(normalized_status)
+                except ValueError:
+                    status_enum = None
+
+                if status_enum and status_enum != ExperimentQueryStatus.ALL:
+                    if status_enum == ExperimentQueryStatus.DRAFT:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.DRAFT) | Q(status__isnull=True, start_date__isnull=True)
+                        )
+                    elif status_enum == ExperimentQueryStatus.RUNNING:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.RUNNING)
+                            | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
+                        )
+                    elif status_enum == ExperimentQueryStatus.STOPPED:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.STOPPED) | Q(status__isnull=True, end_date__isnull=False)
+                        )
+
+            created_by_id = query_params.get("created_by_id")
+            if created_by_id:
+                queryset = queryset.filter(created_by_id=created_by_id)
+
+            archived = query_params.get("archived")
+            if archived is not None:
+                archived_bool = str(archived).lower() == "true"
+                queryset = queryset.filter(archived=archived_bool)
+            else:
+                queryset = queryset.filter(archived=False)
+
+            feature_flag_id = query_params.get("feature_flag_id")
+            if feature_flag_id:
+                try:
+                    queryset = queryset.filter(feature_flag_id=int(feature_flag_id))
+                except ValueError:
+                    raise ValidationError("feature_flag_id must be an integer")
+
+        search = query_params.get("search")
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search))
+
+        order = query_params.get("order")
+        if order:
+            order_value = str(order)
+            if order_value in ["duration", "-duration"]:
+                queryset = queryset.annotate(
+                    computed_duration=Case(
+                        When(start_date__isnull=True, then=Value(None)),
+                        When(end_date__isnull=False, then=F("end_date") - F("start_date")),
+                        default=Now() - F("start_date"),
+                    )
+                )
+                queryset = queryset.order_by(f"{'-' if order_value.startswith('-') else ''}computed_duration")
+            elif order_value in ["status", "-status"]:
+                queryset = queryset.annotate(
+                    computed_status=Case(
+                        When(start_date__isnull=True, then=Value(0)),
+                        When(end_date__isnull=True, then=Value(1)),
+                        default=Value(2),
+                    )
+                )
+                if order_value.startswith("-"):
+                    queryset = queryset.order_by(F("computed_status").desc())
+                else:
+                    queryset = queryset.order_by(F("computed_status").asc())
+            else:
+                queryset = queryset.order_by(order_value)
+        else:
+            queryset = queryset.order_by("-created_at")
+
+        return queryset
 
     # ------------------------------------------------------------------
     # Eligible feature flags

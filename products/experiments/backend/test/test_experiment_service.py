@@ -1312,6 +1312,74 @@ class TestExperimentService(APIBaseTest):
         assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]
 
     # ------------------------------------------------------------------
+    # Experiment list/querying
+    # ------------------------------------------------------------------
+
+    def test_filter_experiments_queryset_defaults_to_non_archived_non_deleted_for_list(self) -> None:
+        service = self._service()
+        service.create_experiment(name="Visible", feature_flag_key="list-visible")
+        service.create_experiment(name="Archived", feature_flag_key="list-archived", archived=True)
+        service.create_experiment(name="Deleted", feature_flag_key="list-deleted", deleted=True)
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+        )
+
+        assert set(queryset.values_list("name", flat=True)) == {"Visible"}
+
+    def test_filter_experiments_queryset_includes_deleted_on_restore_update(self) -> None:
+        service = self._service()
+        experiment = service.create_experiment(name="Restore Me", feature_flag_key="restore-me", deleted=True)
+
+        default_queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="update",
+        )
+        restore_queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="update",
+            request_data={"deleted": "false"},
+        )
+
+        assert experiment.id not in default_queryset.values_list("id", flat=True)
+        assert experiment.id in restore_queryset.values_list("id", flat=True)
+
+    def test_filter_experiments_queryset_orders_by_duration(self) -> None:
+        service = self._service()
+        now = timezone.now()
+        short_experiment = service.create_experiment(
+            name="Short",
+            feature_flag_key="short-duration",
+            start_date=now - timedelta(days=2),
+            end_date=now - timedelta(days=1),
+        )
+        long_experiment = service.create_experiment(
+            name="Long",
+            feature_flag_key="long-duration",
+            start_date=now - timedelta(days=4),
+            end_date=now - timedelta(days=1),
+        )
+
+        queryset = service.filter_experiments_queryset(
+            Experiment.objects.filter(team=self.team),
+            action="list",
+            query_params={"order": "duration"},
+        )
+
+        assert list(queryset.values_list("id", flat=True)[:2]) == [short_experiment.id, long_experiment.id]
+
+    def test_filter_experiments_queryset_validates_feature_flag_id(self) -> None:
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().filter_experiments_queryset(
+                Experiment.objects.filter(team=self.team),
+                action="list",
+                query_params={"feature_flag_id": "not-an-int"},
+            )
+
+        assert "feature_flag_id must be an integer" in str(ctx.exception)
+
+    # ------------------------------------------------------------------
     # Velocity stats
     # ------------------------------------------------------------------
 
