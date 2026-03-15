@@ -7239,8 +7239,12 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
         )
 
-        self.assertIsNotNone(response)
-        self.assertGreaterEqual(len(response.results), 0)
+        # Should return exactly 1 breakdown group (Chrome, from the filter)
+        self.assertEqual(len(response.results), 1)
+        self.assertEqual(response.results[0]["breakdown_value"], "Chrome")
+        # Session duration values are 0 since test events lack real session data,
+        # but getting 1 result with the correct breakdown proves the filter propagated
+        self.assertEqual(response.results[0]["count"], 0.0)
 
     @parameterized.expand(
         [

@@ -2189,24 +2189,33 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
         response = self._run_lifecycle_query(date_from, date_to, interval)
 
-        statuses = {r["status"] for r in response.results}
-        self.assertEqual(statuses, {"new", "returning", "resurrecting", "dormant"})
+        statuses = [r["status"] for r in response.results]
+        self.assertEqual(["new", "returning", "resurrecting", "dormant"], statuses)
 
-        # Lifecycle rounds date_from to start-of-interval for status classification.
-        # Verify all four statuses are present and total counts are non-negative.
-        for result in response.results:
-            if result["status"] == "dormant":
-                self.assertTrue(all(v <= 0 for v in result["data"]))
-            else:
-                self.assertTrue(all(v >= 0 for v in result["data"]))
+        by_status = {r["status"]: r for r in response.results}
 
-        # At least some active persons should appear in the range
-        total_active = sum(
-            sum(max(0, v) for v in r["data"])
-            for r in response.results
-            if r["status"] in ("new", "returning", "resurrecting")
-        )
-        self.assertGreater(total_active, 0, "Should have some active persons in range")
+        if interval == IntervalType.WEEK:
+            # Week interval with date_from=Jan 14 rounds to week start (Jan 12, Sunday-based).
+            # Two week buckets: [Jan 12, Jan 19]
+            # Test data: p1 (Jan 11,12,13,15,17,19), p2 (Jan 9,12), p3 (Jan 12), p4 (Jan 15)
+            #
+            # Week of Jan 12: p1 new (first week with events), p2 returning (had Jan 9),
+            #   p3 new, p4 not yet → new=2, returning=2
+            # Week of Jan 19: p1 returning, dormant=p2,p3,p4 (3 go dormant) → returning=1, dormant=-3
+            self.assertEqual(by_status["new"]["data"], [2.0, 0.0])
+            self.assertEqual(by_status["returning"]["data"], [2.0, 1.0])
+            self.assertEqual(by_status["resurrecting"]["data"], [0.0, 0.0])
+            self.assertEqual(by_status["dormant"]["data"], [0.0, -3.0])
+            self.assertEqual(by_status["new"]["days"], ["2020-01-12", "2020-01-19"])
+        elif interval == IntervalType.MONTH:
+            # Month interval with date_from=Jan 14 rounds to Jan 1.
+            # Single month bucket: [Jan 1]
+            # All 4 persons are new in this month (no prior month data)
+            self.assertEqual(by_status["new"]["data"], [4.0])
+            self.assertEqual(by_status["returning"]["data"], [0.0])
+            self.assertEqual(by_status["resurrecting"]["data"], [0.0])
+            self.assertEqual(by_status["dormant"]["data"], [0.0])
+            self.assertEqual(by_status["new"]["days"], ["2020-01-01"])
 
 
 def assertLifecycleResults(results, expected):

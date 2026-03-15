@@ -5574,5 +5574,26 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
             ),
         )
         response = FunnelsQueryRunner(query=query, team=self.team).calculate()
-        self.assertIsNotNone(response.results)
+
+        # Should have at least one breakdown group
         self.assertGreater(len(response.results), 0)
+
+        # Each breakdown group is a list of steps
+        first_group = response.results[0]
+        self.assertIsInstance(first_group, list)
+        self.assertEqual(len(first_group), 2)
+
+        # Step 1: user entered funnel
+        self.assertEqual(first_group[0]["count"], 1)
+        self.assertEqual(first_group[0]["order"], 0)
+
+        # Step 2: user converted
+        self.assertEqual(first_group[1]["count"], 1)
+        self.assertEqual(first_group[1]["order"], 1)
+
+        # Breakdown value should be present and non-empty
+        bv = first_group[0]["breakdown_value"]
+        self.assertIsNotNone(bv)
+        if breakdown_type in (BreakdownType.EVENT, BreakdownType.PERSON):
+            # These types box the value into a list
+            self.assertIsInstance(bv, list, f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}")
