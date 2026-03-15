@@ -1,6 +1,6 @@
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 import structlog
 import temporalio
@@ -171,7 +171,7 @@ class SignalReportReingestionWorkflow:
                 signals=[
                     WaitForClickHouseSignal(
                         signal_id=s.signal_id,
-                        timestamp=datetime.fromisoformat(s.timestamp),
+                        timestamp=s.timestamp,
                     )
                     for s in fetch_result.signals
                 ],

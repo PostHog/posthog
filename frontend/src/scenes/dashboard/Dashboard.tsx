@@ -3,8 +3,8 @@ import './Dashboard.scss'
 import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
+import { IconEllipsis, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { LemonBanner, LemonButton, LemonMenu } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
@@ -38,10 +38,18 @@ interface DashboardProps {
     dashboard?: DashboardType<QueryBasedInsightModel>
     placement?: DashboardPlacement
     themes?: DataColorThemeModel[]
+    /** When set, the "Edit dashboard" menu item links to the dashboard editor with a back button pointing here. */
+    backTo?: { url: string; name: string }
+}
+
+// Wrapper needed because SceneComponent<DashboardLogicProps> requires the component to accept
+// DashboardLogicProps, but DashboardScene takes { backTo? } (logic props are bound separately).
+function DashboardSceneWrapper(): JSX.Element {
+    return <DashboardScene />
 }
 
 export const scene: SceneExport<DashboardLogicProps> = {
-    component: DashboardScene,
+    component: DashboardSceneWrapper,
     logic: dashboardLogic,
     paramsToProps: ({ params: { id, placement } }) => ({
         id: parseInt(id as string),
@@ -50,17 +58,17 @@ export const scene: SceneExport<DashboardLogicProps> = {
     productKey: ProductKey.PRODUCT_ANALYTICS,
 }
 
-export function Dashboard({ id, dashboard, placement, themes }: DashboardProps): JSX.Element {
+export function Dashboard({ id, dashboard, placement, themes, backTo }: DashboardProps): JSX.Element {
     useMountedLogic(dataThemeLogic({ themes }))
 
     return (
         <BindLogic logic={dashboardLogic} props={{ id: parseInt(id as string), placement, dashboard }}>
-            <DashboardScene />
+            <DashboardScene backTo={backTo} />
         </BindLogic>
     )
 }
 
-function DashboardScene(): JSX.Element {
+function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }): JSX.Element {
     const {
         placement,
         dashboard,
@@ -196,22 +204,18 @@ function DashboardScene(): JSX.Element {
                                 DashboardPlacement.Export,
                                 DashboardPlacement.FeatureFlag,
                                 DashboardPlacement.Group,
+                                DashboardPlacement.DataOps,
                                 DashboardPlacement.Builtin,
                             ].includes(placement) &&
                                 dashboard && <DashboardEditBar />}
-                            {[DashboardPlacement.FeatureFlag, DashboardPlacement.Group].includes(placement) &&
-                                dashboard?.id && (
-                                    <LemonButton type="secondary" size="small" to={urls.dashboard(dashboard.id)}>
-                                        {placement === DashboardPlacement.Group
-                                            ? 'Edit dashboard template'
-                                            : 'Edit dashboard'}
-                                    </LemonButton>
-                                )}
                             {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                                 <div
-                                    className={clsx('flex shrink-0 deprecated-space-x-4 dashoard-items-actions', {
-                                        'mt-7': hasVariables,
-                                    })}
+                                    className={clsx(
+                                        'flex shrink-0 deprecated-space-x-4 dashoard-items-actions ml-auto',
+                                        {
+                                            'mt-7': hasVariables,
+                                        }
+                                    )}
                                 >
                                     <div
                                         className={`left-item ${
@@ -224,6 +228,33 @@ function DashboardScene(): JSX.Element {
                                             <DashboardReloadAction />
                                         ) : null}
                                     </div>
+                                    {[
+                                        DashboardPlacement.FeatureFlag,
+                                        DashboardPlacement.Group,
+                                        DashboardPlacement.DataOps,
+                                    ].includes(placement) &&
+                                        dashboard?.id && (
+                                            <LemonMenu
+                                                items={[
+                                                    {
+                                                        label:
+                                                            placement === DashboardPlacement.Group
+                                                                ? 'Edit dashboard template'
+                                                                : 'Edit dashboard',
+                                                        to: backTo
+                                                            ? `${urls.dashboard(dashboard.id)}?backUrl=${encodeURIComponent(backTo.url)}&backName=${encodeURIComponent(backTo.name)}`
+                                                            : urls.dashboard(dashboard.id),
+                                                    },
+                                                ]}
+                                                placement="bottom-end"
+                                                fallbackPlacements={['bottom-start', 'bottom']}
+                                            >
+                                                <LemonButton
+                                                    size="small"
+                                                    icon={<IconEllipsis className="text-secondary" />}
+                                                />
+                                            </LemonMenu>
+                                        )}
                                 </div>
                             )}
                         </div>

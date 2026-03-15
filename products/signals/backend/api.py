@@ -1,5 +1,6 @@
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Union
 
 from django.conf import settings
 
@@ -38,7 +39,7 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
             document_id,
             content,
             metadata,
-            toString(timestamp) as timestamp
+            timestamp
         FROM (
             SELECT
                 document_id,
@@ -67,7 +68,7 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
     )
 
     for row in result.results or []:
-        document_id, content, metadata_str, timestamp_str = row
+        document_id, content, metadata_str, timestamp_raw = row
         metadata = json.loads(metadata_str)
         metadata["deleted"] = True
 
@@ -79,9 +80,18 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
             rendering="plain",
             document_id=document_id,
             models=[m.value for m in EmbeddingModelName],
-            timestamp=datetime.fromisoformat(timestamp_str),
+            timestamp=_ensure_tz_aware(timestamp_raw),
             metadata=metadata,
         )
+
+
+def _ensure_tz_aware(value: Union[datetime, str]) -> datetime:
+    """Coerce a ClickHouse timestamp (usually a datetime, occasionally a string) to a tz-aware datetime."""
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value
 
 
 async def emit_signal(

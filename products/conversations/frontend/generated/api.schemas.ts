@@ -131,6 +131,7 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
+    readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
 
 Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -161,6 +162,7 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `research` - research
  * `flags` - flags
  * `llm_analytics` - llm_analytics
+ * `sandbox` - sandbox
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -176,6 +178,7 @@ export const AgentModeEnumApi = {
     Research: 'research',
     Flags: 'flags',
     LlmAnalytics: 'llm_analytics',
+    Sandbox: 'sandbox',
 } as const
 
 /**
@@ -194,6 +197,7 @@ export interface MessageApi {
     trace_id: string
     session_id?: string
     agent_mode?: AgentModeEnumApi
+    is_sandbox?: boolean
     resume_payload?: unknown | null
 }
 
@@ -242,6 +246,7 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
+    readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
 
 Combines metadata from conversation.approval_decisions with payload from checkpoint

@@ -25,31 +25,52 @@ export interface ToolbarAuthParams {
 }
 
 /**
- * Clean `__posthog_toolbar=code:…,client_id:…` from the URL hash.
+ * Read `__posthog_toolbar=code:…,client_id:…` from the URL hash without modifying the URL.
  * Returns the matched params if found, or null.
  */
-export function cleanToolbarAuthHash(): ToolbarAuthParams | null {
+export function readToolbarAuthHash(): ToolbarAuthParams | null {
     let hash: string
     try {
         hash = decodeURIComponent(window.location.hash)
     } catch {
         hash = window.location.hash
     }
-    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^,&#]+)/)
+    const codeMatch = hash.match(/__posthog_toolbar=code:([^,]+),client_id:([^,&]+)/)
     if (!codeMatch) {
         return null
     }
-
-    const cleanHash = hash
-        .replace(/__posthog_toolbar=[^&#]*/, '')
-        .replace(/&$/, '')
-        .replace(/^#&/, '#')
-        .replace(/^#$/, '')
-    history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
     return {
         code: codeMatch[1],
         clientId: codeMatch[2],
     }
+}
+
+/**
+ * Remove `__posthog_toolbar=code:…,client_id:…` from the URL hash.
+ *
+ * Separated from reading so that the URL modification (history.replaceState)
+ * can be deferred — some SPAs watch for URL changes and re-render the page,
+ * which can destroy the toolbar mid-initialization if the hash is cleaned
+ * synchronously during mount.
+ */
+export function cleanToolbarAuthHash(): void {
+    let hash: string
+    try {
+        hash = decodeURIComponent(window.location.hash)
+    } catch {
+        hash = window.location.hash
+    }
+    if (!hash.includes('__posthog_toolbar=')) {
+        return
+    }
+
+    const cleanHash = hash
+        .replace(/__posthog_toolbar=[^&]*/g, '')
+        .replace(/&&+/g, '&')
+        .replace(/&$/, '')
+        .replace(/^#&/, '#')
+        .replace(/^#$/, '')
+    history.replaceState(null, '', location.pathname + location.search + (cleanHash || ''))
 }
 
 export async function generatePKCE(): Promise<{ verifier: string; challenge: string }> {

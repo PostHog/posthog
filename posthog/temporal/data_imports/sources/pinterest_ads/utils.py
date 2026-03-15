@@ -5,7 +5,6 @@ import requests
 import structlog
 from dateutil import parser
 
-from posthog.security.outbound_proxy import external_requests_session
 from posthog.temporal.data_imports.sources.pinterest_ads.settings import (
     ANALYTICS_COLUMNS,
     ANALYTICS_ENDPOINT_PATHS,
@@ -23,7 +22,7 @@ logger = structlog.get_logger(__name__)
 
 
 def build_session(access_token: str) -> requests.Session:
-    session = external_requests_session()
+    session = requests.Session()
     session.headers.update(
         {
             "Authorization": f"Bearer {access_token}",

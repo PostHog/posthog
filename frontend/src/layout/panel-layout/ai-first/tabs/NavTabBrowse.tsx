@@ -25,7 +25,7 @@ import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layou
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
 import { ActivityTab } from '~/types'
 
-import { SectionTrigger } from '../Nav'
+import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
 
 const panelTriggerItems: {
     identifier: PanelLayoutNavIdentifier
@@ -87,19 +87,13 @@ export function NavTabBrowse(): JSX.Element {
             styledScrollbars
         >
             <Collapsible
-                open={expandedNavSections.project ?? true}
+                open={expandedNavSections.project || isLayoutNavCollapsed ? true : false}
                 onOpenChange={() => toggleNavSection('project')}
-                className="mt-1"
             >
-                <Collapsible.Trigger
-                    icon={!isLayoutNavCollapsed ? <IconFolder /> : undefined}
-                    className={cn(isLayoutNavCollapsed && 'px-px')}
-                    labelClassName={cn(isLayoutNavCollapsed && 'text-[7px] m-0 w-full text-center')}
-                    hideChevron={isLayoutNavCollapsed}
-                >
-                    Project
-                </Collapsible.Trigger>
-                <Collapsible.Panel className={cn('pl-2', isLayoutNavCollapsed && 'items-center')}>
+                {!isLayoutNavCollapsed && (
+                    <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
+                )}
+                <Collapsible.Panel className={cn('pl-2', isLayoutNavCollapsed && 'items-center pl-0')}>
                     <NavLink
                         to={urls.projectRoot()}
                         label="Home"
@@ -138,7 +132,7 @@ export function NavTabBrowse(): JSX.Element {
                                 <ButtonPrimitive
                                     key={item.identifier}
                                     active={isActive}
-                                    className="group"
+                                    className="group -outline-offset-2"
                                     menuItem={!isLayoutNavCollapsed}
                                     iconOnly={isLayoutNavCollapsed}
                                     tooltip={tooltip}
@@ -146,16 +140,30 @@ export function NavTabBrowse(): JSX.Element {
                                     onClick={() => handlePanelTriggerClick(item.identifier)}
                                     data-attr={`menu-item-${item.identifier.toLowerCase()}`}
                                 >
-                                    <span className="size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50">
+                                    <span
+                                        className={cn(
+                                            'relative size-4 text-secondary group-hover:text-primary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                            isActive && 'text-primary opacity-100'
+                                        )}
+                                    >
                                         {item.icon}
+
+                                        <PanelIndicatorIcon />
                                     </span>
                                     {!isLayoutNavCollapsed && (
                                         <>
-                                            <span className="truncate">{item.label}</span>
+                                            <span
+                                                className={cn(
+                                                    'truncate text-secondary group-hover:text-primary',
+                                                    isActive && 'text-primary'
+                                                )}
+                                            >
+                                                {item.label}
+                                            </span>
                                             <span className="ml-auto pr-1">
                                                 <IconChevronRight
                                                     className={cn(
-                                                        'size-3 text-tertiary opacity-50 group-hover:opacity-100 transition-all duration-50',
+                                                        'size-3 text-secondary opacity-50 group-hover:opacity-100 transition-all duration-50',
                                                         isActive && 'opacity-100'
                                                     )}
                                                 />
@@ -169,31 +177,24 @@ export function NavTabBrowse(): JSX.Element {
                 </Collapsible.Panel>
             </Collapsible>
 
-            <Collapsible
-                open={expandedNavSections.apps ?? false}
-                onOpenChange={() => toggleNavSection('apps')}
-                className="px-2 mt-2 group/colorful-product-icons colorful-product-icons-true"
-            >
-                <SectionTrigger
-                    icon={<IconApps />}
-                    label={isLayoutNavCollapsed ? 'Apps' : 'All apps'}
-                    isCollapsed={isLayoutNavCollapsed}
-                />
-                <Collapsible.Panel
-                    className={cn(
-                        '-ml-2 pl-2 w-[calc(100%+(var(--spacing)*4))]',
-                        isLayoutNavCollapsed ? 'items-center' : ''
-                    )}
+            {!isLayoutNavCollapsed && (
+                <Collapsible
+                    open={expandedNavSections.apps ?? false}
+                    onOpenChange={() => toggleNavSection('apps')}
+                    className="mt-2 group/colorful-product-icons colorful-product-icons-true"
                 >
-                    {(expandedNavSections.apps ?? false) && (
-                        <ProjectTree
-                            root="products://"
-                            onlyTree
-                            treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
-                        />
-                    )}
-                </Collapsible.Panel>
-            </Collapsible>
+                    <SectionTrigger icon={<IconApps />} label="Apps" isCollapsed={isLayoutNavCollapsed} />
+                    <Collapsible.Panel className="-ml-2 pl-3 pr-1 w-[calc(100%+(var(--spacing)*4))]">
+                        {(expandedNavSections.apps ?? false) && (
+                            <ProjectTree
+                                root="products://"
+                                onlyTree
+                                treeSize={isLayoutNavCollapsed ? 'narrow' : 'default'}
+                            />
+                        )}
+                    </Collapsible.Panel>
+                </Collapsible>
+            )}
         </ScrollableShadows>
     )
 }

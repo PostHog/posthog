@@ -3,8 +3,6 @@ import logging
 import requests
 from bs4 import BeautifulSoup
 
-from posthog.security.outbound_proxy import external_requests
-
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -35,7 +33,7 @@ def get_relevant_urls(query):
     urls = []
 
     try:
-        response = external_requests.get(SITEMAP_URL)
+        response = requests.get(SITEMAP_URL)
         response.raise_for_status()
         soup = BeautifulSoup(response.content, "xml")
         for url in soup.find_all("loc"):
@@ -105,7 +103,7 @@ def max_search_tool(query):
     for url in prioritized_urls[:max_urls_to_process]:
         try:
             logger.info(f"Searching {url}")
-            response = external_requests.get(url, allow_redirects=True, timeout=180)
+            response = requests.get(url, allow_redirects=True, timeout=180)
             response.raise_for_status()
             soup = BeautifulSoup(response.content, "html.parser")
 

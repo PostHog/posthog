@@ -153,6 +153,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
             }
             for r in reviews_raw
             if r.get("author_association") in ("MEMBER", "OWNER", "COLLABORATOR", "BOT")
+            or r.get("user", {}).get("type") == "Bot"
         ],
         review_comments=[
             {
@@ -164,6 +165,7 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
             }
             for c in comments_raw
             if c.get("author_association") in ("MEMBER", "OWNER", "COLLABORATOR", "BOT")
+            or c.get("user", {}).get("type") == "Bot"
         ],
         check_runs=check_runs_resp.get("check_runs", []),
     )

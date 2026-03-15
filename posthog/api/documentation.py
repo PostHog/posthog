@@ -7,6 +7,7 @@ from django.core.exceptions import ImproperlyConfigured
 from drf_spectacular.extensions import OpenApiAuthenticationExtension
 from drf_spectacular.plumbing import build_mock_request
 from drf_spectacular.utils import (
+    PolymorphicProxySerializer,
     extend_schema,  # noqa: F401
     extend_schema_field,
     extend_schema_serializer,  # noqa: F401
@@ -15,6 +16,7 @@ from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
 
 from posthog.models.entity import MathType
+from posthog.models.feature_flag.types import PropertyFilterType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
 
@@ -192,6 +194,230 @@ class ExistencePropertyFilterSerializer(_PropertyFilterBase):
         choices=["is_set", "is_not_set"],
         required=True,
         help_text="Existence check operator.",
+    )
+
+
+_FEATURE_FLAG_FILTER_NON_FLAG_TYPE_CHOICES = [
+    property_filter_type.value for property_filter_type in PropertyFilterType if property_filter_type.value != "flag"
+]
+
+
+class _FeatureFlagFilterPropertyBaseSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Property key used in this feature flag condition.")
+    type = serializers.ChoiceField(
+        choices=_FEATURE_FLAG_FILTER_NON_FLAG_TYPE_CHOICES,
+        required=False,
+        help_text="Property filter type. Common values are 'person' and 'cohort'.",
+    )
+    cohort_name = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Resolved cohort name for cohort-type filters.",
+    )
+    group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Group type index when using group-based filters.",
+    )
+
+
+class FeatureFlagFilterPropertyGenericSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    value = serializers.JSONField(
+        required=True,
+        help_text="Comparison value for the property filter. Supports strings, numbers, booleans, and arrays.",
+    )
+    operator = serializers.ChoiceField(
+        choices=[
+            "exact",
+            "is_not",
+            "icontains",
+            "not_icontains",
+            "regex",
+            "not_regex",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+        ],
+        required=True,
+        help_text="Operator used to compare the property value.",
+    )
+
+
+class FeatureFlagFilterPropertyExistsSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    operator = serializers.ChoiceField(
+        choices=["is_set", "is_not_set"],
+        required=True,
+        help_text="Existence operator.",
+    )
+    value = serializers.JSONField(
+        required=False,
+        help_text="Optional value. Runtime behavior determines whether this is ignored.",
+    )
+
+
+class FeatureFlagFilterPropertyDateSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    operator = serializers.ChoiceField(
+        choices=["is_date_exact", "is_date_after", "is_date_before"],
+        required=True,
+        help_text="Date comparison operator.",
+    )
+    value = serializers.CharField(
+        required=True,
+        help_text="Date value in ISO format or relative date expression.",
+    )
+
+
+class FeatureFlagFilterPropertySemverSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    operator = serializers.ChoiceField(
+        choices=[
+            "semver_gt",
+            "semver_gte",
+            "semver_lt",
+            "semver_lte",
+            "semver_eq",
+            "semver_neq",
+            "semver_tilde",
+            "semver_caret",
+            "semver_wildcard",
+        ],
+        required=True,
+        help_text="Semantic version comparison operator.",
+    )
+    value = serializers.CharField(
+        required=True,
+        help_text="Semantic version string.",
+    )
+
+
+class FeatureFlagFilterPropertyMultiContainsSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    operator = serializers.ChoiceField(
+        choices=["icontains_multi", "not_icontains_multi"],
+        required=True,
+        help_text="Multi-contains operator.",
+    )
+    value = serializers.ListField(
+        child=serializers.CharField(),
+        required=True,
+        help_text="List of strings to evaluate against.",
+    )
+
+
+class FeatureFlagFilterPropertyCohortInSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    type = serializers.ChoiceField(
+        choices=["cohort"],
+        required=True,
+        help_text="Cohort property type required for in/not_in operators.",
+    )
+    operator = serializers.ChoiceField(
+        choices=["in", "not_in"],
+        required=True,
+        help_text="Membership operator for cohort properties.",
+    )
+    value = serializers.JSONField(
+        required=True,
+        help_text="Cohort comparison value (single or list, depending on usage).",
+    )
+
+
+class FeatureFlagFilterPropertyFlagEvaluatesSchemaSerializer(_FeatureFlagFilterPropertyBaseSerializer):
+    type = serializers.ChoiceField(
+        choices=["flag"],
+        required=True,
+        help_text="Flag property type required for flag dependency checks.",
+    )
+    operator = serializers.ChoiceField(
+        choices=["flag_evaluates_to"],
+        required=True,
+        help_text="Operator for feature flag dependency evaluation.",
+    )
+    value = serializers.JSONField(
+        required=True,
+        help_text="Value to compare flag evaluation against.",
+    )
+
+
+_FeatureFlagFilterPropertyUnion = PolymorphicProxySerializer(
+    component_name="FeatureFlagFilterPropertySchema",
+    serializers=[
+        FeatureFlagFilterPropertyGenericSchemaSerializer,
+        FeatureFlagFilterPropertyExistsSchemaSerializer,
+        FeatureFlagFilterPropertyDateSchemaSerializer,
+        FeatureFlagFilterPropertySemverSchemaSerializer,
+        FeatureFlagFilterPropertyMultiContainsSchemaSerializer,
+        FeatureFlagFilterPropertyCohortInSchemaSerializer,
+        FeatureFlagFilterPropertyFlagEvaluatesSchemaSerializer,
+    ],
+    resource_type_field_name=None,
+)
+
+
+@extend_schema_field(serializers.ListSerializer(child=_FeatureFlagFilterPropertyUnion))
+class FeatureFlagFilterPropertyListSchemaField(serializers.ListField):
+    """ListField with oneOf feature-flag property filter typing for OpenAPI generation."""
+
+    pass
+
+
+class FeatureFlagConditionGroupSchemaSerializer(serializers.Serializer):
+    properties = FeatureFlagFilterPropertyListSchemaField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Property conditions for this release condition group.",
+    )
+    rollout_percentage = serializers.FloatField(
+        required=False,
+        help_text="Rollout percentage for this release condition group.",
+    )
+    variant = serializers.CharField(
+        required=False,
+        allow_null=True,
+        help_text="Variant key override for multivariate flags.",
+    )
+
+
+class FeatureFlagMultivariateVariantSchemaSerializer(serializers.Serializer):
+    key = serializers.CharField(help_text="Unique key for this variant.")
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Human-readable name for this variant.",
+    )
+    rollout_percentage = serializers.FloatField(help_text="Variant rollout percentage.")
+
+
+class FeatureFlagMultivariateSchemaSerializer(serializers.Serializer):
+    variants = FeatureFlagMultivariateVariantSchemaSerializer(
+        many=True,
+        help_text="Variant definitions for multivariate feature flags.",
+    )
+
+
+class FeatureFlagFiltersSchemaSerializer(serializers.Serializer):
+    groups = FeatureFlagConditionGroupSchemaSerializer(
+        many=True,
+        required=False,
+        help_text="Release condition groups for the feature flag.",
+    )
+    multivariate = FeatureFlagMultivariateSchemaSerializer(
+        required=False,
+        allow_null=True,
+        help_text="Multivariate configuration for variant-based rollouts.",
+    )
+    aggregation_group_type_index = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="Group type index for group-based feature flags.",
+    )
+    payloads = serializers.DictField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+        help_text="Optional payload values keyed by variant key.",
+    )
+    super_groups = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        help_text="Additional super condition groups used by experiments.",
     )
 
 

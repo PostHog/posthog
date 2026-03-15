@@ -202,7 +202,7 @@ function NodeMetadata({
                             <TZLabel
                                 className="text-[10px]"
                                 time={lastRunAt}
-                                formatDate="MMM DD, YYYY"
+                                formatDate="MMM D"
                                 formatTime="HH:mm"
                                 showPopover={false}
                             />

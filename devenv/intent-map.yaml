@@ -200,7 +200,9 @@ intents:
                 property_definitions,
                 celery_workers,
                 nodejs_feature_flags,
+                nodejs_cdp,
                 dagster_pipelines,
+                temporal_workflows,
             ]
 
     llm_analytics:

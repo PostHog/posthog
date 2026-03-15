@@ -97,7 +97,7 @@ Environment variables consumed inside the sandbox:
 4. **update_task_run_status** — Sets status to IN_PROGRESS
 5. **get_sandbox_for_repository** — Gets GitHub token from integration, creates OAuth access token, provisions sandbox, clones repo (unless snapshot used), stores sandbox credentials in TaskRun.state
 6. **start_agent_server** — Starts `npx agent-server` in sandbox, polls `/health` until ready
-7. **wait_condition** — Workflow blocks with a 5-minute inactivity timeout, extended by `heartbeat` signals from the agent. Twig IDE or the agent server signals completion via the API
+7. **wait_condition** — Workflow blocks with a 5-minute inactivity timeout, extended by `heartbeat` signals from the agent. PostHog Code or the agent server signals completion via the API
 8. Agent server calls `PATCH /api/projects/{team_id}/task_runs/{run_id}/` with terminal status
 9. API handler sends `complete_task(status, error_message)` signal to the Temporal workflow
 10. **cleanup_sandbox** — Sandbox destroyed
@@ -185,9 +185,9 @@ Set `SANDBOX_API_URL` to the ngrok URL. `SITE_URL` stays as `http://localhost:80
 
 ## Frontend
 
-- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, "Open in Twig" link
+- **TaskDetailPage** (`frontend/components/TaskDetailPage.tsx`) — Task detail view with run history, "Run task" button, "Open in PostHog Code" link
 - **TaskSessionView** (`frontend/components/TaskSessionView.tsx`) — Live log streaming with hedgehog animation during agent execution
-- Twig IDE integration via `twig://task/{id}` deep links
+- PostHog Code integration via `posthog-code://task/{id}` deep links
 
 ## Key files
 

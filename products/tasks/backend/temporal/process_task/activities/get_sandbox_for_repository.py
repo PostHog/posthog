@@ -55,11 +55,6 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             snapshot_lookup_timer.set_used_snapshot(used_snapshot)
         increment_snapshot_usage(used_snapshot)
 
-        if used_snapshot:
-            emit_agent_log(ctx.run_id, "info", f"Found existing environment for {ctx.repository}")
-        else:
-            emit_agent_log(ctx.run_id, "debug", f"Creating environment from base image for {ctx.repository}")
-
         try:
             task = Task.objects.select_related("created_by").get(id=ctx.task_id)
         except Task.DoesNotExist as e:
@@ -94,11 +89,27 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         if settings.SANDBOX_LLM_GATEWAY_URL:
             environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+        # Check for resume snapshot (takes priority over integration-level snapshots)
+        resume_snapshot_ext_id = (ctx.state or {}).get("snapshot_external_id")
+        if resume_snapshot_ext_id:
+            used_snapshot = True
+            resume_from_run_id = (ctx.state or {}).get("resume_from_run_id", "")
+            if resume_from_run_id:
+                environment_variables["POSTHOG_RESUME_RUN_ID"] = resume_from_run_id
+
+        if resume_snapshot_ext_id:
+            emit_agent_log(ctx.run_id, "info", f"Resuming environment from snapshot for {ctx.repository}")
+        elif used_snapshot:
+            emit_agent_log(ctx.run_id, "info", f"Found existing environment for {ctx.repository}")
+        else:
+            emit_agent_log(ctx.run_id, "debug", f"Creating environment from base image for {ctx.repository}")
+
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
             template=SandboxTemplate.DEFAULT_BASE,
             environment_variables=environment_variables,
-            snapshot_id=str(snapshot.id) if snapshot else None,
+            snapshot_external_id=resume_snapshot_ext_id,
+            snapshot_id=str(snapshot.id) if snapshot and not resume_snapshot_ext_id else None,
             metadata={"task_id": ctx.task_id},
         )
 

@@ -45,6 +45,11 @@ function buildModeTooltip(description: string, tools: ToolDefinition[]): JSX.Ele
                                                 BETA
                                             </LemonTag>
                                         )}
+                                        {tool.alpha && (
+                                            <LemonTag size="small" type="danger" className="ml-1 not-italic">
+                                                ALPHA
+                                            </LemonTag>
+                                        )}
                                     </strong>
                                     {tool.description?.replace(tool.name, '')}
                                 </span>
@@ -109,6 +114,7 @@ function buildGeneralTooltip(description: string, defaultTools: ToolDefinition[]
 interface GetModeOptionsParams {
     planModeEnabled: boolean
     researchEnabled: boolean
+    sandboxModeEnabled: boolean
     featureFlags: Record<string, boolean | string>
     hasExistingMessages: boolean
 }
@@ -116,6 +122,7 @@ interface GetModeOptionsParams {
 function getModeOptions({
     planModeEnabled,
     researchEnabled,
+    sandboxModeEnabled,
     featureFlags,
     hasExistingMessages,
 }: GetModeOptionsParams): LemonSelectSection<ModeValue>[] {
@@ -163,6 +170,24 @@ function getModeOptions({
         })
     }
 
+    if (sandboxModeEnabled && !hasExistingMessages) {
+        specialOptions.push({
+            value: 'sandbox' as ModeValue,
+            label: (
+                <span className="flex items-center gap-1">
+                    {SPECIAL_MODES.sandbox.name}
+                    {SPECIAL_MODES.sandbox.alpha && (
+                        <LemonTag size="small" type="danger">
+                            ALPHA
+                        </LemonTag>
+                    )}
+                </span>
+            ),
+            icon: SPECIAL_MODES.sandbox.icon,
+            tooltip: <div>{SPECIAL_MODES.sandbox.description}</div>,
+        })
+    }
+
     const modeEntries = Object.entries(MODE_DEFINITIONS).filter(([_, def]) => {
         if (def.flag && !featureFlags[FEATURE_FLAGS[def.flag]]) {
             return false
@@ -175,16 +200,24 @@ function getModeOptions({
         {
             options: modeEntries.map(([mode, def]) => ({
                 value: mode as AgentMode,
-                label: def.beta ? (
-                    <span className="flex items-center gap-1">
-                        {def.name}
-                        <LemonTag size="small" type="warning">
-                            BETA
-                        </LemonTag>
-                    </span>
-                ) : (
-                    def.name
-                ),
+                label:
+                    def.beta || def.alpha ? (
+                        <span className="flex items-center gap-1">
+                            {def.name}
+                            {def.beta && (
+                                <LemonTag size="small" type="warning">
+                                    BETA
+                                </LemonTag>
+                            )}
+                            {def.alpha && (
+                                <LemonTag size="small" type="danger">
+                                    ALPHA
+                                </LemonTag>
+                            )}
+                        </span>
+                    ) : (
+                        def.name
+                    ),
                 icon: def.icon,
                 tooltip: buildModeTooltip(def.description, getToolsForMode(mode as AgentMode)),
             })),
@@ -193,11 +226,13 @@ function getModeOptions({
 }
 
 export function ModeSelector(): JSX.Element | null {
-    const { agentMode, contextDisabledReason, conversation, threadMessageCount } = useValues(maxThreadLogic)
-    const { setAgentMode } = useActions(maxThreadLogic)
+    const { agentMode, isSandboxMode, contextDisabledReason, conversation, threadMessageCount } =
+        useValues(maxThreadLogic)
+    const { setAgentMode, setIsSandboxMode } = useActions(maxThreadLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const researchEnabled = useFeatureFlag('MAX_DEEP_RESEARCH')
     const planModeEnabled = useFeatureFlag('PHAI_PLAN_MODE')
+    const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
 
     const hasExistingMessages = threadMessageCount > 0
     const modeOptions = useMemo(
@@ -205,28 +240,35 @@ export function ModeSelector(): JSX.Element | null {
             getModeOptions({
                 planModeEnabled,
                 researchEnabled,
+                sandboxModeEnabled,
                 featureFlags,
                 hasExistingMessages,
             }),
-        [planModeEnabled, researchEnabled, featureFlags, hasExistingMessages]
+        [planModeEnabled, researchEnabled, sandboxModeEnabled, featureFlags, hasExistingMessages]
     )
 
     const handleChange = useCallback(
         (value: ModeValue): void => {
             posthog.capture('phai mode switched', {
-                previous_mode: agentMode,
+                previous_mode: isSandboxMode ? 'sandbox' : agentMode,
                 new_mode: value,
             })
-            setAgentMode(value as AgentMode | null)
+            if (value === 'sandbox') {
+                setIsSandboxMode(true)
+                setAgentMode(null)
+            } else {
+                setIsSandboxMode(false)
+                setAgentMode(value as AgentMode | null)
+            }
         },
-        [agentMode, setAgentMode]
+        [agentMode, isSandboxMode, setAgentMode, setIsSandboxMode]
     )
 
     const isDeepResearch = conversation?.type === ConversationType.DeepResearch
 
     return (
         <LemonSelect
-            value={isDeepResearch ? 'research' : agentMode}
+            value={isDeepResearch ? 'research' : isSandboxMode ? 'sandbox' : agentMode}
             onChange={handleChange}
             options={modeOptions}
             size="xxsmall"

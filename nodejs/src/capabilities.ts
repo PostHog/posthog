@@ -12,7 +12,6 @@ export const CAPABILITIES_CDP: PluginServerCapabilities = {
     cdpPersonUpdates: true,
     cdpInternalEvents: true,
     cdpCyclotronWorker: true,
-    cdpCyclotronV2Janitor: isDevEnv(),
     cdpApi: true,
     appManagementSingleton: true,
     cdpDataWarehouseEvents: false, // Not yet fully developed - enable when ready
@@ -24,6 +23,7 @@ export const CAPABILITIES_CDP_WORKFLOWS: PluginServerCapabilities = {
     ...CAPABILITIES_CDP,
     cdpBatchHogFlow: true,
     cdpCyclotronWorkerHogFlow: true,
+    cdpCyclotronV2Janitor: isDevEnv(),
 }
 
 /** Realtime Cohorts - precalculated filters and cohort membership */

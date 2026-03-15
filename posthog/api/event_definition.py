@@ -199,6 +199,11 @@ class EventDefinitionViewSet(
 
         params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = self._ordering_params_from_request()
+        has_explicit_ordering = "ordering" in self.request.GET
+        has_search_terms = bool(search and search.strip())
+
+        if has_search_terms and not has_explicit_ordering:
+            order_expressions = [("length(name)", "ASC"), *order_expressions]
 
         event_definition_object_manager: Manager
         if EE_AVAILABLE:

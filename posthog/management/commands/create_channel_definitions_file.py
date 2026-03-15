@@ -9,9 +9,8 @@ from typing import Optional
 
 from django.core.management.base import BaseCommand
 
+import aiohttp
 import structlog
-
-from posthog.security.outbound_proxy import external_aiohttp_session
 
 OUTPUT_FILE = "posthog/models/channel_type/channel_definitions.json"
 
@@ -512,7 +511,9 @@ async def parallel_lookup_up_apple_apps(url_entries):
                 pass
         return app_ids, entry
 
-    async with external_aiohttp_session(read_timeout=60, conn_timeout=60) as session:
+    async with aiohttp.ClientSession(
+        trust_env=True, timeout=aiohttp.ClientTimeout(sock_read=60, sock_connect=60)
+    ) as session:
         return await asyncio.gather(*(f(url_entry, session) for url_entry in url_entries))
 
 
@@ -538,5 +539,7 @@ async def parallel_lookup_up_android_apps(url_entries):
                 app_ids.append(package_name)
         return app_ids, entry
 
-    async with external_aiohttp_session(read_timeout=60, conn_timeout=60) as session:
+    async with aiohttp.ClientSession(
+        trust_env=True, timeout=aiohttp.ClientTimeout(sock_read=60, sock_connect=60)
+    ) as session:
         return await asyncio.gather(*(f(url_entry, session) for url_entry in url_entries))

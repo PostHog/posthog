@@ -305,6 +305,7 @@ def assign_issue(issue: ErrorTrackingIssue, assignee, organization, user, team_i
         assignment_after, _ = ErrorTrackingIssueAssignment.objects.update_or_create(
             issue_id=issue.id,
             defaults={
+                "team_id": issue.team_id,
                 "user_id": None if assignee["type"] != "user" else assignee["id"],
                 "role_id": None if assignee["type"] != "role" else assignee["id"],
             },

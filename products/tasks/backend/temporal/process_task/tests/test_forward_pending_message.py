@@ -38,7 +38,7 @@ class TestForwardPendingUserMessage(TestCase):
         )
         self.slack_integration = Integration.objects.create(
             team=self.team,
-            kind="slack-twig",
+            kind="slack-posthog-code",
             integration_id="T123",
             config={},
         )
@@ -128,7 +128,7 @@ class TestForwardPendingUserMessage(TestCase):
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
 
-    @patch("products.tasks.backend.temporal.client.execute_twig_agent_relay_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
     def test_slack_origin_posts_reply_and_cleans_progress(
@@ -174,7 +174,7 @@ class TestForwardPendingUserMessage(TestCase):
         assert "pending_user_message" not in run.state
         assert "pending_user_message_ts" not in run.state
 
-    @patch("products.tasks.backend.temporal.client.execute_twig_agent_relay_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
     def test_slack_origin_non_retryable_failure_posts_error(
@@ -218,7 +218,7 @@ class TestForwardPendingUserMessage(TestCase):
         run.refresh_from_db()
         assert "pending_user_message" not in run.state
 
-    @patch("products.tasks.backend.temporal.client.execute_twig_agent_relay_workflow")
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     @patch("products.tasks.backend.services.connection_token.create_sandbox_connection_token", return_value="jwt")
     @patch("products.tasks.backend.services.agent_command.send_user_message")
     def test_slack_origin_posts_fallback_when_reply_text_missing(self, mock_send, mock_token, mock_enqueue_relay):
