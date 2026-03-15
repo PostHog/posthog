@@ -27,6 +27,7 @@ jobs:
                   filters: |
                       sandbox_image:
                         - 'products/tasks/backend/sandbox/images/**'
+                        - 'products/*/skills/**'
 
     sandbox_base_build:
         needs: changes
