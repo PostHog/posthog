@@ -37,8 +37,28 @@ TOMBSTONE_COUNTER = Counter(
 )
 
 
-def _push(settings, job, registry):
-    push_to_gateway(settings, job, registry)
+# Patch prometheus_client to bypass HTTP_PROXY/HTTPS_PROXY for pushgateway calls.
+# The pushgateway is an internal service — the outbound proxy would reject it.
+# ProxyHandler({}) tells urllib to ignore proxy env vars.
+import prometheus_client.exposition as _expo  # noqa: E402
+
+
+def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
+    from urllib.request import ProxyHandler, Request, build_opener
+
+    def handle():
+        request = Request(url, data=data)
+        request.get_method = lambda: method  # type: ignore[assignment]
+        for k, v in headers:
+            request.add_header(k, v)
+        resp = build_opener(ProxyHandler({}), base_handler).open(request, timeout=timeout)
+        if resp.code >= 400:
+            raise OSError(f"error talking to pushgateway: {resp.code} {resp.msg}")
+
+    return handle
+
+
+_expo._make_handler = _make_handler_no_proxy  # type: ignore[attr-defined]
 
 
 @contextmanager
@@ -58,7 +78,7 @@ def pushed_metrics_registry(job_name: str):
     yield registry
     try:
         if settings.PROM_PUSHGATEWAY_ADDRESS:
-            _push(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
+            push_to_gateway(settings.PROM_PUSHGATEWAY_ADDRESS, job=job_name, registry=registry)
     except Exception as err:
         logger.exception("push_to_gateway", target=settings.PROM_PUSHGATEWAY_ADDRESS, exception=err)
         capture_exception(err)
