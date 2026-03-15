@@ -80,6 +80,19 @@
                 const form = document.getElementById('preferences-form')
                 const toggles = document.querySelectorAll('.toggle-checkbox')
 
+                function updateStatusLabel(toggle) {
+                    const statusLabel = document.querySelector('[data-status-for="' + toggle.name + '"]')
+                    if (!statusLabel) return
+                    const isChanged = toggle.checked !== toggle.defaultChecked
+                    if (isChanged) {
+                        statusLabel.textContent = toggle.checked ? 'Will subscribe' : 'Will unsubscribe'
+                        statusLabel.className = 'text-xs font-medium mt-1 text-right text-amber-600'
+                    } else {
+                        statusLabel.textContent = toggle.checked ? 'Subscribed' : 'Not subscribed'
+                        statusLabel.className = 'text-xs font-medium mt-1 text-right ' + (toggle.checked ? 'text-green-700' : 'text-gray-500')
+                    }
+                }
+
                 toggles.forEach((toggle) => {
                     toggle.addEventListener('change', function () {
                         const card = this.closest('.bg-gray-50')
@@ -88,12 +101,8 @@
                             card.style.transform = 'scale(1)'
                         }, 200)
 
-                        // Update status label
-                        const statusLabel = document.querySelector('[data-status-for="' + this.name + '"]')
-                        if (statusLabel) {
-                            statusLabel.textContent = this.checked ? 'Subscribed' : 'Not subscribed'
-                            statusLabel.className = 'text-xs font-medium mt-1 text-right ' + (this.checked ? 'text-green-700' : 'text-gray-500')
-                        }
+                        // Update status label: show pending state if changed, saved state if reverted
+                        updateStatusLabel(this)
 
                         // Show/hide unsaved hint and enable/disable save button
                         const anyChanged = Array.from(toggles).some(t => t.checked !== t.defaultChecked)
@@ -129,8 +138,11 @@
                             throw new Error(data.error)
                         }
 
-                        // Update defaultChecked so toggles reflect the saved state
-                        toggles.forEach(t => t.defaultChecked = t.checked)
+                        // Update saved state and resolve all labels
+                        toggles.forEach(t => {
+                            t.defaultChecked = t.checked
+                            updateStatusLabel(t)
+                        })
                         document.getElementById('unsaved-hint').classList.add('hidden')
                         document.getElementById('save-btn').disabled = true
 
