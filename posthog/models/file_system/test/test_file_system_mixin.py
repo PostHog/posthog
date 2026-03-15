@@ -160,6 +160,46 @@ class TestFileSystemSyncMixin(TestCase):
         fs_entry2 = FileSystem.objects.filter(team=self.team, type="notebook", ref=str(note_id)).first()
         assert fs_entry2 is None
 
+    def test_bulk_delete_file_system_entries(self):
+        insight1 = Insight.objects.create(
+            team=self.team, name="Insight 1", saved=True, deleted=False, created_by=self.user
+        )
+        insight2 = Insight.objects.create(
+            team=self.team, name="Insight 2", saved=True, deleted=False, created_by=self.user
+        )
+        assert FileSystem.objects.filter(team=self.team, type="insight").count() == 2
+
+        # Simulate a bulk .update(deleted=True) that bypasses signals
+        Insight.objects.filter(id__in=[insight1.id, insight2.id]).update(deleted=True)
+
+        # FileSystem entries are still there because .update() bypasses signals
+        assert FileSystem.objects.filter(team=self.team, type="insight").count() == 2
+
+        # Use the bulk helper to clean up
+        Insight.bulk_delete_file_system_entries(self.team, [insight1, insight2])
+
+        assert FileSystem.objects.filter(team=self.team, type="insight").count() == 0
+
+    def test_bulk_create_file_system_entries(self):
+        insight1 = Insight.objects.create(
+            team=self.team, name="Insight 1", saved=True, deleted=False, created_by=self.user
+        )
+        insight2 = Insight.objects.create(
+            team=self.team, name="Insight 2", saved=True, deleted=False, created_by=self.user
+        )
+
+        # Delete entries (simulating a prior bulk delete)
+        FileSystem.objects.filter(team=self.team, type="insight").delete()
+        assert FileSystem.objects.filter(team=self.team, type="insight").count() == 0
+
+        # Set deleted=False in memory to simulate a bulk restore
+        insight1.deleted = False
+        insight2.deleted = False
+
+        Insight.bulk_create_file_system_entries(self.team, [insight1, insight2])
+
+        assert FileSystem.objects.filter(team=self.team, type="insight").count() == 2
+
     def test_notebook_internal_visibility(self):
         note = Notebook.objects.create(
             team=self.team, title="My Notebook", created_by=self.user, visibility=Notebook.Visibility.INTERNAL
