@@ -58,7 +58,7 @@
 # ---
 # name: test_parse_groups_persons_edge_case_with_single_filter
   tuple(
-    'AND (  has(%(vglobalperson_0)s, "pmat_email"))',
+    'AND (  has(%(vglobalperson_0)s, replaceRegexpAll(JSONExtractRaw(person_props, %(kglobalperson_0)s), \'^"|"$\', \'\')))',
     dict({
       'kglobalperson_0': 'email',
       'vglobalperson_0': list([
@@ -121,7 +121,7 @@
 # ---
 # name: test_parse_prop_clauses_defaults.2
   tuple(
-    'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND argMax(person."pmat_email", version) ILIKE %(vpersonquery_global_1)s)',
+    'AND (   has(%(vglobal_0)s, replaceRegexpAll(JSONExtractRaw(properties, %(kglobal_0)s), \'^"|"$\', \'\'))  AND replaceRegexpAll(JSONExtractRaw(argMax(person.properties, version), %(kpersonquery_global_1)s), \'^"|"$\', \'\') ILIKE %(vpersonquery_global_1)s)',
     dict({
       'kglobal_0': 'event_prop',
       'kpersonquery_global_1': 'email',
