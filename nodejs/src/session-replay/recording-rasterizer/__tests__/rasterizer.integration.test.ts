@@ -63,8 +63,8 @@ describe('rasterizer integration', () => {
 
         it('passes recording result metadata through to output', async () => {
             const inactivityPeriods = [
-                { ts_from_s: 0, ts_to_s: 5, active: true, recording_ts_from_s: 0, recording_ts_to_s: 2 },
-                { ts_from_s: 5, ts_to_s: null, active: false },
+                { ts_from_s: 0, ts_to_s: 5, active: true },
+                { ts_from_s: 5, ts_to_s: 10, active: false },
             ]
 
             mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
@@ -82,7 +82,11 @@ describe('rasterizer integration', () => {
             expect(result.video_duration_s).toBe(3)
             expect(result.playback_speed).toBe(1)
             expect(result.show_metadata_footer).toBe(false)
-            expect(result.inactivity_periods).toEqual(inactivityPeriods)
+            // recording_ts fields should be computed
+            expect(result.inactivity_periods[0].recording_ts_from_s).toBe(0)
+            expect(result.inactivity_periods[0].recording_ts_to_s).toBe(5)
+            expect(result.inactivity_periods[1].recording_ts_from_s).toBe(5)
+            expect(result.inactivity_periods[1].recording_ts_to_s).toBe(5) // inactive = zero video time
             expect(result.file_size_bytes).toBeGreaterThan(0)
             expect(result.timings.total_s).toBeGreaterThan(0)
             expect(result.timings.setup_s).toBe(1.5)
@@ -151,65 +155,131 @@ describe('rasterizer integration', () => {
     })
 
     describe('temp file cleanup', () => {
-        it('cleans up temp files on success', async () => {
-            let videoPath: string | undefined
-            mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
-                videoPath = outputPath
-                await fs.writeFile(outputPath, Buffer.alloc(64))
-                return baseRecordingResult(outputPath)
+        it('cleans up temp file on success', async () => {
+            let outputPath: string | undefined
+            mockedRasterizeRecording.mockImplementation(async (_pool, _input, path) => {
+                outputPath = path
+                await fs.writeFile(path, Buffer.alloc(64))
+                return baseRecordingResult(path)
             })
 
             await rasterizeRecordingActivity(baseInput())
 
-            expect(videoPath).toBeDefined()
-            await expect(fs.access(videoPath!)).rejects.toThrow()
+            expect(outputPath).toBeDefined()
+            await expect(fs.access(outputPath!)).rejects.toThrow()
         })
 
-        it('cleans up temp files on recording failure', async () => {
+        it('cleans up temp file on recording failure', async () => {
             mockedRasterizeRecording.mockRejectedValue(new Error('browser crashed'))
 
             await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('browser crashed')
         })
 
-        it('cleans up temp files on S3 upload failure', async () => {
-            let videoPath: string | undefined
-            mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
-                videoPath = outputPath
-                await fs.writeFile(outputPath, Buffer.alloc(64))
-                return baseRecordingResult(outputPath)
+        it('cleans up temp file on S3 upload failure', async () => {
+            let outputPath: string | undefined
+            mockedRasterizeRecording.mockImplementation(async (_pool, _input, path) => {
+                outputPath = path
+                await fs.writeFile(path, Buffer.alloc(64))
+                return baseRecordingResult(path)
             })
             mockedUploadToS3.mockRejectedValue(new Error('S3 access denied'))
 
             await expect(rasterizeRecordingActivity(baseInput())).rejects.toThrow('S3 access denied')
-            await expect(fs.access(videoPath!)).rejects.toThrow()
+            await expect(fs.access(outputPath!)).rejects.toThrow()
         })
     })
 
     describe('video duration calculation', () => {
-        it('computes video_duration_s from capture_duration_s * playback_speed', async () => {
+        it('uses capture_duration_s directly as video_duration_s', async () => {
             mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
                 await fs.writeFile(outputPath, Buffer.alloc(64))
-                return baseRecordingResult(outputPath, {
-                    capture_duration_s: 10,
-                    playback_speed: 8,
-                })
+                return baseRecordingResult(outputPath, { capture_duration_s: 80 })
             })
 
             const result = await rasterizeRecordingActivity(baseInput({ playback_speed: 8 }))
             expect(result.video_duration_s).toBe(80)
         })
 
-        it('applies trim to cap video duration', async () => {
+        it('rounds video_duration_s to nearest integer', async () => {
             mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
                 await fs.writeFile(outputPath, Buffer.alloc(64))
-                return baseRecordingResult(outputPath, {
-                    capture_duration_s: 100,
-                    playback_speed: 4,
-                })
+                return baseRecordingResult(outputPath, { capture_duration_s: 39.96 })
             })
 
-            const result = await rasterizeRecordingActivity(baseInput({ trim: 60 }))
-            expect(result.video_duration_s).toBe(60)
+            const result = await rasterizeRecordingActivity(baseInput())
+            expect(result.video_duration_s).toBe(40)
+        })
+    })
+
+    describe('trim option', () => {
+        it('passes trim through to rasterizeRecording via input', async () => {
+            mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
+                await fs.writeFile(outputPath, Buffer.alloc(64))
+                return baseRecordingResult(outputPath, { capture_duration_s: 40 })
+            })
+
+            await rasterizeRecordingActivity(baseInput({ trim: 40 }))
+
+            const calledInput = mockedRasterizeRecording.mock.calls[0][1]
+            expect(calledInput.trim).toBe(40)
+        })
+
+        it('respects trim-capped capture_duration_s in output', async () => {
+            mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
+                await fs.writeFile(outputPath, Buffer.alloc(64))
+                // Simulates trim=40 capping a 94s recording
+                return baseRecordingResult(outputPath, { capture_duration_s: 40 })
+            })
+
+            const result = await rasterizeRecordingActivity(baseInput({ trim: 40 }))
+            expect(result.video_duration_s).toBe(40)
+        })
+    })
+
+    describe('start/end timestamp subset', () => {
+        it('passes start and end timestamps through to rasterizeRecording', async () => {
+            mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
+                await fs.writeFile(outputPath, Buffer.alloc(64))
+                return baseRecordingResult(outputPath, { capture_duration_s: 35 })
+            })
+
+            const input = baseInput({
+                start_timestamp: 1700000180000,
+                end_timestamp: 1700000240000,
+            })
+            await rasterizeRecordingActivity(input)
+
+            const calledInput = mockedRasterizeRecording.mock.calls[0][1]
+            expect(calledInput.start_timestamp).toBe(1700000180000)
+            expect(calledInput.end_timestamp).toBe(1700000240000)
+        })
+    })
+
+    describe('capture_timeout', () => {
+        it('passes capture_timeout through to rasterizeRecording', async () => {
+            mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
+                await fs.writeFile(outputPath, Buffer.alloc(64))
+                return baseRecordingResult(outputPath)
+            })
+
+            await rasterizeRecordingActivity(baseInput({ capture_timeout: 600 }))
+
+            const calledInput = mockedRasterizeRecording.mock.calls[0][1]
+            expect(calledInput.capture_timeout).toBe(600)
+        })
+
+        it('works without capture_timeout (defaults to unlimited)', async () => {
+            mockedRasterizeRecording.mockImplementation(async (_pool, _input, outputPath) => {
+                await fs.writeFile(outputPath, Buffer.alloc(64))
+                return baseRecordingResult(outputPath)
+            })
+
+            const input = baseInput()
+            delete (input as any).capture_timeout
+            await rasterizeRecordingActivity(input)
+
+            const calledInput = mockedRasterizeRecording.mock.calls[0][1]
+            expect(calledInput.capture_timeout).toBeUndefined()
         })
     })
 })

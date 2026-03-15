@@ -11,7 +11,6 @@ export const config = {
     // Worker
     maxConcurrentActivities: parseInt(process.env.MAX_CONCURRENT_ACTIVITIES || '4', 10),
     browserRecycleAfter: parseInt(process.env.BROWSER_RECYCLE_AFTER || '100', 10),
-    headless: process.env.RASTERIZER_HEADLESS !== '0',
     disableBrowserSecurity: process.env.DISABLE_BROWSER_SECURITY === '1',
     captureBrowserLogs: process.env.CAPTURE_BROWSER_LOGS === '1',
 

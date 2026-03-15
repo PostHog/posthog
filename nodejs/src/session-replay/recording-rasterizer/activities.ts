@@ -7,6 +7,7 @@ import * as path from 'path'
 import { BrowserPool } from './browser-pool'
 import { RasterizationError } from './errors'
 import { RasterizationMetrics } from './metrics'
+import { computeVideoTimestamps } from './postprocess'
 import { rasterizeRecording } from './recorder'
 import { uploadToS3 } from './storage'
 import { ActivityTimings, RasterizeRecordingInput, RasterizeRecordingOutput } from './types'
@@ -38,7 +39,7 @@ export async function rasterizeRecordingActivity(input: RasterizeRecordingInput)
     const workDir = process.env.VIDEO_WORK_DIR || os.tmpdir()
     const outputPath = path.join(workDir, `ph-video-${id}.mp4`)
 
-    const timings: ActivityTimings = { total_s: 0, setup_s: 0, capture_s: 0, postprocess_s: null, upload_s: 0 }
+    const timings: ActivityTimings = { total_s: 0, setup_s: 0, capture_s: 0, upload_s: 0 }
 
     try {
         const result = await rasterizeRecording(browserPool, input, outputPath)
@@ -46,6 +47,9 @@ export async function rasterizeRecordingActivity(input: RasterizeRecordingInput)
         timings.capture_s = result.timings.capture_s
         RasterizationMetrics.observeSetup('success', timings.setup_s)
         RasterizationMetrics.observeCapture('success', timings.capture_s)
+
+        // Compute video-time positions for each inactivity period
+        const periods = computeVideoTimestamps(result.inactivity_periods)
 
         const uploadStart = process.hrtime()
         const s3Uri = await uploadToS3(outputPath, input.s3_bucket, input.s3_key_prefix, id)
@@ -56,15 +60,12 @@ export async function rasterizeRecordingActivity(input: RasterizeRecordingInput)
         timings.total_s = elapsed(activityStart)
         RasterizationMetrics.observeActivity('success', timings.total_s)
 
-        const scaledDuration = result.capture_duration_s * result.playback_speed
-        const videoDurationS = Math.min(scaledDuration, input.trim ?? Infinity)
-
         return {
             s3_uri: s3Uri,
-            video_duration_s: Math.round(videoDurationS),
+            video_duration_s: Math.round(result.capture_duration_s),
             playback_speed: result.playback_speed,
             show_metadata_footer: !!input.show_metadata_footer,
-            inactivity_periods: result.inactivity_periods,
+            inactivity_periods: periods,
             file_size_bytes: stat.size,
             timings,
         }

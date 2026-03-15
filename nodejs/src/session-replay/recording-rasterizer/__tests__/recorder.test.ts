@@ -67,5 +67,42 @@ describe('recorder', () => {
             const result = buildPlayerHtml(baseHtml, baseInput({ show_metadata_footer: true }), 4, config)
             expect(result).toContain('"showMetadataFooter":true')
         })
+
+        it('passes startTimestamp and endTimestamp to player config', () => {
+            const result = buildPlayerHtml(
+                baseHtml,
+                baseInput({ start_timestamp: 1700000000000, end_timestamp: 1700000060000 }),
+                4,
+                config
+            )
+            expect(result).toContain('"startTimestamp":1700000000000')
+            expect(result).toContain('"endTimestamp":1700000060000')
+        })
+
+        it('omits startTimestamp and endTimestamp when not provided', () => {
+            const result = buildPlayerHtml(baseHtml, baseInput(), 4, config)
+            const configMatch = result.match(/window\.__POSTHOG_PLAYER_CONFIG__ = ({.*?});/)
+            expect(configMatch).toBeTruthy()
+            // eslint-disable-next-line no-restricted-syntax
+            const parsed = JSON.parse(configMatch![1])
+            expect(parsed.startTimestamp).toBeUndefined()
+            expect(parsed.endTimestamp).toBeUndefined()
+        })
+
+        it('passes skipInactivity=false when explicitly disabled', () => {
+            const result = buildPlayerHtml(baseHtml, baseInput({ skip_inactivity: false }), 4, config)
+            expect(result).toContain('"skipInactivity":false')
+        })
+
+        it('passes mouseTail=false when explicitly disabled', () => {
+            const result = buildPlayerHtml(baseHtml, baseInput({ mouse_tail: false }), 4, config)
+            expect(result).toContain('"mouseTail":false')
+        })
+
+        it('passes viewport events to player config', () => {
+            const events = [{ timestamp: 1000, width: 1920, height: 1080 }]
+            const result = buildPlayerHtml(baseHtml, baseInput({ viewport_events: events }), 4, config)
+            expect(result).toContain('"viewportEvents":[{"timestamp":1000,"width":1920,"height":1080}]')
+        })
     })
 })

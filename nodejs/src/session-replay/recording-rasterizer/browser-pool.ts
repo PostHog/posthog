@@ -1,11 +1,7 @@
 import { Browser, Page } from 'puppeteer'
+import { launch as launchForCapture } from 'puppeteer-capture'
 
 import { config } from './config'
-
-// puppeteer-capture's launch() forces headless:'shell' and appends
-// the required deterministic rendering flags automatically.
-
-const launchForCapture = (opts: any): Promise<Browser> => require('puppeteer-capture').launch(opts) as Promise<Browser>
 
 const LAUNCH_ARGS = [
     '--no-sandbox',

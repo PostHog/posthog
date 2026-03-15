@@ -1,6 +1,6 @@
-import { execFile } from 'child_process'
 import * as fs from 'fs/promises'
 import { Page } from 'puppeteer'
+import { PuppeteerCaptureFormat, capture as captureVideo } from 'puppeteer-capture'
 
 import { BrowserPool } from './browser-pool'
 import { config as defaultConfig } from './config'
@@ -10,7 +10,6 @@ import { elapsed } from './utils'
 
 const DEFAULT_PLAYBACK_SPEED = 4
 const DEFAULT_FPS = 24
-const DEFAULT_CAPTURE_TIMEOUT = 300
 
 let cachedPlayerHtml: string | null = null
 
@@ -164,10 +163,6 @@ export async function rasterizeRecording(
 ): Promise<RecordingResult> {
     validateInput(input)
 
-    // puppeteer-capture is only available in production (Linux + chrome-headless-shell)
-
-    const { capture: captureVideo, PuppeteerCaptureFormat } = require('puppeteer-capture')
-
     const setupStart = process.hrtime()
     const playerHtml = getPlayerHtml()
     const playbackSpeed = input.playback_speed || DEFAULT_PLAYBACK_SPEED
@@ -213,9 +208,10 @@ export async function rasterizeRecording(
         const setupS = elapsed(setupStart)
         const captureStart = process.hrtime()
 
-        // Capture at recordingFps * playbackSpeed so the ffmpeg slowdown
-        // (setpts=N*PTS) produces the desired output FPS at real-time speed.
-        // e.g. 3fps output × 8x speed = 24fps capture → slowed 8x → 3fps.
+        // Capture at recordingFps * playbackSpeed so that after setpts
+        // stretches timestamps by playbackSpeed, the output plays at
+        // recordingFps in real-time.
+        // e.g. 3fps output × 8x speed = 24fps capture → stretched 8x → 3fps.
         const captureFps = recordingFps * playbackSpeed
 
         // Start capture FIRST — this installs virtual time shims (Date.now,
@@ -226,8 +222,18 @@ export async function rasterizeRecording(
         const recorder = await captureVideo(page, {
             fps: captureFps,
             format: PuppeteerCaptureFormat.MP4('veryfast', 'libx264'),
-            customFfmpegConfig: (ffmpeg: any) => {
-                ffmpeg.outputOptions(['-crf 23', '-pix_fmt yuv420p', '-movflags +faststart'])
+            // eslint-disable-next-line @typescript-eslint/require-await
+            customFfmpegConfig: async (ffmpeg: any) => {
+                const opts = ['-crf 23', '-pix_fmt yuv420p', '-movflags +faststart']
+                if (input.trim) {
+                    opts.push(`-t ${input.trim}`)
+                }
+                ffmpeg.outputOptions(opts)
+                // Stretch timestamps so capture at Nx speed outputs real-time video.
+                // This eliminates the need for a separate post-processing encode pass.
+                if (playbackSpeed > 1) {
+                    ffmpeg.videoFilters(`setpts=${playbackSpeed}*PTS`)
+                }
             },
             ffmpeg: process.env.FFMPEG_PATH || undefined,
         })
@@ -241,78 +247,65 @@ export async function rasterizeRecording(
             }
         })
 
-        await recorder.start(outputPath)
-        const vp = page.viewport()
-        console.log(`[rasterizer] capture started (${captureFps}fps, ${vp?.width}x${vp?.height})`)
-
-        await page.evaluate(() => {
-            window.dispatchEvent(new Event('posthog-player-start'))
-        })
-        console.log('[rasterizer] playback started, advancing virtual time...')
-
-        // Advance virtual time until the recording ends or we hit the timeout.
-        // puppeteer-capture's waitForTimeout advances the virtual clock; rrweb's
-        // shimmed timers fire deterministically within that virtual time.
-        const captureTimeoutMs = (input.capture_timeout || DEFAULT_CAPTURE_TIMEOUT) * 1000
-        const checkIntervalMs = 1000
         let virtualElapsed = 0
+        try {
+            await recorder.start(outputPath)
+            const vp = page.viewport()
+            console.log(`[rasterizer] capture started (${captureFps}fps, ${vp?.width}x${vp?.height})`)
 
-        while (virtualElapsed < captureTimeoutMs) {
-            await recorder.waitForTimeout(checkIntervalMs)
-            virtualElapsed += checkIntervalMs
+            await page.evaluate(() => {
+                window.dispatchEvent(new Event('posthog-player-start'))
+            })
+            console.log('[rasterizer] playback started, advancing virtual time...')
 
-            const ended = await page.evaluate(() => (window as any).__POSTHOG_RECORDING_ENDED__)
-            if (ended) {
-                console.log(`[rasterizer] recording ended at virtual=${virtualElapsed / 1000}s, frames=${frameCount}`)
-                break
+            // Advance virtual time until the recording ends or we hit the timeout.
+            // puppeteer-capture's waitForTimeout advances the virtual clock; rrweb's
+            // shimmed timers fire deterministically within that virtual time.
+            const captureTimeoutMs = input.capture_timeout ? input.capture_timeout * 1000 : Infinity
+            // Stop the capture loop early when we've captured enough frames
+            // for the trim duration. ffmpeg -t handles the precise cut, but
+            // without this the loop would keep advancing virtual time wastefully.
+            const trimFrameLimit = input.trim ? input.trim * recordingFps : Infinity
+            const checkIntervalMs = 1000
+
+            while (virtualElapsed < captureTimeoutMs) {
+                await recorder.waitForTimeout(checkIntervalMs)
+                virtualElapsed += checkIntervalMs
+
+                if (frameCount >= trimFrameLimit) {
+                    console.log(`[rasterizer] trim limit reached (${input.trim}s, ${frameCount} frames)`)
+                    break
+                }
+
+                const ended = await page.evaluate(() => (window as any).__POSTHOG_RECORDING_ENDED__)
+                if (ended) {
+                    console.log(
+                        `[rasterizer] recording ended at virtual=${virtualElapsed / 1000}s, frames=${frameCount}`
+                    )
+                    break
+                }
+            }
+
+            if (virtualElapsed >= captureTimeoutMs) {
+                console.log(`[rasterizer] capture timeout reached (${captureTimeoutMs / 1000}s)`)
+            }
+        } finally {
+            try {
+                await recorder.stop()
+            } catch {
+                // ffmpeg process may already be dead
             }
         }
-
-        if (virtualElapsed >= captureTimeoutMs) {
-            console.log(`[rasterizer] capture timeout reached (${captureTimeoutMs / 1000}s)`)
-        }
-
-        await recorder.stop()
 
         const rawStat = await fs.stat(outputPath)
         console.log(`[rasterizer] capture stopped, raw file: ${rawStat.size} bytes`)
 
         const inactivityPeriods = await fetchInactivityPeriods(page)
-        const captureDurationS = virtualElapsed / 1000 / playbackSpeed
-
-        // Slow the video back to real-time speed. The capture ran at
-        // playbackSpeed (e.g. 8x), so we stretch PTS by that factor.
-        if (playbackSpeed !== 1) {
-            const slowedPath = outputPath.replace('.mp4', '-slowed.mp4')
-            const ffmpegBin = process.env.FFMPEG_PATH || 'ffmpeg'
-            await new Promise<void>((resolve, reject) => {
-                execFile(
-                    ffmpegBin,
-                    [
-                        '-i',
-                        outputPath,
-                        '-filter:v',
-                        `setpts=${playbackSpeed}*PTS`,
-                        '-an',
-                        '-c:v',
-                        'libx264',
-                        '-preset',
-                        'veryfast',
-                        '-crf',
-                        '23',
-                        '-pix_fmt',
-                        'yuv420p',
-                        '-movflags',
-                        '+faststart',
-                        '-y',
-                        slowedPath,
-                    ],
-                    (err) => (err ? reject(err) : resolve())
-                )
-            })
-            await fs.rename(slowedPath, outputPath)
-            console.log(`[rasterizer] slowed ${playbackSpeed}x → real-time`)
-        }
+        // frameCount / recordingFps = total frames expressed as video seconds.
+        // When trim is set, ffmpeg -t caps the actual output — use that as
+        // the authoritative duration since ffmpeg may discard trailing frames.
+        const rawDurationS = frameCount / recordingFps
+        const captureDurationS = input.trim ? Math.min(rawDurationS, input.trim) : rawDurationS
 
         return {
             video_path: outputPath,

@@ -14,7 +14,7 @@ import {
     type ViewportResolution,
 } from '@posthog/replay-shared'
 import { Replayer } from '@posthog/rrweb'
-import type { eventWithTime } from '@posthog/rrweb-types'
+import { EventType, type eventWithTime } from '@posthog/rrweb-types'
 
 import { DataLoadError, loadAllSources } from './data-loader'
 import { publishSegments, createSegmentTracker, signalRecordingStarted, signalRecordingEnded } from './segment-tracker'
@@ -133,7 +133,7 @@ async function init(config: PlayerConfig): Promise<void> {
             }
             const ts = firstTimestamp + replayer.getCurrentTime()
             const inactiveSeg = segments.find(
-                (seg: RecordingSegment) => !seg.isActive && ts >= seg.startTimestamp && ts < seg.endTimestamp
+                (seg: RecordingSegment) => !seg.isActive && ts >= seg.startTimestamp && ts <= seg.endTimestamp
             )
             if (inactiveSeg) {
                 replayer.play(inactiveSeg.endTimestamp - firstTimestamp)
@@ -201,7 +201,7 @@ async function init(config: PlayerConfig): Promise<void> {
 
     let currentURL = ''
     replayer.on('event-cast', (event: eventWithTime) => {
-        if (event.type === 4 && (event.data as any)?.href) {
+        if (event.type === EventType.Meta && (event.data as any)?.href) {
             currentURL = (event.data as any).href
         }
     })
@@ -257,9 +257,14 @@ async function init(config: PlayerConfig): Promise<void> {
     signalRecordingStarted()
 
     const startOffset = config.startTimestamp ? config.startTimestamp - snapshots[0].timestamp : 0
-    await new Promise<void>((resolve) => {
-        window.addEventListener('posthog-player-start', () => resolve(), { once: true })
-    })
+    await Promise.race([
+        new Promise<void>((resolve) => {
+            window.addEventListener('posthog-player-start', () => resolve(), { once: true })
+        }),
+        new Promise<void>((_, reject) =>
+            setTimeout(() => reject(new Error('posthog-player-start not received within 30s')), 30000)
+        ),
+    ])
     replayer.play(Math.max(0, startOffset))
 }
 

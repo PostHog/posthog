@@ -1,7 +1,7 @@
 export interface RasterizeRecordingInput {
     session_id: string
     team_id: number
-    capture_timeout?: number // max seconds to wait for recording playback to complete (default: 300)
+    capture_timeout?: number // max virtual-time seconds before aborting capture (default: unlimited)
     playback_speed?: number // 1-360, defaults to 4
     start_timestamp?: number // ms since epoch
     end_timestamp?: number // ms since epoch
@@ -9,7 +9,6 @@ export interface RasterizeRecordingInput {
     skip_inactivity?: boolean // skip inactive sections during playback (default: true)
     mouse_tail?: boolean // show mouse trail (default: true)
     viewport_events?: Array<{ timestamp: number; width: number; height: number }> // viewport resize events
-    skip_postprocessing?: boolean // skip ffmpeg post-processing (for AI pipeline)
     show_metadata_footer?: boolean // render URL + timestamp bar at bottom (for AI pipeline)
     trim?: number // optional max output duration in seconds (only trims if video is longer)
     s3_bucket: string
@@ -36,7 +35,6 @@ export interface ActivityTimings {
     total_s: number
     setup_s: number // browser setup + player load + data fetch
     capture_s: number // screen recording of playback
-    postprocess_s: number | null
     upload_s: number
 }
 
