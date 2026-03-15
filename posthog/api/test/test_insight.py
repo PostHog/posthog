@@ -2596,6 +2596,58 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             team=self.team,
             short_id="00992281",
         )
+        # New-format insight: breakdown in query, not filters
+        query_with_breakdown = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}],
+                "breakdownFilter": {"breakdown_type": "event", "breakdown": "$feature/insight-with-flag-used"},
+            },
+        }
+        insight_new_format = Insight.objects.create(
+            team=self.team,
+            short_id="55667788",
+            query=query_with_breakdown,
+        )
+        # New-format: flag only in top-level property filter (query.source.properties)
+        query_with_filter = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview", "name": "$pageview"}],
+                "properties": [
+                    {"key": "$active_feature_flags", "value": ["insight-with-flag-used"], "operator": "exact"}
+                ],
+            },
+        }
+        insight_filter_only = Insight.objects.create(
+            team=self.team,
+            short_id="99887766",
+            query=query_with_filter,
+        )
+        # New-format: flag only in series-level filter (query.source.series[].properties)
+        query_with_series_filter = {
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                        "name": "$pageview",
+                        "properties": [
+                            {"key": "$feature/insight-with-flag-used", "operator": "is_set", "type": "event"}
+                        ],
+                    }
+                ],
+            },
+        }
+        insight_series_filter = Insight.objects.create(
+            team=self.team,
+            short_id="77889900",
+            query=query_with_series_filter,
+        )
 
         response = self.client.get(f"/api/projects/{self.team.id}/insights/?feature_flag=insight-with-flag-used")
         response_data = response.json()
@@ -2603,8 +2655,11 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         ids_in_response = [r["id"] for r in response_data["results"]]
-        # insight 3 is not included in response
-        self.assertCountEqual(ids_in_response, [insight.id, insight2.id])
+        # insight 3 is not included; legacy + new-format (breakdown or filter in properties/series)
+        self.assertCountEqual(
+            ids_in_response,
+            [insight.id, insight2.id, insight_new_format.id, insight_filter_only.id, insight_series_filter.id],
+        )
 
     def test_cannot_create_insight_with_dashboards_relation_from_another_team(
         self,
