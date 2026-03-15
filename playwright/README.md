@@ -34,3 +34,21 @@ Error: locator.click: Error: strict mode violation: locator('text=Set a billing 
 1) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-product_analytics').getByRole('button', { name: 'Set a billing limit' })
 2) <span class="LemonButton__content">Set a billing limit</span> aka getByTestId('billing-limit-input-wrapper-session_replay').getByRole('button', { name: 'Set a billing limit' })
 ```
+
+
+## Optional OpenAPI validation during e2e
+
+You can validate live API requests and responses against the Django OpenAPI schema in e2e runs.
+This is designed to be non-blocking so CI reports schema mismatches without failing test execution.
+
+1. Enable backend middleware:
+   - `OPENAPI_E2E_VALIDATION_ENABLED=1`
+2. Enable request header injection in Playwright:
+   - `PLAYWRIGHT_OPENAPI_VALIDATE=1`
+
+When enabled:
+- the middleware validates incoming requests and outgoing responses for `/api/*`
+- findings are logged as `openapi_validation_error`
+- responses include `X-PostHog-OpenAPI-Validation-Errors` with the per-request finding count
+- Playwright aggregates findings across the run and writes `openapi-validation-summary.json`
+  to the Playwright output directory (for CI artifact/reporting)

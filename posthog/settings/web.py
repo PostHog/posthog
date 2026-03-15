@@ -117,6 +117,7 @@ MIDDLEWARE = [
     "django.middleware.common.CommonMiddleware",
     "posthog.middleware.CsrfOrKeyViewMiddleware",
     "posthog.middleware.QueryTimeCountingMiddleware",
+    "posthog.openapi_validation_middleware.OpenAPISchemaValidationMiddleware",
     "django.contrib.auth.middleware.AuthenticationMiddleware",
     "posthog.middleware.SocialAuthExceptionMiddleware",
     "posthog.middleware.SessionAgeMiddleware",
@@ -137,6 +138,10 @@ MIDDLEWARE = [
     "posthog.middleware.PostHogTokenCookieMiddleware",
     "posthoganalytics.integrations.django.PosthogContextMiddleware",
 ]
+
+OPENAPI_E2E_VALIDATION_ENABLED = get_from_env("OPENAPI_E2E_VALIDATION_ENABLED", False, type_cast=str_to_bool)
+OPENAPI_E2E_VALIDATION_HEADER = get_from_env("OPENAPI_E2E_VALIDATION_HEADER", "X-PostHog-OpenAPI-Validate")
+OPENAPI_E2E_VALIDATION_HEADER_VALUE = get_from_env("OPENAPI_E2E_VALIDATION_HEADER_VALUE", "1")
 
 DJANGO_STRUCTLOG_CELERY_ENABLED = True
 

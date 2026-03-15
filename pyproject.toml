@@ -91,6 +91,7 @@ dependencies = [
     "nh3==0.2.14",
     "numpy~=2.1.0",
     "openai==1.109.1",
+    "openapi-core~=0.19.5",
     "openpyxl==3.1.2",
     "orjson==3.11.6",
     "pandas~=2.2.2",
