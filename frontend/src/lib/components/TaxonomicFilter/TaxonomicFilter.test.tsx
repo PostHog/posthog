@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
@@ -194,10 +196,12 @@ describe('TaxonomicFilter', () => {
 
         it('auto-appears when there are matching recent items', async () => {
             recentTaxonomicFiltersLogic.mount()
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter(TaxonomicFilterGroupType.Events, 'event1', {
-                name: 'event1',
-                id: 'uuid-1',
-            })
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.Events,
+                'event1',
+                { name: 'event1', id: 'uuid-1' },
+                MOCK_TEAM_ID
+            )
 
             renderFilter()
 
@@ -214,14 +218,17 @@ describe('TaxonomicFilter', () => {
 
         it('only shows items whose group type matches the current context', async () => {
             recentTaxonomicFiltersLogic.mount()
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter(TaxonomicFilterGroupType.Events, '$pageview', {
-                name: '$pageview',
-                id: 'uuid-pv',
-            })
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.Events,
+                '$pageview',
+                { name: '$pageview', id: 'uuid-pv' },
+                MOCK_TEAM_ID
+            )
             recentTaxonomicFiltersLogic.actions.recordRecentFilter(
                 TaxonomicFilterGroupType.PersonProperties,
                 'location',
-                { name: 'location', id: 'uuid-loc' }
+                { name: 'location', id: 'uuid-loc' },
+                MOCK_TEAM_ID
             )
 
             renderFilter({
@@ -255,6 +262,7 @@ describe('TaxonomicFilter', () => {
                 TaxonomicFilterGroupType.EventProperties,
                 '$browser',
                 { name: '$browser' },
+                MOCK_TEAM_ID,
                 {
                     key: '$browser',
                     value: 'Chrome',
@@ -283,6 +291,7 @@ describe('TaxonomicFilter', () => {
                 TaxonomicFilterGroupType.EventProperties,
                 '$browser',
                 { name: '$browser' },
+                MOCK_TEAM_ID,
                 {
                     key: '$browser',
                     value: 'Chrome',
@@ -311,6 +320,7 @@ describe('TaxonomicFilter', () => {
                 TaxonomicFilterGroupType.EventProperties,
                 '$browser',
                 { name: '$browser' },
+                MOCK_TEAM_ID,
                 {
                     key: '$browser',
                     value: 'Chrome',
@@ -337,20 +347,19 @@ describe('TaxonomicFilter', () => {
 
             const [group, , item] = onChange.mock.calls[0]
             expect(group.type).toBe(TaxonomicFilterGroupType.EventProperties)
-            expect(item._recentPropertyFilter).toEqual({
-                key: '$browser',
-                value: 'Chrome',
-                operator: PropertyOperator.Exact,
-                type: PropertyFilterType.Event,
-            })
+            expect(item._recentPropertyFilter).toBeUndefined()
+            expect(item.group).toBeUndefined()
+            expect(item.name).toBe('$browser')
         })
 
         it('shows a group badge on recent event items too', async () => {
             recentTaxonomicFiltersLogic.mount()
-            recentTaxonomicFiltersLogic.actions.recordRecentFilter(TaxonomicFilterGroupType.Events, 'event1', {
-                name: 'event1',
-                id: 'uuid-1',
-            })
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.Events,
+                'event1',
+                { name: 'event1', id: 'uuid-1' },
+                MOCK_TEAM_ID
+            )
 
             renderFilter({
                 taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],

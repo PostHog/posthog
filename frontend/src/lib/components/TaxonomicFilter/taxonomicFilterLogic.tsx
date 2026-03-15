@@ -1151,13 +1151,24 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         logic: recentTaxonomicFiltersLogic,
                         value: 'recentFilterItems',
                         localItemsSearch: (items: TaxonomicDefinitionTypes[], query: string) => {
-                            const contextFiltered = items.filter(
-                                (item) =>
-                                    'group' in item &&
-                                    requestedGroupTypes.includes(
-                                        (item as Record<string, any>).group as TaxonomicFilterGroupType
-                                    )
-                            )
+                            const availableTypes = new Set(groups.map((g) => g.type))
+                            const contextFiltered = items.filter((item) => {
+                                const asRecord = item as Record<string, any>
+                                if (!('group' in asRecord)) {
+                                    return false
+                                }
+                                const itemGroupType = asRecord.group as TaxonomicFilterGroupType
+                                if (
+                                    !requestedGroupTypes.includes(itemGroupType) ||
+                                    !availableTypes.has(itemGroupType)
+                                ) {
+                                    return false
+                                }
+                                if (asRecord._recentTeamId !== teamId) {
+                                    return false
+                                }
+                                return true
+                            })
                             if (!query) {
                                 return contextFiltered
                             }
@@ -1189,14 +1200,25 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
             (activeTab, taxonomicGroups) => taxonomicGroups.find((g) => g.type === activeTab),
         ],
         hasMatchingRecentFilters: [
-            (s) => [s.featureFlags, s.recentFilters, s.requestedGroupTypes],
+            (s) => [s.featureFlags, s.recentFilters, s.requestedGroupTypes, s.currentTeamId, s.taxonomicGroups],
             (
                 featureFlags: Record<string, boolean | string>,
                 recentFilters: RecentTaxonomicFilter[],
-                requestedGroupTypes: TaxonomicFilterGroupType[]
-            ): boolean =>
-                !!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS] &&
-                recentFilters.some((f) => requestedGroupTypes.includes(f.groupType)),
+                requestedGroupTypes: TaxonomicFilterGroupType[],
+                currentTeamId: number,
+                taxonomicGroups: TaxonomicFilterGroup[]
+            ): boolean => {
+                if (!featureFlags[FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS]) {
+                    return false
+                }
+                const availableGroupTypes = new Set(taxonomicGroups.map((g) => g.type))
+                return recentFilters.some(
+                    (f) =>
+                        requestedGroupTypes.includes(f.groupType) &&
+                        availableGroupTypes.has(f.groupType) &&
+                        f.teamId === currentTeamId
+                )
+            },
         ],
         taxonomicGroupTypes: [
             (s, p) => [p.taxonomicGroupTypes, s.taxonomicGroups, s.hasMatchingRecentFilters],
@@ -1419,6 +1441,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
     listeners(({ actions, values, props }) => ({
         selectItem: ({ group, value, item }) => {
             if (item) {
+                const { group: _g, _recentPropertyFilter, _recentTeamId, ...cleanItem } = item as Record<string, any>
                 if (isQuickFilterItem(item)) {
                     posthog.capture('taxonomic suggested filter selected', {
                         query: values.searchQuery,
@@ -1430,9 +1453,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         eventName: item.eventName,
                     })
                 }
-                props.onChange?.(group, value, item)
+                props.onChange?.(group, value, cleanItem)
                 if (!PROPERTY_FILTER_GROUP_TYPES.has(group.type)) {
-                    recentTaxonomicFiltersLogic.actions.recordRecentFilter(group.type, value, item)
+                    recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                        group.type,
+                        value,
+                        cleanItem,
+                        values.currentTeamId ?? undefined
+                    )
                 }
             } else if (group.type === TaxonomicFilterGroupType.HogQLExpression && value) {
                 props.onChange?.(group, value, item)

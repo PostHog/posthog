@@ -119,6 +119,10 @@ describe('recentTaxonomicFiltersLogic', () => {
             groupType: TaxonomicFilterGroupType.Wildcards,
             description: 'Wildcards',
         },
+        {
+            groupType: TaxonomicFilterGroupType.MaxAIContext,
+            description: 'MaxAIContext',
+        },
     ])('ignores selections from excluded group type: $description', ({ groupType }) => {
         logic.actions.recordRecentFilter(groupType, 'some-value', { name: 'some-value' })
         expect(logic.values.recentFilters).toHaveLength(0)
@@ -135,6 +139,7 @@ describe('recentTaxonomicFiltersLogic', () => {
             TaxonomicFilterGroupType.EventProperties,
             '$browser',
             { name: '$browser' },
+            undefined,
             propertyFilter as any
         )
 
@@ -147,6 +152,7 @@ describe('recentTaxonomicFiltersLogic', () => {
             TaxonomicFilterGroupType.EventProperties,
             '$browser',
             { name: '$browser' },
+            undefined,
             propertyFilter as any
         )
 
@@ -161,5 +167,18 @@ describe('recentTaxonomicFiltersLogic', () => {
         const items = logic.values.recentFilterItems
         expect(items[0]._recentPropertyFilter).toBeUndefined()
         expect(items[0].group).toBe(TaxonomicFilterGroupType.Events)
+    })
+
+    it('stores teamId when provided', () => {
+        logic.actions.recordRecentFilter(TaxonomicFilterGroupType.Events, '$pageview', { name: '$pageview' }, 42)
+
+        expect(logic.values.recentFilters[0].teamId).toBe(42)
+        expect(logic.values.recentFilterItems[0]._recentTeamId).toBe(42)
+    })
+
+    it('omits teamId from stored entry when not provided', () => {
+        logic.actions.recordRecentFilter(TaxonomicFilterGroupType.Events, '$pageview', { name: '$pageview' })
+
+        expect(logic.values.recentFilters[0].teamId).toBeUndefined()
     })
 })

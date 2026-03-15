@@ -17,6 +17,7 @@ const EXCLUDED_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.RecentFilters,
     TaxonomicFilterGroupType.Empty,
     TaxonomicFilterGroupType.Wildcards,
+    TaxonomicFilterGroupType.MaxAIContext,
 ])
 
 export interface RecentTaxonomicFilter {
@@ -24,6 +25,7 @@ export interface RecentTaxonomicFilter {
     value: TaxonomicFilterValue
     item: Record<string, any>
     timestamp: number
+    teamId?: number
     propertyFilter?: AnyPropertyFilter
 }
 
@@ -34,11 +36,13 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
             groupType: TaxonomicFilterGroupType,
             value: TaxonomicFilterValue,
             item: any,
+            teamId?: number,
             propertyFilter?: AnyPropertyFilter
         ) => ({
             groupType,
             value,
             item,
+            teamId,
             propertyFilter,
         }),
     }),
@@ -47,7 +51,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
             [] as RecentTaxonomicFilter[],
             { persist: true },
             {
-                recordRecentFilter: (state, { groupType, value, item, propertyFilter }) => {
+                recordRecentFilter: (state, { groupType, value, item, teamId, propertyFilter }) => {
                     if (EXCLUDED_GROUP_TYPES.has(groupType) || value == null) {
                         return state
                     }
@@ -60,6 +64,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
                         value,
                         item,
                         timestamp: currentTime,
+                        ...(teamId ? { teamId } : {}),
                         ...(propertyFilter ? { propertyFilter } : {}),
                     }
 
@@ -79,6 +84,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
                 recentFilters.map((f) => ({
                     ...f.item,
                     group: f.groupType,
+                    _recentTeamId: f.teamId,
                     ...(f.propertyFilter ? { _recentPropertyFilter: f.propertyFilter } : {}),
                 })),
         ],

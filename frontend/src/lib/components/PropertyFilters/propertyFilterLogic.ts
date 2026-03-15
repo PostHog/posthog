@@ -9,6 +9,7 @@ import {
 } from 'lib/components/PropertyFilters/utils'
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { isOperatorFlag } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyPropertyFilter, EmptyPropertyFilter } from '~/types'
 
@@ -108,6 +109,7 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
                         groupType,
                         property.key,
                         { name: property.key },
+                        teamLogic.values.currentTeamId ?? undefined,
                         property
                     )
                 }
