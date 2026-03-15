@@ -4904,6 +4904,8 @@ export interface SourceConfig {
     iconPath: string
     featureFlag?: string
     iconClassName?: string
+    webhookSetupCaption?: string
+    webhookFields?: SourceFieldConfig[]
 
     /**
      * Tables to suggest enabling, with optional tooltip explaining why

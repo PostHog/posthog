@@ -1,11 +1,13 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { Form } from 'kea-forms'
 import { useCallback, useEffect } from 'react'
 
 import { IconQuestion } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSkeleton, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonSkeleton, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { nonHogFunctionTemplatesLogic } from 'scenes/data-pipelines/utils/nonHogFunctionTemplatesLogic'
 import { DataWarehouseSourceIcon } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -19,7 +21,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { DataWarehouseInitialBillingLimitNotice } from '../DataWarehouseInitialBillingLimitNotice'
 import SchemaForm from '../external/forms/SchemaForm'
-import SourceForm from '../external/forms/SourceForm'
+import SourceForm, { sourceFieldToElement } from '../external/forms/SourceForm'
 import { SyncProgressStep } from '../external/forms/SyncProgressStep'
 import { FreeHistoricalSyncsBanner } from '../FreeHistoricalSyncsBanner'
 import { DatawarehouseTableForm } from '../new/DataWarehouseTableForm'
@@ -210,7 +212,9 @@ function InternalSourcesWizard(props: NewSourcesWizardProps): JSX.Element {
                 ) : currentStep === 3 ? (
                     <ThirdStep />
                 ) : currentStep === 4 ? (
-                    <FourthStep />
+                    <WebhookSetupStep />
+                ) : currentStep === 5 ? (
+                    <ProgressStep />
                 ) : (
                     <div>Something went wrong...</div>
                 )}
@@ -301,6 +305,79 @@ function ThirdStep(): JSX.Element {
     return <SchemaForm />
 }
 
-function FourthStep(): JSX.Element {
+function WebhookSetupStep(): JSX.Element {
+    const { webhookResult, webhookCreating, selectedConnector } = useValues(sourceWizardLogic)
+    const { createWebhook } = useActions(sourceWizardLogic)
+
+    if (!webhookResult && !webhookCreating) {
+        return (
+            <div className="space-y-4">
+                <p>
+                    We can automatically create a webhook on your {selectedConnector?.label ?? 'source'} account to keep
+                    your data in sync in real-time.
+                </p>
+                <LemonButton type="primary" onClick={createWebhook}>
+                    Create webhook
+                </LemonButton>
+            </div>
+        )
+    }
+
+    if (webhookCreating) {
+        return (
+            <div className="flex flex-col items-center justify-center py-12 gap-4">
+                <Spinner className="text-3xl" />
+                <p className="text-muted">Creating webhook...</p>
+            </div>
+        )
+    }
+
+    if (webhookResult?.success) {
+        return (
+            <div className="space-y-4">
+                <LemonBanner type="success">Webhook created successfully</LemonBanner>
+                <div>
+                    <label className="font-semibold text-sm">Webhook URL</label>
+                    <div className="font-mono text-sm bg-bg-light rounded border p-2 mt-1 break-all">
+                        {webhookResult.webhook_url}
+                    </div>
+                </div>
+            </div>
+        )
+    }
+
+    const webhookFields = selectedConnector?.webhookFields ?? []
+
+    return (
+        <div className="space-y-4">
+            <LemonBanner type="warning">
+                {webhookResult?.error || 'Could not create webhook automatically.'}
+            </LemonBanner>
+            {webhookResult?.webhook_url && (
+                <>
+                    <p>You can set up the webhook manually using the URL below.</p>
+                    <div>
+                        <label className="font-semibold text-sm">Webhook URL</label>
+                        <div className="font-mono text-sm bg-bg-light rounded border p-2 mt-1 break-all">
+                            {webhookResult.webhook_url}
+                        </div>
+                    </div>
+                </>
+            )}
+            {selectedConnector?.webhookSetupCaption && (
+                <LemonMarkdown className="text-sm">{selectedConnector.webhookSetupCaption}</LemonMarkdown>
+            )}
+            {webhookFields.length > 0 && selectedConnector && (
+                <Form logic={sourceWizardLogic} formKey="webhookFieldInputs" enableFormOnSubmit>
+                    <div className="space-y-3">
+                        {webhookFields.map((field) => sourceFieldToElement(field, selectedConnector))}
+                    </div>
+                </Form>
+            )}
+        </div>
+    )
+}
+
+function ProgressStep(): JSX.Element {
     return <SyncProgressStep />
 }

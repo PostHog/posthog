@@ -378,6 +378,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             "incremental_available": schema.supports_incremental,
             "append_available": schema.supports_append,
             "full_refresh_available": True,
+            "supports_webhooks": schema.supports_webhooks,
         }
 
         return Response(status=status.HTTP_200_OK, data=data)

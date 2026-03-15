@@ -40,7 +40,7 @@ const CONNECTION_STRING_DEFAULT_PORT: Record<string, number> = {
     Redshift: 5439,
 }
 
-const sourceFieldToElement = (
+export const sourceFieldToElement = (
     field: SourceFieldConfig,
     sourceConfig: SourceConfig,
     lastValue?: any,

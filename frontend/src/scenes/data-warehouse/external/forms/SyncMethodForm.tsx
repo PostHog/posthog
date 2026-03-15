@@ -167,6 +167,12 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                                                     <code>{incrementalFieldValue}</code> is null will not be synced.
                                                 </LemonBanner>
                                             )}
+                                        {radioValue === 'incremental' && schema.supports_webhooks && (
+                                            <LemonBanner type="info" className="mt-2">
+                                                This table uses webhooks for incremental sync. The webhook will be
+                                                configured in the next step.
+                                            </LemonBanner>
+                                        )}
                                     </>
                                 )}
                             </div>
