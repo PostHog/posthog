@@ -34,7 +34,7 @@ export const useSessionReplaySummaryMaxTool = (): ReturnType<typeof useMaxTool> 
         const hasResults = resultsCount > 0
         const hasStarted = isLaunched(experiment)
         return hasResults && hasStarted
-    }, [resultsCount, experiment.status, experiment.start_date, experiment.end_date])
+    }, [resultsCount, experiment.status, experiment.start_date, experiment.end_date, experiment])
 
     const maxToolResult = useMaxTool({
         identifier: 'experiment_session_replays_summary',

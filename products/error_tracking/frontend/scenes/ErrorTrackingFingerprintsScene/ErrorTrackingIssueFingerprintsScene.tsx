@@ -169,7 +169,7 @@ function FingerprintStackTrace({ fingerprint, createdAt }: { fingerprint: string
         } finally {
             setLoading(false)
         }
-    }, [fingerprint])
+    }, [fingerprint, createdAt])
 
     useEffect(() => {
         void fetchEvent()

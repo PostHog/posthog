@@ -141,7 +141,7 @@ export function ConversationMessagesDisplay({
     // Initialize message states when message counts or display option changes.
     React.useEffect(() => {
         setMessageShowStates(getInitialMessageShowStates(inputNormalized, outputNormalized, displayOption))
-    }, [inputNormalized.length, outputNormalized.length, inputRolesSignature, outputRolesSignature, displayOption])
+    }, [inputNormalized.length, outputNormalized.length, inputRolesSignature, outputRolesSignature, displayOption, outputNormalized, inputNormalized])
 
     // Expand only messages matching the current search query.
     React.useEffect(() => {
