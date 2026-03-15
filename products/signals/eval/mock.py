@@ -225,7 +225,7 @@ class ReportStore:
         """Update report context after a match result, mirroring the workflow batch logic."""
 
         if isinstance(match_result, ExistingReportMatch):
-            r = self._store.get(report_id)
+            r = self._store[report_id]
             old_ctx = r.context
             r.context = ReportContext(
                 report_id=report_id,
