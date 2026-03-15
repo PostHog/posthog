@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh } from '@posthog/icons'
+import { IconRefresh, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -117,6 +117,39 @@ function ContextMessage({ aiInput, index }: { aiInput: unknown; index: number })
     )
 }
 
+function SentimentFeedbackButtons({ card }: { card: SentimentCard }): JSX.Element {
+    const { feedbackByCardKey } = useValues(llmAnalyticsSentimentLogic)
+    const { submitSentimentFeedback } = useActions(llmAnalyticsSentimentLogic)
+    const cardKey = `${card.generation.uuid}:${card.messageIndex}`
+    const currentFeedback = feedbackByCardKey[cardKey]
+
+    return (
+        <span
+            className={`inline-flex items-center gap-0 ${currentFeedback ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-100'} transition-opacity`}
+            onClick={(e) => e.stopPropagation()}
+        >
+            <Tooltip title="Label as positive">
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    icon={<IconThumbsUp className={currentFeedback === 'positive' ? 'text-success' : ''} />}
+                    onClick={() => submitSentimentFeedback(cardKey, 'positive', card)}
+                    data-attr="llma-sentiment-feedback-positive"
+                />
+            </Tooltip>
+            <Tooltip title="Label as negative">
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    icon={<IconThumbsDown className={currentFeedback === 'negative' ? 'text-danger' : ''} />}
+                    onClick={() => submitSentimentFeedback(cardKey, 'negative', card)}
+                    data-attr="llma-sentiment-feedback-negative"
+                />
+            </Tooltip>
+        </span>
+    )
+}
+
 function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: boolean }): JSX.Element {
     const { generation, messageIndex, sentiment } = card
     const { uuid, traceId, aiInput, timestamp } = generation
@@ -129,7 +162,7 @@ function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: b
 
     return (
         <div
-            className="flex border rounded-lg overflow-hidden cursor-pointer hover:border-primary/30 transition-colors bg-surface-primary"
+            className="group/card flex border rounded-lg overflow-hidden cursor-pointer hover:border-primary/30 transition-colors bg-surface-primary"
             data-attr="llma-sentiment-card"
             onClick={() => toggleCardExpanded(generation.uuid)}
         >
@@ -153,6 +186,7 @@ function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: b
                         <span className="text-xs text-muted whitespace-nowrap tabular-nums">
                             {formatScore(sentiment.score)}
                         </span>
+                        <SentimentFeedbackButtons card={card} />
                         <Link
                             to={urls.llmAnalyticsTrace(traceId, { event: uuid, timestamp, msg: String(messageIndex) })}
                             className="text-xs ml-1"

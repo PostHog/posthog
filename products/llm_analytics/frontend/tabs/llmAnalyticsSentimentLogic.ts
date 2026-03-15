@@ -1,6 +1,7 @@
 import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
+import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -15,6 +16,7 @@ import type { GenerationSentiment, MessageSentiment } from '../llmSentimentLazyL
 import type { llmAnalyticsSentimentLogicType } from './llmAnalyticsSentimentLogicType'
 
 export type SentimentFilterLabel = 'positive' | 'negative' | 'both'
+export type SentimentFeedbackLabel = 'positive' | 'negative' | 'neutral'
 
 export interface SentimentGeneration {
     uuid: string
@@ -38,6 +40,22 @@ export interface LLMAnalyticsSentimentLogicProps {
 }
 
 const GENERATIONS_PAGE_SIZE = 200
+const SNIPPET_MAX_LENGTH = 500
+
+function getSnippetFromCard(card: SentimentCard): string {
+    try {
+        const parsed =
+            typeof card.generation.aiInput === 'string' ? JSON.parse(card.generation.aiInput) : card.generation.aiInput
+        if (!Array.isArray(parsed)) {
+            return ''
+        }
+        const msg = parsed[card.messageIndex]
+        const text = typeof msg?.content === 'string' ? msg.content : JSON.stringify(msg?.content ?? '')
+        return text.slice(-SNIPPET_MAX_LENGTH)
+    } catch {
+        return ''
+    }
+}
 
 interface GenerationsQueryValues {
     dateFilter: { dateFrom: string | null; dateTo: string | null }
@@ -91,6 +109,11 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
         toggleCardExpanded: (generationId: string) => ({ generationId }),
         loadMoreGenerations: true,
         setHasMore: (hasMore: boolean) => ({ hasMore }),
+        submitSentimentFeedback: (cardKey: string, feedbackLabel: SentimentFeedbackLabel, card: SentimentCard) => ({
+            cardKey,
+            feedbackLabel,
+            card,
+        }),
     }),
 
     reducers({
@@ -126,6 +149,16 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
             {
                 setHasMore: (_, { hasMore }) => hasMore,
                 loadGenerations: () => true,
+            },
+        ],
+        feedbackByCardKey: [
+            {} as Record<string, SentimentFeedbackLabel>,
+            {
+                submitSentimentFeedback: (state, { cardKey, feedbackLabel }) => ({
+                    ...state,
+                    [cardKey]: feedbackLabel,
+                }),
+                loadGenerations: () => ({}),
             },
         ],
     }),
@@ -229,6 +262,18 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                         actions.ensureGenerationSentimentLoaded(gen.uuid, values.dateFilter)
                     }
                 }
+            },
+            submitSentimentFeedback: ({ card, feedbackLabel }) => {
+                posthog.capture('llma sentiment feedback', {
+                    generation_uuid: card.generation.uuid,
+                    trace_id: card.generation.traceId,
+                    message_index: card.messageIndex,
+                    message_text_snippet: getSnippetFromCard(card),
+                    model_prediction_label: card.sentiment.label,
+                    model_prediction_score: card.sentiment.score,
+                    user_label: feedbackLabel,
+                    ai_model: card.generation.model,
+                })
             },
         }
     }),
