@@ -4,6 +4,11 @@ from contextlib import contextmanager
 from django.conf import settings
 
 import structlog
+
+# Patch prometheus_client to bypass HTTP_PROXY/HTTPS_PROXY for pushgateway calls.
+# The pushgateway is an internal service — the outbound proxy would reject it.
+# ProxyHandler({}) tells urllib to ignore proxy env vars.
+import prometheus_client.exposition as _expo
 from prometheus_client import CollectorRegistry, Counter, push_to_gateway
 
 from posthog.exceptions_capture import capture_exception
@@ -37,18 +42,12 @@ TOMBSTONE_COUNTER = Counter(
 )
 
 
-# Patch prometheus_client to bypass HTTP_PROXY/HTTPS_PROXY for pushgateway calls.
-# The pushgateway is an internal service — the outbound proxy would reject it.
-# ProxyHandler({}) tells urllib to ignore proxy env vars.
-import prometheus_client.exposition as _expo  # noqa: E402
-
-
 def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
     from urllib.request import ProxyHandler, Request, build_opener
 
     def handle():
         request = Request(url, data=data)
-        request.get_method = lambda: method  # type: ignore[assignment]
+        request.get_method = lambda: method
         for k, v in headers:
             request.add_header(k, v)
         resp = build_opener(ProxyHandler({}), base_handler).open(request, timeout=timeout)
@@ -58,7 +57,7 @@ def _make_handler_no_proxy(url, method, timeout, headers, data, base_handler):
     return handle
 
 
-_expo._make_handler = _make_handler_no_proxy  # type: ignore[attr-defined]
+_expo._make_handler = _make_handler_no_proxy
 
 
 @contextmanager
