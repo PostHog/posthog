@@ -710,7 +710,8 @@ impl Config {
                 .to_string(),
             persons_read_database_url: "postgres://posthog:posthog@localhost:5432/posthog_persons"
                 .to_string(),
-            behavioral_cohorts_read_database_url: "".to_string(),
+            behavioral_cohorts_read_database_url:
+                "postgres://posthog:posthog@localhost:5432/test_posthog".to_string(),
             cohort_membership_cache_ttl_seconds: 60,
             cohort_membership_cache_max_entries: 50_000,
             max_concurrency: 1000,
