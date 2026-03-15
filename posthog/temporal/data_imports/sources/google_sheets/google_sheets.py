@@ -83,9 +83,20 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
     worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
     rows = worksheet.get_all_values("1:2")  # Get the first two rows
-
-    if len(rows) > 1 and "id" in rows[0]:
-        index_of_id = rows[0].index("id")
+    
+    from gspread import utils as gspread_utils
+    
+    rows = [gspread_utils.numericise_all(row) for row in rows]
+    
+    if len(rows) > 1:
+        headers = rows[0]
+        normalized_headers = [h.strip().lower() for h in headers]
+        if "id" in normalized_headers:
+            index_of_id = normalized_headers.index("id")
+        else:
+            return []
+        if index_of_id >= len(rows[1]):
+             return []
         value_of_id_col = rows[1][index_of_id]
         if isinstance(value_of_id_col, int | float):
             return [
@@ -96,7 +107,7 @@ def get_schema_incremental_fields(config: GoogleSheetsSourceConfig, worksheet_na
                     "field_type": IncrementalFieldType.Numeric,
                 }
             ]
-
+        
     return []
 
 
@@ -117,9 +128,12 @@ def google_sheets_source(
 
     headers = worksheet.get_all_values("1:1")  # Get the first row
     primary_keys = None
-    if len(headers) > 0 and "id" in headers[0]:
-        primary_keys = ["id"]
-
+    if len(headers) > 0:
+        row = headers[0]
+        normalized_headers = [h.strip().lower() for h in row]
+        if "id" in normalized_headers:
+            primary_keys = ["id"]
+            
     def get_rows():
         worksheet = _get_worksheet(config.spreadsheet_url, worksheet_id)
 
