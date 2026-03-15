@@ -312,12 +312,7 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
                 # Auto-approve with all user's accessible organizations.
                 org_ids = request.user.organizations.values_list("id", flat=True)
                 credentials["scoped_organizations"] = [str(org_id) for org_id in org_ids]
-
-                # TODO(charlesvien): Populate scoped_teams for backwards compat with old
-                # Code clients that throw "No team found in OAuth scopes" when
-                # scoped_teams is empty. Remove once Code reads scoped_organizations.
-                team_ids = Team.objects.filter(organization__members=request.user).values_list("pk", flat=True)
-                credentials["scoped_teams"] = list(team_ids)
+                credentials["scoped_teams"] = []
 
                 uri, headers, body, status_code = self.create_authorization_response(
                     request=request, scopes=" ".join(scopes), credentials=credentials, allow=True

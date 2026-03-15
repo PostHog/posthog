@@ -202,7 +202,7 @@ class TestOAuthAPI(APIBaseTest):
         code = parse_qs(urlparse(location).query)["code"][0]
         grant = OAuthGrant.objects.get(code=code)
 
-        self.assertIn(self.team.pk, grant.scoped_teams)
+        self.assertEqual(grant.scoped_teams, [])
         self.assertIn(str(self.organization.id), grant.scoped_organizations)
 
     def test_authorize_missing_client_id(self):
