@@ -40,4 +40,17 @@ export type RecordingApiConfig = Pick<
     | 'SESSION_RECORDING_V2_S3_PREFIX'
     | 'SESSION_RECORDING_KMS_ENDPOINT'
     | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
+    | 'CLICKHOUSE_HOST'
+    | 'CLICKHOUSE_DATABASE'
+    | 'CLICKHOUSE_USER'
+    | 'CLICKHOUSE_PASSWORD'
+    | 'CLICKHOUSE_SECURE'
 >
+
+export interface RecordingBlock {
+    key: string
+    start_byte: number
+    end_byte: number
+    start_timestamp: string
+    end_timestamp: string
+}

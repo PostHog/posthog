@@ -5,23 +5,89 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-cd "$ROOT_DIR/nodejs"
+CONTAINER_NAME="posthog-recording-rasterizer"
+IMAGE_NAME="recording-rasterizer:local"
+DOCKERFILE="$ROOT_DIR/Dockerfile.recording-rasterizer"
+HASH_FILE="$ROOT_DIR/.posthog/.generated/rasterizer-image.hash"
 
-# Auto-detect Chrome/Chromium if PUPPETEER_EXECUTABLE_PATH is not set
-if [ -z "$PUPPETEER_EXECUTABLE_PATH" ]; then
-    if [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then
-        export PUPPETEER_EXECUTABLE_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
-    elif command -v chromium >/dev/null 2>&1; then
-        export PUPPETEER_EXECUTABLE_PATH="$(command -v chromium)"
-    elif command -v chromium-browser >/dev/null 2>&1; then
-        export PUPPETEER_EXECUTABLE_PATH="$(command -v chromium-browser)"
-    elif command -v google-chrome >/dev/null 2>&1; then
-        export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome)"
-    fi
-fi
+cd "$ROOT_DIR"
+
+# --- Step 1: Build TypeScript locally ---
+
+echo "Building headless player..."
+pnpm --filter=@posthog/replay-headless build
 
 echo "Building recording-rasterizer worker..."
-pnpm build
+pnpm --filter=@posthog/nodejs build
 
-echo "Starting recording-rasterizer worker..."
-exec node dist/session-replay/recording-rasterizer/index.js "$@"
+# --- Step 2: Build Docker image if needed ---
+
+# Hash the Dockerfile and key dependency files to detect when a rebuild is needed.
+# Source code changes are picked up via volume mounts, so we only need to rebuild
+# when the image structure (deps, base image, system packages) changes.
+current_hash=$(cat \
+    "$DOCKERFILE" \
+    "$ROOT_DIR/pnpm-lock.yaml" \
+    "$ROOT_DIR/nodejs/package.json" \
+    2>/dev/null | shasum -a 256 | cut -d' ' -f1)
+
+previous_hash=""
+if [ -f "$HASH_FILE" ]; then
+    previous_hash=$(cat "$HASH_FILE")
+fi
+
+# Also rebuild if the image doesn't exist
+if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
+    previous_hash="missing"
+fi
+
+if [ "$current_hash" != "$previous_hash" ]; then
+    echo "Docker image outdated or missing, rebuilding..."
+    docker build \
+        --platform linux/amd64 \
+        -f "$DOCKERFILE" \
+        -t "$IMAGE_NAME" \
+        "$ROOT_DIR"
+
+    mkdir -p "$(dirname "$HASH_FILE")"
+    echo "$current_hash" > "$HASH_FILE"
+    echo "Docker image built and cached."
+else
+    echo "Docker image up-to-date (cached)."
+fi
+
+# --- Step 3: Stop existing container ---
+
+if docker ps -a --format '{{.Names}}' | grep -q "^${CONTAINER_NAME}$"; then
+    echo "Stopping existing container..."
+    docker stop "$CONTAINER_NAME" >/dev/null 2>&1 || true
+    docker rm "$CONTAINER_NAME" >/dev/null 2>&1 || true
+fi
+
+# --- Step 4: Start container ---
+
+# The container joins the docker-compose network for Temporal and MinIO,
+# and uses host.docker.internal for services running natively on the host
+# (recording-api, Django).
+
+echo "Starting recording-rasterizer container..."
+docker run --rm \
+    --name "$CONTAINER_NAME" \
+    --network posthog_default \
+    --platform linux/amd64 \
+    --add-host localhost:host-gateway \
+    -e TEMPORAL_HOST="${TEMPORAL_HOST:-posthog-temporal-1}" \
+    -e TEMPORAL_PORT="${TEMPORAL_PORT:-7233}" \
+    -e RECORDING_API_BASE_URL="${RECORDING_API_BASE_URL:-http://host.docker.internal:6738}" \
+    -e RECORDING_API_SECRET="${RECORDING_API_SECRET:-posthog123}" \
+    -e SITE_URL="${SITE_URL:-http://host.docker.internal:8000}" \
+    -e VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT="${VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT:-http://posthog-objectstorage-1:19000}" \
+    -e AWS_ACCESS_KEY_ID=object_storage_root_user \
+    -e AWS_SECRET_ACCESS_KEY=object_storage_root_password \
+    -e DISABLE_BROWSER_SECURITY="${DISABLE_BROWSER_SECURITY:-1}" \
+    -e MAX_CONCURRENT_ACTIVITIES="${MAX_CONCURRENT_ACTIVITIES:-2}" \
+    -e CAPTURE_BROWSER_LOGS="${CAPTURE_BROWSER_LOGS:-1}" \
+    -e CHROME_HOST_RESOLVER_RULES="MAP localhost host.docker.internal" \
+    -v "$ROOT_DIR/nodejs/dist/session-replay/recording-rasterizer:/code/nodejs/dist/session-replay/recording-rasterizer" \
+    -v "$ROOT_DIR/common/replay-headless/dist/player.html:/code/common/replay-headless/dist/player.html" \
+    "$IMAGE_NAME"

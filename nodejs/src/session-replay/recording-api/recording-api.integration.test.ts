@@ -808,8 +808,8 @@ describe('Recording API encryption integration', () => {
                     .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
                     .query({
                         key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                        start: '0',
-                        end: String(encrypted.length - 1),
+                        start_byte: '0',
+                        end_byte: String(encrypted.length - 1),
                     })
 
                 expect(res.status).toBe(200)
@@ -836,8 +836,8 @@ describe('Recording API encryption integration', () => {
                     .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
                     .query({
                         key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                        start: '0',
-                        end: String(encrypted.length - 1),
+                        start_byte: '0',
+                        end_byte: String(encrypted.length - 1),
                     })
 
                 expect(res.status).toBe(410)
@@ -851,8 +851,8 @@ describe('Recording API encryption integration', () => {
 
                 const res = await supertest(app).get('/api/projects/1/recordings/session-1/block').query({
                     key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                    start: '0',
-                    end: '100',
+                    start_byte: '0',
+                    end_byte: '100',
                 })
 
                 expect(res.status).toBe(404)
@@ -879,8 +879,8 @@ describe('Recording API encryption integration', () => {
                     .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
                     .query({
                         key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                        start: '0',
-                        end: String(encrypted.length - 1),
+                        start_byte: '0',
+                        end_byte: String(encrypted.length - 1),
                         decompress: 'true',
                     })
 
@@ -911,8 +911,8 @@ describe('Recording API encryption integration', () => {
                     .get(`/api/projects/${teamId}/recordings/${sessionId}/block`)
                     .query({
                         key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                        start: '0',
-                        end: String(encrypted.length - 1),
+                        start_byte: '0',
+                        end_byte: String(encrypted.length - 1),
                     })
 
                 expect(res.status).toBe(200)
@@ -930,8 +930,8 @@ describe('Recording API encryption integration', () => {
                     .set('Origin', 'https://us.posthog.com')
                     .query({
                         key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                        start: '0',
-                        end: '100',
+                        start_byte: '0',
+                        end_byte: '100',
                     })
 
                 expect(res.headers['access-control-allow-origin']).toBe('https://us.posthog.com')
@@ -946,8 +946,8 @@ describe('Recording API encryption integration', () => {
                     .set('Origin', 'https://evil.example.com')
                     .query({
                         key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                        start: '0',
-                        end: '100',
+                        start_byte: '0',
+                        end_byte: '100',
                     })
 
                 expect(res.headers['access-control-allow-origin']).toBeUndefined()
@@ -988,8 +988,8 @@ describe('Recording API encryption integration', () => {
                         .set('Origin', 'https://us.posthog.com')
                         .query({
                             key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                            start: '0',
-                            end: '100',
+                            start_byte: '0',
+                            end_byte: '100',
                         })
 
                     expect(res.headers['access-control-allow-origin']).toBeUndefined()
@@ -1024,8 +1024,8 @@ describe('Recording API encryption integration', () => {
                         .set('Origin', 'http://localhost:8000')
                         .query({
                             key: 'session_recordings/30d/1764634738680-3cca0f5d3c7cc7ee',
-                            start: '0',
-                            end: '100',
+                            start_byte: '0',
+                            end_byte: '100',
                         })
 
                     expect(res.headers['access-control-allow-origin']).toBe('http://localhost:8000')

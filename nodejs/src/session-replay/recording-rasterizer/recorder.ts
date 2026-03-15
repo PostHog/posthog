@@ -1,154 +1,149 @@
+import { execFile } from 'child_process'
+import * as fs from 'fs/promises'
 import { Page } from 'puppeteer'
-import { PuppeteerScreenRecorder } from 'puppeteer-screen-recorder'
 
 import { BrowserPool } from './browser-pool'
-import { InactivityPeriod, RasterizeRecordingInput, RecordingResult } from './types'
+import { config as defaultConfig } from './config'
+import { RasterizationError } from './errors'
+import { RasterizeRecordingInput, RecordingResult } from './types'
+import { elapsed } from './utils'
 
-const MAX_DIMENSION = 1920
-const DEFAULT_WIDTH = 1920
-const DEFAULT_HEIGHT = 1080
-const RECORDING_BUFFER_SECONDS = 120
 const DEFAULT_PLAYBACK_SPEED = 4
 const DEFAULT_FPS = 24
-const ALLOWED_SCHEMES = ['http:', 'https:']
-const REQUIRED_PATH_PREFIX = '/exporter'
+const DEFAULT_CAPTURE_TIMEOUT = 300
 
-export function validateRecordingUrl(url: string): void {
-    const parsed = new URL(url)
-    if (!ALLOWED_SCHEMES.includes(parsed.protocol)) {
-        throw new Error(`Disallowed URL scheme: ${parsed.protocol}`)
+let cachedPlayerHtml: string | null = null
+
+export async function loadPlayerHtml(path?: string): Promise<string> {
+    const htmlPath = path || defaultConfig.playerHtmlPath
+    cachedPlayerHtml = await fs.readFile(htmlPath, 'utf-8')
+    return cachedPlayerHtml
+}
+
+export function getPlayerHtml(): string {
+    if (!cachedPlayerHtml) {
+        throw new Error('Player HTML not loaded — call loadPlayerHtml() before recording')
     }
-    if (!parsed.pathname.startsWith(REQUIRED_PATH_PREFIX)) {
-        throw new Error(`Recording URL must point to ${REQUIRED_PATH_PREFIX}, got: ${parsed.pathname}`)
-    }
+    return cachedPlayerHtml
 }
 
 export function validateInput(input: RasterizeRecordingInput): void {
-    validateRecordingUrl(input.recording_url)
-
-    if (input.playback_speed !== undefined && input.playback_speed <= 0) {
-        throw new Error(`playback_speed must be positive, got: ${input.playback_speed}`)
+    if (!input.session_id) {
+        throw new RasterizationError('session_id is required', false)
     }
-    if (input.recording_duration <= 0) {
-        throw new Error(`recording_duration must be positive, got: ${input.recording_duration}`)
+    if (!input.team_id || input.team_id <= 0) {
+        throw new RasterizationError('team_id must be a positive integer', false)
+    }
+    if (input.playback_speed !== undefined && input.playback_speed <= 0) {
+        throw new RasterizationError(`playback_speed must be positive, got: ${input.playback_speed}`, false)
+    }
+    if (input.capture_timeout != null && input.capture_timeout <= 0) {
+        throw new RasterizationError(`capture_timeout must be positive, got: ${input.capture_timeout}`, false)
     }
     if (input.recording_fps !== undefined && input.recording_fps <= 0) {
-        throw new Error(`recording_fps must be positive, got: ${input.recording_fps}`)
+        throw new RasterizationError(`recording_fps must be positive, got: ${input.recording_fps}`, false)
     }
 }
 
-export function scaleDimensionsIfNeeded(
-    width: number,
-    height: number,
-    maxSize: number = MAX_DIMENSION
-): { width: number; height: number } {
-    if (width <= maxSize && height <= maxSize) {
-        return { width, height }
+async function fetchPlayerError(page: Page): Promise<RasterizationError | null> {
+    const error = await page.evaluate(() => (window as any).__POSTHOG_PLAYER_ERROR__)
+    if (!error) {
+        return null
     }
-    if (width > height) {
-        const scaleFactor = maxSize / width
-        return { width: maxSize, height: Math.floor(height * scaleFactor) }
-    }
-    const scaleFactor = maxSize / height
-    return { width: Math.floor(width * scaleFactor), height: maxSize }
+    return new RasterizationError(`[${error.code}] ${error.message}`, error.retryable)
 }
 
-export function setupUrlForPlaybackSpeed(recordingUrl: string, playbackSpeed: number): string {
-    const url = new URL(recordingUrl)
-    url.searchParams.set('playerSpeed', String(playbackSpeed))
-    return url.toString()
-}
-
-export async function waitForPageReady(page: Page, recordingUrl: string, waitForCssSelector: string): Promise<void> {
-    await page.goto(recordingUrl, { waitUntil: 'load', timeout: 30000 })
-    try {
-        await page.waitForSelector(waitForCssSelector, { visible: true, timeout: 20000 })
-    } catch {
-        // Selector wait timeout, continue
-    }
-    try {
-        await page.waitForSelector('.Spinner', { hidden: true, timeout: 20000 })
-    } catch {
-        // Spinner wait timeout, continue
-    }
-}
-
-export async function verifyInactivityPeriodsAvailable(page: Page): Promise<void> {
-    try {
-        await page.waitForFunction(
-            () => {
-                const periods = (window as any).__POSTHOG_INACTIVITY_PERIODS__
-                return Array.isArray(periods) && periods.length > 0
-            },
-            { timeout: 20000 }
-        )
-    } catch {
-        throw new Error(
-            'Inactivity periods were not available within 20s after page load. ' +
-                'The recording may not have rendered properly.'
-        )
-    }
-}
-
-export async function waitForRecordingWithSegments(
-    page: Page,
-    maxWaitMs: number,
-    playbackStarted: number
-): Promise<Record<string, number>> {
-    const segmentStartTimestamps: Record<string, number> = {}
-    let lastCounter = 0
-
-    while (true) {
-        const elapsedMs = Date.now() - playbackStarted
-        const remainingMs = maxWaitMs - elapsedMs
-        if (remainingMs <= 0) {
-            break
-        }
-        try {
-            const handle = await page.waitForFunction(
-                (lastCounterVal: number) => {
-                    if ((window as any).__POSTHOG_RECORDING_ENDED__) {
-                        return { ended: true }
-                    }
-                    const counter = (window as any).__POSTHOG_SEGMENT_COUNTER__ || 0
-                    if (counter > lastCounterVal) {
-                        return {
-                            counter,
-                            segment_start_ts: (window as any).__POSTHOG_CURRENT_SEGMENT_START_TS__,
-                        }
-                    }
-                    return false
-                },
-                { timeout: remainingMs, polling: 'raf' },
-                lastCounter
-            )
-            const result = (await handle.jsonValue()) as any
-            if (result.ended) {
-                break
-            }
-            const segmentStartTs = result.segment_start_ts
-            const newCounter = result.counter || 0
-            if (segmentStartTs !== undefined && newCounter > lastCounter) {
-                const videoTime = (Date.now() - playbackStarted) / 1000
-                segmentStartTimestamps[segmentStartTs] = videoTime
-                lastCounter = newCounter
-            }
-        } catch (err) {
-            if (!(err instanceof Error && err.name === 'TimeoutError')) {
-                console.error('Unexpected error during segment recording:', err)
-            }
-            break
-        }
-    }
-    return segmentStartTimestamps
-}
-
-export async function detectInactivityPeriods(
-    page: Page,
+export function buildPlayerHtml(
+    baseHtml: string,
+    input: RasterizeRecordingInput,
     playbackSpeed: number,
-    segmentStartTimestamps: Record<string, number>
-): Promise<InactivityPeriod[]> {
-    const inactivityPeriodsRaw: any[] = await page.evaluate(() => {
+    cfg: typeof defaultConfig
+): string {
+    const playerConfig = {
+        recordingApiBaseUrl: cfg.recordingApiBaseUrl,
+        recordingApiSecret: cfg.recordingApiSecret,
+        teamId: input.team_id,
+        sessionId: input.session_id,
+        playbackSpeed,
+        skipInactivity: input.skip_inactivity !== false,
+        mouseTail: input.mouse_tail !== false,
+        showMetadataFooter: input.show_metadata_footer,
+        startTimestamp: input.start_timestamp,
+        endTimestamp: input.end_timestamp,
+        viewportEvents: input.viewport_events || [],
+    }
+
+    const configScript = `<script>window.__POSTHOG_PLAYER_CONFIG__ = ${JSON.stringify(playerConfig)};</script>`
+    return baseHtml.replace('</head>', `${configScript}\n</head>`)
+}
+
+export async function setupAndLoadPlayer(
+    page: Page,
+    input: RasterizeRecordingInput,
+    playerHtml: string,
+    playbackSpeed: number,
+    cfg: typeof defaultConfig = defaultConfig
+): Promise<void> {
+    const html = buildPlayerHtml(playerHtml, input, playbackSpeed, cfg)
+    const playerUrl = `${cfg.siteUrl}/player`
+
+    await page.setRequestInterception(true)
+    page.on('request', (request) => {
+        const url = request.url()
+        if (url === playerUrl) {
+            void request.respond({
+                status: 200,
+                contentType: 'text/html',
+                body: html,
+            })
+        } else {
+            void request.continue()
+        }
+    })
+
+    await page.goto(playerUrl, { waitUntil: 'load', timeout: 30000 })
+}
+
+export async function waitForRecordingStarted(page: Page, sessionId: string): Promise<void> {
+    // The JS bundle may not have registered its event listener yet when we
+    // dispatch posthog-player-init. Poll with re-dispatches until the player
+    // signals it has started (or errored).
+    const deadline = Date.now() + 30000
+    const redispatchInterval = 500
+
+    while (Date.now() < deadline) {
+        const state = await page.evaluate(() => ({
+            started: (window as any).__POSTHOG_RECORDING_STARTED__,
+            error: (window as any).__POSTHOG_PLAYER_ERROR__,
+        }))
+
+        if (state.started || state.error) {
+            break
+        }
+
+        // Re-dispatch init in case the listener wasn't registered yet
+        await page.evaluate(() => {
+            window.dispatchEvent(new Event('posthog-player-init'))
+        })
+
+        await new Promise((resolve) => setTimeout(resolve, redispatchInterval))
+    }
+
+    const playerError = await fetchPlayerError(page)
+    if (playerError) {
+        throw playerError
+    }
+
+    const started = await page.evaluate(() => (window as any).__POSTHOG_RECORDING_STARTED__)
+    if (!started) {
+        throw new RasterizationError(`Recording did not start within 30s for session ${sessionId}`, true)
+    }
+}
+
+async function fetchInactivityPeriods(
+    page: Page
+): Promise<Array<{ ts_from_s: number; ts_to_s: number | null; active: boolean }>> {
+    return page.evaluate(() => {
         const r = (window as any).__POSTHOG_INACTIVITY_PERIODS__
         if (!r) {
             return []
@@ -159,112 +154,173 @@ export async function detectInactivityPeriods(
             active: Boolean(p.active),
         }))
     })
-
-    if (segmentStartTimestamps && Object.keys(segmentStartTimestamps).length > 0) {
-        let prevPeriodWithRecording: any = null
-        for (const period of inactivityPeriodsRaw) {
-            const tsFromS = period.ts_from_s
-            if (tsFromS !== undefined && segmentStartTimestamps[tsFromS] !== undefined) {
-                const rawTimestamp = segmentStartTimestamps[tsFromS]
-                period.recording_ts_from_s = rawTimestamp * playbackSpeed
-                const tsToS = period.ts_to_s
-                if (tsToS !== undefined) {
-                    const segmentDuration = tsToS - tsFromS
-                    period.recording_ts_to_s = period.recording_ts_from_s + segmentDuration
-                }
-                if (prevPeriodWithRecording) {
-                    prevPeriodWithRecording.recording_ts_to_s = Math.min(
-                        prevPeriodWithRecording.recording_ts_to_s,
-                        period.recording_ts_from_s
-                    )
-                }
-                prevPeriodWithRecording = period
-            }
-        }
-    }
-
-    return inactivityPeriodsRaw as InactivityPeriod[]
 }
 
 export async function rasterizeRecording(
     pool: BrowserPool,
     input: RasterizeRecordingInput,
-    outputPath: string
+    outputPath: string,
+    cfg: typeof defaultConfig = defaultConfig
 ): Promise<RecordingResult> {
     validateInput(input)
 
+    // puppeteer-capture is only available in production (Linux + chrome-headless-shell)
+
+    const { capture: captureVideo, PuppeteerCaptureFormat } = require('puppeteer-capture')
+
+    const setupStart = process.hrtime()
+    const playerHtml = getPlayerHtml()
     const playbackSpeed = input.playback_speed || DEFAULT_PLAYBACK_SPEED
     const recordingFps = input.recording_fps || DEFAULT_FPS
-    const urlWithSpeed = setupUrlForPlaybackSpeed(input.recording_url, playbackSpeed)
-
-    let width = input.screenshot_width || DEFAULT_WIDTH
-    let height = input.screenshot_height || DEFAULT_HEIGHT
-    const scaled = scaleDimensionsIfNeeded(width, height)
-    width = scaled.width
-    height = scaled.height
-
-    const customFps = recordingFps * playbackSpeed
 
     const page = await pool.getPage()
     try {
-        await page.setViewport({ width, height, deviceScaleFactor: 1 })
-
-        // Resize the browser window to match the viewport. Page.startScreencast
-        // captures at the outer window size, not the CSS viewport. In headless mode
-        // the default window can be much smaller than the viewport we set.
-        const cdp = await (page as any).target().createCDPSession()
-        const { windowId } = await cdp.send('Browser.getWindowForTarget')
-        await cdp.send('Browser.setWindowBounds', {
-            windowId,
-            bounds: { width, height },
-        })
-        await cdp.detach()
-
-        const recorderConfig = {
-            followNewTab: false,
-            fps: customFps,
-            ffmpeg_Path: process.env.FFMPEG_PATH || undefined,
-            videoFrame: { width, height },
-            videoCrf: 23,
-            videoCodec: 'libx264',
-            videoPreset: 'veryfast',
-            videoBitrate: 1000 * (0.5 * playbackSpeed),
-            autopad: { color: 'black' },
-            aspectRatio: '16:9',
+        if (cfg.captureBrowserLogs) {
+            page.on('console', (msg) => console.log(`[browser:${msg.type()}]`, msg.text()))
+            page.on('pageerror', (err) => console.error('[browser:error]', (err as Error).message))
+            page.on('requestfailed', (req) =>
+                console.error('[browser:requestfailed]', req.url(), req.failure()?.errorText)
+            )
         }
 
-        const recorder = new PuppeteerScreenRecorder(page, recorderConfig)
-        const recordStarted = Date.now()
+        // Prevent rrweb's replay iframe from being sandboxed.
+        // rrweb sets sandbox="allow-same-origin" which blocks script execution.
+        // puppeteer-capture needs to evaluate() in all frames to inject virtual
+        // time shims — without this, frame.evaluate() hangs on sandboxed iframes.
+        await page.evaluateOnNewDocument(() => {
+            const origSetAttribute = Element.prototype.setAttribute
+            Element.prototype.setAttribute = function (name: string, value: string) {
+                if (this.tagName === 'IFRAME' && name === 'sandbox') {
+                    return
+                }
+                return origSetAttribute.call(this, name, value)
+            }
+        })
+
+        const vpWidth = input._viewport_width || 1920
+        const vpHeight = input._viewport_height || 1080
+        await page.setViewport({ width: vpWidth, height: vpHeight, deviceScaleFactor: 1 })
+
+        console.log('[rasterizer] loading player...')
+        await setupAndLoadPlayer(page, input, playerHtml, playbackSpeed, cfg)
+        console.log('[rasterizer] player loaded, waiting for recording data...')
+
+        // waitForRecordingStarted dispatches posthog-player-init repeatedly until
+        // the JS bundle registers its listener and signals recording started
+        await waitForRecordingStarted(page, input.session_id)
+        console.log('[rasterizer] recording started')
+
+        const setupS = elapsed(setupStart)
+        const captureStart = process.hrtime()
+
+        // Capture at recordingFps * playbackSpeed so the ffmpeg slowdown
+        // (setpts=N*PTS) produces the desired output FPS at real-time speed.
+        // e.g. 3fps output × 8x speed = 24fps capture → slowed 8x → 3fps.
+        const captureFps = recordingFps * playbackSpeed
+
+        // Start capture FIRST — this installs virtual time shims (Date.now,
+        // setTimeout, rAF). Then dispatch player-start so all playback happens
+        // under deterministic virtual time control. rrweb's rAF-based rendering
+        // fires naturally as we advance virtual time in the loop below.
+        let frameCount = 0
+        const recorder = await captureVideo(page, {
+            fps: captureFps,
+            format: PuppeteerCaptureFormat.MP4('veryfast', 'libx264'),
+            customFfmpegConfig: (ffmpeg: any) => {
+                ffmpeg.outputOptions(['-crf 23', '-pix_fmt yuv420p', '-movflags +faststart'])
+            },
+            ffmpeg: process.env.FFMPEG_PATH || undefined,
+        })
+        const logInterval = Math.max(10, captureFps) // log roughly once per second of capture
+        recorder.on('frameCaptured', () => {
+            frameCount++
+            if (frameCount % logInterval === 0) {
+                const virtualS = (frameCount / captureFps).toFixed(1)
+                const realS = elapsed(captureStart).toFixed(1)
+                console.log(`[rasterizer] frame ${frameCount} (virtual=${virtualS}s, wall=${realS}s)`)
+            }
+        })
 
         await recorder.start(outputPath)
-        try {
-            await waitForPageReady(page, urlWithSpeed, input.wait_for_css_selector)
+        const vp = page.viewport()
+        console.log(`[rasterizer] capture started (${captureFps}fps, ${vp?.width}x${vp?.height})`)
 
-            const readyAt = Date.now()
-            await new Promise((r) => setTimeout(r, 500))
-            await verifyInactivityPeriodsAvailable(page)
+        await page.evaluate(() => {
+            window.dispatchEvent(new Event('posthog-player-start'))
+        })
+        console.log('[rasterizer] playback started, advancing virtual time...')
 
-            const maxWaitMs =
-                Math.floor((input.recording_duration / playbackSpeed) * 1000) + RECORDING_BUFFER_SECONDS * 1000
-            const segmentStartTimestamps = await waitForRecordingWithSegments(page, maxWaitMs, readyAt)
-            const inactivityPeriods = await detectInactivityPeriods(page, playbackSpeed, segmentStartTimestamps)
+        // Advance virtual time until the recording ends or we hit the timeout.
+        // puppeteer-capture's waitForTimeout advances the virtual clock; rrweb's
+        // shimmed timers fire deterministically within that virtual time.
+        const captureTimeoutMs = (input.capture_timeout || DEFAULT_CAPTURE_TIMEOUT) * 1000
+        const checkIntervalMs = 1000
+        let virtualElapsed = 0
 
-            await recorder.stop()
+        while (virtualElapsed < captureTimeoutMs) {
+            await recorder.waitForTimeout(checkIntervalMs)
+            virtualElapsed += checkIntervalMs
 
-            const preRoll = Math.max(0, (readyAt - recordStarted) / 1000)
-
-            return {
-                video_path: outputPath,
-                pre_roll: preRoll,
-                playback_speed: playbackSpeed,
-                measured_width: width,
-                inactivity_periods: inactivityPeriods,
-                segment_start_timestamps: segmentStartTimestamps,
-                custom_fps: customFps,
+            const ended = await page.evaluate(() => (window as any).__POSTHOG_RECORDING_ENDED__)
+            if (ended) {
+                console.log(`[rasterizer] recording ended at virtual=${virtualElapsed / 1000}s, frames=${frameCount}`)
+                break
             }
-        } catch (err) {
-            await recorder.stop().catch(() => {})
-            throw err
+        }
+
+        if (virtualElapsed >= captureTimeoutMs) {
+            console.log(`[rasterizer] capture timeout reached (${captureTimeoutMs / 1000}s)`)
+        }
+
+        await recorder.stop()
+
+        const rawStat = await fs.stat(outputPath)
+        console.log(`[rasterizer] capture stopped, raw file: ${rawStat.size} bytes`)
+
+        const inactivityPeriods = await fetchInactivityPeriods(page)
+        const captureDurationS = virtualElapsed / 1000 / playbackSpeed
+
+        // Slow the video back to real-time speed. The capture ran at
+        // playbackSpeed (e.g. 8x), so we stretch PTS by that factor.
+        if (playbackSpeed !== 1) {
+            const slowedPath = outputPath.replace('.mp4', '-slowed.mp4')
+            const ffmpegBin = process.env.FFMPEG_PATH || 'ffmpeg'
+            await new Promise<void>((resolve, reject) => {
+                execFile(
+                    ffmpegBin,
+                    [
+                        '-i',
+                        outputPath,
+                        '-filter:v',
+                        `setpts=${playbackSpeed}*PTS`,
+                        '-an',
+                        '-c:v',
+                        'libx264',
+                        '-preset',
+                        'veryfast',
+                        '-crf',
+                        '23',
+                        '-pix_fmt',
+                        'yuv420p',
+                        '-movflags',
+                        '+faststart',
+                        '-y',
+                        slowedPath,
+                    ],
+                    (err) => (err ? reject(err) : resolve())
+                )
+            })
+            await fs.rename(slowedPath, outputPath)
+            console.log(`[rasterizer] slowed ${playbackSpeed}x → real-time`)
+        }
+
+        return {
+            video_path: outputPath,
+            playback_speed: playbackSpeed,
+            capture_duration_s: captureDurationS,
+            inactivity_periods: inactivityPeriods,
+            custom_fps: recordingFps,
+            timings: { setup_s: setupS, capture_s: elapsed(captureStart) },
         }
     } finally {
         await pool.releasePage(page)

@@ -1,0 +1,23 @@
+{
+    "name": "@posthog/replay-headless",
+    "version": "0.0.1",
+    "private": true,
+    "main": "dist/player.html",
+    "scripts": {
+        "build": "node build.mjs",
+        "test": "jest",
+        "test:puppeteer": "node test-puppeteer.mjs"
+    },
+    "dependencies": {
+        "@posthog/replay-shared": "workspace:*",
+        "@posthog/rrweb": "0.0.26",
+        "@posthog/rrweb-types": "0.0.26"
+    },
+    "devDependencies": {
+        "@swc/core": "^1.11.29",
+        "@swc/jest": "^0.2.37",
+        "esbuild": "^0.25.1",
+        "jest": "^29.7.0",
+        "puppeteer": "19.0.0"
+    }
+}

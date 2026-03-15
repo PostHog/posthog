@@ -9,9 +9,11 @@ export const config = {
     temporalClientKey: process.env.TEMPORAL_CLIENT_KEY,
 
     // Worker
-    maxConcurrentActivities: parseInt(process.env.MAX_CONCURRENT_ACTIVITIES || '10', 10),
+    maxConcurrentActivities: parseInt(process.env.MAX_CONCURRENT_ACTIVITIES || '4', 10),
     browserRecycleAfter: parseInt(process.env.BROWSER_RECYCLE_AFTER || '100', 10),
-    headless: process.env.EXPORTER_HEADLESS !== '0',
+    headless: process.env.RASTERIZER_HEADLESS !== '0',
+    disableBrowserSecurity: process.env.DISABLE_BROWSER_SECURITY === '1',
+    captureBrowserLogs: process.env.CAPTURE_BROWSER_LOGS === '1',
 
     // Encryption
     secretKey: process.env.DJANGO_SECRET_KEY,
@@ -19,4 +21,12 @@ export const config = {
     // S3
     s3Endpoint: process.env.VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT,
     s3Region: process.env.VIDEO_EXPORT_OBJECT_STORAGE_REGION || 'us-east-1',
+
+    // Recording API
+    recordingApiBaseUrl: process.env.RECORDING_API_BASE_URL || 'http://localhost:6738',
+    recordingApiSecret: process.env.RECORDING_API_SECRET || '',
+
+    // Player
+    siteUrl: process.env.SITE_URL || 'http://localhost:8000',
+    playerHtmlPath: process.env.PLAYER_HTML_PATH || '/code/common/replay-headless/dist/player.html',
 }
