@@ -1,6 +1,7 @@
 import datetime as dt
 from typing import Any, Literal
 
+import s3fs
 import structlog
 import posthoganalytics
 from asgiref.sync import async_to_sync
@@ -164,6 +165,9 @@ def _run_post_load_for_already_processed_batch(export_signal: ExportSignalMessag
     All async operations are run within a single async_to_sync call to avoid
     event loop lifecycle issues with aiohttp/s3fs clients.
     """
+    # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
+    # previously closed event loop (async_to_sync creates/destroys loops).
+    s3fs.S3FileSystem.clear_instance_cache()
 
     async def _run() -> None:
         job = await ExternalDataJob.objects.prefetch_related("schema", "schema__source", "schema__table").aget(
@@ -247,6 +251,10 @@ def _mark_job_failed(export_signal: ExportSignalMessage, error: Exception) -> No
 
 def process_message(message: Any) -> None:
     export_signal = ExportSignalMessage.from_dict(message)
+
+    # Clear cached S3FileSystem instances to avoid reusing sessions bound to a
+    # previously closed event loop (async_to_sync creates/destroys loops).
+    s3fs.S3FileSystem.clear_instance_cache()
 
     try:
         team_id_str = str(export_signal.team_id)
