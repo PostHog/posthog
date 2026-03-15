@@ -237,6 +237,7 @@ class LazyComputationTable(StrEnum):
 
     PREAGGREGATION_RESULTS = "preaggregation_results"
     EXPERIMENT_EXPOSURES_PREAGGREGATED = "experiment_exposures_preaggregated"
+    EXPERIMENT_METRIC_EVENTS_PREAGGREGATED = "experiment_metric_events_preaggregated"
 
 
 # Tables where expires_at is a Date (not DateTime64). Date truncates to midnight,
@@ -244,6 +245,7 @@ class LazyComputationTable(StrEnum):
 # job expires. We add an extra day of buffer for these tables.
 _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.EXPERIMENT_EXPOSURES_PREAGGREGATED,
+    LazyComputationTable.EXPERIMENT_METRIC_EVENTS_PREAGGREGATED,
 }
 
 
