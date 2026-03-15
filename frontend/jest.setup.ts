@@ -10,7 +10,19 @@ global.TextDecoder = TextDecoder as any
 global.TextEncoder = TextEncoder as any
 
 window.scrollTo = jest.fn()
-window.matchMedia = jest.fn(() => ({ matches: false, addListener: jest.fn(), removeListener: jest.fn() }) as any)
+window.matchMedia = jest.fn(
+    (query: string) =>
+        ({
+            matches: false,
+            media: query,
+            onchange: null,
+            addListener: jest.fn(),
+            removeListener: jest.fn(),
+            addEventListener: jest.fn(),
+            removeEventListener: jest.fn(),
+            dispatchEvent: jest.fn(),
+        }) as any
+)
 
 // jsdom does not implement AbortSignal.timeout — polyfill for tests
 if (typeof AbortSignal.timeout !== 'function') {
@@ -24,6 +36,11 @@ if (typeof AbortSignal.timeout !== 'function') {
 // Base UI's ScrollArea calls getAnimations() which jsdom doesn't support
 if (typeof Element.prototype.getAnimations !== 'function') {
     Element.prototype.getAnimations = () => []
+}
+
+// LemonMenu calls scrollIntoView which jsdom doesn't support
+if (typeof Element.prototype.scrollIntoView !== 'function') {
+    Element.prototype.scrollIntoView = () => {}
 }
 
 // we use CSS.escape in the toolbar, but Jest/JSDom doesn't support it
