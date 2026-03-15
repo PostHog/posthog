@@ -64,9 +64,9 @@ export function HogFlowEditorPanelVariables(): JSX.Element | null {
                 info={
                     <span>
                         These variables can be used by actions and conditions in this workflow. Use{' '}
-                        <code>{`{ variable_name }`}</code> to reference a variable in an action or condition. You can
-                        also set variables using the result of an action by selecting a node and configuring the "Output
-                        variable" section.
+                        <code>{`{ variables.your_variable_name }`}</code> to reference a variable in an action or
+                        condition. You can also set variables using the result of an action by selecting a node and
+                        configuring the "Output variable" section.
                     </span>
                 }
             >

@@ -140,12 +140,14 @@ class InputsSchemaItemSerializer(serializers.Serializer):
             "dictionary",
             "choice",
             "json",
+            "hogql",
             "integration",
             "integration_field",
             "email",
             "native_email",
             "posthog_assignee",
             "posthog_ticket_tags",
+            "endpoint",
         ]
     )
     key = serializers.CharField()

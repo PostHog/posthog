@@ -1,4 +1,5 @@
 import './conversations'
 import './fetch-handler'
+import './posthog-query'
 import './send-email'
 import './warehouse-webhooks'

@@ -329,12 +329,14 @@ export type HogFunctionInputSchemaType = {
         | 'dictionary'
         | 'choice'
         | 'json'
+        | 'hogql'
         | 'integration'
         | 'integration_field'
         | 'email'
         | 'native_email'
         | 'posthog_assignee'
         | 'posthog_ticket_tags'
+        | 'endpoint'
     key: string
     label?: string
     choices?: { value: string; label: string }[]
