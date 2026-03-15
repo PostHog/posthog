@@ -123,10 +123,34 @@ function SentimentFeedbackButtons({ card }: { card: SentimentCard }): JSX.Elemen
     const cardKey = `${card.generation.uuid}:${card.messageIndex}`
     const currentFeedback = feedbackByCardKey[cardKey]
 
-    const options: { label: SentimentFeedbackLabel; emoji: string; tooltip: string }[] = [
-        { label: 'positive', emoji: '😊', tooltip: 'Label as positive' },
-        { label: 'neutral', emoji: '😐', tooltip: 'Label as neutral' },
-        { label: 'negative', emoji: '😠', tooltip: 'Label as negative' },
+    const options: {
+        label: SentimentFeedbackLabel
+        emoji: string
+        tooltip: string
+        selectedBg: string
+        hoverBg: string
+    }[] = [
+        {
+            label: 'negative',
+            emoji: '😠',
+            tooltip: 'Label as negative',
+            selectedBg: 'bg-danger-highlight',
+            hoverBg: 'hover:bg-danger-highlight',
+        },
+        {
+            label: 'neutral',
+            emoji: '😐',
+            tooltip: 'Label as neutral',
+            selectedBg: 'bg-border-light',
+            hoverBg: 'hover:bg-border-light',
+        },
+        {
+            label: 'positive',
+            emoji: '😊',
+            tooltip: 'Label as positive',
+            selectedBg: 'bg-success-highlight',
+            hoverBg: 'hover:bg-success-highlight',
+        },
     ]
 
     return (
@@ -134,12 +158,12 @@ function SentimentFeedbackButtons({ card }: { card: SentimentCard }): JSX.Elemen
             className={`inline-flex items-center gap-0 ${currentFeedback ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-100'} transition-opacity`}
             onClick={(e) => e.stopPropagation()}
         >
-            {options.map(({ label, emoji, tooltip }) => (
+            {options.map(({ label, emoji, tooltip, selectedBg, hoverBg }) => (
                 <Tooltip key={label} title={tooltip}>
                     <LemonButton
                         size="xsmall"
                         type="tertiary"
-                        className={currentFeedback === label ? 'ring-1 ring-current rounded' : 'opacity-60'}
+                        className={`rounded ${currentFeedback === label ? selectedBg : `opacity-60 ${hoverBg}`}`}
                         onClick={() => submitSentimentFeedback(cardKey, label, card)}
                         data-attr={`llma-sentiment-feedback-${label}`}
                     >
