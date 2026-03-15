@@ -718,11 +718,41 @@ class VerifyMatchSpecificityOutput:
     reason: str
 
 
+async def verify_match_specificity(
+    new_signal_description: str,
+    new_signal_source_product: str,
+    new_signal_source_type: str,
+    report_title: str,
+    group_signals: list[SignalData],
+) -> VerifyMatchSpecificityOutput:
+    """Verify that adding a signal to a group produces a specific-enough PR title."""
+    specificity_prompt = _build_specificity_prompt(
+        new_signal_description=new_signal_description,
+        new_signal_source_product=new_signal_source_product,
+        new_signal_source_type=new_signal_source_type,
+        report_title=report_title,
+        group_signals=group_signals,
+    )
+
+    specificity = await call_llm(
+        system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
+        user_prompt=specificity_prompt,
+        validate=lambda text: SpecificityResult.model_validate_json(text),
+        temperature=0.2,
+    )
+
+    return VerifyMatchSpecificityOutput(
+        pr_title=specificity.pr_title,
+        specific_enough=specificity.specific_enough,
+        reason=specificity.reason,
+    )
+
+
 @temporalio.activity.defn
 async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) -> VerifyMatchSpecificityOutput:
     """Verify that adding a signal to a group produces a specific-enough PR title."""
     try:
-        specificity_prompt = _build_specificity_prompt(
+        result = await verify_match_specificity(
             new_signal_description=input.new_signal_description,
             new_signal_source_product=input.new_signal_source_product,
             new_signal_source_type=input.new_signal_source_type,
@@ -730,27 +760,16 @@ async def verify_match_specificity_activity(input: VerifyMatchSpecificityInput) 
             group_signals=input.group_signals,
         )
 
-        specificity = await call_llm(
-            system_prompt=SPECIFICITY_CHECK_SYSTEM_PROMPT,
-            user_prompt=specificity_prompt,
-            validate=lambda text: SpecificityResult.model_validate_json(text),
-            temperature=0.2,
-        )
-
         logger.debug(
             f"Specificity check for report {input.report_id}: "
-            f'pr_title="{specificity.pr_title}", specific_enough={specificity.specific_enough}',
+            f'pr_title="{result.pr_title}", specific_enough={result.specific_enough}',
             team_id=input.team_id,
             report_id=input.report_id,
-            pr_title=specificity.pr_title,
-            specific_enough=specificity.specific_enough,
-            reason=specificity.reason,
+            pr_title=result.pr_title,
+            specific_enough=result.specific_enough,
+            reason=result.reason,
         )
-        return VerifyMatchSpecificityOutput(
-            pr_title=specificity.pr_title,
-            specific_enough=specificity.specific_enough,
-            reason=specificity.reason,
-        )
+        return result
     except Exception as e:
         logger.exception(
             f"Failed to verify match specificity for report {input.report_id}: {e}",
