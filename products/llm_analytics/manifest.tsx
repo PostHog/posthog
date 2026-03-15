@@ -138,6 +138,7 @@ export const manifest: ProductManifest = {
         '/llm-analytics/users': ['LLMAnalytics', 'llmAnalyticsUsers'],
         '/llm-analytics/errors': ['LLMAnalytics', 'llmAnalyticsErrors'],
         '/llm-analytics/tools': ['LLMAnalytics', 'llmAnalyticsTools'],
+        '/llm-analytics/sentiment': ['LLMAnalytics', 'llmAnalyticsSentiment'],
         '/llm-analytics/sessions': ['LLMAnalytics', 'llmAnalyticsSessions'],
         '/llm-analytics/sessions/:id': ['LLMAnalyticsSession', 'llmAnalytics'],
         '/llm-analytics/playground': ['LLMAnalyticsPlayground', 'llmAnalyticsPlayground'],
@@ -194,6 +195,7 @@ export const manifest: ProductManifest = {
                 exception_ts?: string
                 search?: string
                 tab?: string
+                msg?: string
             }
         ): string => {
             const queryParams = new URLSearchParams(params)
@@ -203,6 +205,7 @@ export const manifest: ProductManifest = {
         llmAnalyticsUsers: (): string => '/llm-analytics/users',
         llmAnalyticsErrors: (): string => '/llm-analytics/errors',
         llmAnalyticsTools: (): string => '/llm-analytics/tools',
+        llmAnalyticsSentiment: (): string => '/llm-analytics/sentiment',
         llmAnalyticsSessions: (): string => '/llm-analytics/sessions',
         llmAnalyticsSession: (
             id: string,
