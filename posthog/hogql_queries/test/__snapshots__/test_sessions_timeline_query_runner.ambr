@@ -20,7 +20,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -91,7 +90,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -162,7 +160,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -233,7 +230,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -304,7 +300,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -375,7 +370,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
@@ -446,7 +440,6 @@
                     distinct_id AS distinct_id,
                     elements_chain AS elements_chain,
                     session_id AS session_id,
-                    prev_session_id AS prev_session_id,
                     sum(if(ifNull(equals(session_id, prev_session_id), isNull(session_id)
                                   and isNull(prev_session_id)), 0, 1)) OVER (PARTITION BY person_id
                                                                              ORDER BY timestamp ASC ROWS UNBOUNDED PRECEDING) AS session_id_flip_index
