@@ -3,13 +3,12 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
-import { Layout, Responsive as ReactGridLayout } from 'react-grid-layout'
+import { RefObject, useEffect, useRef, useState } from 'react'
+import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -91,8 +90,8 @@ export function DashboardItems(): JSX.Element {
         'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
     })
 
-    const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
-    const isMobileView = gridWrapperWidth && gridWrapperWidth <= BREAKPOINTS['sm']
+    const { width, containerRef, mounted } = useContainerWidth()
+    const isMobileView = width && width <= BREAKPOINTS['sm']
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
         DashboardPlacement.ProjectHomepage,
@@ -105,30 +104,30 @@ export function DashboardItems(): JSX.Element {
     const showDashboardGrid = useFeatureFlag('DASHBOARD_GRID')
 
     return (
-        <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
+        <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
             {dashboardMode === DashboardMode.Edit && isMobileView && (
                 <LemonBanner type="warning" className="mb-4">
                     Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
                     resize tiles.
                 </LemonBanner>
             )}
-            {gridWrapperWidth && (
+            {mounted && (
                 <div className="relative">
                     {dashboardMode === DashboardMode.Edit && !isMobileView && showDashboardGrid && (
                         <GridBackground
-                            width={gridWrapperWidth}
+                            width={width}
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
                             rowHeight={80}
                             margin={[16, 16]}
                             containerPadding={[0, 0]}
                             rows="auto"
-                            height={gridWrapperWidth} // rough heuristic; RGL will grow as needed
+                            height={containerRef.current?.clientHeight} // rough heuristic; RGL will grow as needed
                             color="var(--color-bg-surface-secondary)"
                         />
                     )}
 
                     <ReactGridLayout
-                        width={gridWrapperWidth}
+                        width={width}
                         className={className}
                         dragConfig={{
                             enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
