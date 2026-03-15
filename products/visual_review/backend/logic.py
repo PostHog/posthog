@@ -983,8 +983,9 @@ def get_run_snapshots(run_id: UUID, team_id: int | None = None) -> list[RunSnaps
     return list(
         run.snapshots.select_related("current_artifact", "baseline_artifact", "diff_artifact").order_by(
             db_models.Case(
-                db_models.When(result=SnapshotResult.UNCHANGED, then=1),
-                default=0,
+                db_models.When(result=SnapshotResult.UNCHANGED, then=2),
+                db_models.When(result=SnapshotResult.NEW, then=0),
+                default=1,
             ),
             "identifier",
         )
