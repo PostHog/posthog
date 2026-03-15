@@ -341,7 +341,7 @@ class TestGroupingPipeline:
             eval_name=f"{case.signal.source.value.lower()}-actionability-check",
             item_name=f"case-{case.group_index}-{case.signal_index}",
             input=case.signal.content.description,
-            output=thoughts,
+            output="ACTIONABLE" if outcome else "NOT_ACTIONABLE",
             expected="ACTIONABLE" if case.actionable else "NOT_ACTIONABLE",
             metrics=[
                 EvalMetric(
