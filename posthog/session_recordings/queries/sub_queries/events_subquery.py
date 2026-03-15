@@ -30,6 +30,7 @@ from posthog.session_recordings.queries.utils import (
     is_event_property,
     is_group_property,
     is_person_property,
+    is_session_property,
 )
 from posthog.types import AnyPropertyFilter
 
@@ -438,6 +439,11 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
                 continue
             gathered_exprs.append(property_to_expr(p, team=self._team))
 
+        for p in self.session_properties:
+            if skip_negative_properties and is_negative_prop(p):
+                continue
+            gathered_exprs.append(property_to_expr(p, team=self._team, scope="replay"))
+
         # Handle person properties with hybrid query mode if enabled and appropriate
         hybrid_query: Optional[ast.SelectQuery] = None
         if self._team.person_on_events_mode and self.person_properties:
@@ -592,6 +598,7 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
         negative_props = [p for p in self.event_properties if is_negative_prop(p)]
         negative_props += get_negative_entity_properties(self.entities)
         negative_props += [p for p in self.group_properties if is_negative_prop(p)]
+        negative_props += [p for p in self.session_properties if is_negative_prop(p)]
         if self._team.person_on_events_mode and self.person_properties:
             negative_props += [p for p in self.person_properties if is_negative_prop(p)]
 
@@ -625,12 +632,18 @@ class ReplayFiltersEventsSubQuery(SessionRecordingsListingBaseQuery):
     def person_properties(self) -> list[AnyPropertyFilter] | None:
         return [g for g in (self._query.properties or []) if is_person_property(g)]
 
+    @property
+    def session_properties(self) -> list[AnyPropertyFilter]:
+        return [g for g in (self._query.properties or []) if is_session_property(g)]
+
     def _has_negative_properties(self) -> bool:
         if any(is_negative_prop(p) for p in self.event_properties):
             return True
         if get_negative_entity_properties(self.entities):
             return True
         if any(is_negative_prop(p) for p in self.group_properties):
+            return True
+        if any(is_negative_prop(p) for p in self.session_properties):
             return True
         if self._team.person_on_events_mode and self.person_properties:
             if any(is_negative_prop(p) for p in self.person_properties):

@@ -60,6 +60,11 @@ def is_group_property(p: AnyPropertyFilter) -> bool:
     return p_type == "group"
 
 
+def is_session_property(p: AnyPropertyFilter) -> bool:
+    p_type = getattr(p, "type", None)
+    return p_type == "session"
+
+
 def is_cohort_property(p: AnyPropertyFilter) -> bool:
     p_type = getattr(p, "type", None)
     return bool(p_type and "cohort" in p_type)
@@ -112,6 +117,7 @@ def _strip_person_and_event_and_cohort_properties(
         and not is_person_property(p)
         and not is_group_property(p)
         and not is_cohort_property(p)
+        and not is_session_property(p)
     ]
 
     return properties_to_keep
