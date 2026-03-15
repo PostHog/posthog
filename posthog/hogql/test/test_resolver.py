@@ -603,6 +603,86 @@ class TestResolver(BaseTest):
         node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
         assert pretty_dataclasses(node) == self.snapshot
 
+    @parameterized.expand(
+        [
+            ("regex", "select COLUMNS('time') from events", ["timestamp"]),
+            ("regex_caret", "select COLUMNS('^event$') from events", ["event"]),
+            ("list", "select COLUMNS(event, timestamp) from events", ["event", "timestamp"]),
+            ("subquery", "select COLUMNS('a') from (select 1 as a1, 2 as a2, 3 as b1)", ["a1", "a2"]),
+        ]
+    )
+    def test_columns_expr_resolves(self, _name: str, query: str, expected_names: list[str]):
+        node = self._select(query)
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        column_names = [
+            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
+        ]
+        assert sorted(column_names) == sorted(expected_names)
+
+    def test_columns_expr_no_match_raises(self):
+        node = self._select("select COLUMNS('^nonexistent_xyz$') from events")
+        with self.assertRaises(QueryError) as e:
+            resolve_types(node, self.context, dialect="clickhouse")
+        assert "No columns matched" in str(e.exception)
+
+    def test_columns_expr_subquery(self):
+        node = self._select("select COLUMNS('a') from (select 1 as a1, 2 as a2, 3 as b1)")
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        column_names = [
+            col.type.name if isinstance(col.type, ast.FieldType) else cast(ast.Alias, col).alias for col in node.select
+        ]
+        assert sorted(column_names) == ["a1", "a2"]
+
+    @parameterized.expand(
+        [
+            (
+                "regex",
+                "select coalesce(*COLUMNS('a')) from (select 1 as a1, 2 as a2, 3 as b1)",
+                "coalesce",
+                ["a1", "a2"],
+            ),
+            (
+                "list",
+                "select coalesce(*COLUMNS(event, timestamp)) from events",
+                "coalesce",
+                ["event", "timestamp"],
+            ),
+        ]
+    )
+    def test_spread_columns_in_function_call(self, _name, query, expected_fn, expected_args):
+        node = self._select(query)
+        node = cast(ast.SelectQuery, resolve_types(node, self.context, dialect="clickhouse"))
+        call = node.select[0]
+        assert isinstance(call, ast.Call)
+        assert call.name == expected_fn
+        assert len(call.args) == len(expected_args)
+        arg_names = [
+            arg.type.name if isinstance(arg.type, ast.FieldType) else arg.type.alias
+            for arg in call.args
+            if isinstance(arg.type, (ast.FieldType, ast.FieldAliasType))
+        ]
+        assert sorted(arg_names) == sorted(expected_args)
+
+    @parameterized.expand(
+        [
+            (
+                "top_level",
+                "select *COLUMNS('^event$') from events",
+                "*COLUMNS",
+            ),
+            (
+                "no_match",
+                "select coalesce(*COLUMNS('^nonexistent$')) from events",
+                "No columns matched",
+            ),
+        ]
+    )
+    def test_spread_columns_raises(self, _name, query, expected_msg):
+        with self.assertRaises(QueryError) as e:
+            node = self._select(query)
+            resolve_types(node, self.context, dialect="clickhouse")
+        assert expected_msg in str(e.exception)
+
     def test_lambda_parent_scope(self):
         # does not raise
         node = self._select("select timestamp, arrayMap(x -> x + timestamp, [2]) as am from events")
