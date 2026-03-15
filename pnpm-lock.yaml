@@ -316,6 +316,34 @@ importers:
         specifier: 5.5.4
         version: 5.5.4
 
+  common/replay-headless:
+    dependencies:
+      '@posthog/replay-shared':
+        specifier: workspace:*
+        version: link:../replay-shared
+      '@posthog/rrweb':
+        specifier: 0.0.26
+        version: 0.0.26
+      '@posthog/rrweb-types':
+        specifier: 0.0.26
+        version: 0.0.26
+    devDependencies:
+      '@swc/core':
+        specifier: ^1.11.29
+        version: 1.15.18
+      '@swc/jest':
+        specifier: ^0.2.37
+        version: 0.2.37(@swc/core@1.15.18)
+      esbuild:
+        specifier: ^0.25.1
+        version: 0.25.10
+      jest:
+        specifier: ^29.7.0
+        version: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.5.4))
+      puppeteer:
+        specifier: 19.0.0
+        version: 19.0.0(encoding@0.1.13)
+
   common/replay-shared:
     dependencies:
       '@posthog/rrweb':
@@ -13603,14 +13631,6 @@ packages:
 
   dedent@0.7.0:
     resolution: {integrity: sha512-Q6fKUPqnAHAyhiUgFU7BUzLiv0kd8saH9al7tnu5Q/okj6dnupxyTgFIBjVzJATdfIAm9NAsvXNzjaKa+bxVyA==}
-
-  dedent@1.5.3:
-    resolution: {integrity: sha512-NHQtfOOW68WD8lgypbLA5oT+Bt0xXJhiYvoR6SmmNXZfpzOGXwdKWmcwG8N7PwVVWV3eF/68nmD9BaJSsTBhyQ==}
-    peerDependencies:
-      babel-plugin-macros: ^3.1.0
-    peerDependenciesMeta:
-      babel-plugin-macros:
-        optional: true
 
   dedent@1.6.0:
     resolution: {integrity: sha512-F1Z+5UCFpmQUzJa11agbyPVMbpgT/qA3/SKyJ1jyBgm7dUcUEa8v9JwDkerSQXfakBwFljIxhOJqGkjUwZ9FSA==}
@@ -36447,8 +36467,6 @@ snapshots:
 
   dedent@0.7.0: {}
 
-  dedent@1.5.3: {}
-
   dedent@1.6.0: {}
 
   deep-eql@5.0.2: {}
@@ -39309,7 +39327,7 @@ snapshots:
       '@types/node': 22.18.8
       chalk: 4.1.2
       co: 4.6.0
-      dedent: 1.5.3
+      dedent: 1.6.0
       is-generator-fn: 2.1.0
       jest-each: 29.7.0
       jest-matcher-utils: 29.7.0

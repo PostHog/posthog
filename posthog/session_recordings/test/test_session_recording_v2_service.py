@@ -1,184 +1,152 @@
-from datetime import datetime
-
-from freezegun import freeze_time
 from unittest.mock import Mock, patch
 
-from django.test import TestCase
+from django.test import TestCase, override_settings
 
-from posthog.session_recordings.models.metadata import RecordingBlockListing
 from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.session_recording_v2_service import (
     FIVE_SECONDS,
+    RecordingBlock,
     list_blocks,
     listing_cache_key,
-    load_blocks,
 )
 
 
+@override_settings(RECORDING_API_URL="http://recording-api:6738", INTERNAL_API_SECRET="test-secret")
 class TestSessionRecordingV2Service(TestCase):
     def setUp(self):
         self.team = Mock(id=1)
         self.recording = Mock(spec=SessionRecording)
-        self.recording.session_id = "test_id"
+        self.recording.session_id = "test_session"
         self.recording.team = self.team
-        self.recording.team.id = self.team.id
-        self.recording.start_time = datetime(2024, 1, 1, 12, 20)
+        self.recording.team_id = self.team.id
+        self.recording.start_time = None
 
-    @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
-    def test_list_blocks_returns_empty_list_when_no_metadata(self, mock_replay_events):
-        mock_replay_events.return_value.list_blocks.return_value = None
-        blocks = list_blocks(self.recording)
-        self.assertEqual(blocks, [])
+        from django.core.cache import cache
 
-    @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
-    def test_list_blocks_returns_empty_list_when_arrays_have_different_lengths_simple(self, mock_replay_events):
-        mock_replay_events.return_value.list_blocks.return_value = RecordingBlockListing(
-            block_first_timestamps=[datetime(2024, 1, 1, 12, 0)],
-            block_last_timestamps=[datetime(2024, 1, 1, 12, 1)],
-            block_urls=[],  # Different length
-            start_time=datetime(2024, 1, 1, 12, 0),
-        )
-        blocks = list_blocks(self.recording)
-        self.assertEqual(blocks, [])
+        cache.clear()
 
-    @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
-    def test_list_blocks_returns_empty_list_when_arrays_have_different_lengths_complex(self, mock_replay_events):
-        mock_replay_events.return_value.list_blocks.return_value = RecordingBlockListing(
-            block_first_timestamps=[
-                datetime(2024, 1, 1, 12, 0),
-                datetime(2024, 1, 1, 12, 1),
-                datetime(2024, 1, 1, 12, 2),
-            ],
-            block_last_timestamps=[
-                datetime(2024, 1, 1, 12, 1),
-                datetime(2024, 1, 1, 12, 2),
-                datetime(2024, 1, 1, 12, 3),
-                datetime(2024, 1, 1, 12, 4),  # Extra timestamp
-            ],
-            block_urls=[
-                "s3://bucket/key1",
-                "s3://bucket/key2",
-                "s3://bucket/key3",
-            ],
-            start_time=datetime(2024, 1, 1, 12, 0),
-        )
-        blocks = list_blocks(self.recording)
-        self.assertEqual(blocks, [])
-
-    @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
-    def test_list_blocks_returns_empty_list_when_first_block_not_at_start_time(self, mock_replay_events):
-        mock_replay_events.return_value.list_blocks.return_value = RecordingBlockListing(
-            block_first_timestamps=[datetime(2024, 1, 1, 12, 1)],  # Later than start_time
-            block_last_timestamps=[datetime(2024, 1, 1, 12, 2)],
-            block_urls=["s3://bucket/key1"],
-            start_time=datetime(2024, 1, 1, 12, 0),
-        )
-        blocks = list_blocks(self.recording)
-        self.assertEqual(blocks, [])
-
-    @freeze_time("2024-01-02T12:00:00Z")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
-    def test_list_blocks_returns_sorted_blocks(self, mock_replay_events):
-        mock_replay_events.return_value.list_blocks.return_value = RecordingBlockListing(
-            block_first_timestamps=[
-                datetime(2024, 1, 1, 12, 0),
-                datetime(2024, 1, 1, 12, 2),
-                datetime(2024, 1, 1, 12, 1),
-            ],
-            block_last_timestamps=[
-                datetime(2024, 1, 1, 12, 1),
-                datetime(2024, 1, 1, 12, 3),
-                datetime(2024, 1, 1, 12, 2),
-            ],
-            block_urls=[
-                "s3://bucket/key1",
-                "s3://bucket/key2",
-                "s3://bucket/key3",
-            ],
-            start_time=datetime(2024, 1, 1, 12, 0),
-        )
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
+    def test_list_blocks_returns_blocks_from_recording_api(self, mock_fetch):
+        mock_fetch.return_value = [
+            RecordingBlock(
+                key="bucket/key1",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="bucket/key2",
+                start_byte=0,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
+        ]
 
         blocks = list_blocks(self.recording)
 
-        self.assertEqual(len(blocks), 3)
-        self.assertEqual(blocks[0].start_time, datetime(2024, 1, 1, 12, 0))
-        self.assertEqual(blocks[1].start_time, datetime(2024, 1, 1, 12, 1))
-        self.assertEqual(blocks[2].start_time, datetime(2024, 1, 1, 12, 2))
-        self.assertEqual(blocks[0].url, "s3://bucket/key1")
-        self.assertEqual(blocks[1].url, "s3://bucket/key3")
-        self.assertEqual(blocks[2].url, "s3://bucket/key2")
+        assert blocks == [
+            RecordingBlock(
+                key="bucket/key1",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="bucket/key2",
+                start_byte=0,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
+        ]
+        mock_fetch.assert_called_once_with("test_session", 1)
 
-    @freeze_time("2024-01-01T12:00:00Z")
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
+    def test_list_blocks_returns_empty_list_on_error(self, mock_fetch):
+        mock_fetch.side_effect = Exception("connection refused")
+
+        blocks = list_blocks(self.recording)
+
+        assert blocks == []
+
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
+    def test_list_blocks_returns_empty_list_when_no_blocks(self, mock_fetch):
+        mock_fetch.return_value = []
+
+        blocks = list_blocks(self.recording)
+
+        assert blocks == []
+
     @patch("posthog.session_recordings.session_recording_v2_service.cache")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
-    def test_load_blocks_does_not_cache_when_no_blocks_found(self, mock_replay_events, mock_cache):
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
+    def test_list_blocks_caches_result(self, mock_fetch, mock_cache):
         mock_cache.get.return_value = None
-        mock_replay_events.return_value.list_blocks.return_value = None
+        mock_fetch.return_value = [
+            RecordingBlock(
+                key="bucket/key1",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+        ]
 
-        result = load_blocks(self.recording)
+        list_blocks(self.recording)
 
-        self.assertIsNone(result)
+        expected_cache_key = listing_cache_key(self.recording)
+        mock_cache.set.assert_called_once_with(
+            expected_cache_key,
+            [
+                RecordingBlock(
+                    key="bucket/key1",
+                    start_byte=0,
+                    end_byte=100,
+                    start_timestamp="2024-01-01T00:00:00Z",
+                    end_timestamp="2024-01-01T00:01:00Z",
+                )
+            ],
+            timeout=FIVE_SECONDS,
+        )
+
+    @patch("posthog.session_recordings.session_recording_v2_service.cache")
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
+    def test_list_blocks_does_not_cache_empty_result(self, mock_fetch, mock_cache):
+        mock_cache.get.return_value = None
+        mock_fetch.return_value = []
+
+        list_blocks(self.recording)
+
         mock_cache.set.assert_not_called()
 
-    @freeze_time("2024-01-01T12:00:00Z")
     @patch("posthog.session_recordings.session_recording_v2_service.cache")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
-    def test_load_blocks_caches_with_short_timeout_for_recent_recording(self, mock_replay_events, mock_cache):
-        mock_cache.get.return_value = None
-        mock_blocks = RecordingBlockListing(
-            block_first_timestamps=[datetime(2024, 1, 1, 12, 0)],
-            block_last_timestamps=[datetime(2024, 1, 1, 12, 1)],
-            block_urls=["s3://bucket/key1"],
-            start_time=datetime(2024, 1, 1, 12, 0),
-        )
-        mock_replay_events.return_value.list_blocks.return_value = mock_blocks
-
-        result = load_blocks(self.recording)
-
-        self.assertEqual(result, mock_blocks)
-        expected_cache_key = listing_cache_key(self.recording)
-        mock_cache.set.assert_called_once_with(expected_cache_key, mock_blocks, timeout=FIVE_SECONDS)
-
-    @freeze_time("2024-01-02T13:00:00Z")  # More than 24 hours after recording start
-    @patch("posthog.session_recordings.session_recording_v2_service.cache")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
-    def test_load_blocks_caches_with_long_timeout_for_old_recording(self, mock_replay_events, mock_cache):
-        mock_cache.get.return_value = None
-        mock_blocks = RecordingBlockListing(
-            block_first_timestamps=[datetime(2024, 1, 1, 12, 0)],
-            block_last_timestamps=[datetime(2024, 1, 1, 12, 1)],
-            block_urls=["s3://bucket/key1"],
-            start_time=datetime(2024, 1, 1, 12, 0),
-        )
-        mock_replay_events.return_value.list_blocks.return_value = mock_blocks
-
-        result = load_blocks(self.recording)
-
-        self.assertEqual(result, mock_blocks)
-        expected_cache_key = listing_cache_key(self.recording)
-        # cache is forced to 5 seconds always
-        mock_cache.set.assert_called_once_with(expected_cache_key, mock_blocks, timeout=FIVE_SECONDS)
-
-    @freeze_time("2024-01-01T12:00:00Z")
-    @patch("posthog.session_recordings.session_recording_v2_service.cache")
-    @patch("posthog.session_recordings.session_recording_v2_service.SessionReplayEvents")
-    def test_load_blocks_returns_cached_data_without_calling_list_blocks(self, mock_replay_events, mock_cache):
-        cached_blocks = RecordingBlockListing(
-            block_first_timestamps=[datetime(2024, 1, 1, 12, 0)],
-            block_last_timestamps=[datetime(2024, 1, 1, 12, 1)],
-            block_urls=["s3://bucket/key1"],
-            start_time=datetime(2024, 1, 1, 12, 0),
-        )
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
+    def test_list_blocks_returns_cached_data_without_calling_api(self, mock_fetch, mock_cache):
+        cached_blocks = [
+            RecordingBlock(
+                key="bucket/key1",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+        ]
         mock_cache.get.return_value = cached_blocks
 
-        result = load_blocks(self.recording)
+        blocks = list_blocks(self.recording)
 
-        self.assertEqual(result, cached_blocks)
-        expected_cache_key = listing_cache_key(self.recording)
-        mock_cache.get.assert_called_once_with(expected_cache_key)
-        mock_replay_events.return_value.list_blocks.assert_not_called()
+        assert blocks == cached_blocks
+        mock_fetch.assert_not_called()
+        mock_cache.set.assert_not_called()
+
+    @patch("posthog.session_recordings.session_recording_v2_service.cache")
+    @patch("posthog.session_recordings.session_recording_v2_service.fetch_blocks_from_recording_api")
+    def test_list_blocks_does_not_cache_on_error(self, mock_fetch, mock_cache):
+        mock_cache.get.return_value = None
+        mock_fetch.side_effect = Exception("timeout")
+
+        list_blocks(self.recording)
+
         mock_cache.set.assert_not_called()

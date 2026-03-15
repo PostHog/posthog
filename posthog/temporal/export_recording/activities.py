@@ -1,11 +1,9 @@
-import re
 import json
 import uuid
 import base64
 import shutil
 from datetime import datetime
 from pathlib import Path
-from urllib import parse
 from uuid import uuid4
 
 from django.conf import settings
@@ -16,12 +14,11 @@ from temporalio import activity
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.models.exported_recording import ExportedRecording
 from posthog.redis import get_async_client
-from posthog.session_recordings.models.session_recording import SessionRecording
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import recording_api_client
-from posthog.session_recordings.session_recording_v2_service import list_blocks
+from posthog.session_recordings.session_recording_v2_service import fetch_blocks_from_recording_api
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
@@ -138,17 +135,14 @@ async def export_recording_data_prefix(input: ExportContext) -> None:
     logger = LOGGER.bind()
     logger.info(f"Exporting recording data prefix for session {input.session_id}")
 
-    recording = SessionRecording(session_id=input.session_id, team_id=input.team_id)
-    await database_sync_to_async(recording.load_metadata)()
-    recording_blocks = await database_sync_to_async(list_blocks)(recording)
+    recording_blocks = await fetch_blocks_from_recording_api(input.session_id, input.team_id)
 
     if not recording_blocks:
         logger.warning("No recording blocks found, skipping prefix export...")
         return
 
     first_block = recording_blocks[0]
-    _, _, s3_path, _, _, _ = parse.urlparse(first_block.url)
-    s3_path = s3_path.lstrip("/")
+    s3_path = first_block.key
 
     prefix = "/".join(s3_path.split("/")[:-1])
 
@@ -166,9 +160,7 @@ async def export_recording_data(input: ExportContext) -> None:
     logger = LOGGER.bind()
     logger.info(f"Exporting recording data for session {input.session_id}")
 
-    recording = SessionRecording(session_id=input.session_id, team_id=input.team_id)
-    await database_sync_to_async(recording.load_metadata)()
-    recording_blocks = await database_sync_to_async(list_blocks)(recording)
+    recording_blocks = await fetch_blocks_from_recording_api(input.session_id, input.team_id)
 
     logger.info(f"Found {len(recording_blocks)} blocks to export")
 
@@ -177,25 +169,18 @@ async def export_recording_data(input: ExportContext) -> None:
     r = get_async_client(_redis_url(input.redis_config))
     async with recording_api_client() as storage:
         for block in recording_blocks:
-            _, _, s3_path, _, query, _ = parse.urlparse(block.url)
-
-            filename = s3_path.split("/")[-1]
-
-            match = re.match(r"^range=bytes=(\d+)-(\d+)$", query)
-
-            if not match:
-                logger.warning(f"Got malformed byte range in block URL: {query}, skipping...")
-                continue
-
-            block_offset = int(match.group(1))
+            filename = block.key.split("/")[-1]
+            block_offset = block.start_byte
 
             try:
-                block_data = await storage.fetch_block(block.url, input.session_id, input.team_id)
+                block_data = await storage.fetch_block(
+                    block.key, block.start_byte, block.end_byte, input.session_id, input.team_id
+                )
                 logger.info(f"Successfully fetched block data ({len(block_data)} bytes)")
             except RecordingDeletedError:
                 raise
             except BlockFetchError:
-                logger.warning(f"Failed to fetch block at {block.url}, skipping...")
+                logger.warning(f"Failed to fetch block {block.key}, skipping...")
                 continue
 
             redis_key = _redis_key(input.export_id, "block", filename)

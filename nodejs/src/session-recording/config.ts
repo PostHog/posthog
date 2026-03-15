@@ -3,6 +3,11 @@ export type SessionRecordingApiConfig = {
     SESSION_RECORDING_API_REDIS_PORT: number
     SESSION_RECORDING_KMS_ENDPOINT: string | undefined
     SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
+    CLICKHOUSE_HOST: string
+    CLICKHOUSE_DATABASE: string
+    CLICKHOUSE_USER: string
+    CLICKHOUSE_PASSWORD: string | undefined
+    CLICKHOUSE_SECURE: boolean
 }
 
 export type SessionRecordingConfig = {
