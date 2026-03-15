@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
@@ -10,6 +10,7 @@ import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
@@ -87,6 +88,31 @@ export const HeatmapsSettings = ({
     heatmapFixedPositionMode,
     setHeatmapFixedPositionMode,
 }: HeatmapsSettingsProps): JSX.Element => {
+    // Local state for edge margin sliders to prevent high-frequency updates during drag
+    const [localEdgeMarginLeft, setLocalEdgeMarginLeft] = useState(heatmapFilters?.edgeMarginLeft ?? 0)
+    const [localEdgeMarginRight, setLocalEdgeMarginRight] = useState(heatmapFilters?.edgeMarginRight ?? 0)
+
+    // Sync local state when external value changes
+    useEffect(() => {
+        setLocalEdgeMarginLeft(heatmapFilters?.edgeMarginLeft ?? 0)
+    }, [heatmapFilters?.edgeMarginLeft])
+
+    useEffect(() => {
+        setLocalEdgeMarginRight(heatmapFilters?.edgeMarginRight ?? 0)
+    }, [heatmapFilters?.edgeMarginRight])
+
+    const commitEdgeMarginLeft = (): void => {
+        if (localEdgeMarginLeft !== (heatmapFilters?.edgeMarginLeft ?? 0)) {
+            patchHeatmapFilters?.({ edgeMarginLeft: localEdgeMarginLeft })
+        }
+    }
+
+    const commitEdgeMarginRight = (): void => {
+        if (localEdgeMarginRight !== (heatmapFilters?.edgeMarginRight ?? 0)) {
+            patchHeatmapFilters?.({ edgeMarginRight: localEdgeMarginRight })
+        }
+    }
+
     return (
         <>
             <SectionSetting
@@ -202,6 +228,65 @@ export const HeatmapsSettings = ({
                     onChange={setHeatmapColorPalette}
                 />
             </SectionSetting>
+
+            {heatmapFilters?.type !== 'scrolldepth' && (
+                <SectionSetting
+                    title="Data quality"
+                    info={
+                        <>
+                            Filter out phantom clicks that may appear near screen edges due to browser interactions or
+                            scrollbars. Edge margins exclude clicks within the specified pixel range from left or right
+                            edges.
+                        </>
+                    }
+                >
+                    <div className="space-y-2">
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div
+                            className="flex items-center gap-2"
+                            onMouseUp={commitEdgeMarginLeft}
+                            onTouchEnd={commitEdgeMarginLeft}
+                        >
+                            <span className="text-xs w-20">Left margin:</span>
+                            <LemonSlider
+                                className="flex-1"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={localEdgeMarginLeft}
+                                onChange={setLocalEdgeMarginLeft}
+                            />
+                            <code className="w-10 text-xs text-right">{localEdgeMarginLeft}px</code>
+                        </div>
+
+                        {/* eslint-disable-next-line react/forbid-dom-props */}
+                        <div
+                            className="flex items-center gap-2"
+                            onMouseUp={commitEdgeMarginRight}
+                            onTouchEnd={commitEdgeMarginRight}
+                        >
+                            <span className="text-xs w-20">Right margin:</span>
+                            <LemonSlider
+                                className="flex-1"
+                                min={0}
+                                max={100}
+                                step={1}
+                                value={localEdgeMarginRight}
+                                onChange={setLocalEdgeMarginRight}
+                            />
+                            <code className="w-10 text-xs text-right">{localEdgeMarginRight}px</code>
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            <LemonSwitch
+                                checked={heatmapFilters?.excludeOutOfBounds ?? true}
+                                onChange={(checked) => patchHeatmapFilters?.({ excludeOutOfBounds: checked })}
+                            />
+                            <span className="text-xs">Hide clicks outside viewport</span>
+                        </div>
+                    </div>
+                </SectionSetting>
+            )}
 
             {heatmapFilters?.type !== 'scrolldepth' && (
                 <SectionSetting

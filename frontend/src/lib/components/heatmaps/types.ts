@@ -22,6 +22,9 @@ export type HeatmapFilters = {
     type?: string
     viewportAccuracy?: number
     aggregation?: HeatmapRequestType['aggregation']
+    edgeMarginLeft?: number
+    edgeMarginRight?: number
+    excludeOutOfBounds?: boolean
 }
 
 export type HeatmapJsDataPoint = {

@@ -106,6 +106,25 @@ class HeatmapsRequestSerializer(serializers.Serializer):
     )
     filter_test_accounts = serializers.BooleanField(required=False, default=None, allow_null=True)
     hide_zero_coordinates = serializers.BooleanField(required=False, default=True)
+    edge_margin = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=500,
+        help_text="Filter clicks within this many pixels of the left edge (0 = disabled)",
+    )
+    edge_margin_right = serializers.IntegerField(
+        required=False,
+        default=0,
+        min_value=0,
+        max_value=500,
+        help_text="Filter clicks within this many pixels of the right edge (0 = disabled)",
+    )
+    exclude_out_of_bounds = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Filter clicks with x > viewport_width (outside visible area)",
+    )
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -236,6 +255,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation = request_serializer.validated_data.pop("aggregation")
         hide_zero_coordinates = request_serializer.validated_data.pop("hide_zero_coordinates", True)
+        edge_margin = request_serializer.validated_data.pop("edge_margin", 0)
+        edge_margin_right = request_serializer.validated_data.pop("edge_margin_right", 0)
+        exclude_out_of_bounds = request_serializer.validated_data.pop("exclude_out_of_bounds", False)
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
@@ -247,6 +269,44 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         if hide_zero_coordinates and not is_scrolldepth_query:
             exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
+
+        if edge_margin > 0 and not is_scrolldepth_query:
+            # edge_margin is in real pixels, x is stored scaled by factor of 16
+            # Use round() to match ingestion's Math.round(value / 16) behavior
+            scaled_margin = round(edge_margin / 16)
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.GtEq,
+                    left=ast.Field(chain=["x"]),
+                    right=Constant(value=scaled_margin),
+                )
+            )
+
+        if edge_margin_right > 0 and not is_scrolldepth_query:
+            # Filter clicks within N pixels of right edge: x <= viewport_width - margin
+            # Use round() to match ingestion's Math.round(value / 16) behavior
+            scaled_margin = round(edge_margin_right / 16)
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["x"]),
+                    right=ast.ArithmeticOperation(
+                        op=ast.ArithmeticOperationOp.Sub,
+                        left=ast.Field(chain=["viewport_width"]),
+                        right=Constant(value=scaled_margin),
+                    ),
+                )
+            )
+
+        if exclude_out_of_bounds and not is_scrolldepth_query:
+            # Filter clicks outside viewport: x <= viewport_width
+            exprs.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.LtEq,
+                    left=ast.Field(chain=["x"]),
+                    right=ast.Field(chain=["viewport_width"]),
+                )
+            )
 
         if request_serializer.validated_data.get("filter_test_accounts") is True:
             date_from: date = request_serializer.validated_data["date_from"]
@@ -367,6 +427,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         points = validated_data.pop("points")
         validated_data.pop("aggregation", None)
         validated_data.pop("hide_zero_coordinates", None)
+        validated_data.pop("edge_margin", None)
+        validated_data.pop("edge_margin_right", None)
+        validated_data.pop("exclude_out_of_bounds", None)
 
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
