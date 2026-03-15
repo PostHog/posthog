@@ -284,8 +284,9 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
         cluster=settings.CLICKHOUSE_CLUSTER,
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
         randomize_replica_paths=True,
+        # don't use the egress proxy, clickhouse is internal
+        trust_env=False,
     )
-    database.request_session.trust_env = False  # bypass HTTP_PROXY for internal ClickHouse
 
     if not django_db_keepdb:
         try:

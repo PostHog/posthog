@@ -11519,7 +11519,7 @@ export namespace Schemas {
       readonly source_id: string;
       readonly target_id: string;
       /** @nullable */
-      dag_fk?: string | null;
+      dag?: string | null;
       properties?: unknown;
       readonly created_at: string;
       /** @nullable */
@@ -17073,7 +17073,7 @@ export namespace Schemas {
       name: string;
       type?: NodeTypeEnum;
       /** @nullable */
-      dag_fk?: string | null;
+      dag?: string | null;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -20445,7 +20445,7 @@ export namespace Schemas {
       readonly source_id?: string;
       readonly target_id?: string;
       /** @nullable */
-      dag_fk?: string | null;
+      dag?: string | null;
       properties?: unknown;
       readonly created_at?: string;
       /** @nullable */
@@ -21382,7 +21382,7 @@ export namespace Schemas {
       name?: string;
       type?: NodeTypeEnum;
       /** @nullable */
-      dag_fk?: string | null;
+      dag?: string | null;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */

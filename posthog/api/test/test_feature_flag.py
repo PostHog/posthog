@@ -7153,6 +7153,84 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER._value.get(), before)
 
+    @parameterized.expand(
+        [
+            ("header", "header"),
+            ("body", "body"),
+            ("query_string", "query_string"),
+        ]
+    )
+    def test_local_evaluation_personal_api_key_source_counter(self, name, source):
+        from posthog.api.feature_flag import LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER
+
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="Test", user=self.user, secure_value=hash_key_value(personal_api_key))
+
+        self.client.logout()
+        before = LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source=source)._value.get()
+
+        url = f"/api/feature_flag/local_evaluation?token={self.team.api_token}"
+        if source == "header":
+            response = self.client.get(
+                url,
+                headers={"authorization": f"Bearer {personal_api_key}"},
+            )
+        elif source == "body":
+            response = self.client.generic(  # type: ignore[assignment]
+                "GET",
+                url,
+                data=json.dumps({"personal_api_key": personal_api_key}),
+                content_type="application/json",
+            )
+        else:
+            response = self.client.get(
+                f"{url}&personal_api_key={personal_api_key}",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source=source)._value.get(),
+            before + 1,
+        )
+
+    def test_local_evaluation_personal_api_key_source_counter_not_incremented_for_secret_key(self):
+        from posthog.api.feature_flag import LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER
+
+        self.team.secret_api_token = "phs_testtokenforpaksource"
+        self.team.save()
+
+        FeatureFlag.objects.filter(team=self.team).delete()
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="test-flag",
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        self.client.logout()
+        before_header = LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source="header")._value.get()
+        before_body = LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source="body")._value.get()
+
+        response = self.client.get(
+            f"/api/feature_flag/local_evaluation?token={self.team.api_token}",
+            headers={"authorization": f"Bearer {self.team.secret_api_token}"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(
+            LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source="header")._value.get(), before_header
+        )
+        self.assertEqual(
+            LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source="body")._value.get(), before_body
+        )
+
 
 class TestCohortGenerationForFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_creating_static_cohort_with_deleted_flag(self):
