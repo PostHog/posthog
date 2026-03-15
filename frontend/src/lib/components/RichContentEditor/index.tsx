@@ -36,7 +36,9 @@ export const RichContentEditor = ({
     const editor = useRichContentEditor(editorProps)
 
     useEffect(() => {
-        editor.setOptions({ editable: !disabled })
+        if (editor) {
+            editor.setOptions({ editable: !disabled })
+        }
     }, [editor, disabled])
 
     return (
@@ -44,7 +46,7 @@ export const RichContentEditor = ({
             editor={editor}
             className={cn('RichContentEditor', className)}
             autoFocus={autoFocus}
-            spellCheck={editor.isFocused}
+            spellCheck={editor?.isFocused ?? false}
         >
             {editor && (
                 <BindLogic logic={richContentEditorLogic} props={{ logicKey, editor }}>
@@ -62,20 +64,48 @@ export const useRichContentEditor = ({
     onCreate = () => {},
     onUpdate = () => {},
     onSelectionUpdate = () => {},
-}: RichContentEditorProps): TTEditor => {
+}: RichContentEditorProps): TTEditor | null => {
     const editor = useEditor({
         shouldRerenderOnTransaction: false,
         extensions,
         editable: !disabled,
         content: initialContent,
+
+        editorProps: {
+            handlePaste(view, event) {
+                const text = event.clipboardData?.getData('text/plain')
+
+                if (!text) {
+                    return false
+                }
+
+                const looksLikeMarkdown = /(^|\n)#\s|```|(^|\n)[-*]\s|(^|\n)>\s/.test(text)
+
+                if (!looksLikeMarkdown) {
+                    return false
+                }
+
+                event.preventDefault()
+
+                view.pasteText(text)
+
+                return true
+            },
+        },
         onSelectionUpdate: onSelectionUpdate,
         onUpdate: ({ editor }) => onUpdate(editor.getJSON()),
         onCreate: ({ editor }) => onCreate(editor),
     })
 
     useEffect(() => {
-        editor.setOptions({ editable: !disabled })
+        if (editor) {
+            editor.setOptions({ editable: !disabled })
+        }
     }, [editor, disabled])
+
+    if (!editor) {
+        return null
+    }
 
     return editor
 }
