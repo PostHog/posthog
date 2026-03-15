@@ -120,7 +120,7 @@ export const rulesLogic = kea<rulesLogicType>([
 
     listeners(({ props, values, actions }) => ({
         addRule: () => {
-            actions._setLocalRules([...values.localRules, createNewRule(props.ruleType, values.rules.length)])
+            actions._setLocalRules([...values.localRules, createNewRule(props.ruleType, -1)])
         },
         saveRuleSuccess: ({ payload: id }) => {
             const localRules = [...values.localRules]
