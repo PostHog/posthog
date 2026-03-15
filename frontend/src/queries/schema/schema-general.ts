@@ -1059,7 +1059,17 @@ export interface YAxisSettings {
     showTicks?: boolean
 }
 
+export interface BoxPlotColumns {
+    min?: string
+    p25?: string
+    median?: string
+    p75?: string
+    max?: string
+    mean?: string
+}
+
 export interface ChartSettings {
+    boxPlotColumns?: BoxPlotColumns
     xAxis?: ChartAxis
     yAxis?: ChartAxis[]
     goalLines?: GoalLine[]

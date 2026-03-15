@@ -24,6 +24,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import {
     AnyResponseType,
+    BoxPlotColumns,
     ChartAxis,
     ChartSettings,
     ChartSettingsDisplay,
@@ -45,6 +46,21 @@ export enum SideBarTab {
     Series = 'series',
     Display = 'display',
     ConditionalFormatting = 'conditional_formatting',
+}
+
+export type BoxPlotSlot = 'min' | 'p25' | 'median' | 'p75' | 'max' | 'mean'
+
+export const REQUIRED_BOX_PLOT_SLOTS: BoxPlotSlot[] = ['min', 'p25', 'median', 'p75', 'max']
+export const ALL_BOX_PLOT_SLOTS: BoxPlotSlot[] = ['min', 'p25', 'median', 'p75', 'max', 'mean']
+
+export interface BoxPlotDataPoint {
+    label: string
+    min: number
+    q1: number
+    median: number
+    q3: number
+    max: number
+    mean?: number
 }
 
 export interface ColumnType {
@@ -404,6 +420,7 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
         }),
         setConditionalFormattingRulesPanelActiveKeys: (keys: string[]) => ({ keys }),
         toggleColumnPin: (columnName: string) => ({ columnName }),
+        updateBoxPlotColumn: (slot: BoxPlotSlot, columnName: string | null) => ({ slot, columnName }),
         _setQuery: (node: DataVisualizationNode) => ({ node }),
     })),
     reducers(({ props }) => ({
@@ -705,6 +722,21 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                 },
             },
         ],
+        boxPlotColumns: [
+            {} as BoxPlotColumns,
+            {
+                _setQuery: (_, { node }) => node.chartSettings?.boxPlotColumns ?? {},
+                updateBoxPlotColumn: (state, { slot, columnName }) => {
+                    if (columnName === null) {
+                        const next = { ...state }
+                        delete next[slot]
+                        return next
+                    }
+                    return { ...state, [slot]: columnName }
+                },
+                clearAxis: () => ({}),
+            },
+        ],
     })),
     selectors({
         columns: [
@@ -894,6 +926,50 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     column,
                     data: data.map((n: any) => n[column.dataIndex]),
                 }
+            },
+        ],
+        boxPlotData: [
+            (s) => [s.boxPlotColumns, s.xData, s.response, s.columns],
+            (
+                boxPlotCols: BoxPlotColumns,
+                xData: AxisSeries<string> | null,
+                response: AnyResponseType | null,
+                columns: Column[]
+            ): BoxPlotDataPoint[] => {
+                if (!response || !xData) {
+                    return []
+                }
+
+                const resolve = (name: string | undefined): Column | undefined =>
+                    name ? columns.find((c) => c.name === name) : undefined
+
+                const minCol = resolve(boxPlotCols.min)
+                const p25Col = resolve(boxPlotCols.p25)
+                const medianCol = resolve(boxPlotCols.median)
+                const p75Col = resolve(boxPlotCols.p75)
+                const maxCol = resolve(boxPlotCols.max)
+                const meanCol = resolve(boxPlotCols.mean)
+
+                if (!minCol || !p25Col || !medianCol || !p75Col || !maxCol) {
+                    return []
+                }
+
+                const data: any[] =
+                    'results' in response && Array.isArray(response.results)
+                        ? response.results
+                        : 'result' in response && Array.isArray(response.result)
+                          ? response.result
+                          : []
+
+                return data.map((row, i) => ({
+                    label: xData.data[i] != null ? String(xData.data[i]) : String(i),
+                    min: parseFloat(row[minCol.dataIndex]) || 0,
+                    q1: parseFloat(row[p25Col.dataIndex]) || 0,
+                    median: parseFloat(row[medianCol.dataIndex]) || 0,
+                    q3: parseFloat(row[p75Col.dataIndex]) || 0,
+                    max: parseFloat(row[maxCol.dataIndex]) || 0,
+                    ...(meanCol ? { mean: parseFloat(row[meanCol.dataIndex]) || 0 } : {}),
+                }))
             },
         ],
         tabularData: [
@@ -1123,6 +1199,15 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
             }
 
             applyAutoHeatmapSettings(actions, values.columns, values.chartSettings.heatmap ?? {})
+        },
+        updateBoxPlotColumn: () => {
+            actions.setQuery((query) => ({
+                ...query,
+                chartSettings: {
+                    ...query.chartSettings,
+                    boxPlotColumns: values.boxPlotColumns,
+                },
+            }))
         },
         clearAxis: [sharedListeners.axesChanged],
         updateXSeries: [sharedListeners.axesChanged],
