@@ -4,7 +4,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from llm_gateway.auth.models import AuthenticatedUser
-from llm_gateway.callbacks.posthog import PostHogCallback, _replace_binary_content, _truncate_for_capture
+from llm_gateway.callbacks.posthog import (
+    PostHogCallback,
+    _replace_binary_content,
+    _truncate_for_capture,
+    capture_rate_limit_event,
+)
 
 
 def _run_sync(executor, fn, *args):
@@ -522,3 +527,141 @@ class TestTruncateForCapture:
             assert props["$ai_total_cost_usd"] == 1.23
             assert props["$ai_latency"] == 2.5
             assert len(json.dumps(props)) < _MAX_SIZE
+
+
+def _run_rate_limit_sync(executor, fn, *args):
+    fn(*args)
+
+
+class TestCaptureRateLimitEvent:
+    @pytest.fixture
+    def auth_user(self):
+        return AuthenticatedUser(
+            user_id=1,
+            team_id=99,
+            auth_method="personal_api_key",
+            distinct_id="user-abc",
+        )
+
+    @pytest.fixture
+    def auth_user_no_team(self):
+        return AuthenticatedUser(
+            user_id=2,
+            team_id=None,
+            auth_method="personal_api_key",
+            distinct_id="user-no-team",
+        )
+
+    @pytest.fixture
+    def mock_settings(self):
+        settings = MagicMock()
+        settings.posthog_project_token = "phc_test"
+        settings.posthog_host = "https://us.i.posthog.com"
+        return settings
+
+    @pytest.fixture
+    def mock_loop(self):
+        loop = MagicMock()
+        loop.run_in_executor.side_effect = _run_rate_limit_sync
+        with patch("llm_gateway.callbacks.posthog.asyncio") as mock_asyncio:
+            mock_asyncio.get_running_loop.return_value = loop
+            yield loop
+
+    @pytest.mark.parametrize(
+        "scope,expected_event",
+        [
+            ("user_cost_burst", "ai burst rate limited"),
+            ("user_cost_sustained", "ai sustained rate limited"),
+            ("product_cost", "ai product rate limited"),
+        ],
+    )
+    def test_each_scope_fires_correct_event(
+        self, scope: str, expected_event: str, auth_user: AuthenticatedUser, mock_settings: MagicMock, mock_loop
+    ) -> None:
+        mock_client = MagicMock()
+        with (
+            patch("llm_gateway.callbacks.posthog.get_settings", return_value=mock_settings),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            capture_rate_limit_event(scope, "twig", auth_user, None)
+
+            mock_client.capture.assert_called_once()
+            kw = mock_client.capture.call_args.kwargs
+            assert kw["event"] == expected_event
+            assert kw["distinct_id"] == "user-abc"
+            assert kw["properties"]["ai_product"] == "twig"
+            assert kw["properties"]["scope"] == scope
+            assert kw["properties"]["team_id"] == 99
+            assert kw["groups"] == {"project": 99}
+            mock_client.shutdown.assert_called_once()
+
+    def test_unknown_scope_fires_nothing(
+        self, auth_user: AuthenticatedUser, mock_settings: MagicMock, mock_loop
+    ) -> None:
+        mock_client = MagicMock()
+        with (
+            patch("llm_gateway.callbacks.posthog.get_settings", return_value=mock_settings),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            capture_rate_limit_event("unknown_scope", "twig", auth_user, None)
+            mock_client.capture.assert_not_called()
+
+    def test_no_posthog_token_fires_nothing(self, auth_user: AuthenticatedUser, mock_loop) -> None:
+        settings = MagicMock()
+        settings.posthog_project_token = None
+        mock_client = MagicMock()
+        with (
+            patch("llm_gateway.callbacks.posthog.get_settings", return_value=settings),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            capture_rate_limit_event("user_cost_burst", "twig", auth_user, None)
+            mock_client.capture.assert_not_called()
+
+    def test_no_distinct_id_and_no_end_user_id_fires_nothing(self, mock_settings: MagicMock, mock_loop) -> None:
+        mock_client = MagicMock()
+        with (
+            patch("llm_gateway.callbacks.posthog.get_settings", return_value=mock_settings),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            capture_rate_limit_event("user_cost_burst", "twig", None, None)
+            mock_client.capture.assert_not_called()
+
+    def test_team_id_present_includes_groups(
+        self, auth_user: AuthenticatedUser, mock_settings: MagicMock, mock_loop
+    ) -> None:
+        mock_client = MagicMock()
+        with (
+            patch("llm_gateway.callbacks.posthog.get_settings", return_value=mock_settings),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            capture_rate_limit_event("user_cost_burst", "twig", auth_user, None)
+
+            kw = mock_client.capture.call_args.kwargs
+            assert kw["groups"] == {"project": 99}
+            assert kw["properties"]["team_id"] == 99
+
+    def test_team_id_absent_no_groups(
+        self, auth_user_no_team: AuthenticatedUser, mock_settings: MagicMock, mock_loop
+    ) -> None:
+        mock_client = MagicMock()
+        with (
+            patch("llm_gateway.callbacks.posthog.get_settings", return_value=mock_settings),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            capture_rate_limit_event("user_cost_burst", "twig", auth_user_no_team, None)
+
+            kw = mock_client.capture.call_args.kwargs
+            assert "groups" not in kw
+            assert "team_id" not in kw["properties"]
+
+    def test_falls_back_to_end_user_id(self, mock_settings: MagicMock, mock_loop) -> None:
+        mock_client = MagicMock()
+        with (
+            patch("llm_gateway.callbacks.posthog.get_settings", return_value=mock_settings),
+            patch("llm_gateway.callbacks.posthog.Posthog", return_value=mock_client),
+        ):
+            capture_rate_limit_event("user_cost_burst", "twig", None, "end-user-xyz")
+
+            kw = mock_client.capture.call_args.kwargs
+            assert kw["distinct_id"] == "end-user-xyz"
+            assert "groups" not in kw
