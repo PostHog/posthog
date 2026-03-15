@@ -5,6 +5,8 @@ import { useEffect, useMemo } from 'react'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import IconPostHog from 'public/posthog-icon.svg'
+import IconPostgres from 'public/services/postgres.png'
 import { externalDataSourcesLogic } from 'scenes/data-warehouse/externalDataSourcesLogic'
 import { urls } from 'scenes/urls'
 
@@ -37,17 +39,25 @@ export function ConnectionSelector(): JSX.Element | null {
         [dataWarehouseSources]
     )
 
+    const sourceIcon = (src: string): JSX.Element => (
+        <img src={src} alt="" width={16} height={16} className="object-contain rounded" />
+    )
+
     const options = useMemo(() => {
         const sourceOptions = dataWarehouseSourcesLoading
             ? [{ value: LOADING_CONNECTIONS, label: 'Loading...', disabled: true }]
             : directPostgresSources.map((source) => ({
                   value: source.id,
                   label: `${source.prefix ? source.prefix : source.id} (Postgres)`,
+                  icon: sourceIcon(IconPostgres),
               }))
 
         return [
             {
-                options: [{ value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)' }, ...sourceOptions],
+                options: [
+                    { value: POSTHOG_WAREHOUSE, label: 'PostHog (ClickHouse)', icon: sourceIcon(IconPostHog) },
+                    ...sourceOptions,
+                ],
             },
             {
                 options: [
