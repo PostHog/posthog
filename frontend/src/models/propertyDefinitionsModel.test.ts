@@ -465,4 +465,101 @@ describe('the property definitions model', () => {
             expect(logic.values.options['browser'].refreshing).toEqual(false)
         })
     })
+
+    describe('loadPropertyValues', () => {
+        it('includes refresh=force_cache in the URL when polling', async () => {
+            let capturedUrl: string | undefined
+
+            useMocks({
+                get: {
+                    '/api/event/values': (req) => {
+                        capturedUrl = req.url.toString()
+                        return [200, { results: [], refreshing: false }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Event,
+                    newInput: undefined,
+                    propertyKey: 'browser',
+                    refresh: 'force_cache',
+                })
+            }).toFinishAllListeners()
+
+            expect(capturedUrl).toContain('refresh=force_cache')
+        })
+
+        it('does not include refresh in the URL by default', async () => {
+            let capturedUrl: string | undefined
+
+            useMocks({
+                get: {
+                    '/api/event/values': (req) => {
+                        capturedUrl = req.url.toString()
+                        return [200, { results: [], refreshing: false }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Event,
+                    newInput: undefined,
+                    propertyKey: 'browser',
+                })
+            }).toFinishAllListeners()
+
+            expect(capturedUrl).not.toContain('refresh=')
+        })
+
+        it('sends refresh=force_cache on the follow-up poll after a refreshing response', async () => {
+            let pollCallback: (() => void) | null = null
+            const capturedUrls: string[] = []
+
+            // Intercept only the 2000ms polling timer; let all other timers run normally
+            const originalSetTimeout = global.setTimeout.bind(global)
+            jest.spyOn(global, 'setTimeout').mockImplementation(((
+                fn: TimerHandler,
+                delay?: number,
+                ...args: unknown[]
+            ) => {
+                if (delay === 2000) {
+                    pollCallback = () => (fn as (...a: unknown[]) => unknown)(...args)
+                    return 0 as unknown as ReturnType<typeof setTimeout>
+                }
+                return originalSetTimeout(fn, delay, ...args)
+            }) as typeof setTimeout)
+
+            useMocks({
+                get: {
+                    '/api/event/values': (req) => {
+                        capturedUrls.push(req.url.toString())
+                        return [200, { results: [], refreshing: capturedUrls.length === 1 }]
+                    },
+                },
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadPropertyValues({
+                    endpoint: undefined,
+                    type: PropertyDefinitionType.Event,
+                    newInput: undefined,
+                    propertyKey: 'browser',
+                })
+            }).toFinishAllListeners()
+
+            jest.restoreAllMocks()
+
+            expect(pollCallback).not.toBeNull()
+
+            await expectLogic(logic, () => pollCallback!()).toFinishAllListeners()
+
+            expect(capturedUrls).toHaveLength(2)
+            expect(capturedUrls[1]).toContain('refresh=force_cache')
+        })
+    })
 })
