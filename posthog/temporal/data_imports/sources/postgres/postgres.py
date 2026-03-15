@@ -525,7 +525,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
     try:
         query = sql.SQL("""
             SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
-                SELECT pg_column_size(t) as row_size FROM ({}) as t
+                SELECT octet_length(t::text) as row_size FROM ({}) as t
             ) as subquery
         """).format(inner_query)
 
@@ -1067,8 +1067,10 @@ def postgres_source(
                             if not rows:
                                 break
 
-                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
-                            offset += len(rows)
+                            dicts = [dict(zip(column_names, row)) for row in rows]
+                            del rows
+                            yield table_from_iterator(iter(dicts), arrow_schema)
+                            offset += len(dicts)
             except psycopg.errors.SerializationFailure as e:
                 # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
                 if using_read_replica and "conflict with recovery" in "".join(e.args):
