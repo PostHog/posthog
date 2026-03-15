@@ -510,6 +510,11 @@ export const experimentsLogic = kea<experimentsLogicType>([
                 searchParams['tab'] = values.tab
             }
 
+            // Preserve the activity deep-link param so activityLogLogic can highlight the item
+            if (router.values.searchParams.activity) {
+                searchParams['activity'] = router.values.searchParams.activity
+            }
+
             return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
         }
 

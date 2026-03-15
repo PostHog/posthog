@@ -263,6 +263,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
 
                 actions.setSceneState(parsedId, formMode)
 
+                if (query.activity) {
+                    actions.setActiveTabKey('history')
+                }
+
                 if (parsedId === 'new') {
                     // Only reset if we're not already viewing a new experiment (tab switch scenario)
                     const shouldReset = currentLocation.initial || values.experimentId !== 'new'
@@ -312,6 +316,10 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
                 }
 
                 actions.setSceneState(parsedId, parsedFormMode)
+
+                if (query.activity) {
+                    actions.setActiveTabKey('history')
+                }
             }
         },
     })),

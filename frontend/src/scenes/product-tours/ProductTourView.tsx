@@ -1,4 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useState } from 'react'
 
 import { IconCode, IconCursorClick, IconDocument, IconTrash } from '@posthog/icons'
@@ -129,7 +130,7 @@ export function ProductTourView({ id }: { id: string }): JSX.Element {
     } = useActions(productTourLogic({ id }))
     const { deleteProductTour } = useActions(productToursLogic)
 
-    const [tabKey, setTabKey] = useState('overview')
+    const [tabKey, setTabKey] = useState(() => (router.values.searchParams.activity ? 'history' : 'overview'))
 
     if (productTourLoading || !productTour) {
         return <LemonSkeleton />
