@@ -226,6 +226,11 @@ export interface EndpointRequestApi {
      * @nullable
      */
     bucket_overrides?: EndpointRequestApiBucketOverrides
+    /**
+     * Set to true to soft-delete this endpoint.
+     * @nullable
+     */
+    deleted?: boolean | null
 }
 
 /**

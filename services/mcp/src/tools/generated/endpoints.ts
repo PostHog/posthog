@@ -69,6 +69,7 @@ const EndpointCreateSchema = EndpointsCreateBody.omit({
     derived_from_insight: true,
     version: true,
     bucket_overrides: true,
+    deleted: true,
 })
 
 const endpointCreate = (): ToolBase<

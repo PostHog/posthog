@@ -11700,6 +11700,11 @@ export namespace Schemas {
        * @nullable
        */
       bucket_overrides?: EndpointRequestBucketOverrides;
+      /**
+       * Set to true to soft-delete this endpoint.
+       * @nullable
+       */
+      deleted?: boolean | null;
     }
 
     /**
