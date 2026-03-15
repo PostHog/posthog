@@ -10,13 +10,20 @@ class BatchExportError:
 
 @dataclass
 class BatchExportResult:
-    # This is the total number of records that were successfully exported
-    # (not the number of record batches, but the number of records in all record batches)
+    """Result of a batch export execution.
+
+    Attributes:
+        records_completed: Total number of records that were successfully exported. Not
+            the number of record batches, but the number of records in all record
+            batches.
+        bytes_exported: This is the number of bytes of data exported (i.e. not the
+            number of bytes in ClickHouse or the internal stage) and therefore takes
+            into account things like the file type and compression.
+        error: Error or errors that occurred, if any.
+    """
+
     records_completed: int | None = None
-    # This is the number of bytes of data exported (i.e. not the number of bytes in ClickHouse or the internal stage)
-    # and therefore takes into account things like the file type and compression
     bytes_exported: int | None = None
-    # This is the error that occurred, if any
     error: BatchExportError | list[BatchExportError] | None = None
 
     @property
@@ -57,4 +64,8 @@ def reduce_batch_export_results(results: collections.abc.Iterable[BatchExportRes
 
             error.extend(errors)
 
-    return BatchExportResult(records_completed=records_completed, bytes_exported=bytes_exported, error=error or None)
+    return BatchExportResult(
+        records_completed=records_completed,
+        bytes_exported=bytes_exported,
+        error=error or None,
+    )

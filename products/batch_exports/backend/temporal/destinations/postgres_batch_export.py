@@ -832,6 +832,7 @@ async def insert_into_postgres_activity_from_stage(inputs: PostgresInsertInputs)
                 inputs.data_interval_start or "START",
                 inputs.data_interval_end or "END",
             )
+
             return BatchExportResult(records_completed=0, bytes_exported=0)
 
         record_batch_schema = pa.schema(
