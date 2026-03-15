@@ -50,8 +50,12 @@ class UpdateDashboardToolArgs(BaseModel):
     action: Literal["update"] = "update"
     dashboard_id: str = Field(description="Provide the ID of the dashboard to be update it.")
     insight_ids: list[str] | None = Field(
-        description="The IDs of the insights for the dashboard. Replaces all existing insights. Order determines positional mapping for layout preservation.",
+        description="The IDs of the insights for the dashboard. Replaces all existing insights.",
         default=None,
+    )
+    layout_mode: Literal["preserve_existing", "reflow_all"] = Field(
+        description="How to handle existing tile layouts when insight_ids are provided. Use preserve_existing by default. Use reflow_all only when the user explicitly asks to rearrange or reorder tiles.",
+        default="preserve_existing",
     )
     name: str | None = Field(
         description="A short and concise (3-7 words) name of the dashboard. If not provided, the dashboard name will not be updated.",
@@ -174,6 +178,7 @@ class UpsertDashboardTool(MaxTool):
             action.description,
             insight_ids,
             artifacts,
+            action.layout_mode,
         )
         await self._report_dashboard_action(dashboard, "dashboard updated")
 
@@ -274,6 +279,42 @@ class UpsertDashboardTool(MaxTool):
         )
         return dashboard
 
+    @staticmethod
+    def _scale_widths_proportionally(widths: list[int], target: int) -> list[int]:
+        total = sum(widths)
+        if total <= 0 or total == target:
+            return widths
+
+        raw_widths = [w * target / total for w in widths]
+        scaled_widths = [max(1, int(value)) for value in raw_widths]
+        current_total = sum(scaled_widths)
+
+        if current_total < target:
+            order = sorted(
+                range(len(widths)),
+                key=lambda index: raw_widths[index] - int(raw_widths[index]),
+                reverse=True,
+            )
+            order_position = 0
+            while current_total < target:
+                scaled_widths[order[order_position % len(order)]] += 1
+                current_total += 1
+                order_position += 1
+        elif current_total > target:
+            order = sorted(
+                range(len(widths)),
+                key=lambda index: raw_widths[index] - int(raw_widths[index]),
+            )
+            order_position = 0
+            while current_total > target:
+                idx = order[order_position % len(order)]
+                if scaled_widths[idx] > 1:
+                    scaled_widths[idx] -= 1
+                    current_total -= 1
+                order_position += 1
+
+        return scaled_widths
+
     @database_sync_to_async
     @transaction.atomic
     def _update_dashboard_with_tiles(
@@ -283,6 +324,7 @@ class UpsertDashboardTool(MaxTool):
         description: str | None,
         insight_ids: list[str],
         artifacts: list[VisualizationWithSourceResult],
+        layout_mode: Literal["preserve_existing", "reflow_all"],
     ) -> tuple[Dashboard, list[Insight]]:
         """Update dashboard tiles based on provided insight IDs.
 
@@ -292,6 +334,7 @@ class UpsertDashboardTool(MaxTool):
             description: New dashboard description (if provided)
             insight_ids: Ordered list of insight IDs for the dashboard
             artifacts: Resolved visualization artifacts matching insight_ids order
+            layout_mode: Layout strategy for existing tiles
 
         Returns:
             Tuple of (dashboard, resolved_insights) where resolved_insights
@@ -324,6 +367,7 @@ class UpsertDashboardTool(MaxTool):
         # Track tiles that will be active after update
         active_tile_ids: set[int] = set()
         tiles_to_update: list[DashboardTile] = []
+        restored_tile_ids: list[int] = []
 
         # 2. Create new tiles or restore soft deleted
         for insight_id, insight in zip(insight_ids, resolved_insights):
@@ -333,6 +377,7 @@ class UpsertDashboardTool(MaxTool):
                 # Restore if soft deleted
                 if existing_tile.deleted:
                     existing_tile.deleted = False
+                    restored_tile_ids.append(existing_tile.id)
                 active_tile_ids.add(existing_tile.id)
                 tiles_to_update.append(existing_tile)
             else:
@@ -353,42 +398,61 @@ class UpsertDashboardTool(MaxTool):
             # nosemgrep: idor-lookup-without-team
             DashboardTile.objects.filter(id__in=tiles_to_delete).update(deleted=True)
 
-        # 4. Update coordinates based on insight_ids order, keeping original sizes
-        # 2-column flow layout: tiles flow left-to-right, respecting their widths
-        # Track current Y position for each column
-        left_y = 0  # Column at x=0
-        right_y = 0  # Column at x=6
+        if layout_mode == "preserve_existing":
+            if restored_tile_ids:
+                DashboardTile.objects.filter(id__in=restored_tile_ids).update(deleted=False)
+            return dashboard, resolved_insights
+
+        # 4. Update coordinates based on insight_ids order.
+        # Reflow in rows, then proportionally expand widths in each row to fill
+        # all 12 columns and avoid horizontal gaps.
+        column_count = 12
         xs_y = 0  # For xs breakpoint (single column)
+        rows: list[list[dict[str, int | DashboardTile]]] = []
+        current_row: list[dict[str, int | DashboardTile]] = []
+        current_row_width = 0
 
         for tile in tiles_to_update:
             sm_layout = (tile.layouts or {}).get("sm", {})
 
-            # Keep original sizes, use defaults if not set
-            h = sm_layout.get("h", 5)
-            w = sm_layout.get("w", 6)
+            # Use original sizes as the baseline, falling back to defaults.
+            raw_h = sm_layout.get("h")
+            raw_w = sm_layout.get("w")
 
-            if w > 6:
-                # Wide tile: spans full width, place below both columns
-                y = max(left_y, right_y)
-                x = 0
-                left_y = right_y = y + h
-            else:
-                # Half-width tile: place in the column with lower Y (left-to-right flow)
-                if left_y <= right_y:
-                    x = 0
-                    y = left_y
-                    left_y += h
-                else:
-                    x = 6
-                    y = right_y
-                    right_y += h
+            h = int(raw_h) if isinstance(raw_h, int | float) and raw_h > 0 else 5
+            w = int(raw_w) if isinstance(raw_w, int | float) and raw_w > 0 else 6
+            w = min(w, column_count)
 
-            tile.layouts = {
-                "sm": {"h": h, "w": w, "x": x, "y": y, "minH": 1, "minW": 1},
-                "xs": {"h": 5, "w": 1, "x": 0, "y": xs_y, "minH": 1, "minW": 1},
-            }
-            tile.save(update_fields=["layouts", "deleted"])
-            xs_y += 5
+            if current_row and current_row_width + w > column_count:
+                rows.append(current_row)
+                current_row = []
+                current_row_width = 0
+
+            current_row.append({"tile": tile, "h": h, "w": w})
+            current_row_width += w
+
+        if current_row:
+            rows.append(current_row)
+
+        y = 0
+        for row in rows:
+            row_widths = [item["w"] for item in row]
+            normalized_widths = self._scale_widths_proportionally(row_widths, column_count)
+            row_height = max(item["h"] for item in row)
+            x = 0
+
+            for item, normalized_width in zip(row, normalized_widths):
+                row_tile = item["tile"]
+                h = item["h"]
+                w = normalized_width
+                row_tile.layouts = {
+                    "sm": {"h": h, "w": w, "x": x, "y": y, "minH": 1, "minW": 1},
+                    "xs": {"h": 5, "w": 1, "x": 0, "y": xs_y, "minH": 1, "minW": 1},
+                }
+                row_tile.save(update_fields=["layouts", "deleted"])
+                x += w
+                xs_y += 5
+            y += row_height
 
         return dashboard, resolved_insights
 

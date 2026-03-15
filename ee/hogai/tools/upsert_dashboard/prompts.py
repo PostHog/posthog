@@ -19,11 +19,13 @@ Call this tool when you have enough information to create or update the dashboar
 # Understanding dashboard update with insight_ids
 
 When `insight_ids` is provided, it replaces all dashboard insights with the provided insights.
-Layouts are preserved positionally: the first insight takes the first tile's position, etc.
 You can use insight_ids to add, replace, or remove insights.
+By default, keep existing insight tile layouts unchanged (`layout_mode="preserve_existing"`).
+Only use `layout_mode="reflow_all"` when the user explicitly asks to reorder, rearrange, or reflow the dashboard.
+When using `layout_mode="reflow_all"`, tile coordinates are recomputed in the order of `insight_ids`.
 
 Example: Dashboard has [A, B, C] (in layout order). Use `insight_ids=[A', C']`.
-Result: A' takes A's layout, C' takes B's layout, B is removed.
+Result: A and C remain with their existing layouts when possible, B is removed, and new insights get new tiles.
 
 # When to use this tool
 - The user asks to create or update a dashboard.
