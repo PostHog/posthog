@@ -29,6 +29,7 @@ import type { infiniteListLogicType } from './infiniteListLogicType'
 /** Search terms mapped to properties that should be promoted when that exact term is searched. */
 const PROMOTED_PROPERTIES_BY_SEARCH_TERM: Record<string, string[]> = {
     url: ['$current_url'],
+    email: ['$email'],
 }
 
 /**
