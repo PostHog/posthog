@@ -64,7 +64,21 @@ class SharingConfiguration(models.Model):
             recording=self.recording,
             enabled=self.enabled,
             settings=self.settings,
+            password_required=self.password_required,
         )
+
+        # Clone active passwords to the new config
+        if self.password_required:
+            from posthog.models.share_password import SharePassword
+
+            for pw in self.share_passwords.filter(is_active=True):
+                SharePassword.objects.create(
+                    sharing_configuration=new_config,
+                    password_hash=pw.password_hash,
+                    created_by=pw.created_by,
+                    note=pw.note,
+                    is_active=True,
+                )
 
         # Expire current configuration
         self.expires_at = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS)
