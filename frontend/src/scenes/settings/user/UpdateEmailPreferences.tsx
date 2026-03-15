@@ -19,6 +19,7 @@ enum NotificationBlock {
     CommentMentions = 'comment-mentions',
     ApiKeyExposure = 'api-key-exposure',
     MaterializedViewSync = 'materialized-view-sync',
+    BillingUsageChange = 'billing-usage-change',
 }
 
 const NOTIFICATION_BLOCK_ORDER = Object.values(NotificationBlock)
@@ -36,6 +37,7 @@ const NOTIFICATION_DEFAULTS: BooleanNotificationSettings = {
     all_weekly_digest_disabled: false,
     project_api_key_exposed: true,
     materialized_view_sync_failed: false,
+    billing_usage_change_emails: true,
 }
 
 function ProjectDigestSelector({
@@ -301,6 +303,16 @@ export function UpdateEmailPreferences(): JSX.Element {
                     label="Materialized view sync failures"
                     description="Get notified when a materialized view fails to sync"
                     dataAttr="materialized_view_sync_failed_enabled"
+                />
+            </div>
+        ),
+        [NotificationBlock.BillingUsageChange]: (
+            <div className="border rounded p-4">
+                <SimpleSwitch
+                    setting="billing_usage_change_emails"
+                    label="Billing usage change alerts"
+                    description="Get notified when we detect a significant change in your product usage that may affect your bill"
+                    dataAttr="billing_usage_change_emails_enabled"
                 />
             </div>
         ),

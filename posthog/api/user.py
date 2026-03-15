@@ -394,7 +394,10 @@ class UserSerializer(serializers.ModelSerializer):
             instance.save()
             EmailVerifier.create_token_and_send_email_verification(instance)
 
+        billing_email_pref_changed = False
         if validated_data.get("notification_settings"):
+            if "billing_usage_change_emails" in validated_data["notification_settings"]:
+                billing_email_pref_changed = True
             validated_data["partial_notification_settings"] = validated_data.pop("notification_settings")
 
         # Update password
@@ -415,6 +418,10 @@ class UserSerializer(serializers.ModelSerializer):
             send_password_changed_email.delay(instance.id)
 
         report_user_updated(instance, updated_attrs)
+
+        if billing_email_pref_changed:
+            for org in instance.organizations.all():
+                instance.update_billing_organization_users(org)
 
         return instance
 
