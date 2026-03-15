@@ -742,7 +742,11 @@ impl PrecomputedDependencyGraph {
                 &feature_flags.filtered_out_flag_ids,
             )
         } else {
-            Self::build_from_graph(&feature_flags.flags, team_id)
+            Self::build_from_graph(
+                &feature_flags.flags,
+                &feature_flags.filtered_out_flag_ids,
+                team_id,
+            )
         }
     }
 
@@ -801,10 +805,21 @@ impl PrecomputedDependencyGraph {
 
     /// Fallback path: builds a full petgraph-based dependency graph when
     /// precomputed data is absent (old cache format or PG fallback).
-    fn build_from_graph(flags: &[FeatureFlag], team_id: common_types::TeamId) -> Option<Self> {
-        // Extract edges from each flag's property filters
+    fn build_from_graph(
+        flags: &[FeatureFlag],
+        filtered_out_flag_ids: &HashSet<i32>,
+        team_id: common_types::TeamId,
+    ) -> Option<Self> {
+        // Extract edges from each flag's property filters.
+        // Filtered-out flags (runtime mismatch, tag filter, etc.) get empty
+        // edges so their dependencies aren't followed — matching the old
+        // build_dependency_graph behavior that prevents false cycles.
         let mut edges: HashMap<i32, HashSet<i32>> = HashMap::with_capacity(flags.len());
         for flag in flags {
+            if filtered_out_flag_ids.contains(&flag.id) {
+                edges.insert(flag.id, HashSet::new());
+                continue;
+            }
             match flag.extract_dependencies() {
                 Ok(deps) => {
                     edges.insert(flag.id, deps);
