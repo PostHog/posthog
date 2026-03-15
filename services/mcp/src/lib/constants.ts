@@ -82,6 +82,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'dashboard:write',
     'early_access_feature:read',
     'early_access_feature:write',
+    'endpoint:read',
+    'endpoint:write',
     'error_tracking:read',
     'error_tracking:write',
     'event_definition:read',
