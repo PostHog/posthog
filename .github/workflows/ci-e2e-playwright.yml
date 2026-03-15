@@ -216,7 +216,6 @@ jobs:
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ needs.get_clickhouse_versions.outputs.oldest_supported }}
-                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
                   (
@@ -352,14 +351,16 @@ jobs:
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Start Docker services
-              run: docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
               env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: capture
+              run: bin/ci-wait-for-docker launch
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker capture
               env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: capture
+              run: bin/ci-wait-for-docker wait capture
 
             - name: Build frontend
               run: |
@@ -414,7 +415,7 @@ jobs:
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
                   # Start the Node.js ingestion container now that the database exists and migrations have run.
-                  docker compose -f docker-compose.dev.yml --profile capture --profile ingestion up -d plugins
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -429,9 +430,10 @@ jobs:
                   verbose: true
 
             - name: Wait for ingestion service to be ready
-              run: bin/wait-for-docker plugins
               env:
+                  COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
+              run: bin/ci-wait-for-docker wait plugins
 
             - name: Run Playwright tests
               id: playwright-tests
