@@ -488,9 +488,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 ),
             )
             .exclude(deleted=True)
-            .exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
             .order_by(self.ordering)
         )
+
+        # Hide endpoint-origin saved queries from the list view — they belong to the endpoints UI.
+        # Allow retrieve so the Node detail page can fetch them by ID.
+        if self.action == "list":
+            base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
 
         # Detect whether we should include managed views in the queryset
         is_managed_viewset_enabled = posthoganalytics.feature_enabled(

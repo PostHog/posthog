@@ -226,6 +226,101 @@ class TestNodeViewSet(APIBaseTest):
         call_args = mock_client.start_workflow.call_args
         self.assertEqual(call_args[0][0], "data-modeling-run")
 
+    def test_lineage_returns_subgraph(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/lineage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        node_ids = {n["id"] for n in response.json()["nodes"]}
+        self.assertIn(str(self.view_node.id), node_ids)
+        self.assertIn(str(self.table_node.id), node_ids)
+        edge_source_ids = {e["source_id"] for e in response.json()["edges"]}
+        self.assertIn(str(self.table_node.id), edge_source_ids)
+
+    def test_lineage_multi_level(self):
+        sq_b = DataWarehouseSavedQuery.objects.create(
+            name="view_b", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        sq_c = DataWarehouseSavedQuery.objects.create(
+            name="view_c", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        view_b = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="view_b",
+            type=NodeType.VIEW,
+            saved_query=sq_b,
+        )
+        view_c = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="view_c",
+            type=NodeType.VIEW,
+            saved_query=sq_c,
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=view_b)
+        Edge.objects.create(team=self.team, dag=self.dag, source=view_b, target=view_c)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{view_b.id}/lineage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        node_ids = {n["id"] for n in response.json()["nodes"]}
+        self.assertIn(str(self.table_node.id), node_ids)
+        self.assertIn(str(self.view_node.id), node_ids)
+        self.assertIn(str(view_b.id), node_ids)
+        self.assertIn(str(view_c.id), node_ids)
+
+    def test_lineage_no_dependencies(self):
+        sq_standalone = DataWarehouseSavedQuery.objects.create(
+            name="standalone", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        standalone = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="standalone",
+            type=NodeType.VIEW,
+            saved_query=sq_standalone,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{standalone.id}/lineage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["nodes"]), 1)
+        self.assertEqual(response.json()["nodes"][0]["id"], str(standalone.id))
+        self.assertEqual(len(response.json()["edges"]), 0)
+
+    def test_lineage_filters_by_team(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
+        other_table = Node.objects.create(
+            team=other_team,
+            dag=other_dag,
+            name="other_table",
+            type=NodeType.TABLE,
+        )
+        other_sq = DataWarehouseSavedQuery.objects.create(
+            name="other_view", team=other_team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        other_view = Node.objects.create(
+            team=other_team,
+            dag=other_dag,
+            name="other_view",
+            type=NodeType.VIEW,
+            saved_query=other_sq,
+        )
+        Edge.objects.create(
+            team=other_team,
+            dag=other_dag,
+            source=other_table,
+            target=other_view,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/lineage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        node_ids = {n["id"] for n in response.json()["nodes"]}
+        self.assertNotIn(str(other_table.id), node_ids)
+        self.assertNotIn(str(other_view.id), node_ids)
+
 
 class TestEdgeViewSet(APIBaseTest):
     def setUp(self):

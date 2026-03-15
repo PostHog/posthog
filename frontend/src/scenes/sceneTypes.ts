@@ -89,6 +89,7 @@ export enum Scene {
     MaterializedColumns = 'MaterializedColumns',
     Max = 'Max',
     Models = 'Models',
+    NodeDetail = 'NodeDetail',
     MoveToPostHogCloud = 'MoveToPostHogCloud',
     NewTab = 'NewTab',
     Notebook = 'Notebook',
