@@ -7,7 +7,7 @@ import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
-import { capitalizeFirstLetter, colonDelimitedDuration, shortTimeZone } from 'lib/utils'
+import { capitalizeFirstLetter, colonDelimitedDuration } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
 import { SimpleTimeLabel } from 'scenes/session-recordings/components/SimpleTimeLabel'
@@ -15,6 +15,8 @@ import {
     ONE_SECOND_MS,
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { applyTimestampFormatTzWithLabel } from 'scenes/session-recordings/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { HotKeyOrModifier } from '~/types'
@@ -26,16 +28,19 @@ const TIMESTAMP_FORMAT_LABELS: Record<TimestampFormat, string> = {
     [TimestampFormat.Relative]: 'Relative',
     [TimestampFormat.UTC]: 'UTC',
     [TimestampFormat.Device]: 'Device',
+    [TimestampFormat.Project]: 'Project',
 }
 
-function formatTimestampForTooltip(timestamp: number | undefined, format: TimestampFormat): string {
+function formatTimestampForTooltip(
+    timestamp: number | undefined,
+    format: TimestampFormat,
+    projectTimezone?: string
+): string {
     if (timestamp === undefined) {
         return '--:--:--'
     }
-    const d = format === TimestampFormat.UTC ? dayjs(timestamp).tz('UTC') : dayjs(timestamp)
-    const formatted = d.format(`${formatLocalizedDate()}, HH:mm:ss`)
-    const timezone = format === TimestampFormat.UTC ? 'UTC' : shortTimeZone(undefined, d.toDate())
-    return `${formatted} ${timezone}`
+    const { adjusted, timezoneLabel } = applyTimestampFormatTzWithLabel(dayjs(timestamp), format, projectTimezone)
+    return `${adjusted.format(`${formatLocalizedDate()}, HH:mm:ss`)} ${timezoneLabel}`
 }
 
 function RelativeTimestampLabel({ size }: { size: 'small' | 'normal' }): JSX.Element {
@@ -72,6 +77,7 @@ export function Timestamp({
     const { isScrubbing, scrubbingTime, scrubbingTimeSeconds } = useValues(seekbarLogic(logicProps))
     const { timestampFormat } = useValues(playerSettingsLogic)
     const { setTimestampFormat } = useActions(playerSettingsLogic)
+    const { currentTeam } = useValues(teamLogic)
     const [isHovered, setIsHovered] = useState(false)
 
     const scrubbingTimestamp = sessionPlayerData.start?.valueOf()
@@ -94,7 +100,7 @@ export function Timestamp({
                 const value =
                     format === TimestampFormat.Relative
                         ? relativeTime
-                        : formatTimestampForTooltip(activeTimestamp, format)
+                        : formatTimestampForTooltip(activeTimestamp, format, currentTeam?.timezone)
 
                 return (
                     <div

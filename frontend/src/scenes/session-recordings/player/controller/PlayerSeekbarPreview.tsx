@@ -5,7 +5,9 @@ import { useDebouncedCallback } from 'use-debounce'
 import { Dayjs } from 'lib/dayjs'
 import useIsHovering from 'lib/hooks/useIsHovering'
 import { colonDelimitedDuration } from 'lib/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
+import { applyTimestampFormatTz } from '../../utils'
 import { PlayerFrame } from '../PlayerFrame'
 import { TimestampFormat } from '../playerSettingsLogic'
 import {
@@ -85,13 +87,14 @@ export const PlayerSeekbarPreview = memo(function PlayerSeekbarPreview({
 
     const progressionSeconds = ((maxMs - minMs) / 1000) * percentage
 
+    const { currentTeam } = useValues(teamLogic)
     const absoluteTime = startTime?.add(progressionSeconds, 'seconds')
 
     const content =
         timestampFormat === TimestampFormat.Relative
             ? colonDelimitedDuration(minMs / 1000 + progressionSeconds, fixedUnits)
             : absoluteTime
-              ? (timestampFormat === TimestampFormat.UTC ? absoluteTime?.tz('UTC') : absoluteTime)?.format('HH:mm:ss')
+              ? applyTimestampFormatTz(absoluteTime, timestampFormat, currentTeam?.timezone).format('HH:mm:ss')
               : '00:00:00'
 
     const isHovering = useIsHovering(seekBarRef)

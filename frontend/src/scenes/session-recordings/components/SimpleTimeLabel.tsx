@@ -1,28 +1,26 @@
 import clsx from 'clsx'
+import { useValues } from 'kea'
 import { memo } from 'react'
 
 import { Dayjs, dayjs } from 'lib/dayjs'
-import { shortTimeZone } from 'lib/utils'
 import { formatLocalizedDate } from 'lib/utils/dateTimeUtils'
 import { TimestampFormat } from 'scenes/session-recordings/player/playerSettingsLogic'
+import { applyTimestampFormatTzWithLabel } from 'scenes/session-recordings/utils'
+import { teamLogic } from 'scenes/teamLogic'
 
 function formattedReplayTime(
     time: string | number | Dayjs | null | undefined,
     timestampFormat: TimestampFormat,
-    timeOnly?: boolean
+    timeOnly?: boolean,
+    projectTimezone?: string
 ): string {
     if (time == null) {
         return timeOnly ? '00:00:00' : '--/--/----, 00:00:00'
     }
 
-    let d = dayjs(time)
-    const isUTC = timestampFormat === TimestampFormat.UTC
-    if (isUTC) {
-        d = d.tz('UTC')
-    }
-    const formatted = d.format(formatStringFor(d, timeOnly))
-    const timezone = isUTC ? 'UTC' : shortTimeZone(undefined, d.toDate())
-    return `${formatted} ${timezone}`
+    const { adjusted, timezoneLabel } = applyTimestampFormatTzWithLabel(dayjs(time), timestampFormat, projectTimezone)
+    const formatted = adjusted.format(formatStringFor(adjusted, timeOnly))
+    return `${formatted} ${timezoneLabel}`
 }
 
 function formatStringFor(d: Dayjs, timeOnly?: boolean): string {
@@ -48,7 +46,7 @@ const truncateToSeconds = (time: string | number | Dayjs): number => {
     }
 }
 
-export function _SimpleTimeLabel({
+export function SimpleTimeLabelInner({
     startTime,
     timestampFormat,
     muted = true,
@@ -61,7 +59,13 @@ export function _SimpleTimeLabel({
     size?: 'small' | 'xsmall'
     containerSize?: 'small' | 'normal'
 }): JSX.Element {
-    const formattedTime = formattedReplayTime(startTime, timestampFormat, containerSize === 'small')
+    const { currentTeam } = useValues(teamLogic)
+    const formattedTime = formattedReplayTime(
+        startTime,
+        timestampFormat,
+        containerSize === 'small',
+        currentTeam?.timezone
+    )
     return (
         <div
             className={clsx(
@@ -77,7 +81,7 @@ export function _SimpleTimeLabel({
 }
 
 export const SimpleTimeLabel = memo(
-    _SimpleTimeLabel,
+    SimpleTimeLabelInner,
     // we can truncate time when considering whether to re-render the component as we only go down to seconds in dispay,
     // but it will be called with multiple millisecond values between each second
     // in local tests this rendered at least 4x less (400 vs 1600 renders)
