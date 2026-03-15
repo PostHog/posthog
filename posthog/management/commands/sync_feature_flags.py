@@ -116,3 +116,5 @@ class Command(BaseCommand):
                     print(
                         f"Created feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}{f' (multivariate: {", ".join(flag_type)})' if isinstance(flag_type, list) else ''}"
                     )
+
+        print("Feature flag sync complete.")

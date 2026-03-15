@@ -32,14 +32,17 @@ You typically run phrocs via `hogli dev` rather than directly.
 | Key    | Action                                          |
 | ------ | ----------------------------------------------- |
 | `tab`  | Swap focus sidebar/output                       |
-| `↓`    | Next process (sidebar) / scroll down (output)   |
-| `↑`    | Previous process (sidebar) / scroll up (output) |
+| `↓/k`  | Next process (sidebar) / scroll down (output)   |
+| `↑/j`  | Previous process (sidebar) / scroll up (output) |
 | `pgdn` | Scroll output down                              |
 | `pgup` | Scroll output up                                |
 | `home` | Jump to top of output                           |
 | `end`  | Jump to bottom of output                        |
 | `r`    | Restart selected process                        |
-| `c`    | Enter copy mode (output pane)                   |
+| `s`    | Stop selected process                           |
+| `c`    | Enter copy mode                                 |
+| `/`    | Enter search mode                               |
+| `esc`  | Exit copy and search modes                      |
 | `d`    | Open lazydocker (only if installed)             |
 | `?`    | Toggle full help                                |
 | `q`    | Quit                                            |
@@ -52,9 +55,25 @@ Press `c` to enter copy mode in the output pane.
 Navigate with `↑`/`↓`, press `c` again to mark the selection start, then extend with `↑`/`↓` and press `c` to copy to clipboard.
 Press `esc` to exit without copying.
 
+### Search mode
+
+Press `/` to enter search mode, type a query, then press `enter` to keep highlights active.
+Use `↵` and `⇧↵` to jump to the next/previous match.
+Press `esc` to clear the active search.
+
 ## Debug logging
 
 Pass `--debug` to write a timestamped log of TUI events to `/tmp/phrocs-debug.log`:
+
+```log
+2026/03/06 10:00:00.123456 debug logging started
+2026/03/06 10:00:00.145678 resize: 220x54
+2026/03/06 10:00:00.200000 status: proc=backend status=running
+2026/03/06 10:00:01.300000 key: "j" (type=runes)
+2026/03/06 10:00:01.300100 proc selected: 0→1 (frontend)
+```
+
+Tail it in a separate terminal while phrocs is running:
 
 ```sh
 tail -f /tmp/phrocs-debug.log
@@ -67,6 +86,7 @@ phrocs/
 ├── main.go                   entry point, arg parsing, program wiring
 └── internal/
     ├── config/               YAML config loader
+    ├── ipc/                  Unix domain socket server (/tmp/phrocs.sock)
     ├── process/              process lifecycle (start, stop, restart, pty I/O)
     └── tui/                  Bubble Tea model, key map, styles
 ```

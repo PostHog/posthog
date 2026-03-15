@@ -31,7 +31,6 @@ class DevenvConfig(BaseModel):
     exclude_units: list[str] = []
     skip_autostart: list[str] = []
     enable_autostart: list[str] = []
-    log_to_files: bool = False
 
 
 # Docker compose command building
@@ -164,10 +163,6 @@ class MprocsGenerator(ConfigGenerator):
             # Special handling for backend - wire up personhog env vars when capability is active
             if name == "backend":
                 proc_config = self._add_personhog_env(proc_config, resolved)
-
-            # Add logging wrapper if enabled
-            if source_config and source_config.log_to_files:
-                proc_config = self._add_logging(proc_config, name)
 
             procs[name] = proc_config
 
@@ -307,31 +302,10 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
         return proc_config
 
-    def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:
-        """Wrap shell command to log output to /tmp/posthog-{name}.log.
-
-        Args:
-            proc_config: The process configuration dict
-            process_name: Name of the process (used in log filename)
-
-        Returns:
-            Modified process configuration with tee logging
-        """
-        shell = proc_config.get("shell", "")
-        if not shell:
-            return proc_config
-
-        log_file = f"/tmp/posthog-{process_name}.log"
-        proc_config["shell"] = f"{shell} 2>&1 | tee {log_file}"
-        return proc_config
-
     def save(self, config: MprocsConfig, output_path: Path) -> Path:
         """Save mprocs configuration to YAML file."""
         output_path.parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w") as f:
-            # Add header comment for log mode
-            if config.posthog_config and config.posthog_config.log_to_files:
-                f.write("# Log mode: Output logged to /tmp/posthog-*.log\n")
             yaml.dump(config.to_yaml_dict(), f, default_flow_style=False, sort_keys=False)
         return output_path
 

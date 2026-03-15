@@ -1,0 +1,8 @@
+{
+    "mcpServers": {
+        "phrocs": {
+            "command": "uv",
+            "args": ["run", "python", "bin/phrocs-mcp-server.py"]
+        }
+    }
+}

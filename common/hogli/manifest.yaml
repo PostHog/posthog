@@ -649,6 +649,10 @@ tools:
         bin_script: phrocs
         description: Run phrocs directly with a custom mprocs-format YAML config
         hidden: true
+    phrocs:mcp:server:
+        bin_script: phrocs-mcp-server.py
+        description: MCP server to expose process status and logs
+        hidden: true
 utilities:
     nuke:
         steps:

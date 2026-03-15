@@ -117,6 +117,8 @@ def sync_feature_flags_from_api(
         output_fn(f"Unchanged: {unchanged_count}")
         output_fn(f"Total after sync: {len(existing_flags) + created_count}")
 
+    output_fn("\nFeature flag sync complete.")
+
 
 class Command(BaseCommand):
     help = "Sync feature flags by fetching them from the PostHog API"

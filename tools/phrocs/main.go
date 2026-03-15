@@ -22,6 +22,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
+	"github.com/posthog/posthog/phrocs/internal/ipc"
 	"github.com/posthog/posthog/phrocs/internal/process"
 	"github.com/posthog/posthog/phrocs/internal/tui"
 )
@@ -72,6 +73,12 @@ func main() {
 	// would be stuck in p.Send() and p.Run() would never be reached.
 	mgr.SetSend(p.Send)
 	go mgr.StartAll()
+
+	go func() {
+		if err := ipc.Serve(ipc.SocketPath, mgr); err != nil {
+			fmt.Fprintf(os.Stderr, "phrocs: ipc: %v\n", err)
+		}
+	}()
 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)

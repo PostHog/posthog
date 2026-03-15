@@ -12,9 +12,23 @@ Unified CLI for PostHog development. Wraps all repo scripts, bin commands, and t
 
 Run `hogli --help` to get the full, current command list. Run `hogli <command> --help` for any subcommand.
 
-## Process logging (for agents/debugging)
+## Process observability (for agents/debugging)
 
-`hogli dev:setup --log` enables file logging for all mprocs processes. Logs go to `/tmp/posthog-<process>.log` where `<process>` matches the mprocs process key (see `bin/mprocs.yaml`).
+The `status` field transitions `pending` → `running` → `stopped`/`done`/`crashed`.
+A separate `ready` boolean flips to `true` once `ready_pattern` matches.
+
+Log output lives in phrocs' in-memory scrollback buffer (10,000 lines per process)
+and is served over a Unix domain socket at `/tmp/phrocs.sock`.
+
+### MCP tools (preferred for agents)
+
+The project ships a local MCP server (`bin/phrocs-mcp-server.py`) registered in `.mcp.json`.
+When Claude Code loads the project, two tools are available automatically:
+
+- **`get_process_status`** — returns status JSON for one or all processes;
+  pass no argument for a dashboard of all running processes
+- **`get_process_logs`** — returns recent log lines for a named process;
+  accepts `lines` (default 100, max 500) and `grep` (regex filter) arguments
 
 ## Key references
 
