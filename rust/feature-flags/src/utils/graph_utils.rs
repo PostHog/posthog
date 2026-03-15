@@ -812,8 +812,11 @@ impl PrecomputedDependencyGraph {
     ) -> Option<Self> {
         // Extract edges from each flag's property filters.
         // Filtered-out flags (runtime mismatch, tag filter, etc.) get empty
-        // edges so their dependencies aren't followed — matching the old
-        // build_dependency_graph behavior that prevents false cycles.
+        // edges so their dependencies aren't followed, preventing false cycles.
+        // Note: unlike the old BFS-based build_dependency_graph, this includes
+        // all filtered-out flags as isolated nodes rather than only reachable
+        // ones. This is safe — unreachable nodes end up in stage 0 and are
+        // skipped during evaluation.
         let mut edges: HashMap<i32, HashSet<i32>> = HashMap::with_capacity(flags.len());
         for flag in flags {
             if filtered_out_flag_ids.contains(&flag.id) {
@@ -852,8 +855,8 @@ impl PrecomputedDependencyGraph {
             log_dependency_graph_construction_errors(&errors, team_id);
         }
 
-        let has_cycle_errors = errors.iter().any(|e| e.is_cycle());
         let cycle_count = errors.iter().filter(|e| e.is_cycle()).count();
+        let has_cycle_errors = cycle_count > 0;
         let error_count = flags_with_missing_deps.len() + cycle_count;
         let transitive_deps = Self::build_transitive_deps_map_from_graph(&graph);
         let key_to_id: HashMap<String, i32> = flags.iter().map(|f| (f.key.clone(), f.id)).collect();
