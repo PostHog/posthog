@@ -41,7 +41,7 @@ if not os.environ.get("GOOGLE_API_KEY") and os.environ.get("GEMINI_API_KEY"):
 def pytest_addoption(parser):
     parser.addoption("--limit", default=None, type=int, help="Limit number of items to process (e.g. --limit 3)")
     parser.addoption("--no-capture", action="store_true", default=False, help="Skip emitting eval results to PostHog")
-    parser.addoption("--offline", action="store_true", default=False, help="Capture as offline eval for development")
+    parser.addoption("--online", action="store_true", default=False, help="Capture as online eval")
 
 
 @pytest.fixture
@@ -55,8 +55,8 @@ def no_capture(request):
 
 
 @pytest.fixture
-def offline(request):
-    return request.config.getoption("--offline")
+def online(request):
+    return request.config.getoption("--online")
 
 
 @pytest.fixture

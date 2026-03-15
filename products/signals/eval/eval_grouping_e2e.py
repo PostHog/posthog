@@ -157,7 +157,7 @@ def get_signals_stream() -> list[EvalSignalCase]:
 
 class TestGroupingPipeline:
     @pytest.fixture(autouse=True)
-    def _setup(self, posthog_client, openai_client, gemini_client, mock_temporal, limit, no_capture, offline):
+    def _setup(self, posthog_client, openai_client, gemini_client, mock_temporal, limit, no_capture, online):
         self.posthog_client = posthog_client
         self.gemini_client = gemini_client
         self.openai_client = openai_client
@@ -165,7 +165,7 @@ class TestGroupingPipeline:
         self.report_store = ReportStore()
         self.limit = limit
         self.no_capture = no_capture
-        self.offline = offline
+        self.online = online
         self._match_lock = asyncio.Lock()
         self.start_time = time()
 
@@ -645,6 +645,6 @@ class TestGroupingPipeline:
             output=output,
             expected=expected,
             metrics=metrics,
-            eval_type="offline" if self.offline else "online",
+            eval_type="online" if self.online else "offline",
             passed=passed,
         )
