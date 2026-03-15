@@ -649,7 +649,14 @@ function CompactInfoPopover({
             onMouseEnterInside={showDetails}
             onMouseLeaveInside={pinned ? undefined : hideDetails}
             overlay={
-                <div className="p-4 max-w-md space-y-2" onMouseDown={(e) => e.stopPropagation()}>
+                <div
+                    className="p-4 max-w-md space-y-3"
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                    }}
+                >
                     {popoverTopHeading && (
                         <h5 className="uppercase text-xs font-bold text-muted tracking-wide m-0">
                             {popoverTopHeading}
@@ -666,7 +673,7 @@ function CompactInfoPopover({
                                 clickToEdit
                                 compactButtons
                                 compactIcon
-                                className="font-semibold text-sm"
+                                className="font-semibold text-sm mt-1"
                                 data-attr="insight-card-title"
                             />
                             <EditableField
