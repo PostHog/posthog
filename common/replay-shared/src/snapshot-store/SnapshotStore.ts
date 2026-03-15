@@ -139,7 +139,14 @@ export class SnapshotStore {
 
         const fullSnapshotInfo = this.findNearestFullSnapshot(ts)
         if (!fullSnapshotInfo) {
-            return false
+            const anyLoadedHasFullSnapshots = this.entries.some(
+                (e) => e.state === 'loaded' && e.fullSnapshotTimestamps.length > 0
+            )
+            if (anyLoadedHasFullSnapshots) {
+                return false
+            }
+            const targetIndex = this.getSourceIndexForTimestamp(ts)
+            return this.entries[targetIndex]?.state === 'loaded'
         }
 
         const targetIndex = this.getSourceIndexForTimestamp(ts)
