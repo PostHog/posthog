@@ -1,6 +1,7 @@
 import '../../lemon-ui/Popover/Popover.scss'
 import './InfiniteList.scss'
 
+import { hide } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
@@ -28,6 +29,7 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
@@ -385,11 +387,8 @@ const InfiniteListRow = ({
         const recentGroup = itemHasRecentContext
             ? taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.RecentFilters)
             : undefined
-        const recentTooltip = itemHasRecentContext
-            ? `${itemGroup.name} · ${(recentGroup ?? group).getName?.(item) || item.name || ''}`
-            : undefined
 
-        const row = (
+        return (
             <div
                 {...commonDivProps}
                 className={clsx(commonDivProps.className, isDisabledItem && 'cursor-not-allowed opacity-60')}
@@ -428,8 +427,6 @@ const InfiniteListRow = ({
                 )}
             </div>
         )
-
-        return recentTooltip ? <Tooltip title={recentTooltip}>{row}</Tooltip> : row
     }
 
     const isExpandRow = !item && rowIndex === totalListCount - 1 && isExpandable && !isLoading
@@ -559,6 +556,8 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
     }, [index, listRef])
 
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
+    const selectedItemIsRecent = selectedItem ? hasRecentContext(selectedItem) : false
+    const recentFiltersGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.RecentFilters)
 
     return (
         <div
@@ -629,10 +628,27 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                     }
                 />
             )}
-            {isActiveTab &&
-            selectedItemHasPopover(selectedItem, selectedItemGroup?.type ?? listGroupType, selectedItemGroup) &&
-            showPopover &&
-            selectedItem ? (
+            {isActiveTab && showPopover && selectedItem && selectedItemIsRecent ? (
+                <Popover
+                    visible={selectedItemInView}
+                    referenceElement={highlightedItemElement}
+                    className="click-outside-block hotkey-block"
+                    overlay={
+                        <div className="definition-popover p-2">
+                            <div className="font-semibold text-xs text-muted mb-1">
+                                {selectedItemGroup.name} &middot; Recent
+                            </div>
+                            <div>{recentFiltersGroup?.getName?.(selectedItem) || selectedItem.name || ''}</div>
+                        </div>
+                    }
+                    placement="right"
+                    fallbackPlacements={['left']}
+                    middleware={[hide()]}
+                />
+            ) : isActiveTab &&
+              selectedItemHasPopover(selectedItem, selectedItemGroup?.type ?? listGroupType, selectedItemGroup) &&
+              showPopover &&
+              selectedItem ? (
                 <BindLogic
                     logic={definitionPopoverLogic}
                     props={{
