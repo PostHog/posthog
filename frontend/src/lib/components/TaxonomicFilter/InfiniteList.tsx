@@ -13,6 +13,7 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
@@ -379,13 +380,13 @@ const InfiniteListRow = ({
 
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
-        const isExactMatchItem =
-            (listGroupType === TaxonomicFilterGroupType.SuggestedFilters ||
-                listGroupType === TaxonomicFilterGroupType.RecentFilters) &&
-            itemGroup.type !== listGroupType
-        const isRecentItem = listGroupType === TaxonomicFilterGroupType.RecentFilters && isExactMatchItem
-        const recentTooltip = isRecentItem
-            ? `${itemGroup.name} · ${group.getName?.(item) || item.name || ''}`
+        const isCrossGroupItem = group.isLocalOnly && itemGroup.type !== listGroupType
+        const itemHasRecentContext = hasRecentContext(item)
+        const recentGroup = itemHasRecentContext
+            ? taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.RecentFilters)
+            : undefined
+        const recentTooltip = itemHasRecentContext
+            ? `${itemGroup.name} · ${(recentGroup ?? group).getName?.(item) || item.name || ''}`
             : undefined
 
         const row = (
@@ -410,16 +411,17 @@ const InfiniteListRow = ({
             >
                 {renderItemContents({
                     item,
-                    listGroupType: isExactMatchItem
-                        ? '_recentPropertyFilter' in item
+                    listGroupType: isCrossGroupItem
+                        ? itemHasRecentContext && item._recentContext.propertyFilter
                             ? listGroupType
                             : itemGroup.type
                         : listGroupType,
-                    itemGroup: '_recentPropertyFilter' in item ? group : itemGroup,
+                    itemGroup:
+                        itemHasRecentContext && item._recentContext.propertyFilter ? (recentGroup ?? group) : itemGroup,
                     eventNames,
                     isActive,
                 })}
-                {isExactMatchItem && (
+                {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
                         {itemGroup.name}
                     </LemonTag>
@@ -687,7 +689,12 @@ export function getItemGroup(
 ): TaxonomicFilterGroup {
     let group = defaultGroup
 
-    if (item && 'group' in item) {
+    if (item && hasRecentContext(item)) {
+        const itemGroup = groups.find((g) => g.type === item._recentContext.sourceGroupType)
+        if (itemGroup) {
+            group = itemGroup
+        }
+    } else if (item && 'group' in item) {
         const itemGroup = groups.find((g) => item.group === g.type)
         if (itemGroup) {
             group = itemGroup

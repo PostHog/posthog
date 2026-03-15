@@ -202,12 +202,15 @@ describe('taxonomicPropertyFilterLogic', () => {
 
         const recentItem = {
             name: '$browser',
-            group: TaxonomicFilterGroupType.EventProperties,
-            _recentPropertyFilter: {
-                key: '$browser',
-                value: 'Chrome',
-                operator: PropertyOperator.Exact,
-                type: PropertyFilterType.Event,
+            _recentContext: {
+                sourceGroupType: TaxonomicFilterGroupType.EventProperties,
+                sourceGroupName: 'Event properties',
+                propertyFilter: {
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                },
             },
         }
 

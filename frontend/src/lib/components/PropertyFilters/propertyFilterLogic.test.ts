@@ -255,6 +255,7 @@ describe('propertyFilterLogic', () => {
             const recents = recentsLogic.values.recentFilters
             expect(recents).toHaveLength(1)
             expect(recents[0].groupType).toBe(TaxonomicFilterGroupType.EventProperties)
+            expect(recents[0].groupName).toBe('Event properties')
             expect(recents[0].value).toBe('$browser')
             expect(recents[0].propertyFilter).toMatchObject({
                 key: '$browser',
@@ -279,6 +280,7 @@ describe('propertyFilterLogic', () => {
 
             const recents = recentsLogic.values.recentFilters
             expect(recents).toHaveLength(1)
+            expect(recents[0].groupName).toBe('Event properties')
             expect(recents[0].propertyFilter).toMatchObject({
                 key: '$browser',
                 operator: PropertyOperator.IsSet,

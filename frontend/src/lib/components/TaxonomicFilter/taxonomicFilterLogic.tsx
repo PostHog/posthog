@@ -81,7 +81,13 @@ import {
 import { HogFlowTaxonomicFilters } from 'products/workflows/frontend/Workflows/hogflows/filters/HogFlowTaxonomicFilters'
 
 import { InlineHogQLEditor } from './InlineHogQLEditor'
-import { type RecentTaxonomicFilter, recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
+import {
+    hasRecentContext,
+    type RecentItemContext,
+    type RecentTaxonomicFilter,
+    recentTaxonomicFiltersLogic,
+    stripRecentContext,
+} from './recentTaxonomicFiltersLogic'
 import type { taxonomicFilterLogicType } from './taxonomicFilterLogicType'
 
 export const DEFAULT_SLOTS_PER_GROUP = 5
@@ -99,7 +105,7 @@ export const SKELETON_ROWS_PER_GROUP = 3
 
 export { isSkeletonItem, type SkeletonItem } from 'lib/components/TaxonomicFilter/types'
 
-const PROPERTY_FILTER_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
+const GROUPS_THAT_RECORD_RECENTS_VIA_PROPERTY_FILTER_LOGIC = new Set<TaxonomicFilterGroupType>([
     TaxonomicFilterGroupType.EventProperties,
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.NumericalEventProperties,
@@ -398,6 +404,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 s.hogQLGlobals,
                 s.recentFilters,
                 s.currentTeamId,
+                s.requestedGroupTypes,
             ],
             (
                 currentTeam: TeamType,
@@ -414,7 +421,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                 endpointFilters: Record<string, any> | undefined,
                 hogQLGlobals: Record<string, any> | undefined,
                 recentFilters: RecentTaxonomicFilter[],
-                currentTeamId: number | null
+                currentTeamId: number | null,
+                requestedGroupTypes: TaxonomicFilterGroupType[]
             ): TaxonomicFilterGroup[] => {
                 const { id: teamId } = currentTeam
                 const { excludedProperties, propertyAllowList } = propertyFilters
@@ -1138,12 +1146,15 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         type: TaxonomicFilterGroupType.RecentFilters,
                         isLocalOnly: true,
                         options: recentFilters
-                            .filter((f) => f.teamId === currentTeamId)
+                            .filter((f) => f.teamId === currentTeamId && requestedGroupTypes.includes(f.groupType))
                             .map((f) => ({
                                 ...f.item,
-                                group: f.groupType,
-                                _recentTeamId: f.teamId,
-                                ...(f.propertyFilter ? { _recentPropertyFilter: f.propertyFilter } : {}),
+                                _recentContext: {
+                                    sourceGroupType: f.groupType,
+                                    sourceGroupName: f.groupName,
+                                    teamId: f.teamId,
+                                    ...(f.propertyFilter ? { propertyFilter: f.propertyFilter } : {}),
+                                } satisfies RecentItemContext,
                             })),
                         localItemsSearch: (items: Record<string, any>[], query: string) => {
                             if (!query) {
@@ -1156,8 +1167,8 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             })
                         },
                         getName: (item: Record<string, any>) => {
-                            if (item._recentPropertyFilter) {
-                                return formatPropertyLabel(item._recentPropertyFilter, {}, (s) =>
+                            if (hasRecentContext(item) && item._recentContext.propertyFilter) {
+                                return formatPropertyLabel(item._recentContext.propertyFilter, {}, (s) =>
                                     s == null ? '' : String(s)
                                 )
                             }
@@ -1167,12 +1178,10 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                             item.name ?? item.label ?? item.id ?? null,
                         getPopoverHeader: () => 'Recent',
                         getTooltip: (item: Record<string, any>) => {
-                            const groupType = item.group as TaxonomicFilterGroupType
-                            const groupLabel = groupType
-                                ?.replace(/^.*_/, '')
-                                ?.replace(/([A-Z])/g, ' $1')
-                                ?.trim()
-                            return groupLabel ? `Source: ${groupLabel}` : undefined
+                            if (hasRecentContext(item)) {
+                                return `Source: ${item._recentContext.sourceGroupName}`
+                            }
+                            return undefined
                         },
                     },
                     ...groupAnalyticsTaxonomicGroups,
@@ -1430,6 +1439,21 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         }
                     }
                 }
+
+                const recentGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.RecentFilters)
+                if (recentGroup?.options && recentGroup.localItemsSearch) {
+                    const matchingRecents = recentGroup.localItemsSearch(
+                        recentGroup.options as Record<string, any>[],
+                        searchQuery
+                    )
+                    for (const item of matchingRecents) {
+                        result.push({
+                            ...item,
+                            group: TaxonomicFilterGroupType.RecentFilters,
+                        } as TopMatchItem)
+                    }
+                }
+
                 return result
             },
         ],
@@ -1449,13 +1473,14 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     })
                 }
 
-                const { group: _g, _recentPropertyFilter, _recentTeamId, ...cleanItem } = item as Record<string, any>
+                const cleanItem = stripRecentContext(item as Record<string, any>)
 
                 props.onChange?.(group, value, cleanItem)
 
-                if (!PROPERTY_FILTER_GROUP_TYPES.has(group.type)) {
+                if (!GROUPS_THAT_RECORD_RECENTS_VIA_PROPERTY_FILTER_LOGIC.has(group.type)) {
                     recentTaxonomicFiltersLogic.actions.recordRecentFilter(
                         group.type,
+                        group.name,
                         value,
                         cleanItem,
                         values.currentTeamId ?? undefined

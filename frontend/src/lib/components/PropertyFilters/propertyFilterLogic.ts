@@ -8,10 +8,31 @@ import {
     PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
 } from 'lib/components/PropertyFilters/utils'
 import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
+import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { isOperatorFlag } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AnyPropertyFilter, EmptyPropertyFilter } from '~/types'
+
+const TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME: Partial<Record<TaxonomicFilterGroupType, string>> = {
+    [TaxonomicFilterGroupType.EventProperties]: 'Event properties',
+    [TaxonomicFilterGroupType.PersonProperties]: 'Person properties',
+    [TaxonomicFilterGroupType.Cohorts]: 'Cohorts',
+    [TaxonomicFilterGroupType.Elements]: 'Elements',
+    [TaxonomicFilterGroupType.SessionProperties]: 'Session properties',
+    [TaxonomicFilterGroupType.EventFeatureFlags]: 'Feature flags',
+    [TaxonomicFilterGroupType.EventMetadata]: 'Event metadata',
+    [TaxonomicFilterGroupType.Metadata]: 'Metadata',
+    [TaxonomicFilterGroupType.DataWarehouse]: 'Data warehouse',
+    [TaxonomicFilterGroupType.DataWarehousePersonProperties]: 'Data warehouse person properties',
+    [TaxonomicFilterGroupType.Replay]: 'Recordings',
+    [TaxonomicFilterGroupType.LogEntries]: 'Log entries',
+    [TaxonomicFilterGroupType.LogAttributes]: 'Log attributes',
+    [TaxonomicFilterGroupType.LogResourceAttributes]: 'Log resource attributes',
+    [TaxonomicFilterGroupType.FeatureFlags]: 'Feature flags',
+    [TaxonomicFilterGroupType.ErrorTrackingIssues]: 'Error tracking issues',
+    [TaxonomicFilterGroupType.RevenueAnalyticsProperties]: 'Revenue analytics',
+}
 
 import type { propertyFilterLogicType } from './propertyFilterLogicType'
 
@@ -105,8 +126,10 @@ export const propertyFilterLogic = kea<propertyFilterLogicType>([
             if (isComplete && property?.key && property?.type) {
                 const groupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[property.type]
                 if (groupType && recentTaxonomicFiltersLogic.isMounted()) {
+                    const groupName = TAXONOMIC_GROUP_TYPE_TO_DISPLAY_NAME[groupType] ?? groupType
                     recentTaxonomicFiltersLogic.actions.recordRecentFilter(
                         groupType,
+                        groupName,
                         property.key,
                         { name: property.key },
                         teamLogic.values.currentTeamId ?? undefined,

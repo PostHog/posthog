@@ -91,7 +91,7 @@ export function TaxonomicPropertyFilter({
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression ||
             taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters ||
-            (taxonomicGroup.type === TaxonomicFilterGroupType.RecentFilters && item?._recentPropertyFilter)
+            (taxonomicGroup.type === TaxonomicFilterGroupType.RecentFilters && item?._recentContext?.propertyFilter)
         ) {
             onComplete?.()
         }

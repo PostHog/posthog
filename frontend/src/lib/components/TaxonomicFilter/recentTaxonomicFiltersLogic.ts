@@ -1,4 +1,4 @@
-import { actions, kea, path, reducers, selectors } from 'kea'
+import { actions, kea, path, reducers } from 'kea'
 
 import { now } from 'lib/dayjs'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
@@ -22,6 +22,7 @@ const EXCLUDED_GROUP_TYPES = new Set<TaxonomicFilterGroupType>([
 
 export interface RecentTaxonomicFilter {
     groupType: TaxonomicFilterGroupType
+    groupName: string
     value: TaxonomicFilterValue
     item: Record<string, any>
     timestamp: number
@@ -29,17 +30,35 @@ export interface RecentTaxonomicFilter {
     propertyFilter?: AnyPropertyFilter
 }
 
+export interface RecentItemContext {
+    sourceGroupType: TaxonomicFilterGroupType
+    sourceGroupName: string
+    teamId?: number
+    propertyFilter?: AnyPropertyFilter
+}
+
+export function hasRecentContext(item: unknown): item is Record<string, any> & { _recentContext: RecentItemContext } {
+    return typeof item === 'object' && item != null && '_recentContext' in item && (item as any)._recentContext != null
+}
+
+export function stripRecentContext<T extends Record<string, any>>(item: T): Omit<T, '_recentContext'> {
+    const { _recentContext: _, ...clean } = item
+    return clean
+}
+
 export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>([
     path(['lib', 'components', 'TaxonomicFilter', 'recentTaxonomicFiltersLogic']),
     actions({
         recordRecentFilter: (
             groupType: TaxonomicFilterGroupType,
+            groupName: string,
             value: TaxonomicFilterValue,
             item: any,
             teamId?: number,
             propertyFilter?: AnyPropertyFilter
         ) => ({
             groupType,
+            groupName,
             value,
             item,
             teamId,
@@ -51,7 +70,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
             [] as RecentTaxonomicFilter[],
             { persist: true },
             {
-                recordRecentFilter: (state, { groupType, value, item, teamId, propertyFilter }) => {
+                recordRecentFilter: (state, { groupType, groupName, value, item, teamId, propertyFilter }) => {
                     if (EXCLUDED_GROUP_TYPES.has(groupType) || value == null) {
                         return state
                     }
@@ -61,6 +80,7 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
 
                     const entry: RecentTaxonomicFilter = {
                         groupType,
+                        groupName,
                         value,
                         item,
                         timestamp: currentTime,
@@ -75,18 +95,6 @@ export const recentTaxonomicFiltersLogic = kea<recentTaxonomicFiltersLogicType>(
                     return [entry, ...withoutExpired].slice(0, MAX_RECENT_FILTERS)
                 },
             },
-        ],
-    }),
-    selectors({
-        recentFilterItems: [
-            (s) => [s.recentFilters],
-            (recentFilters: RecentTaxonomicFilter[]): Record<string, any>[] =>
-                recentFilters.map((f) => ({
-                    ...f.item,
-                    group: f.groupType,
-                    _recentTeamId: f.teamId,
-                    ...(f.propertyFilter ? { _recentPropertyFilter: f.propertyFilter } : {}),
-                })),
         ],
     }),
     permanentlyMount(),
