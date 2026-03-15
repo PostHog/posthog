@@ -374,6 +374,7 @@ class LazyJoinToAdd:
     lazy_join: LazyJoin
     lazy_join_type: "LazyJoinType"
     fields_accessed: dict[str, list[str | int]] = field(default_factory=dict)
+    already_exists: bool = False
 
 
 class VirtualTable(Table):

@@ -184,8 +184,16 @@ def select_from_persons_table(
                         order_by_without_virtual_fields.append(order_by)
                 right_select.order_by = order_by_without_virtual_fields
 
-            # Patch: push limit+offset+1 to inner subquery for correct pagination, always set offset=0
-            if node.limit:
+            # Apply limit optimization only when not in inline cohort context
+            # Skip optimization when inline cohort calculation is enabled to prevent
+            # applying limits before cohort filtering in outer queries
+            inline_cohort_enabled = (
+                hasattr(context.modifiers, "inlineCohortCalculation")
+                and context.modifiers.inlineCohortCalculation is not None
+                and context.modifiers.inlineCohortCalculation != "OFF"
+            )
+
+            if node.limit and not inline_cohort_enabled:
                 node_limit = cast(ast.Constant, node.limit)
                 node_offset = cast(ast.Constant, node.offset)
                 effective_limit = (

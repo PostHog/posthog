@@ -406,13 +406,27 @@ class LazyTableResolver(TraversingVisitor):
 
                     to_table = get_long_table_name(select_type, table_type)
                     if to_table not in joins_to_add:
-                        joins_to_add[to_table] = LazyJoinToAdd(
-                            fields_accessed={},  # collect here all fields accessed on this table
-                            lazy_join=table_type.lazy_join,
-                            from_table=from_table,
-                            to_table=to_table,
-                            lazy_join_type=table_type,
-                        )
+                        # Check if this table alias already exists in the scope - if so, reuse it
+                        if to_table in select_type.tables:
+                            # The table already exists in the scope, so we can reuse it
+                            # Create a dummy LazyJoinToAdd for field tracking, but mark it as existing
+                            joins_to_add[to_table] = LazyJoinToAdd(
+                                fields_accessed={},  # collect here all fields accessed on this table
+                                lazy_join=table_type.lazy_join,
+                                from_table=from_table,
+                                to_table=to_table,
+                                lazy_join_type=table_type,
+                            )
+                            # Mark this join as already existing so we don't actually add it later
+                            joins_to_add[to_table].already_exists = True
+                        else:
+                            joins_to_add[to_table] = LazyJoinToAdd(
+                                fields_accessed={},  # collect here all fields accessed on this table
+                                lazy_join=table_type.lazy_join,
+                                from_table=from_table,
+                                to_table=to_table,
+                                lazy_join_type=table_type,
+                            )
                     new_join = joins_to_add[to_table]
 
                     if table_type == field.table_type or (
@@ -454,13 +468,26 @@ class LazyTableResolver(TraversingVisitor):
                         from_table = get_long_table_name(select_type, table_type.table_type)
                         to_table = get_long_table_name(select_type, table_type)
                         if to_table not in joins_to_add:
-                            joins_to_add[to_table] = LazyJoinToAdd(
-                                fields_accessed={},  # collect here all fields accessed on this table
-                                lazy_join=table_type.table_type.lazy_join,
-                                from_table=from_table,
-                                to_table=to_table,
-                                lazy_join_type=table_type.table_type,
-                            )
+                            # Check if this table alias already exists in the scope - if so, reuse it
+                            if to_table in select_type.tables:
+                                # The table already exists in the scope, so we can reuse it
+                                joins_to_add[to_table] = LazyJoinToAdd(
+                                    fields_accessed={},  # collect here all fields accessed on this table
+                                    lazy_join=table_type.table_type.lazy_join,
+                                    from_table=from_table,
+                                    to_table=to_table,
+                                    lazy_join_type=table_type.table_type,
+                                )
+                                # Mark this join as already existing so we don't actually add it later
+                                joins_to_add[to_table].already_exists = True
+                            else:
+                                joins_to_add[to_table] = LazyJoinToAdd(
+                                    fields_accessed={},  # collect here all fields accessed on this table
+                                    lazy_join=table_type.table_type.lazy_join,
+                                    from_table=from_table,
+                                    to_table=to_table,
+                                    lazy_join_type=table_type.table_type,
+                                )
                         new_join = joins_to_add[to_table]
                         if table_type == field.table_type or (
                             isinstance(field.table_type, ast.VirtualTableType)
@@ -571,6 +598,9 @@ class LazyTableResolver(TraversingVisitor):
 
         # For all the collected joins, create the join subqueries, and add them to the table.
         for to_table, join_scope in joins_to_add.items():
+            # Skip joins that already exist in the scope
+            if getattr(join_scope, "already_exists", False):
+                continue
             join_to_add: ast.JoinExpr = join_scope.lazy_join.join_function(
                 join_scope,
                 self.context,
