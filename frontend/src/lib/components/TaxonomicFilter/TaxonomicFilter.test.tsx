@@ -1,15 +1,22 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Provider } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+
 import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
 import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
+import { PropertyFilterType, PropertyOperator } from '~/types'
 
+import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { TaxonomicFilterGroupType } from './types'
 
@@ -20,6 +27,7 @@ jest.mock('lib/components/AutoSizer', () => ({
 
 describe('TaxonomicFilter', () => {
     beforeEach(() => {
+        localStorage.clear()
         useMocks({
             get: {
                 '/api/projects/:team/event_definitions': mockGetEventDefinitions,
@@ -35,6 +43,10 @@ describe('TaxonomicFilter', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS], {
+            [FEATURE_FLAGS.TAXONOMIC_FILTER_RECENTS]: true,
+        })
         actionsModel.mount()
         groupsModel.mount()
     })
@@ -138,5 +150,400 @@ describe('TaxonomicFilter', () => {
         })
 
         expect(onChange.mock.calls[0][1]).toBe('event1')
+    })
+
+    it('selecting an event records it to recent filters', async () => {
+        renderFilter()
+
+        await waitFor(() => {
+            expect(screen.getByTestId('prop-filter-events-1')).toBeInTheDocument()
+        })
+
+        await userEvent.click(screen.getByTestId('prop-filter-events-1'))
+
+        await waitFor(() => {
+            const recents = recentTaxonomicFiltersLogic.values.recentFilters
+            expect(recents).toHaveLength(1)
+            expect(recents[0].groupType).toBe(TaxonomicFilterGroupType.Events)
+            expect(recents[0].value).toBe('event1')
+        })
+    })
+
+    it('selecting an event property does not record to recent filters (deferred to setFilter)', async () => {
+        renderFilter({
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+        })
+
+        await waitFor(() => {
+            expect(screen.getByTestId('prop-filter-event_properties-0')).toBeInTheDocument()
+        })
+
+        await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
+
+        expect(recentTaxonomicFiltersLogic.values.recentFilters).toHaveLength(0)
+    })
+
+    describe('Recent filters tab', () => {
+        beforeEach(() => {
+            localStorage.clear()
+        })
+
+        afterEach(() => {
+            if (recentTaxonomicFiltersLogic.isMounted()) {
+                recentTaxonomicFiltersLogic.unmount()
+            }
+        })
+
+        it('auto-appears when there are matching recent items', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.Events,
+                'Events',
+                'event1',
+                { name: 'event1', id: 'uuid-1' },
+                MOCK_TEAM_ID
+            )
+
+            renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+        })
+
+        it('recent items are searchable when typing a query', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.Events,
+                'Events',
+                'my_custom_event',
+                { name: 'my_custom_event', id: 'uuid-custom' },
+                MOCK_TEAM_ID
+            )
+
+            renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'my_custom')
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+
+            expect(screen.getByTestId('prop-filter-recent_filters-0')).toHaveTextContent('my_custom_event')
+        })
+
+        it('shows recents from matching group types in a multi-group context', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.EventProperties,
+                'Event properties',
+                '$browser',
+                { name: '$browser' },
+                MOCK_TEAM_ID,
+                {
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+            )
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.Events,
+                'Events',
+                'should_not_appear',
+                { name: 'should_not_appear' },
+                MOCK_TEAM_ID
+            )
+
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.EventProperties,
+                    TaxonomicFilterGroupType.PersonProperties,
+                ],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-recent_filters')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+
+            expect(screen.getByTestId('prop-filter-recent_filters-0')).toHaveTextContent('Browser = Chrome')
+            expect(screen.queryByText('should_not_appear')).not.toBeInTheDocument()
+        })
+
+        it('does not show recent items from group types not in the current context', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.PersonProperties,
+                'Person properties',
+                'email',
+                { name: 'email', id: 'uuid-email' },
+                MOCK_TEAM_ID
+            )
+
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByTestId('taxonomic-tab-recent_filters')).not.toBeInTheDocument()
+        })
+
+        it('only shows items whose group type matches the current context', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.Events,
+                'Events',
+                '$pageview',
+                { name: '$pageview', id: 'uuid-pv' },
+                MOCK_TEAM_ID
+            )
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.PersonProperties,
+                'Person properties',
+                'location',
+                { name: 'location', id: 'uuid-loc' },
+                MOCK_TEAM_ID
+            )
+
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.PersonProperties],
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByText('$pageview')).not.toBeInTheDocument()
+        })
+
+        it('does not appear when there are no matching recent items', async () => {
+            recentTaxonomicFiltersLogic.mount()
+
+            renderFilter()
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
+            })
+
+            expect(screen.queryByTestId('taxonomic-tab-recent_filters')).not.toBeInTheDocument()
+        })
+
+        it('shows a group badge on recent property filter items', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.EventProperties,
+                'Event properties',
+                '$browser',
+                { name: '$browser' },
+                MOCK_TEAM_ID,
+                {
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+            )
+
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+
+            const row = screen.getByTestId('prop-filter-recent_filters-0')
+            expect(row).toHaveTextContent('Event properties - recent')
+        })
+
+        it('renders recent property filter items with the full filter expression', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.EventProperties,
+                'Event properties',
+                '$browser',
+                { name: '$browser' },
+                MOCK_TEAM_ID,
+                {
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+            )
+
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+
+            const row = screen.getByTestId('prop-filter-recent_filters-0')
+            expect(row).toHaveTextContent('Browser = Chrome')
+        })
+
+        it('calls onChange with the recent filter group when clicking a recent property filter', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.EventProperties,
+                'Event properties',
+                '$browser',
+                { name: '$browser' },
+                MOCK_TEAM_ID,
+                {
+                    key: '$browser',
+                    value: 'Chrome',
+                    operator: PropertyOperator.Exact,
+                    type: PropertyFilterType.Event,
+                }
+            )
+
+            const { onChange } = renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+
+            await userEvent.click(screen.getByTestId('prop-filter-recent_filters-0'))
+
+            await waitFor(() => {
+                expect(onChange).toHaveBeenCalledTimes(1)
+            })
+
+            const [group, , item] = onChange.mock.calls[0]
+            expect(group.type).toBe(TaxonomicFilterGroupType.EventProperties)
+            expect(item._recentContext).toBeUndefined()
+            expect(item.name).toBe('$browser')
+        })
+
+        it('matching recent items appear in the suggested filters view during search', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.Events,
+                'Events',
+                'my_custom_event',
+                { name: 'my_custom_event', id: 'uuid-custom' },
+                MOCK_TEAM_ID
+            )
+
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.SuggestedFilters, TaxonomicFilterGroupType.Events],
+            })
+
+            await waitFor(() => {
+                expect(screen.getByTestId('taxonomic-tab-suggested_filters')).toBeInTheDocument()
+            })
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'my_custom')
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-suggested_filters-0')).toBeInTheDocument()
+            })
+
+            expect(screen.getByTestId('prop-filter-suggested_filters-0')).toHaveTextContent('my_custom_event')
+        })
+
+        it('recent property filter items show the same label in suggested filters and recent views', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.EventProperties,
+                'Event properties',
+                '$browser',
+                { name: '$browser' },
+                MOCK_TEAM_ID,
+                { type: 'event', key: '$browser', operator: 'exact', value: 'Chrome' }
+            )
+
+            renderFilter({
+                taxonomicGroupTypes: [
+                    TaxonomicFilterGroupType.SuggestedFilters,
+                    TaxonomicFilterGroupType.EventProperties,
+                ],
+            })
+
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'browser')
+
+            // The API returns $browser as an EventProperties result (index 0),
+            // so the recent item appears after the API results.
+            await waitFor(() => {
+                const items = screen.getAllByTestId(/^prop-filter-suggested_filters-\d+$/)
+                expect(items.length).toBeGreaterThanOrEqual(2)
+            })
+            const suggestedItems = screen.getAllByTestId(/^prop-filter-suggested_filters-\d+$/)
+            const recentInSuggested = suggestedItems.find((el) => el.textContent?.includes('= Chrome'))
+            expect(recentInSuggested).toBeTruthy()
+            const suggestedLabel = recentInSuggested!.textContent
+
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+            const recentLabel = screen.getByTestId('prop-filter-recent_filters-0').textContent
+
+            expect(suggestedLabel).toBe(recentLabel)
+        })
+
+        it('shows a group badge on recent event items too', async () => {
+            recentTaxonomicFiltersLogic.mount()
+            recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+                TaxonomicFilterGroupType.Events,
+                'Events',
+                'event1',
+                { name: 'event1', id: 'uuid-1' },
+                MOCK_TEAM_ID
+            )
+
+            renderFilter({
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Events],
+            })
+
+            await userEvent.click(screen.getByTestId('taxonomic-tab-recent_filters'))
+
+            await waitFor(() => {
+                expect(screen.getByTestId('prop-filter-recent_filters-0')).toBeInTheDocument()
+            })
+
+            const row = screen.getByTestId('prop-filter-recent_filters-0')
+            expect(row).toHaveTextContent('event1')
+            expect(row).toHaveTextContent('Events - recent')
+        })
     })
 })

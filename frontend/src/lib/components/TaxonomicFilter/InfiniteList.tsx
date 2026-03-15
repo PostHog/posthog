@@ -1,6 +1,7 @@
 import '../../lemon-ui/Popover/Popover.scss'
 import './InfiniteList.scss'
 
+import { hide } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import { CSSProperties, useEffect, useState } from 'react'
@@ -13,6 +14,7 @@ import { AutoSizer } from 'lib/components/AutoSizer'
 import { ControlledDefinitionPopover } from 'lib/components/DefinitionPopover/DefinitionPopoverContents'
 import { definitionPopoverLogic } from 'lib/components/DefinitionPopover/definitionPopoverLogic'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { hasRecentContext } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     DataWarehousePopoverField,
@@ -27,6 +29,7 @@ import {
 import { dayjs } from 'lib/dayjs'
 import { LemonRow } from 'lib/lemon-ui/LemonRow'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
+import { Popover } from 'lib/lemon-ui/Popover'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { pluralize } from 'lib/utils'
@@ -379,8 +382,11 @@ const InfiniteListRow = ({
 
     if (item && itemGroup) {
         const isDisabledItem = itemGroup?.getIsDisabled?.(item) ?? false
-        const isExactMatchItem =
-            listGroupType === TaxonomicFilterGroupType.SuggestedFilters && itemGroup.type !== listGroupType
+        const isCrossGroupItem = group.isLocalOnly && itemGroup.type !== listGroupType
+        const itemHasRecentContext = hasRecentContext(item)
+        const recentGroup = itemHasRecentContext
+            ? taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.RecentFilters)
+            : undefined
 
         return (
             <div
@@ -404,14 +410,19 @@ const InfiniteListRow = ({
             >
                 {renderItemContents({
                     item,
-                    listGroupType: isExactMatchItem ? itemGroup.type : listGroupType,
-                    itemGroup,
+                    listGroupType: isCrossGroupItem
+                        ? itemHasRecentContext && item._recentContext.propertyFilter
+                            ? listGroupType
+                            : itemGroup.type
+                        : listGroupType,
+                    itemGroup:
+                        itemHasRecentContext && item._recentContext.propertyFilter ? (recentGroup ?? group) : itemGroup,
                     eventNames,
                     isActive,
                 })}
-                {isExactMatchItem && (
+                {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
-                        {itemGroup.name}
+                        {itemHasRecentContext ? `${itemGroup.name} - recent` : itemGroup.name}
                     </LemonTag>
                 )}
             </div>
@@ -545,6 +556,8 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
     }, [index, listRef])
 
     const selectedItemGroup = getItemGroup(selectedItem, taxonomicGroups, group)
+    const selectedItemIsRecent = selectedItem ? hasRecentContext(selectedItem) : false
+    const recentFiltersGroup = taxonomicGroups.find((g) => g.type === TaxonomicFilterGroupType.RecentFilters)
 
     return (
         <div
@@ -615,10 +628,27 @@ export function InfiniteList({ popupAnchorElement, definitionPopoverRenderer }: 
                     }
                 />
             )}
-            {isActiveTab &&
-            selectedItemHasPopover(selectedItem, selectedItemGroup?.type ?? listGroupType, selectedItemGroup) &&
-            showPopover &&
-            selectedItem ? (
+            {isActiveTab && showPopover && selectedItem && selectedItemIsRecent ? (
+                <Popover
+                    visible={selectedItemInView}
+                    referenceElement={highlightedItemElement}
+                    className="click-outside-block hotkey-block"
+                    overlay={
+                        <div className="definition-popover p-2">
+                            <div className="font-semibold text-xs text-muted mb-1">
+                                {selectedItemGroup.name} &middot; Recent
+                            </div>
+                            <div>{recentFiltersGroup?.getName?.(selectedItem) || selectedItem.name || ''}</div>
+                        </div>
+                    }
+                    placement="right"
+                    fallbackPlacements={['left']}
+                    middleware={[hide()]}
+                />
+            ) : isActiveTab &&
+              selectedItemHasPopover(selectedItem, selectedItemGroup?.type ?? listGroupType, selectedItemGroup) &&
+              showPopover &&
+              selectedItem ? (
                 <BindLogic
                     logic={definitionPopoverLogic}
                     props={{
@@ -675,7 +705,12 @@ export function getItemGroup(
 ): TaxonomicFilterGroup {
     let group = defaultGroup
 
-    if (item && 'group' in item) {
+    if (item && hasRecentContext(item)) {
+        const itemGroup = groups.find((g) => g.type === item._recentContext.sourceGroupType)
+        if (itemGroup) {
+            group = itemGroup
+        }
+    } else if (item && 'group' in item) {
         const itemGroup = groups.find((g) => item.group === g.type)
         if (itemGroup) {
             group = itemGroup

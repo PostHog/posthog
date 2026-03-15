@@ -89,6 +89,14 @@ const DataWarehouseEmptyState = (): JSX.Element => {
     )
 }
 
+const RecentFiltersEmptyState = (): JSX.Element => {
+    return (
+        <div className="flex flex-col items-center p-8 mt-4 w-full text-center">
+            <p className="text-sm text-secondary">No recent selections yet. Items you select will appear here.</p>
+        </div>
+    )
+}
+
 const DefaultEmptyState = (): JSX.Element | null => {
     return null
 }
@@ -97,6 +105,7 @@ const EMPTY_STATES: Partial<Record<TaxonomicFilterGroupType, () => JSX.Element>>
     [TaxonomicFilterGroupType.DataWarehouse]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehouseProperties]: DataWarehouseEmptyState,
     [TaxonomicFilterGroupType.DataWarehousePersonProperties]: DataWarehouseEmptyState,
+    [TaxonomicFilterGroupType.RecentFilters]: RecentFiltersEmptyState,
 } as const
 
 export const taxonomicFilterGroupTypesWithEmptyStates = Object.keys(EMPTY_STATES) as TaxonomicFilterGroupType[]

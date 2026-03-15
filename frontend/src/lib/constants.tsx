@@ -413,6 +413,7 @@ export const FEATURE_FLAGS = {
     TASK_SUMMARIES: 'task-summaries', // owner: #team-llm-analytics
     TASK_TOOL: 'phai-task-tool', // owner: @kappa90 #team-posthog-ai
     TASKS: 'tasks', // owner: #team-llm-analytics
+    TAXONOMIC_FILTER_RECENTS: 'taxonomic-filter-recents', // owner: @pauldambra #team-replay
     TOGGLE_PROPERTY_ARRAYS: 'toggle-property-arrays', // owner: @arthurdedeus #team-customer-analytics
     TRACING: 'tracing', // owner: #team-apm (@jonmcwest, @frankh)
     METRICS: 'metrics', // owner: #team-apm (@jonmcwest, @frankh)

@@ -145,6 +145,8 @@ export interface TaxonomicFilterGroup {
     render?: TaxonomicFilterRender
     /** if you want to override the default local items search behaviour e.g. for the replay group type */
     localItemsSearch?: (items: TaxonomicDefinitionTypes[], q: string) => TaxonomicDefinitionTypes[]
+    /** Local-only groups don't participate in server-search mechanics (top matches, skeletons, auto-tab-away). */
+    isLocalOnly?: boolean
     endpoint?: string
     /** If present, will be used instead of "endpoint" until the user presses "expand results". */
     scopedEndpoint?: string
@@ -230,6 +232,7 @@ export enum TaxonomicFilterGroupType {
     // Workflows execution variables
     WorkflowVariables = 'workflow_variables',
     SuggestedFilters = 'suggested_filters',
+    RecentFilters = 'recent_filters',
     Empty = 'empty',
 }
 

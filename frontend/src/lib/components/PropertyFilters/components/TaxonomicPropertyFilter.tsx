@@ -90,7 +90,8 @@ export function TaxonomicPropertyFilter({
         selectItem(taxonomicGroup, value, item?.propertyFilterType, item)
         if (
             taxonomicGroup.type === TaxonomicFilterGroupType.HogQLExpression ||
-            taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters
+            taxonomicGroup.type === TaxonomicFilterGroupType.SuggestedFilters ||
+            (taxonomicGroup.type === TaxonomicFilterGroupType.RecentFilters && item?._recentContext?.propertyFilter)
         ) {
             onComplete?.()
         }
