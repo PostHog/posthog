@@ -15,6 +15,7 @@ import {
     formatDateTime,
     formatDateTimeRange,
     isDate,
+    isRelativeDate,
 } from 'lib/utils'
 
 import { DateMappingOption } from '~/types'
@@ -46,6 +47,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
         openDateToNow: true,
         openFixedDate: true,
         openJumpToTimestamp: true,
+        openCustomRelativeRange: true,
         close: true,
         applyRange: true,
         setFixedRangeGranularity: (granularity: 'day' | 'minute') => ({ granularity }),
@@ -74,6 +76,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 openDateToNow: () => DateFilterView.DateToNow,
                 openFixedDate: () => DateFilterView.FixedDate,
                 openJumpToTimestamp: () => DateFilterView.JumpToTimestamp,
+                openCustomRelativeRange: () => DateFilterView.CustomRelativeRange,
             },
         ],
         isVisible: [
@@ -85,6 +88,7 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
                 openDateToNow: () => true,
                 openFixedDate: () => true,
                 openJumpToTimestamp: () => true,
+                openCustomRelativeRange: () => true,
                 setDate: (_, { keepPopoverOpen }) => keepPopoverOpen,
                 close: () => false,
             },
@@ -147,12 +151,36 @@ export const dateFilterLogic = kea<dateFilterLogicType>([
             (s) => [s.dateFrom, s.dateTo, (_, p) => p.isFixedDateMode],
             (dateFrom, dateTo, isFixedDateMode) => dateFrom && dayjs(dateFrom).isValid() && !dateTo && isFixedDateMode,
         ],
+        isCustomRelativeRange: [
+            (s) => [s.dateFrom, s.dateTo, s.dateOptions],
+            (dateFrom, dateTo, dateOptions): boolean =>
+                !!dateFrom &&
+                !!dateTo &&
+                typeof dateFrom === 'string' &&
+                typeof dateTo === 'string' &&
+                isRelativeDate(dateFrom) &&
+                isRelativeDate(dateTo) &&
+                !dateOptions?.find(
+                    (option) =>
+                        (option.values[0] ?? null) === (dateFrom ?? null) &&
+                        (option.values[1] ?? null) === (dateTo ?? null)
+                ),
+        ],
         isRollingDateRange: [
-            (s) => [s.isFixedRange, s.isDateToNow, s.isFixedDate, s.dateOptions, s.dateFrom, s.dateTo],
-            (isFixedRange, isDateToNow, isFixedDate, dateOptions, dateFrom, dateTo): boolean =>
+            (s) => [
+                s.isFixedRange,
+                s.isDateToNow,
+                s.isFixedDate,
+                s.isCustomRelativeRange,
+                s.dateOptions,
+                s.dateFrom,
+                s.dateTo,
+            ],
+            (isFixedRange, isDateToNow, isFixedDate, isCustomRelativeRange, dateOptions, dateFrom, dateTo): boolean =>
                 !isFixedRange &&
                 !isDateToNow &&
                 !isFixedDate &&
+                !isCustomRelativeRange &&
                 !dateOptions?.find(
                     (option) =>
                         (option.values[0] ?? null) === (dateFrom ?? null) &&

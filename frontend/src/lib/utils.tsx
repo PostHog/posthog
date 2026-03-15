@@ -1357,6 +1357,14 @@ export function dateFilterToText(
         }
     }
 
+    if (dateFrom && dateTo && isRelativeDate(dateFrom) && isRelativeDate(dateTo)) {
+        const fromText = dateFromToText(dateFrom)
+        const toText = dateFromToText(dateTo)
+        if (fromText && toText) {
+            return `${fromText} ago to ${toText} ago`
+        }
+    }
+
     if (dateFrom) {
         const dateOption = dateOptionsMap[dateFrom.slice(-1) as keyof typeof dateOptionsMap]
         const counter = parseInt(dateFrom.slice(1, -1))
@@ -1418,6 +1426,14 @@ export type DateComponents = {
 }
 
 export const isStringDateRegex = /^([-+]?)([0-9]*)([hdwmqy])(|Start|End)$/
+
+/** Check if a string is a relative date expression like "-7d", "-1mStart", "dStart", etc. */
+export function isRelativeDate(value: string | null | undefined): boolean {
+    if (!value || typeof value !== 'string') {
+        return false
+    }
+    return isStringDateRegex.test(value)
+}
 export function dateStringToComponents(date: string | null): DateComponents | null {
     if (!date) {
         return null

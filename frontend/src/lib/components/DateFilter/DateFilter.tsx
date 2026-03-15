@@ -25,6 +25,7 @@ import { ResolvedDateRangeResponse } from '~/queries/schema/schema-general'
 import { DateMappingOption, PropertyOperator } from '~/types'
 
 import { PropertyFilterDatePicker } from '../PropertyFilters/components/PropertyFilterDatePicker'
+import { CustomRelativeDateRangeFilter } from './CustomRelativeDateRangeFilter'
 import { dateFilterLogic } from './dateFilterLogic'
 import { FixedRangeWithTimePicker } from './FixedRangeWithTimePicker'
 import { JumpToTimestampPicker } from './JumpToTimestampPicker'
@@ -121,6 +122,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         openDateToNow,
         openFixedDate,
         openJumpToTimestamp,
+        openCustomRelativeRange,
         close,
         setRangeDateFrom,
         setExplicitDate,
@@ -139,6 +141,7 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
         isDateToNow,
         isFixedDate,
         isRollingDateRange,
+        isCustomRelativeRange,
         dateFromHasTimePrecision,
         fixedRangeGranularity,
     } = useValues(dateFilterLogic(logicProps))
@@ -212,6 +215,15 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                 setValue={(date) => {
                     setDate(String(date), '')
                 }}
+            />
+        ) : view === DateFilterView.CustomRelativeRange ? (
+            <CustomRelativeDateRangeFilter
+                dateFrom={typeof dateFrom === 'string' ? dateFrom : null}
+                dateTo={typeof dateTo === 'string' ? dateTo : null}
+                onChange={(fromDate, toDate) => {
+                    setDate(fromDate, toDate)
+                }}
+                onBack={open}
             />
         ) : view === DateFilterView.JumpToTimestamp ? (
             <JumpToTimestampPicker onApply={(dateFrom, dateTo) => setDate(dateFrom, dateTo)} onClose={open} />
@@ -296,6 +308,14 @@ export const DateFilter = forwardRef<HTMLButtonElement, RawDateFilterProps>(func
                         </LemonButton>
                         <LemonButton onClick={openFixedRange} active={isFixedRange} fullWidth>
                             Custom fixed date range…
+                        </LemonButton>
+                        <LemonButton
+                            onClick={openCustomRelativeRange}
+                            active={isCustomRelativeRange}
+                            fullWidth
+                            data-attr="custom-relative-date-range-option"
+                        >
+                            Custom relative date range…
                         </LemonButton>
                     </>
                 )}
