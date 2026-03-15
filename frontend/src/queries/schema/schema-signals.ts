@@ -2,6 +2,7 @@
 
 // Session replay segment cluster
 
+/** @deprecated Legacy shape — new signals use `segment_ids` instead */
 export interface SessionReplaySegment {
     session_id: string
     start_time: string
@@ -19,7 +20,9 @@ export interface SessionSegmentClusterMetrics {
 export interface SessionSegmentClusterSignalExtra {
     label_title: string
     actionable: boolean
-    segments: SessionReplaySegment[]
+    segment_ids?: string[]
+    /** @deprecated Legacy field — kept for backward compat with existing signals in ClickHouse */
+    segments?: SessionReplaySegment[]
     metrics: SessionSegmentClusterMetrics
 }
 

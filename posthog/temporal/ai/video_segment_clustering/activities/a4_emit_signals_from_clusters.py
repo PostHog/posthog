@@ -143,22 +143,6 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
             active_users_in_period=active_users_in_period,
         )
 
-        # Build segment metadata for extra field
-        segment_extras = []
-        for seg in cluster_segments:
-            session_start = parse_datetime_as_utc(seg.session_start_time)
-            abs_start = session_start + timedelta(seconds=parse_timestamp_to_seconds(seg.start_time))
-            abs_end = session_start + timedelta(seconds=parse_timestamp_to_seconds(seg.end_time))
-            segment_extras.append(
-                {
-                    "session_id": seg.session_id,
-                    "start_time": abs_start.isoformat(),
-                    "end_time": abs_end.isoformat(),
-                    "distinct_id": seg.distinct_id,
-                    "content": seg.content,
-                }
-            )
-
         try:
             await emit_signal(
                 team=team,
@@ -170,7 +154,7 @@ async def emit_signals_from_clusters_activity(inputs: EmitSignalsActivityInputs)
                 extra={
                     "label_title": cluster_label.title,
                     "actionable": cluster_label.actionable,
-                    "segments": segment_extras,
+                    "segment_ids": [seg.document_id for seg in cluster_segments],
                     "metrics": {
                         "relevant_user_count": relevant_user_count,
                         "active_users_in_period": active_users_in_period,

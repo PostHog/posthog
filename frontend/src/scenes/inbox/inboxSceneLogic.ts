@@ -5,16 +5,25 @@ import { actionToUrl, router, urlToAction } from 'kea-router'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api, { CountedPaginatedResponse } from 'lib/api'
+import { dayjs } from 'lib/dayjs'
 import { SignalNode } from 'scenes/debug/signals/types'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
+import { hogqlQuery } from '~/queries/query'
+import { hogql } from '~/queries/utils'
 import { Breadcrumb } from '~/types'
 
 import type { inboxSceneLogicType } from './inboxSceneLogicType'
 import { signalSourcesLogic } from './signalSourcesLogic'
-import { SignalReport, SignalReportArtefact, SignalReportArtefactResponse, SignalReportStatus } from './types'
+import {
+    SessionReplaySegmentDetail,
+    SignalReport,
+    SignalReportArtefact,
+    SignalReportArtefactResponse,
+    SignalReportStatus,
+} from './types'
 
 const REPORTS_PAGE_SIZE = 200
 
@@ -84,6 +93,51 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 loadReportSignals: async ({ reportId }: { reportId: string }) => {
                     const response = await api.signalReports.getReportSignals(reportId)
                     return { ...values.reportSignals, [reportId]: response.signals }
+                },
+            },
+        ],
+        segmentDetails: [
+            {} as Record<string, SessionReplaySegmentDetail>,
+            {
+                loadSegmentDetails: async ({ segmentIds }: { segmentIds: string[] }) => {
+                    if (segmentIds.length === 0) {
+                        return values.segmentDetails
+                    }
+                    const newIds = [...new Set(segmentIds)].filter((id) => !(id in values.segmentDetails))
+                    if (newIds.length === 0) {
+                        return values.segmentDetails
+                    }
+
+                    // Cap each IN clause to avoid building a massive HogQL string for large reports
+                    const CHUNK_SIZE = 500
+                    const chunks: string[][] = []
+                    for (let i = 0; i < newIds.length; i += CHUNK_SIZE) {
+                        chunks.push(newIds.slice(i, i + CHUNK_SIZE))
+                    }
+
+                    const responses = await Promise.all(
+                        chunks.map((chunk) =>
+                            hogqlQuery(
+                                hogql`SELECT document_id, content, metadata
+                                    FROM document_embeddings
+                                    WHERE model_name = 'text-embedding-3-large-3072'
+                                      AND document_id IN ${chunk}
+                                      AND product = 'session-replay'
+                                      AND document_type = 'video-segment'`
+                            )
+                        )
+                    )
+
+                    const newDetails = { ...values.segmentDetails }
+                    for (const response of responses) {
+                        for (const row of response.results || []) {
+                            const detail = parseSegmentRow(row)
+                            if (detail) {
+                                newDetails[detail.document_id] = detail
+                            }
+                        }
+                    }
+                    return newDetails
                 },
             },
         ],
@@ -201,6 +255,19 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
                 actions.loadReportSignals({ reportId: values.selectedReportId })
             }
         },
+        loadReportSignalsSuccess: () => {
+            const allSegmentIds: string[] = []
+            for (const signals of Object.values(values.reportSignals)) {
+                for (const signal of signals) {
+                    if ('segment_ids' in signal.extra && Array.isArray(signal.extra.segment_ids)) {
+                        allSegmentIds.push(...(signal.extra.segment_ids as string[]))
+                    }
+                }
+            }
+            if (allSegmentIds.length > 0) {
+                actions.loadSegmentDetails({ segmentIds: allSegmentIds })
+            }
+        },
         deleteReport: async ({ reportId }) => {
             // Reducer handles optimistic removal from list
             if (values.selectedReportId === reportId) {
@@ -285,3 +352,44 @@ export const inboxSceneLogic = kea<inboxSceneLogicType>([
         },
     })),
 ])
+
+function relativeTimeToSeconds(timeStr: string): number {
+    const parts = timeStr.split(':').map(Number)
+    let seconds = 0
+    for (let i = parts.length - 1; i >= 0; i--) {
+        seconds += parts[i] * Math.pow(60, parts.length - 1 - i)
+    }
+    return seconds
+}
+
+function parseSegmentRow(row: any[]): SessionReplaySegmentDetail | null {
+    try {
+        const [documentId, content, metadataStr] = row
+        const metadata: Record<string, string> = JSON.parse(metadataStr)
+        const sessionStartDayjs = dayjs(metadata.session_start_time)
+        if (!sessionStartDayjs.isValid()) {
+            console.warn(
+                `Segment ${JSON.stringify(documentId)} has invalid session_start_time: ${JSON.stringify(metadata.session_start_time)}`
+            )
+            return null
+        }
+        const detail: SessionReplaySegmentDetail = {
+            document_id: String(documentId ?? ''),
+            session_id: String(metadata.session_id ?? ''),
+            distinct_id: String(metadata.distinct_id ?? ''),
+            content: String(content ?? ''),
+            start_time: sessionStartDayjs.add(relativeTimeToSeconds(metadata.start_time), 'second').toISOString(),
+            end_time: sessionStartDayjs.add(relativeTimeToSeconds(metadata.end_time), 'second').toISOString(),
+        }
+        if (!detail.document_id || !detail.session_id) {
+            console.warn(
+                `Segment row missing required fields — document_id: ${JSON.stringify(documentId)}, session_id: ${JSON.stringify(metadata.session_id)}`
+            )
+            return null
+        }
+        return detail
+    } catch (e) {
+        console.warn('Failed to parse segment row:', e, row)
+        return null
+    }
+}

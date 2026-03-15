@@ -221,5 +221,5 @@ async def test_emit_signals_activity_calls_emit_signal(ateam, test_segments_and_
         assert call.kwargs["source_product"] == "session_replay"
         assert call.kwargs["source_type"] == "session_segment_cluster"
         assert call.kwargs["weight"] > 0
-        assert "segments" in call.kwargs["extra"]
+        assert "segment_ids" in call.kwargs["extra"]
         assert "metrics" in call.kwargs["extra"]
