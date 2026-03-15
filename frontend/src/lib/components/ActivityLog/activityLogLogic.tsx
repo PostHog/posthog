@@ -307,6 +307,14 @@ export const activityLogLogic = kea<activityLogLogicType>([
     }),
     events(({ actions, values }) => ({
         afterMount: () => {
+            // Initialize highlightedActivityId from current URL search params
+            const activityId = router.values.searchParams.activity
+            if (activityId && activityId !== values.highlightedActivityId) {
+                actions.setHighlightedActivityId(activityId)
+            } else if (!activityId && values.highlightedActivityId !== null) {
+                actions.setHighlightedActivityId(null)
+            }
+
             if (!values.activity.results.length && !values.activityLoading) {
                 actions.fetchActivity()
             }

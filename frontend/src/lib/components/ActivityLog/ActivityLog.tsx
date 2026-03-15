@@ -157,19 +157,17 @@ export const ActivityLogRow = ({
         if (!logItem.id) {
             return
         }
-        const { pathname, searchParams, hash } = router.values.currentLocation
-        const newParams = new URLSearchParams()
-        for (const [key, value] of Object.entries(searchParams)) {
-            if (key !== 'activity') {
-                newParams.set(key, String(value))
-            }
-        }
+        const { pathname, search, hash } = router.values.currentLocation
+        const newParams = new URLSearchParams(search || '')
+        // Remove any existing activity param so we can set the current one
+        newParams.delete('activity')
         // Ensure the History tab is restored when deep-linking from feature flag pages
         if (pathname && removeProjectIdIfPresent(pathname).startsWith('/feature_flags/') && !newParams.has('tab')) {
             newParams.set('tab', 'history')
         }
         newParams.set('activity', logItem.id)
-        const url = `${window.location.origin}${pathname}?${newParams.toString()}${hash || ''}`
+        const searchString = newParams.toString()
+        const url = `${window.location.origin}${pathname}${searchString ? `?${searchString}` : ''}${hash || ''}`
         void copyToClipboard(url, 'activity link')
     }
 
