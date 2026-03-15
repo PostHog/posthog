@@ -1,0 +1,157 @@
+{
+  "id": "019cd707-fd5b-0000-3090-053cbd91f8da",
+  "name": "Notify sales for high intent users",
+  "description": "Detect when a user shows strong buying intent and alert your sales team so they can follow up quickly. High intent actions can involve: visited pricing page, clicked upgrade, started checkout, requested demo, invited teammates, etc. In the conditional branch, set a filter that rules out free users who are just exploring, internal users, or very small accounts.",
+  "version": 1,
+  "created_at": "2026-03-10T09:15:51.003952Z",
+  "created_by": {
+    "id": 310726,
+    "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+    "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+    "first_name": "Sara",
+    "last_name": "Miteva",
+    "email": "sara@posthog.com",
+    "is_email_verified": true,
+    "hedgehog_config": null,
+    "role_at_organization": null
+  },
+  "updated_at": "2026-03-10T09:20:09.447003Z",
+  "trigger": {
+    "type": "event",
+    "filters": {}
+  },
+  "trigger_masking": null,
+  "conversion": {
+    "filters": [],
+    "bytecode": [],
+    "window_minutes": null
+  },
+  "exit_condition": "exit_only_at_end",
+  "edges": [
+    {
+      "to": "action_conditional_branch_50c7e701-ae71-4454-9940-3c981e8d1e91",
+      "from": "trigger_node",
+      "type": "continue"
+    },
+    {
+      "to": "exit_node",
+      "from": "action_conditional_branch_50c7e701-ae71-4454-9940-3c981e8d1e91",
+      "type": "continue"
+    },
+    {
+      "to": "action_function_8f136482-2465-4556-9f2d-3b3a9e3be2b8",
+      "from": "action_conditional_branch_50c7e701-ae71-4454-9940-3c981e8d1e91",
+      "type": "branch",
+      "index": 0
+    },
+    {
+      "to": "exit_node",
+      "from": "action_function_8f136482-2465-4556-9f2d-3b3a9e3be2b8",
+      "type": "continue"
+    }
+  ],
+  "actions": [
+    {
+      "id": "trigger_node",
+      "name": "High intent event",
+      "description": "Select one or several high-intent events.",
+      "on_error": null,
+      "created_at": 0,
+      "updated_at": 0,
+      "filters": null,
+      "type": "trigger",
+      "config": {
+        "type": "event",
+        "filters": {}
+      },
+      "output_variable": null
+    },
+    {
+      "id": "action_conditional_branch_50c7e701-ae71-4454-9940-3c981e8d1e91",
+      "name": "Eligible for sales?",
+      "description": "Check if the user is eligible for sales.",
+      "on_error": null,
+      "created_at": 1773134299573,
+      "updated_at": 1773134299573,
+      "type": "conditional_branch",
+      "config": {
+        "conditions": [
+          {
+            "filters": {
+              "source": "events",
+              "bytecode": [
+                "_H",
+                1,
+                29
+              ]
+            }
+          }
+        ]
+      },
+      "output_variable": null
+    },
+    {
+      "id": "action_function_8f136482-2465-4556-9f2d-3b3a9e3be2b8",
+      "name": "Sales Slack channel",
+      "description": "Notify your sales team.",
+      "on_error": null,
+      "created_at": 1773134381097,
+      "updated_at": 1773134381097,
+      "type": "function",
+      "config": {
+        "template_id": "template-slack",
+        "inputs": {
+          "slack_workspace": {
+            "value": 54567,
+            "templating": "hog"
+          },
+          "channel": {
+            "templating": "hog"
+          },
+          "icon_emoji": {
+            "value": ":hedgehog:",
+            "templating": "hog"
+          },
+          "username": {
+            "value": "PostHog",
+            "templating": "hog"
+          },
+          "blocks": {
+            "value": "[\n  {\n    \"type\": \"section\",\n    \"text\": {\n      \"type\": \"mrkdwn\",\n      \"text\": \"🔥 *High-intent user detected*\\n\\n*{person.name}* just triggered a high-intent action.\"\n    }\n  },\n  {\n    \"type\": \"actions\",\n    \"elements\": [\n      {\n        \"url\": \"{person.url}\",\n        \"text\": {\n          \"type\": \"plain_text\",\n          \"text\": \"View user in PostHog\"\n        },\n        \"type\": \"button\"\n      }\n    ]\n  }\n]",
+            "templating": "hog"
+          },
+          "text": {
+            "value": "*{person.name}* triggered event: '{event.event}'",
+            "templating": "hog"
+          }
+        }
+      },
+      "output_variable": null
+    },
+    {
+      "id": "exit_node",
+      "name": "Exit",
+      "description": "User moved through the workflow without errors.",
+      "on_error": null,
+      "created_at": 0,
+      "updated_at": 0,
+      "filters": null,
+      "type": "exit",
+      "config": {
+        "reason": "Default exit"
+      },
+      "output_variable": null
+    }
+  ],
+  "abort_action": null,
+  "variables": [],
+  "billable_action_types": [
+    "function"
+  ],
+  "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_7_ed7aaa8716.jpg",
+  "tags": [
+    "sales",
+    "slack"
+  ],
+  "scope": "global"
+}

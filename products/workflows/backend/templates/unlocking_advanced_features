@@ -1,0 +1,746 @@
+{
+  "id": "019cc2c0-99f0-0000-b510-b3774bc75c7e",
+  "name": "Unlocking advanced features",
+  "description": "Unlock features automatically when users complete a key action in your product. This workflow updates a user property that can be used to target feature flags or personalize the experience.",
+  "version": 1,
+  "created_at": "2026-03-06T10:45:28.176584Z",
+  "created_by": {
+    "id": 310726,
+    "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+    "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+    "first_name": "Sara",
+    "last_name": "Miteva",
+    "email": "sara@posthog.com",
+    "is_email_verified": true,
+    "hedgehog_config": null,
+    "role_at_organization": null
+  },
+  "updated_at": "2026-03-06T11:07:44.973320Z",
+  "trigger": {
+    "type": "event",
+    "filters": {
+      "events": [
+        {
+          "id": "$pageview",
+          "name": "Pageview",
+          "type": "events",
+          "uuid": "efb83783-118b-4e0b-a72d-eb3a00875ac8",
+          "order": 0
+        }
+      ],
+      "source": "events",
+      "actions": [],
+      "bytecode": [
+        "_H",
+        1,
+        32,
+        "$pageview",
+        32,
+        "event",
+        1,
+        1,
+        11
+      ],
+      "filter_test_accounts": false
+    }
+  },
+  "trigger_masking": null,
+  "conversion": {
+    "filters": [],
+    "bytecode": [],
+    "window_minutes": null
+  },
+  "exit_condition": "exit_only_at_end",
+  "edges": [
+    {
+      "to": "action_conditional_branch_13f88140-b8b9-4072-9b00-2e3fbbe7d367",
+      "from": "trigger_node",
+      "type": "continue"
+    },
+    {
+      "to": "exit_node",
+      "from": "action_conditional_branch_13f88140-b8b9-4072-9b00-2e3fbbe7d367",
+      "type": "branch",
+      "index": 0
+    },
+    {
+      "to": "action_function_fbb8b99f-d4f7-4c32-9b12-306cf51fa94f",
+      "from": "action_conditional_branch_13f88140-b8b9-4072-9b00-2e3fbbe7d367",
+      "type": "continue"
+    },
+    {
+      "to": "action_function_email_024b3215-2e11-4d39-ab4f-4ffa464092e7",
+      "from": "action_function_fbb8b99f-d4f7-4c32-9b12-306cf51fa94f",
+      "type": "continue"
+    },
+    {
+      "to": "exit_node",
+      "from": "action_function_email_024b3215-2e11-4d39-ab4f-4ffa464092e7",
+      "type": "continue"
+    }
+  ],
+  "actions": [
+    {
+      "id": "trigger_node",
+      "name": "Trigger",
+      "description": "Event: A user has done something meaningful.",
+      "on_error": null,
+      "created_at": 0,
+      "updated_at": 0,
+      "filters": null,
+      "type": "trigger",
+      "config": {
+        "type": "event",
+        "filters": {
+          "events": [
+            {
+              "id": "$pageview",
+              "name": "Pageview",
+              "type": "events",
+              "uuid": "efb83783-118b-4e0b-a72d-eb3a00875ac8",
+              "order": 0
+            }
+          ],
+          "source": "events",
+          "actions": [],
+          "bytecode": [
+            "_H",
+            1,
+            32,
+            "$pageview",
+            32,
+            "event",
+            1,
+            1,
+            11
+          ],
+          "filter_test_accounts": false
+        }
+      },
+      "output_variable": null
+    },
+    {
+      "id": "action_conditional_branch_13f88140-b8b9-4072-9b00-2e3fbbe7d367",
+      "name": "Conditional branch",
+      "description": "Check if the feature is still locked",
+      "on_error": null,
+      "created_at": 1772793447746,
+      "updated_at": 1772793447746,
+      "filters": null,
+      "type": "conditional_branch",
+      "config": {
+        "conditions": [
+          {
+            "filters": {
+              "source": "events",
+              "bytecode": [
+            
+              ],
+              "properties": [
+                {
+                  
+                }
+              ]
+            }
+          }
+        ]
+      },
+      "output_variable": null
+    },
+    {
+      "id": "action_function_fbb8b99f-d4f7-4c32-9b12-306cf51fa94f",
+      "name": "Unlock advanced feature",
+      "description": "Change person property to unlocked.",
+      "on_error": null,
+      "created_at": 1772793768043,
+      "updated_at": 1772793768043,
+      "filters": null,
+      "type": "function",
+      "config": {
+        "inputs": {
+          "distinct_id": {
+            "order": 0,
+            "value": "{event.distinct_id}",
+            "bytecode": [
+              "_H",
+              1,
+              32,
+              "distinct_id",
+              32,
+              "event",
+              1,
+              2
+            ],
+            "templating": "hog"
+          },
+          "set_properties": {
+            "order": 1,
+            "value": {
+              "advanced_feature_unlocked": "true"
+            },
+            "bytecode": {
+              "advanced_feature_unlocked": [
+                "_H",
+                1,
+                32,
+                "true"
+              ]
+            },
+            "templating": "hog"
+          },
+          "set_once_properties": {
+            "order": 2,
+            "value": {},
+            "templating": "hog"
+          }
+        },
+        "template_id": "template-posthog-update-person-properties"
+      },
+      "output_variable": null
+    },
+    {
+      "id": "action_function_email_024b3215-2e11-4d39-ab4f-4ffa464092e7",
+      "name": "Notify user",
+      "description": "Tell them they've unlocked a new feature.",
+      "on_error": null,
+      "created_at": 1772794013632,
+      "updated_at": 1772794013632,
+      "filters": null,
+      "type": "function_email",
+      "config": {
+        "inputs": {
+          "email": {
+            "order": 0,
+            "value": {
+              "to": {
+                "name": "",
+                "email": "{{ person.properties.email }}"
+              },
+              "from": {
+                "name": "",
+                "email": ""
+              },
+              "html": "<!DOCTYPE HTML PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional //EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:o=\"urn:schemas-microsoft-com:office:office\">\n<head>\n<!--[if gte mso 9]>\n<xml>\n  <o:OfficeDocumentSettings>\n    <o:AllowPNG/>\n    <o:PixelsPerInch>96</o:PixelsPerInch>\n  </o:OfficeDocumentSettings>\n</xml>\n<![endif]-->\n  <meta http-equiv=\"Content-Type\" content=\"text/html; charset=UTF-8\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <!--[if !mso]><!--><meta http-equiv=\"X-UA-Compatible\" content=\"IE=edge\"><!--<![endif]-->\n  \n  \n    <style type=\"text/css\">\n      \n      @media only screen and (min-width: 520px) {\n        .u-row {\n          width: 500px !important;\n        }\n\n        .u-row .u-col {\n          vertical-align: top;\n        }\n\n        \n            .u-row .u-col-100 {\n              width: 500px !important;\n            }\n          \n      }\n\n      @media only screen and (max-width: 520px) {\n        .u-row-container {\n          max-width: 100% !important;\n          padding-left: 0px !important;\n          padding-right: 0px !important;\n        }\n\n        .u-row {\n          width: 100% !important;\n        }\n\n        .u-row .u-col {\n          display: block !important;\n          width: 100% !important;\n          min-width: 320px !important;\n          max-width: 100% !important;\n        }\n\n        .u-row .u-col > div {\n          margin: 0 auto;\n        }\n\n}\n    \nbody{margin:0;padding:0}table,td,tr{border-collapse:collapse;vertical-align:top}p{margin:0}.ie-container table,.mso-container table{table-layout:fixed}*{line-height:inherit}a[x-apple-data-detectors=true]{color:inherit!important;text-decoration:none!important}\n\n\ntable, td { color: #000000; } #u_body a { color: #000000; text-decoration: underline; }\n    </style>\n  \n  \n\n</head>\n\n<body class=\"clean-body u_body\" style=\"margin: 0;padding: 0;-webkit-text-size-adjust: 100%;background-color: #ffffff;color: #000000\">\n  <!--[if IE]><div class=\"ie-container\"><![endif]-->\n  <!--[if mso]><div class=\"mso-container\"><![endif]-->\n  <table role=\"presentation\" id=\"u_body\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;min-width: 320px;Margin: 0 auto;background-color: #ffffff;width:100%\" cellpadding=\"0\" cellspacing=\"0\">\n  <tbody>\n  <tr style=\"vertical-align: top\">\n    <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top\">\n    <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td align=\"center\" style=\"background-color: #ffffff;\"><![endif]-->\n    \n  \n  \n<div class=\"u-row-container\" style=\"padding: 0px;background-color: transparent\">\n  <div class=\"u-row\" style=\"margin: 0 auto;min-width: 320px;max-width: 500px;overflow-wrap: break-word;word-wrap: break-word;word-break: break-word;background-color: transparent;\">\n    <div style=\"border-collapse: collapse;display: table;width: 100%;height: 100%;background-color: transparent;\">\n      <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"padding: 0px;background-color: transparent;\" align=\"center\"><table role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:500px;\"><tr style=\"background-color: transparent;\"><![endif]-->\n      \n<!--[if (mso)|(IE)]><td align=\"center\" width=\"500\" style=\"width: 500px;padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\" valign=\"top\"><![endif]-->\n<div class=\"u-col u-col-100\" style=\"max-width: 320px;min-width: 500px;display: table-cell;vertical-align: top;\">\n  <div style=\"height: 100%;width: 100% !important;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\">\n  <!--[if (!mso)&(!IE)]><!--><div style=\"box-sizing: border-box; height: 100%; padding: 0px;border-top: 0px solid transparent;border-left: 0px solid transparent;border-right: 0px solid transparent;border-bottom: 0px solid transparent;border-radius: 0px;-webkit-border-radius: 0px; -moz-border-radius: 0px;\"><!--<![endif]-->\n  \n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n  <tr>\n    <td style=\"padding-right: 0px;padding-left: 0px;\" align=\"center\">\n      \n      <img align=\"center\" border=\"0\" src=\"https://assets.unlayer.com/projects/0/1744132370840-unnamed.png?w=960px\" alt=\"\" title=\"\" style=\"outline: none;text-decoration: none;-ms-interpolation-mode: bicubic;clear: both;display: inline-block !important;border: none;height: auto;float: none;width: 100%;max-width: 480px;\" width=\"480\"/>\n      \n    </td>\n  </tr>\n</table>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n<table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n  <tr>\n    <td style=\"padding-right: 0px;padding-left: 0px;\" align=\"center\">\n      \n      <img align=\"center\" border=\"0\" src=\"https://assets.unlayer.com/projects/275430/1772794146775-cake%20hog.png?w=960px\" alt=\"\" title=\"\" style=\"outline: none;text-decoration: none;-ms-interpolation-mode: bicubic;clear: both;display: inline-block !important;border: none;height: auto;float: none;width: 100%;max-width: 480px;\" width=\"480\"/>\n      \n    </td>\n  </tr>\n</table>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n  <!--[if mso]><table role=\"presentation\" width=\"100%\"><tr><td><![endif]-->\n    <h1 style=\"margin: 0px; color: #555555; line-height: 140%; text-align: center; word-wrap: break-word; font-family: trebuchet ms,geneva; font-size: 22px; font-weight: 400;\"><strong>You unlocked something new ✨</strong></h1>\n  <!--[if mso]></td></tr></table><![endif]-->\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n  <div style=\"font-size: 14px; color: #555555; line-height: 140%; text-align: left; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">Good news!</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Based on how you&rsquo;ve been using the product, we&rsquo;ve unlocked something new for you.</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n  <!--[if mso]><style>.v-button {background: transparent !important;}</style><![endif]-->\n<div align=\"center\">\n  <!--[if mso]><v:roundrect xmlns:v=\"urn:schemas-microsoft-com:vml\" xmlns:w=\"urn:schemas-microsoft-com:office:word\" href=\"https://app.ourproduct.com/newfeature\" style=\"height:37px; v-text-anchor:middle; width:100px;\" arcsize=\"13.5%\"  strokecolor=\"#c1841a\" strokeweight=\"1px\" fillcolor=\"#f1a82c\"><w:anchorlock/><center style=\"color:#000000;\"><![endif]-->\n    <a href=\"https://app.ourproduct.com/newfeature\" target=\"_blank\" class=\"v-button\" style=\"box-sizing: border-box;display: inline-block;text-decoration: none;-webkit-text-size-adjust: none;text-align: center;color: #000000; background-color: #f1a82c; border-radius: 5px;-webkit-border-radius: 5px; -moz-border-radius: 5px; width:auto; max-width:100%; overflow-wrap: break-word; word-break: break-word; word-wrap:break-word; mso-border-alt: none;border-top-color: #c1841a; border-top-style: solid; border-top-width: 1px; border-left-color: #c1841a; border-left-style: solid; border-left-width: 1px; border-right-color: #c1841a; border-right-style: solid; border-right-width: 1px; border-bottom-color: #c1841a; border-bottom-style: solid; border-bottom-width: 3px;font-size: 14px;\">\n      <span style=\"display:block;padding:10px 20px;line-height:120%;\"><strong><span style=\"line-height: 16.8px;\">Try it out</span></strong></span>\n    </a>\n    <!--[if mso]></center></v:roundrect><![endif]-->\n</div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n  <table role=\"presentation\" aria-label=\"divider\" height=\"0px\" align=\"center\" border=\"0\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"border-collapse: collapse;table-layout: fixed;border-spacing: 0;mso-table-lspace: 0pt;mso-table-rspace: 0pt;vertical-align: top;border-top: 1px solid #BBBBBB;-ms-text-size-adjust: 100%;-webkit-text-size-adjust: 100%\">\n    <tbody>\n      <tr style=\"vertical-align: top\">\n        <td style=\"word-break: break-word;border-collapse: collapse !important;vertical-align: top;font-size: 0px;line-height: 0px;mso-line-height-rule: exactly;-ms-text-size-adjust: 100%;-webkit-text-size-adjust: 100%\">\n          <span>&#160;</span>\n        </td>\n      </tr>\n    </tbody>\n  </table>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n  <div style=\"font-family: trebuchet ms,geneva; font-size: 14px; color: #555555; line-height: 140%; text-align: center; word-wrap: break-word;\">\n    <p style=\"line-height: 140%;\">p.s. This email was sent with <strong><a rel=\"noopener\" href=\"https://app.posthog.com/workflows\" target=\"_blank\">PostHog Workflows</a></strong>! 🦔</p>\n  </div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        <p style=\"text-align: center;\"><span style=\"font-size: 12px; color: rgb(85, 85, 85);\">Boring, legal bit: We're at 2261 Market Street #4008, CA 94114. Unsubscribe?</span></p>\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n<table style=\"font-family:trebuchet ms,geneva;\" role=\"presentation\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" border=\"0\">\n  <tbody>\n    <tr>\n      <td style=\"overflow-wrap:break-word;word-break:break-word;padding:10px;font-family:trebuchet ms,geneva;\" align=\"left\">\n        \n<div align=\"center\" style=\"direction: ltr;\" aria-label=\"social\">\n  <div style=\"display: table; max-width:-5px;\">\n  <!--[if (mso)|(IE)]><table role=\"presentation\" width=\"-5\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\"><tr><td style=\"border-collapse:collapse;\" align=\"center\"><table role=\"presentation\" width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"border-collapse:collapse; mso-table-lspace: 0pt;mso-table-rspace: 0pt; width:-5px;\"><tr><![endif]-->\n  \n    \n    \n    <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n  </div>\n</div>\n\n      </td>\n    </tr>\n  </tbody>\n</table>\n\n  <!--[if (!mso)&(!IE)]><!--></div><!--<![endif]-->\n  </div>\n</div>\n<!--[if (mso)|(IE)]></td><![endif]-->\n      <!--[if (mso)|(IE)]></tr></table></td></tr></table><![endif]-->\n    </div>\n  </div>\n  </div>\n  \n\n\n    <!--[if (mso)|(IE)]></td></tr></table><![endif]-->\n    </td>\n  </tr>\n  </tbody>\n  </table>\n  <!--[if mso]></div><![endif]-->\n  <!--[if IE]></div><![endif]-->\n</body>\n\n</html>\n",
+              "text": "You unlocked something new ✨\nGood news!\n\nBased on how you’ve been using the product, we’ve unlocked something new for\nyou.\n\n[Try it out]\nhttps://app.ourproduct.com/newfeature\n\np.s. This email was sent with\n\n[PostHog Workflows]\nhttps://app.posthog.com/workflows\n\n! 🦔\n\nBoring, legal bit: We're at 2261 Market Street #4008, CA 94114. Unsubscribe?",
+              "design": {
+                "body": {
+                  "id": "TlJ2GekAva",
+                  "rows": [
+                    {
+                      "id": "-sL7LJ6rhD",
+                      "cells": [
+                        1
+                      ],
+                      "values": {
+                        "_meta": {
+                          "htmlID": "u_row_1",
+                          "htmlClassNames": "u_row"
+                        },
+                        "anchor": "",
+                        "locked": false,
+                        "columns": false,
+                        "padding": "0px",
+                        "hideable": true,
+                        "deletable": true,
+                        "draggable": true,
+                        "selectable": true,
+                        "_styleGuide": null,
+                        "hideDesktop": false,
+                        "duplicatable": true,
+                        "backgroundColor": "",
+                        "backgroundImage": {
+                          "url": "",
+                          "size": "custom",
+                          "repeat": "no-repeat",
+                          "position": "center",
+                          "fullWidth": true,
+                          "customPosition": [
+                            "50%",
+                            "50%"
+                          ]
+                        },
+                        "displayCondition": null,
+                        "columnsBackgroundColor": ""
+                      },
+                      "columns": [
+                        {
+                          "id": "IT_J8vPWTn",
+                          "values": {
+                            "_meta": {
+                              "htmlID": "u_column_1",
+                              "htmlClassNames": "u_column"
+                            },
+                            "border": {},
+                            "padding": "0px",
+                            "deletable": true,
+                            "borderRadius": "0px",
+                            "backgroundColor": ""
+                          },
+                          "contents": [
+                            {
+                              "id": "qofM9mV3d9",
+                              "type": "image",
+                              "values": {
+                                "src": {
+                                  "url": "https://assets.unlayer.com/projects/0/1744132370840-unnamed.png",
+                                  "size": 15244,
+                                  "width": 1224,
+                                  "height": 128,
+                                  "dynamic": true,
+                                  "contentType": "image/png"
+                                },
+                                "_meta": {
+                                  "htmlID": "u_content_image_1",
+                                  "htmlClassNames": "u_content_image"
+                                },
+                                "action": {
+                                  "name": "web",
+                                  "values": {
+                                    "href": "",
+                                    "target": "_blank"
+                                  }
+                                },
+                                "anchor": "",
+                                "locked": false,
+                                "altText": "",
+                                "pending": false,
+                                "hideable": true,
+                                "deletable": true,
+                                "draggable": true,
+                                "textAlign": "center",
+                                "selectable": true,
+                                "_styleGuide": null,
+                                "hideDesktop": false,
+                                "duplicatable": true,
+                                "containerPadding": "10px",
+                                "displayCondition": null
+                              }
+                            },
+                            {
+                              "id": "kNKkrtK_YU",
+                              "type": "image",
+                              "values": {
+                                "src": {
+                                  "id": 37865025,
+                                  "url": "https://assets.unlayer.com/projects/275430/1772794146775-cake%20hog.png",
+                                  "size": 173619,
+                                  "width": 1080,
+                                  "height": 1080,
+                                  "dynamic": true,
+                                  "filename": "cake hog.png",
+                                  "maxWidth": "100%",
+                                  "autoWidth": true,
+                                  "contentType": "image/png"
+                                },
+                                "_meta": {
+                                  "htmlID": "u_content_image_2",
+                                  "htmlClassNames": "u_content_image"
+                                },
+                                "action": {
+                                  "name": "web",
+                                  "values": {
+                                    "href": "",
+                                    "target": "_blank"
+                                  }
+                                },
+                                "anchor": "",
+                                "locked": false,
+                                "altText": "",
+                                "pending": false,
+                                "hideable": true,
+                                "deletable": true,
+                                "draggable": true,
+                                "textAlign": "center",
+                                "selectable": true,
+                                "_styleGuide": null,
+                                "hideDesktop": false,
+                                "duplicatable": true,
+                                "containerPadding": "10px",
+                                "displayCondition": null
+                              }
+                            },
+                            {
+                              "id": "JiIVAlg2uz",
+                              "type": "heading",
+                              "values": {
+                                "text": "<strong>You unlocked something new ✨</strong>",
+                                "_meta": {
+                                  "htmlID": "u_content_heading_1",
+                                  "htmlClassNames": "u_content_heading"
+                                },
+                                "color": "#555555",
+                                "anchor": "",
+                                "locked": false,
+                                "fontSize": "22px",
+                                "hideable": true,
+                                "textJson": "{\"root\":{\"children\":[{\"children\":[{\"detail\":0,\"format\":0,\"mode\":\"normal\",\"style\":\"\",\"text\":\"Heading\",\"type\":\"extended-text\",\"version\":1}],\"format\":\"\",\"indent\":0,\"type\":\"heading-paragraph\",\"version\":1,\"textFormat\":0,\"textStyle\":\"\"}],\"format\":\"\",\"indent\":0,\"type\":\"root\",\"version\":1}}",
+                                "deletable": true,
+                                "draggable": true,
+                                "linkStyle": {
+                                  "inherit": true,
+                                  "linkColor": "#0000ee",
+                                  "linkUnderline": true,
+                                  "linkHoverColor": "#0000ee",
+                                  "linkHoverUnderline": true
+                                },
+                                "textAlign": "center",
+                                "_languages": {},
+                                "fontFamily": {
+                                  "url": "",
+                                  "label": "Trebuchet MS",
+                                  "value": "trebuchet ms,geneva",
+                                  "weights": null,
+                                  "defaultFont": true
+                                },
+                                "lineHeight": "140%",
+                                "selectable": true,
+                                "_styleGuide": null,
+                                "headingType": "h1",
+                                "hideDesktop": false,
+                                "duplicatable": true,
+                                "containerPadding": "10px",
+                                "displayCondition": null
+                              }
+                            },
+                            {
+                              "id": "_IgTaKHuTl",
+                              "type": "text",
+                              "values": {
+                                "text": "<p style=\"line-height: 140%;\">Good news!</p>\n<p style=\"line-height: 140%;\">&nbsp;</p>\n<p style=\"line-height: 140%;\">Based on how you&rsquo;ve been using the product, we&rsquo;ve unlocked something new for you.</p>",
+                                "_meta": {
+                                  "htmlID": "u_content_text_2",
+                                  "htmlClassNames": "u_content_text"
+                                },
+                                "color": "#555555",
+                                "anchor": "",
+                                "locked": false,
+                                "fontSize": "14px",
+                                "hideable": true,
+                                "deletable": true,
+                                "draggable": true,
+                                "linkStyle": {
+                                  "inherit": true,
+                                  "linkColor": "#0000ee",
+                                  "linkUnderline": true,
+                                  "linkHoverColor": "#0000ee",
+                                  "linkHoverUnderline": true
+                                },
+                                "textAlign": "left",
+                                "_languages": {},
+                                "lineHeight": "140%",
+                                "selectable": true,
+                                "_styleGuide": null,
+                                "hideDesktop": false,
+                                "duplicatable": true,
+                                "containerPadding": "10px",
+                                "displayCondition": null
+                              }
+                            },
+                            {
+                              "id": "jjQadinqsQ",
+                              "type": "button",
+                              "values": {
+                                "href": {
+                                  "name": "web",
+                                  "attrs": {
+                                    "href": "{{href}}",
+                                    "target": "{{target}}"
+                                  },
+                                  "values": {
+                                    "href": "https://app.ourproduct.com/newfeature",
+                                    "target": "_blank"
+                                  }
+                                },
+                                "size": {
+                                  "width": "100%",
+                                  "autoWidth": true
+                                },
+                                "text": "<strong><span style=\"line-height: 16.8px;\">Try it out</span></strong>",
+                                "_meta": {
+                                  "htmlID": "u_content_button_2",
+                                  "htmlClassNames": "u_content_button"
+                                },
+                                "anchor": "",
+                                "border": {
+                                  "borderTopColor": "#c1841a",
+                                  "borderTopStyle": "solid",
+                                  "borderTopWidth": "1px",
+                                  "borderLeftColor": "#c1841a",
+                                  "borderLeftStyle": "solid",
+                                  "borderLeftWidth": "1px",
+                                  "borderRightColor": "#c1841a",
+                                  "borderRightStyle": "solid",
+                                  "borderRightWidth": "1px",
+                                  "borderBottomColor": "#c1841a",
+                                  "borderBottomStyle": "solid",
+                                  "borderBottomWidth": "3px"
+                                },
+                                "locked": false,
+                                "padding": "10px 20px",
+                                "fontSize": "14px",
+                                "hideable": true,
+                                "textJson": "{\"root\":{\"children\":[{\"children\":[{\"detail\":0,\"format\":0,\"mode\":\"normal\",\"style\":\"\",\"text\":\"Button Text\",\"type\":\"extended-text\",\"version\":1}],\"format\":\"\",\"indent\":0,\"type\":\"extended-paragraph\",\"version\":1,\"textFormat\":0,\"isInlineTool\":true}],\"format\":\"\",\"indent\":0,\"type\":\"root\",\"version\":1}}",
+                                "deletable": true,
+                                "draggable": true,
+                                "textAlign": "center",
+                                "_languages": {},
+                                "lineHeight": "120%",
+                                "selectable": true,
+                                "_styleGuide": null,
+                                "hideDesktop": false,
+                                "borderRadius": "5px",
+                                "buttonColors": {
+                                  "color": "#000000",
+                                  "hoverColor": "#FFFFFF",
+                                  "backgroundColor": "#f1a82c",
+                                  "hoverBackgroundColor": "#0879A1"
+                                },
+                                "duplicatable": true,
+                                "calculatedWidth": 100,
+                                "calculatedHeight": 37,
+                                "containerPadding": "10px",
+                                "displayCondition": null
+                              }
+                            },
+                            {
+                              "id": "tGhCekKfD6",
+                              "type": "divider",
+                              "values": {
+                                "_meta": {
+                                  "htmlID": "u_content_divider_1",
+                                  "htmlClassNames": "u_content_divider"
+                                },
+                                "width": "100%",
+                                "anchor": "",
+                                "border": {
+                                  "borderTopColor": "#BBBBBB",
+                                  "borderTopStyle": "solid",
+                                  "borderTopWidth": "1px"
+                                },
+                                "locked": false,
+                                "hideable": true,
+                                "deletable": true,
+                                "draggable": true,
+                                "textAlign": "center",
+                                "selectable": true,
+                                "_styleGuide": null,
+                                "hideDesktop": false,
+                                "duplicatable": true,
+                                "containerPadding": "10px",
+                                "displayCondition": null
+                              }
+                            },
+                            {
+                              "id": "WNwt-dJknl",
+                              "type": "text",
+                              "values": {
+                                "text": "<p style=\"line-height: 140%;\">p.s. This email was sent with&nbsp;<strong><a rel=\"noopener\" href=\"https://app.posthog.com/workflows\" target=\"_blank\" data-u-link-value=\"eyJuYW1lIjoid2ViIiwiYXR0cnMiOnsiaHJlZiI6Int7aHJlZn19IiwidGFyZ2V0Ijoie3t0YXJnZXR9fSJ9LCJ2YWx1ZXMiOnsiaHJlZiI6Imh0dHBzOi8vYXBwLnBvc3Rob2cuY29tL3dvcmtmbG93cyIsInRhcmdldCI6Il9ibGFuayJ9fQ==\">PostHog Workflows</a></strong>! 🦔</p>",
+                                "_meta": {
+                                  "htmlID": "u_content_text_3",
+                                  "htmlClassNames": "u_content_text"
+                                },
+                                "color": "#555555",
+                                "anchor": "",
+                                "locked": false,
+                                "fontSize": "14px",
+                                "hideable": true,
+                                "deletable": true,
+                                "draggable": true,
+                                "linkStyle": {
+                                  "body": false,
+                                  "inherit": false,
+                                  "linkColor": "#000000",
+                                  "linkUnderline": true,
+                                  "linkHoverColor": "#0000ee",
+                                  "linkHoverUnderline": true
+                                },
+                                "textAlign": "center",
+                                "_languages": {},
+                                "fontFamily": {
+                                  "url": "",
+                                  "label": "Trebuchet MS",
+                                  "value": "trebuchet ms,geneva",
+                                  "weights": null,
+                                  "defaultFont": true
+                                },
+                                "lineHeight": "140%",
+                                "selectable": true,
+                                "_styleGuide": null,
+                                "hideDesktop": false,
+                                "duplicatable": true,
+                                "containerPadding": "10px",
+                                "displayCondition": null
+                              }
+                            },
+                            {
+                              "id": "EK1fUWH3Ow",
+                              "slug": "unsubscribe_link",
+                              "type": "custom",
+                              "values": {
+                                "_meta": {
+                                  "htmlID": "u_content_custom_unsubscribe_link_1",
+                                  "htmlClassNames": "u_content_custom_unsubscribe_link"
+                                },
+                                "anchor": "",
+                                "locked": false,
+                                "hideable": true,
+                                "deletable": true,
+                                "draggable": true,
+                                "selectable": true,
+                                "_styleGuide": null,
+                                "duplicatable": true,
+                                "containerPadding": "10px",
+                                "displayCondition": null,
+                                "unsubscribe_link_content": "<p style=\"text-align: center;\"><span style=\"font-size: 12px; color: rgb(85, 85, 85);\">Boring, legal bit: We're at 2261 Market Street #4008, CA 94114. Unsubscribe?</span></p>"
+                              }
+                            },
+                            {
+                              "id": "FML4rsWoO6",
+                              "type": "social",
+                              "values": {
+                                "_meta": {
+                                  "htmlID": "u_content_social_1",
+                                  "htmlClassNames": "u_content_social"
+                                },
+                                "align": "center",
+                                "icons": {
+                                  "icons": [],
+                                  "iconType": "circle"
+                                },
+                                "anchor": "",
+                                "locked": false,
+                                "spacing": 5,
+                                "hideable": true,
+                                "iconSize": 32,
+                                "deletable": true,
+                                "draggable": true,
+                                "selectable": true,
+                                "_styleGuide": null,
+                                "hideDesktop": false,
+                                "duplicatable": true,
+                                "containerPadding": "10px",
+                                "displayCondition": null
+                              }
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ],
+                  "values": {
+                    "_meta": {
+                      "htmlID": "u_body",
+                      "htmlClassNames": "u_body"
+                    },
+                    "language": {},
+                    "linkStyle": {
+                      "body": true,
+                      "inherit": false,
+                      "linkColor": "#000000",
+                      "linkUnderline": true,
+                      "linkHoverColor": "#0000ee",
+                      "linkHoverUnderline": true
+                    },
+                    "textColor": "#000000",
+                    "fontFamily": {
+                      "url": "",
+                      "label": "Trebuchet MS",
+                      "value": "trebuchet ms,geneva",
+                      "weights": null,
+                      "defaultFont": true
+                    },
+                    "popupWidth": "600px",
+                    "_styleGuide": null,
+                    "popupHeight": "auto",
+                    "borderRadius": "10px",
+                    "contentAlign": "center",
+                    "contentWidth": "500px",
+                    "popupPosition": "center",
+                    "preheaderText": "",
+                    "backgroundColor": "#ffffff",
+                    "backgroundImage": {
+                      "url": "",
+                      "size": "custom",
+                      "repeat": "no-repeat",
+                      "position": "center",
+                      "fullWidth": true
+                    },
+                    "popupDisplayDelay": 0,
+                    "accessibilityTitle": "",
+                    "contentVerticalAlign": "center",
+                    "popupBackgroundColor": "#FFFFFF",
+                    "popupBackgroundImage": {
+                      "url": "",
+                      "size": "cover",
+                      "repeat": "no-repeat",
+                      "position": "center",
+                      "fullWidth": true
+                    },
+                    "popupCloseButton_action": {
+                      "name": "close_popup",
+                      "attrs": {
+                        "onClick": "document.querySelector('.u-popup-container').style.display = 'none';"
+                      }
+                    },
+                    "popupCloseButton_margin": "0px",
+                    "popupCloseButton_position": "top-right",
+                    "popupCloseButton_iconColor": "#000000",
+                    "popupOverlay_backgroundColor": "rgba(0, 0, 0, 0.1)",
+                    "popupCloseButton_borderRadius": "0px",
+                    "popupCloseButton_backgroundColor": "#DDDDDD"
+                  },
+                  "footers": [],
+                  "headers": []
+                },
+                "counters": {
+                  "u_row": 1,
+                  "u_column": 1,
+                  "u_content_text": 3,
+                  "u_content_image": 2,
+                  "u_content_button": 2,
+                  "u_content_social": 1,
+                  "u_content_divider": 1,
+                  "u_content_heading": 2,
+                  "u_content_custom_unsubscribe_link": 1
+                },
+                "schemaVersion": 23
+              },
+              "replyTo": "",
+              "subject": "Default subject",
+              "preheader": ""
+            },
+            "templating": "liquid"
+          }
+        },
+        "template_id": "template-email"
+      },
+      "output_variable": null
+    },
+    {
+      "id": "exit_node",
+      "name": "Exit",
+      "description": "User moved through the workflow without errors.",
+      "on_error": null,
+      "created_at": 0,
+      "updated_at": 0,
+      "filters": null,
+      "type": "exit",
+      "config": {
+        "reason": "Default exit"
+      },
+      "output_variable": null
+    }
+  ],
+  "abort_action": null,
+  "variables": [],
+  "billable_action_types": [
+    "function",
+    "function_email"
+  ],
+  "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_d3a9c1eb9c.jpg",
+  "tags": [
+    "messaging",
+    "properties"
+  ],
+  "scope": "global"
+}

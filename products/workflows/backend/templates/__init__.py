@@ -13,6 +13,21 @@ TEMPLATE_FILES = [
     "onboarding_started_but_not_completed_template.json",
     "trial_started_upgrade_nudge_template.json",
     "welcome_email_sequence_template.json",
+    "celebrate-milestone.json",
+    "feature-adoption-tips",
+    "heavy-usage-detected",
+    "high-intent-notification",
+    "negative-survey-response",
+    "re-engagement-workflow",
+    "repeated-failure-alert",
+    "support-ticket-notification",
+    "ticket-unresolved-alert",
+    "trial-ending-reminder",
+    "unlocking_advanced_features",
+    "unused-features-education",
+    "user-stuck-onboarding",
+    "user-upgrade-webhook",
+    
 ]
 
 _TEMPLATE_CACHE: Optional[list[dict]] = None

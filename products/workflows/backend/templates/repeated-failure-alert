@@ -1,0 +1,252 @@
+{
+  "id": "019cc330-b1cc-0000-85a3-4f18ffa9f2ee",
+  "name": "Alert team in case of a repeated failure",
+  "description": "Alert your team when a user action fails so you can investigate potential issues quickly. This workflow waits briefly before notifying Slack to avoid triggering alerts for temporary errors.",
+  "version": 1,
+  "created_at": "2026-03-06T12:47:54.317218Z",
+  "created_by": {
+    "id": 310726,
+    "uuid": "01999f57-b220-0000-5e66-8410527daa3c",
+    "distinct_id": "A9CjZG1AUbA0EKdinlV8Hm7oieSx9iPaHFsJRtXrBdc",
+    "first_name": "Sara",
+    "last_name": "Miteva",
+    "email": "sara@posthog.com",
+    "is_email_verified": true,
+    "hedgehog_config": null,
+    "role_at_organization": null
+  },
+  "updated_at": "2026-03-06T12:47:54.317232Z",
+  "trigger": {
+    "type": "event",
+    "filters": {
+      "events": [
+        {
+          "id": null,
+          "name": "All events",
+          "type": "events",
+          "uuid": "b943e971-df9e-4bf1-bf3b-7ce670f8349b",
+          "order": 0
+        }
+      ],
+      "source": "events",
+      "actions": [],
+      "bytecode": [
+        "_H",
+        1,
+        29
+      ],
+      "filter_test_accounts": false
+    }
+  },
+  "trigger_masking": null,
+  "conversion": {
+    "filters": [],
+    "bytecode": [],
+    "window_minutes": null
+  },
+  "exit_condition": "exit_only_at_end",
+  "edges": [
+    {
+      "to": "action_delay_c1379cb0-114e-40e5-b1b7-c3be6db041e1",
+      "from": "trigger_node",
+      "type": "continue"
+    },
+    {
+      "to": "action_conditional_branch_7be41e23-3774-4be8-93dc-fb6cfaf32203",
+      "from": "action_delay_c1379cb0-114e-40e5-b1b7-c3be6db041e1",
+      "type": "continue"
+    },
+    {
+      "to": "exit_node",
+      "from": "action_conditional_branch_7be41e23-3774-4be8-93dc-fb6cfaf32203",
+      "type": "continue"
+    },
+    {
+      "to": "action_function_06d3ef9b-4b5c-4aaa-a308-dd67235ea2ee",
+      "from": "action_conditional_branch_7be41e23-3774-4be8-93dc-fb6cfaf32203",
+      "type": "branch",
+      "index": 0
+    },
+    {
+      "to": "exit_node",
+      "from": "action_function_06d3ef9b-4b5c-4aaa-a308-dd67235ea2ee",
+      "type": "continue"
+    }
+  ],
+  "actions": [
+    {
+      "id": "trigger_node",
+      "name": "Action failed",
+      "description": "Add your event with failure status (payment, signup, or request failed)",
+      "on_error": null,
+      "created_at": 0,
+      "updated_at": 0,
+      "filters": null,
+      "type": "trigger",
+      "config": {
+        "type": "event",
+        "filters": {
+          "events": [
+            {
+              "id": null,
+              "name": "All events",
+              "type": "events",
+              "uuid": "b943e971-df9e-4bf1-bf3b-7ce670f8349b",
+              "order": 0
+            }
+          ],
+          "source": "events",
+          "actions": [],
+          "bytecode": [
+            "_H",
+            1,
+            29
+          ],
+          "filter_test_accounts": false
+        }
+      },
+      "output_variable": null
+    },
+    {
+      "id": "action_delay_c1379cb0-114e-40e5-b1b7-c3be6db041e1",
+      "name": "Delay",
+      "description": "Wait for 10  minutes.",
+      "on_error": null,
+      "created_at": 1772801050715,
+      "updated_at": 1772801050715,
+      "filters": null,
+      "type": "delay",
+      "config": {
+        "delay_duration": "10m"
+      },
+      "output_variable": null
+    },
+    {
+      "id": "action_conditional_branch_7be41e23-3774-4be8-93dc-fb6cfaf32203",
+      "name": "Still failing?",
+      "description": "Check if the trigger event is still failing.",
+      "on_error": null,
+      "created_at": 1772801065675,
+      "updated_at": 1772801065675,
+      "filters": null,
+      "type": "conditional_branch",
+      "config": {
+        "conditions": [
+          {
+            "filters": {
+              "source": "events",
+              "bytecode": [
+                "_H",
+                1,
+                29
+              ]
+            }
+          }
+        ]
+      },
+      "output_variable": null
+    },
+    {
+      "id": "action_function_06d3ef9b-4b5c-4aaa-a308-dd67235ea2ee",
+      "name": "Slack Alert",
+      "description": "Connect your Slack channel and bot to alert your team.",
+      "on_error": null,
+      "created_at": 1772801146070,
+      "updated_at": 1772801146070,
+      "filters": null,
+      "type": "function",
+      "config": {
+        "inputs": {
+          "text": {
+            "value": "*{person.name}* triggered event: '{event.event}'",
+            "templating": "hog"
+          },
+          "blocks": {
+            "value": [
+              {
+                "text": {
+                  "text": "⚠️ *Possible user issue detected*\n\n*{person.name}* triggered a failure event: `{event.event}` and may be stuck.",
+                  "type": "mrkdwn"
+                },
+                "type": "section"
+              },
+              {
+                "type": "context",
+                "elements": [
+                  {
+                    "text": "Check the user profile or investigate the source of the event.",
+                    "type": "mrkdwn"
+                  }
+                ]
+              },
+              {
+                "type": "actions",
+                "elements": [
+                  {
+                    "url": "{person.url}",
+                    "text": {
+                      "text": "View person in PostHog",
+                      "type": "plain_text"
+                    },
+                    "type": "button"
+                  },
+                  {
+                    "url": "{source.url}",
+                    "text": {
+                      "text": "View event source",
+                      "type": "plain_text"
+                    },
+                    "type": "button"
+                  }
+                ]
+              }
+            ],
+            "templating": "hog"
+          },
+          "channel": {
+            "templating": "hog"
+          },
+          "username": {
+            "value": "Alert",
+            "templating": "hog"
+          },
+          "icon_emoji": {
+            "value": ":hedgehog:",
+            "templating": "hog"
+          },
+          "slack_workspace": {
+            "templating": "hog"
+          }
+        },
+        "template_id": "template-slack"
+      },
+      "output_variable": null
+    },
+    {
+      "id": "exit_node",
+      "name": "Exit",
+      "description": "User moved through the workflow without errors.",
+      "on_error": null,
+      "created_at": 0,
+      "updated_at": 0,
+      "filters": null,
+      "type": "exit",
+      "config": {
+        "reason": "Default exit"
+      },
+      "output_variable": null
+    }
+  ],
+  "abort_action": null,
+  "variables": [],
+  "billable_action_types": [
+    "function"
+  ],
+  "image_url": "https://res.cloudinary.com/dmukukwp6/image/upload/Template_cover_1_9c2359b4aa.jpg",
+  "tags": [
+    "slack",
+    "failure alert",
+    "incident management"
+  ],
+  "scope": "global"
+}
