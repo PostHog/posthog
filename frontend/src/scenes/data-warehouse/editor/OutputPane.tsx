@@ -507,8 +507,12 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                             query={sourceQuery.source}
                             setQuery={(query) => {
                                 setSourceQuery({
+                                    kind: NodeKind.DataVisualizationNode,
                                     ...sourceQuery,
-                                    source: query,
+                                    source: {
+                                        kind: NodeKind.HogQLQuery,
+                                        ...query,
+                                    },
                                 })
                                 runQuery(query.query)
                             }}

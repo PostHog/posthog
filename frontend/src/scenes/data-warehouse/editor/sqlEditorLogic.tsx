@@ -745,7 +745,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     {
                         kind: NodeKind.HogQLQuery,
                         query: queryInput,
-                    },
+                    } as HogQLQuery,
                     viewId,
                     values.activeTab
                 )
@@ -757,7 +757,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         runQuery: ({ queryOverride, switchTab }) => {
             const query = (queryOverride || values.queryInput) ?? ''
 
-            const newSource = {
+            const newSource: HogQLQuery = {
+                kind: NodeKind.HogQLQuery,
                 ...values.sourceQuery.source,
                 query,
             }
@@ -1094,9 +1095,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setSourceQuery({
                         ...values.sourceQuery,
                         source: {
+                            kind: NodeKind.HogQLQuery,
                             ...values.sourceQuery.source,
                             filters: {},
-                        },
+                        } as HogQLQuery,
                     })
                 }
             } else {
@@ -1104,9 +1106,10 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.setSourceQuery({
                         ...values.sourceQuery,
                         source: {
+                            kind: NodeKind.HogQLQuery,
                             ...values.sourceQuery.source,
                             filters: undefined,
-                        },
+                        } as HogQLQuery,
                     })
                 }
             }
