@@ -79,6 +79,7 @@ class TestPushgatewayProxyPatch:
             thread.join(timeout=5)
             server.server_close()
 
+        assert received, "HTTP server never received a request — push_to_gateway may have failed silently"
         assert "/metrics/job/ctx_job" in received["path"]
         body = received["body"].decode()
         assert "test_ctx_metric" in body
