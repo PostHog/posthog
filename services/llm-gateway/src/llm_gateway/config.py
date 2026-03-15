@@ -111,6 +111,8 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_api_base_url: str | None = None  # Used for regional endpoints
     gemini_api_key: str | None = None
+    openrouter_api_key: str | None = None
+    fireworks_api_key: str | None = None
 
     # Project token for LLM analytics events
     posthog_project_token: str | None = None

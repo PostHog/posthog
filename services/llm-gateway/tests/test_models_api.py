@@ -85,6 +85,18 @@ MOCK_COST_DATA: dict[str, ModelCost] = {
         "supports_vision": True,
         "mode": "chat",
     },
+    "openrouter/anthropic/claude-3.5-sonnet": {
+        "litellm_provider": "openrouter",
+        "max_input_tokens": 200000,
+        "supports_vision": True,
+        "mode": "chat",
+    },
+    "fireworks_ai/accounts/fireworks/models/llama-v3p1-70b-instruct": {
+        "litellm_provider": "fireworks_ai",
+        "max_input_tokens": 131072,
+        "supports_vision": False,
+        "mode": "chat",
+    },
 }
 
 
@@ -101,6 +113,8 @@ def create_mock_settings() -> MagicMock:
     settings.openai_api_key = "sk-test"
     settings.anthropic_api_key = "sk-ant-test"
     settings.gemini_api_key = "gemini-test"
+    settings.openrouter_api_key = "or-test"
+    settings.fireworks_api_key = "fw-test"
     return settings
 
 
