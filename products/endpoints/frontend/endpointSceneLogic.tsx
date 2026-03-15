@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 
 import { DataTableNode, EndpointRunRequest, InsightVizNode, Node, NodeKind } from '~/queries/schema/schema-general'
 import { isHogQLQuery, isInsightQueryNode } from '~/queries/utils'
-import { Breadcrumb, DataWarehouseSyncInterval, EndpointType, EndpointVersionType } from '~/types'
+import { Breadcrumb, EndpointType, EndpointVersionType } from '~/types'
 
 import { endpointLogic } from './endpointLogic'
 import type { endpointSceneLogicType } from './endpointSceneLogicType'
@@ -122,8 +122,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setActiveTab: (tab: EndpointTab) => ({ tab }),
         setPayloadJson: (value: string) => ({ value }),
         setPayloadJsonError: (error: string | null) => ({ error }),
-        setCacheAge: (cacheAge: number | null) => ({ cacheAge }),
-        setSyncFrequency: (syncFrequency: DataWarehouseSyncInterval | null) => ({ syncFrequency }),
+        setDataFreshness: (dataFreshness: number) => ({ dataFreshness }),
         setIsMaterialized: (isMaterialized: boolean | null) => ({ isMaterialized }),
         setEndpointName: (name: string | null) => ({ name }),
         setViewingVersion: (version: EndpointVersionType | null) => ({ version }),
@@ -155,16 +154,10 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
                 setPayloadJson: () => null,
             },
         ],
-        cacheAge: [
-            null as number | null,
+        dataFreshness: [
+            86400 as number,
             {
-                setCacheAge: (_, { cacheAge }) => cacheAge,
-            },
-        ],
-        syncFrequency: [
-            '24hour' as DataWarehouseSyncInterval | null,
-            {
-                setSyncFrequency: (_, { syncFrequency }) => syncFrequency,
+                setDataFreshness: (_, { dataFreshness }) => dataFreshness,
             },
         ],
         isMaterialized: [
@@ -266,8 +259,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         loadEndpointSuccess: async ({ endpoint }: { endpoint: EndpointVersionType | null; payload?: string }) => {
             const initialPayload = generateInitialPayloadJson(endpoint)
             actions.setPayloadJson(initialPayload)
-            actions.setCacheAge(endpoint?.cache_age_seconds ?? null)
-            actions.setSyncFrequency(endpoint?.materialization?.sync_frequency ?? null)
+            actions.setDataFreshness(endpoint?.data_freshness_seconds ?? 86400)
 
             const { searchParams } = router.values
 
@@ -305,8 +297,6 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
         setViewingVersion: ({ version }) => {
             // Reset local state so viewed version's data shows through
             actions.setLocalQuery(null)
-            actions.setCacheAge(null)
-            actions.setSyncFrequency(null)
             actions.setIsMaterialized(null)
             actions.clearMaterializationStatus()
 

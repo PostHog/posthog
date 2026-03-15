@@ -105,10 +105,9 @@ class EndpointVersion(models.Model):
         related_name="endpoint_versions_created",
     )
 
-    cache_age_seconds = models.IntegerField(
-        null=True,
-        blank=True,
-        help_text="Cache age in seconds. If null, uses default interval-based caching.",
+    data_freshness_seconds = models.IntegerField(
+        default=86400,
+        help_text="How fresh the data should be, in seconds. Controls cache TTL and materialization sync frequency.",
     )
     saved_query = models.ForeignKey(
         "data_warehouse.DataWarehouseSavedQuery",
@@ -272,7 +271,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
     Endpoints allow creating reusable query endpoints like:
     /api/environments/{team_id}/endpoints/{endpoint_name}/run
 
-    Query, description, cache_age_seconds, and materialization settings are stored
+    Query, description, data_freshness_seconds, and materialization settings are stored
     in EndpointVersion, allowing per-version configuration.
     """
 
@@ -343,7 +342,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
         """
         # Get previous version's settings before incrementing
         previous_version = self.get_version()
-        previous_cache_age = previous_version.cache_age_seconds if previous_version else None
+        previous_data_freshness = previous_version.data_freshness_seconds if previous_version else 86400
         previous_description = previous_version.description if previous_version else ""
 
         self.current_version += 1
@@ -356,7 +355,7 @@ class Endpoint(CreatedMetaFields, UpdatedMetaFields, DeletedMetaFields, UUIDTMod
             version=self.current_version,
             query=query,
             created_by=user,
-            cache_age_seconds=previous_cache_age,
+            data_freshness_seconds=previous_data_freshness,
             description=previous_description,
             columns=columns,
         )
