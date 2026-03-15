@@ -382,7 +382,7 @@ describe('TaxonomicFilter', () => {
             })
 
             const row = screen.getByTestId('prop-filter-recent_filters-0')
-            expect(row).toHaveTextContent('Event properties')
+            expect(row).toHaveTextContent('Event properties - recent')
         })
 
         it('renders recent property filter items with the full filter expression', async () => {
@@ -543,7 +543,7 @@ describe('TaxonomicFilter', () => {
 
             const row = screen.getByTestId('prop-filter-recent_filters-0')
             expect(row).toHaveTextContent('event1')
-            expect(row).toHaveTextContent('Events')
+            expect(row).toHaveTextContent('Events - recent')
         })
     })
 })

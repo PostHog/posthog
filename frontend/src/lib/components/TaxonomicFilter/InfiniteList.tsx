@@ -423,7 +423,7 @@ const InfiniteListRow = ({
                 })}
                 {isCrossGroupItem && (
                     <LemonTag size="small" type="highlight">
-                        {itemGroup.name}
+                        {itemHasRecentContext ? `${itemGroup.name} - recent` : itemGroup.name}
                     </LemonTag>
                 )}
             </div>
