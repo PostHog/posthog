@@ -10,7 +10,15 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { APIScope, API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
+import {
+    APIScope,
+    APIScopeGroup,
+    API_SCOPE_GROUPS,
+    API_SCOPES,
+    mergeIntentScopes,
+    scopesArrayToObject,
+    scopesObjectToArray,
+} from 'lib/scopes'
 import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -20,12 +28,31 @@ import { OrganizationBasicType, PersonalAPIKeyType, TeamBasicType, UserType } fr
 
 import type { personalAPIKeysLogicType } from './personalAPIKeysLogicType'
 
+export enum APIKeyWizardStep {
+    Basics = 'basics',
+    Intent = 'intent',
+    Review = 'review',
+}
+
 export type EditingKeyFormValues = Pick<
     PersonalAPIKeyType,
     'label' | 'scopes' | 'scoped_organizations' | 'scoped_teams'
 > & {
     preset?: string
     access_type?: 'all' | 'organizations' | 'teams'
+}
+
+export type ScopeGroupWithCounts = APIScopeGroup & {
+    enabledCount: number
+    totalCount: number
+    filteredScopes: APIScope[]
+}
+
+export type SelectedScope = {
+    key: string
+    objectName: string
+    action: 'read' | 'write'
+    description?: string
 }
 
 export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
@@ -48,6 +75,11 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         setScopeRadioValue: (key: string, action: string) => ({ key, action }),
         resetScopes: true,
         loadAllTeams: true,
+        setWizardStep: (step: APIKeyWizardStep) => ({ step }),
+        goToNextStep: true,
+        goToPreviousStep: true,
+        toggleIntentTile: (tileKey: string) => ({ tileKey }),
+        applyIntentSelections: true,
     }),
 
     reducers({
@@ -61,6 +93,23 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             '' as string,
             {
                 setSearchTerm: (_, { searchTerm }) => searchTerm,
+            },
+        ],
+        wizardStep: [
+            APIKeyWizardStep.Intent as APIKeyWizardStep,
+            {
+                setWizardStep: (_, { step }) => step,
+                setEditingKeyId: (_, { id }) =>
+                    id && id !== 'new' ? APIKeyWizardStep.Review : APIKeyWizardStep.Intent,
+            },
+        ],
+        selectedIntentTiles: [
+            [] as string[],
+            {
+                toggleIntentTile: (state, { tileKey }) =>
+                    state.includes(tileKey) ? state.filter((k) => k !== tileKey) : [...state, tileKey],
+                setEditingKeyId: () => [],
+                setWizardStep: (state, { step }) => (step === APIKeyWizardStep.Intent ? [] : state),
             },
         ],
     }),
@@ -181,6 +230,48 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             (s) => [s.editingKey],
             (editingKey): boolean => {
                 return editingKey.scopes.includes('*')
+            },
+        ],
+
+        selectedScopesList: [
+            (s) => [s.formScopeRadioValues],
+            (formScopeRadioValues: Record<string, string>): SelectedScope[] => {
+                return Object.entries(formScopeRadioValues)
+                    .map(([key, action]) => {
+                        const scope = API_SCOPES.find((s) => s.key === key)
+                        return {
+                            key,
+                            objectName: scope?.objectName ?? key,
+                            action: action as 'read' | 'write',
+                            description: scope?.description,
+                        }
+                    })
+                    .sort((a, b) => a.objectName.localeCompare(b.objectName))
+            },
+        ],
+
+        groupedScopes: [
+            (s) => [s.filteredScopes, s.formScopeRadioValues],
+            (filteredScopes: APIScope[], formScopeRadioValues: Record<string, string>): ScopeGroupWithCounts[] => {
+                const filteredKeys = new Set(filteredScopes.map((s) => s.key))
+                return API_SCOPE_GROUPS.map((group) => {
+                    const groupFilteredScopes = filteredScopes.filter((s) => group.scopes.includes(s.key))
+                    const totalCount = group.scopes.filter((k) => filteredKeys.has(k) || formScopeRadioValues[k]).length
+                    const enabledCount = group.scopes.filter((k) => formScopeRadioValues[k]).length
+                    return {
+                        ...group,
+                        filteredScopes: groupFilteredScopes,
+                        enabledCount,
+                        totalCount: totalCount || group.scopes.length,
+                    }
+                }).filter((g) => g.filteredScopes.length > 0)
+            },
+        ],
+
+        canProceedFromBasics: [
+            (s) => [s.editingKey],
+            (editingKey: EditingKeyFormValues): boolean => {
+                return !!editingKey.label?.trim() && !!editingKey.access_type
             },
         ],
 
@@ -343,6 +434,39 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        goToNextStep: () => {
+            if (values.wizardStep === APIKeyWizardStep.Intent) {
+                actions.applyIntentSelections()
+                actions.setWizardStep(APIKeyWizardStep.Review)
+            } else if (values.wizardStep === APIKeyWizardStep.Review) {
+                actions.setWizardStep(APIKeyWizardStep.Basics)
+            }
+        },
+        goToPreviousStep: () => {
+            if (values.wizardStep === APIKeyWizardStep.Basics) {
+                actions.setWizardStep(APIKeyWizardStep.Review)
+            } else if (values.wizardStep === APIKeyWizardStep.Review) {
+                actions.setWizardStep(APIKeyWizardStep.Intent)
+            }
+        },
+        applyIntentSelections: () => {
+            if (values.selectedIntentTiles.length === 0) {
+                return
+            }
+            const merged = mergeIntentScopes(values.selectedIntentTiles)
+            // Merge with any existing scopes (highest-wins)
+            const existing = scopesArrayToObject(values.editingKey.scopes)
+            for (const scope of merged) {
+                const [object, action] = scope.split(':')
+                if (!object || !action) {
+                    continue
+                }
+                if (!existing[object] || (action === 'write' && existing[object] === 'read')) {
+                    existing[object] = action
+                }
+            }
+            actions.setEditingKeyValue('scopes', scopesObjectToArray(existing))
+        },
         touchEditingKeyField: ({ key }) => {
             if (key === 'label') {
                 // If the label contains a prefillable preset, set the preset and access type
@@ -494,8 +618,9 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
                         preset: preset.value,
                         label: preset.label,
                         scopes: preset.scopes,
-                        access_type: preset.access_type,
+                        access_type: preset.access_type ?? 'all',
                     })
+                    actions.setWizardStep(APIKeyWizardStep.Review)
                 }
             }
         },
