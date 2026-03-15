@@ -1,10 +1,10 @@
 import { DateTime } from 'luxon'
 
-import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
+import { CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '~/cdp/types'
 import { filterFunctionInstrumented } from '~/cdp/utils/hog-function-filtering'
 import { HogFlowAction } from '~/schema/hogflow'
 
-import { findContinueAction, findNextAction } from '../hogflow-utils'
+import { actionIdForLogging, findContinueAction, findNextAction } from '../hogflow-utils'
 import { ActionHandler, ActionHandlerOptions, ActionHandlerResult } from './action.interface'
 import { calculatedScheduledAt } from './delay'
 
@@ -14,6 +14,7 @@ export class ConditionalBranchHandler implements ActionHandler {
     async execute({
         invocation,
         action,
+        result,
     }: ActionHandlerOptions<
         Extract<HogFlowAction, { type: 'conditional_branch' | 'wait_until_condition' }>
     >): Promise<ActionHandlerResult> {
@@ -32,11 +33,20 @@ export class ConditionalBranchHandler implements ActionHandler {
         )
 
         if (conditionResult.scheduledAt) {
+            logDebug(
+                result,
+                `${actionIdForLogging(action)} matched no condition and was scheduled for re-evaluation at ${conditionResult.scheduledAt.toUTC().toISO()}`
+            )
             return { scheduledAt: conditionResult.scheduledAt, result: { conditionResult } }
         } else if (conditionResult.nextAction) {
+            logDebug(
+                result,
+                `${actionIdForLogging(action)} matched ${formatConditionName(conditionResult.matchedConditionIndex, conditionResult.matchedConditionName)}`
+            )
             return { nextAction: conditionResult.nextAction, result: { conditionResult } }
         }
 
+        logDebug(result, `${actionIdForLogging(action)} matched no condition`)
         return { nextAction: findContinueAction(invocation), result: { conditionResult } }
     }
 }
@@ -47,6 +57,8 @@ export async function checkConditions(
 ): Promise<{
     scheduledAt?: DateTime
     nextAction?: HogFlowAction
+    matchedConditionIndex?: number
+    matchedConditionName?: string
 }> {
     // the index is used to find the right edge
     for (const [index, condition] of action.config.conditions.entries()) {
@@ -60,6 +72,8 @@ export async function checkConditions(
         if (filterResults.match) {
             return {
                 nextAction: findNextAction(invocation.hogFlow, action.id, index),
+                matchedConditionIndex: index,
+                matchedConditionName: condition.name,
             }
         }
     }
@@ -79,4 +93,18 @@ export async function checkConditions(
         }
     }
     return {}
+}
+
+function formatConditionName(matchedConditionIndex?: number, matchedConditionName?: string): string {
+    if (matchedConditionIndex === undefined) {
+        return 'a condition'
+    }
+    if (!matchedConditionName) {
+        return `condition ${matchedConditionIndex + 1}`
+    }
+    return `condition ${matchedConditionIndex + 1} (${matchedConditionName})`
+}
+
+function logDebug(result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>, message: string): void {
+    result.logs.push({ level: 'debug', timestamp: DateTime.now(), message })
 }

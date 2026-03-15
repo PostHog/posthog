@@ -123,6 +123,7 @@ describe('action.conditional_branch', () => {
             const result = await checkConditions(invocation, action)
             expect(result).toEqual({
                 nextAction: findActionById(invocation.hogFlow, 'condition_1'),
+                matchedConditionIndex: 0,
             })
         })
 
@@ -132,13 +133,14 @@ describe('action.conditional_branch', () => {
                     filters: HOG_FILTERS_EXAMPLES.elements_text_filter.filters, // No match
                 },
                 {
-                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, // No match
+                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters, // Match
                 },
             ]
 
             const result = await checkConditions(invocation, action)
             expect(result).toEqual({
                 nextAction: findActionById(invocation.hogFlow, 'condition_2'),
+                matchedConditionIndex: 1,
             })
         })
     })
