@@ -31,21 +31,21 @@ function ThemePreviewCard({
             className={clsx(
                 'group relative flex flex-col rounded-lg border-2 p-2 text-left transition-all duration-200',
                 'hover:scale-[1.02] active:scale-[0.98]',
-                'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2',
+                'focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-3000 focus-visible:ring-offset-2',
                 isSelected
-                    ? 'border-primary bg-primary/5 shadow-md'
-                    : 'border-border bg-bg-light hover:border-primary/50 hover:shadow-sm',
+                    ? 'border-primary-3000 bg-fill-primary-highlight shadow-md'
+                    : 'border-border bg-bg-light hover:border-primary-3000 hover:shadow-sm',
                 disabled && 'cursor-not-allowed opacity-50'
             )}
         >
             {/* Selection indicator */}
             <div
                 className={clsx(
-                    'absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full transition-all duration-200',
-                    isSelected ? 'scale-100 bg-primary' : 'scale-0 bg-transparent'
+                    'absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full transition-all duration-200 shadow-sm',
+                    isSelected ? 'scale-100 bg-primary-3000' : 'scale-0 bg-transparent'
                 )}
             >
-                <IconCheck className="h-3 w-3 text-primary-inverse" />
+                <IconCheck className="h-3.5 w-3.5 text-primary-inverse" />
             </div>
 
             {/* Mini survey preview */}
@@ -110,7 +110,7 @@ export function SurveyThemeSelector({
         <div className="space-y-2">
             <div>
                 <h3 className="font-medium m-0">Choose a theme</h3>
-                <p className="text-sm text-muted">Start with a preset and customize colors below</p>
+                <p className="text-xs text-muted">Start with a preset and customize colors below</p>
             </div>
 
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-6">
