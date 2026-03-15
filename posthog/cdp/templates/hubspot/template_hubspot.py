@@ -132,18 +132,6 @@ for (let key, value in inputs.properties) {
     }
 }
 
-if (inputs.include_all_properties) {
-    for (let key, value in event.properties) {
-        if (not empty(value) and not key like '$%') {
-            if (typeof(value) in ('object', 'array', 'tuple')) {
-                properties[key] := jsonStringify(value)
-            } else {
-                properties[key] := value
-            }
-        }
-    }
-}
-
 let eventSchema := fetch(f'https://api.hubapi.com/events/v3/event-definitions/{eventName}/?includeProperties=true', {
     'method': 'GET',
     'headers': {
@@ -331,15 +319,6 @@ if (res.status >= 400) {
             "label": "Email of the user",
             "description": "Where to find the email for the contact to be created. You can use the filters section to filter out unwanted emails or internal users.",
             "default": "{person.properties.email}",
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all event properties",
-            "description": "If set, all event properties will be included. Individual properties can be overridden below.",
-            "default": False,
             "secret": False,
             "required": True,
         },

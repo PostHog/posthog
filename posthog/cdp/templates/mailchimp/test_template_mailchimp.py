@@ -8,7 +8,6 @@ def create_inputs(**kwargs):
         "audienceId": "a1b2c3",
         "dataCenterId": "us1",
         "email": "max@posthog.com",
-        "include_all_properties": False,
         "doubleOptIn": False,
         "properties": {"FNAME": "Max", "LNAME": "AI", "COMPANY": "PostHog"},
     }
@@ -38,34 +37,6 @@ class TestTemplateMailchimp(BaseHogFunctionTemplateTest):
                 },
             },
         )
-
-    def test_body_includes_all_properties_if_set(self):
-        self.run_function(
-            inputs=create_inputs(include_all_properties=False),
-            globals={
-                "event": {"properties": {"PHONE": "+1415000000"}},
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[1][1]["body"]["merge_fields"] == {
-            "FNAME": "Max",
-            "LNAME": "AI",
-            "COMPANY": "PostHog",
-        }
-
-        self.run_function(
-            inputs=create_inputs(include_all_properties=True),
-            globals={
-                "event": {"properties": {"PHONE": "+1415000000"}},
-            },
-        )
-
-        assert self.get_mock_fetch_calls()[1][1]["body"]["merge_fields"] == {
-            "FNAME": "Max",
-            "LNAME": "AI",
-            "COMPANY": "PostHog",
-            "PHONE": "+1415000000",
-        }
 
     def test_double_opt_in(self):
         self.run_function(

@@ -44,10 +44,7 @@ if (action == 'automatic') {
     }
 }
 
-let attributes := inputs.include_all_properties ? action == 'identify' ? person.properties : event.properties : {}
-if (inputs.include_all_properties and action != 'identify' and not empty(event.elements_chain)) {
-    attributes['$elements_chain'] := event.elements_chain
-}
+let attributes := {}
 let timestamp := toInt(toUnixTimestamp(toDateTime(event.timestamp)))
 
 for (let key, value in inputs.attributes) {
@@ -187,15 +184,6 @@ if (res.status >= 400) {
             "required": True,
         },
         {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all properties as attributes",
-            "description": "If set, all event properties will be included as attributes. Individual attributes can be overridden below. For identify events the Person properties will be used.",
-            "default": False,
-            "secret": False,
-            "required": True,
-        },
-        {
             "key": "attributes",
             "type": "dictionary",
             "label": "Attribute mapping",
@@ -273,7 +261,6 @@ class TemplateCustomerioMigrator(HogFunctionTemplateMigrator):
             "host": {"value": host},
             "identifier_key": {"value": "email" if identify_by_email else "id"},
             "identifier_value": {"value": "{person.properties.email}" if identify_by_email else "{event.distinct_id}"},
-            "include_all_properties": {"value": True},
             "attributes": {"value": {}},
         }
 

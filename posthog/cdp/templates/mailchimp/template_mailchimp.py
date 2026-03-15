@@ -28,14 +28,6 @@ for (let key, value in inputs.properties) {
     }
 }
 
-if (inputs.include_all_properties) {
-    for (let key, value in event.properties) {
-        if (not empty(value) and not key like '$%') {
-            properties[key] := value
-        }
-    }
-}
-
 let userStatus := fetch(f'https://{inputs.dataCenterId}.api.mailchimp.com/3.0/lists/{inputs.audienceId}/members/{subscriberHash}', {
     'method': 'GET',
     'headers': {
@@ -104,15 +96,6 @@ if (userStatus.status == 404 or userStatus.status == 200) {
             "type": "boolean",
             "label": "Enable double opt-in",
             "description": "If enabled, Mailchimp sends a confirmation email to that user, and that email is tagged with a pending subscriber status. The subscriber status automatically changes to subscribed once the user confirms the email.",
-            "default": False,
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all event properties",
-            "description": "If set, all person properties will be included. Individual properties can be overridden below.",
             "default": False,
             "secret": False,
             "required": True,

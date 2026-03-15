@@ -17,7 +17,6 @@ def create_inputs(**kwargs):
         "token": "TOKEN",
         "host": "track.customer.io",
         "action": "automatic",
-        "include_all_properties": False,
         "identifier_key": "email",
         "identifier_value": "example@posthog.com",
         "attributes": {"name": "example"},
@@ -60,7 +59,7 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
 
     def test_will_truncate_long_values(self):
         self.run_function(
-            inputs=create_inputs(include_all_properties=True),
+            inputs=create_inputs(attributes={"url": "https://example.com/" + "12345" * 200, "name": "example"}),
             globals={
                 "event": {"event": "$pageview", "properties": {"url": "https://example.com/" + "12345" * 200}},
             },
@@ -88,25 +87,6 @@ class TestTemplateCustomerio(BaseHogFunctionTemplateTest):
                 },
             },
         )
-
-    def test_body_includes_all_properties_if_set(self):
-        self.run_function(inputs=create_inputs(include_all_properties=False))
-
-        assert self.get_mock_fetch_calls()[0][1]["body"]["attributes"] == {"name": "example"}
-
-        self.run_function(inputs=create_inputs(include_all_properties=True))
-
-        assert self.get_mock_fetch_calls()[0][1]["body"]["attributes"] == {
-            "$current_url": "https://example.com",
-            "name": "example",
-        }
-
-        self.run_function(inputs=create_inputs(include_all_properties=True, action="identify"))
-
-        assert self.get_mock_fetch_calls()[0][1]["body"]["attributes"] == {
-            "email": "example@posthog.com",
-            "name": "example",
-        }
 
     def test_automatic_action_mapping(self):
         for event_name, expected_action in [
@@ -181,7 +161,6 @@ class TestTemplateMigration(BaseTest):
             "host": {"value": "track.customer.io"},
             "identifier_key": {"value": "id"},
             "identifier_value": {"value": "{event.distinct_id}"},
-            "include_all_properties": {"value": True},
             "attributes": {"value": {}},
         }
 

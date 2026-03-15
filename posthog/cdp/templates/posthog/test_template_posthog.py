@@ -16,7 +16,6 @@ class TestTemplatePosthog(BaseHogFunctionTemplateTest):
             inputs={
                 "host": "https://us.i.posthog.com",
                 "token": "TOKEN",
-                "include_all_properties": True,
                 "properties": {"additional": "value"},
             }
         )
@@ -32,22 +31,10 @@ class TestTemplatePosthog(BaseHogFunctionTemplateTest):
                     "event": "event-name",
                     "timestamp": "2024-01-01T00:00:00Z",
                     "distinct_id": "distinct-id",
-                    "properties": {"$current_url": "https://example.com", "additional": "value"},
+                    "properties": {"additional": "value"},
                 },
             },
         )
-
-    def test_function_doesnt_include_all_properties(self):
-        self.run_function(
-            inputs={
-                "host": "https://us.i.posthog.com",
-                "token": "TOKEN",
-                "include_all_properties": False,
-                "properties": {"additional": "value"},
-            }
-        )
-
-        assert self.get_mock_fetch_calls()[0][1]["body"]["properties"] == {"additional": "value"}
 
 
 class TestTemplateMigration(BaseTest):
@@ -68,7 +55,6 @@ class TestTemplateMigration(BaseTest):
         assert template["inputs"] == {
             "host": {"value": "us.i.example.com"},
             "token": {"value": "apikey"},
-            "include_all_properties": {"value": True},
             "properties": {"value": {}},
         }
 
@@ -80,7 +66,6 @@ class TestTemplateMigration(BaseTest):
         assert template["inputs"] == {
             "host": {"value": "us.i.example.com"},
             "token": {"value": "apikey"},
-            "include_all_properties": {"value": True},
             "properties": {"value": {"$geoip_disable": True}},
         }
 
@@ -92,7 +77,6 @@ class TestTemplateMigration(BaseTest):
         assert template["inputs"] == {
             "host": {"value": "us.i.example.com"},
             "token": {"value": "apikey"},
-            "include_all_properties": {"value": True},
             "properties": {"value": {}},
         }
 

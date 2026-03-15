@@ -48,14 +48,6 @@ let payload := {
     'custom_attributes': {}
 }
 
-if (inputs.include_all_properties) {
-    for (let key, value in person.properties) {
-        if (not empty(value) and not key like '$%') {
-            payload[key] := value
-        }
-    }
-}
-
 for (let key, value in inputs.properties) {
     if (not empty(value)) {
         payload[key] := value
@@ -117,15 +109,6 @@ if (res.status >= 400) {
             "label": "Email of the user",
             "description": "Where to find the email of the user.",
             "default": "{person.properties.email}",
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all properties as attributes",
-            "description": "If set, all person properties will be included. Individual attributes can be overridden below.",
-            "default": False,
             "secret": False,
             "required": True,
         },
@@ -212,14 +195,6 @@ let payload := {
     'metadata': {}
 }
 
-if (inputs.include_all_properties) {
-    for (let key, value in event.properties) {
-        if (not empty(value) and not key like '$%') {
-            payload.metadata[key] := value
-        }
-    }
-}
-
 for (let key, value in inputs.properties) {
     if (not empty(value)) {
         payload.metadata[key] := value
@@ -282,15 +257,6 @@ if (res.status >= 400) {
             "label": "Event time",
             "description": "A Unix timestamp in seconds indicating when the actual event occurred.",
             "default": "{toInt(toUnixTimestamp(event.timestamp))}",
-            "secret": False,
-            "required": True,
-        },
-        {
-            "key": "include_all_properties",
-            "type": "boolean",
-            "label": "Include all properties as attributes",
-            "description": "If set, all person properties will be included. Individual attributes can be overridden below.",
-            "default": False,
             "secret": False,
             "required": True,
         },
