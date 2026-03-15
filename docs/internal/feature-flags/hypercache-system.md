@@ -122,7 +122,7 @@ The `_get_feature_flags_for_service` function fetches all flags for a team (incl
   "flags": [
     /* serialized flag dicts */
   ],
-  "evaluation_context": {
+  "evaluation_metadata": {
     "dependency_stages": [[1, 5], [3], [7]],
     "flags_with_missing_deps": [9, 12],
     "transitive_deps": { "3": [1, 5], "7": [1, 3, 5] }
@@ -130,7 +130,7 @@ The `_get_feature_flags_for_service` function fetches all flags for a team (incl
 }
 ```
 
-The `evaluation_context` fields:
+The `evaluation_metadata` fields:
 
 | Field                     | Type                   | Description                                                                                                                                                                                 |
 | ------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -140,7 +140,7 @@ The `evaluation_context` fields:
 
 ### Dependency computation
 
-The `_compute_flag_dependencies` function in `flags_cache.py` builds the evaluation context using Kahn's algorithm (layered topological sort). The algorithm:
+The `_compute_flag_dependencies` function in `flags_cache.py` builds the evaluation metadata using Kahn's algorithm (layered topological sort). The algorithm:
 
 1. Extracts direct dependencies from each flag's `filters.groups[*].properties` where `type == "flag"`.
 2. Builds an in-degree map and reverse-dependency edges across all flags.

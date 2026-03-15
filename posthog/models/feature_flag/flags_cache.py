@@ -94,7 +94,7 @@ def _extract_direct_dependency_ids(flag_data: dict[str, Any]) -> set[int]:
 
 def _compute_flag_dependencies(flags_data: list[dict[str, Any]]) -> dict[str, Any]:
     """
-    Compute flag dependency metadata and return an evaluation context.
+    Compute flag dependency metadata and return evaluation metadata.
 
     Returns a dict with:
     - dependency_stages: list of lists of flag IDs grouped by evaluation stage,
@@ -191,14 +191,14 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     in /flags would return unusable encrypted ciphertext.
 
     Returns:
-        dict: {"flags": [...], "evaluation_context": {...}} where flags is a list
-        of flag dictionaries and evaluation_context contains pre-computed dependency
+        dict: {"flags": [...], "evaluation_metadata": {...}} where flags is a list
+        of flag dictionaries and evaluation_metadata contains pre-computed dependency
         metadata (stages, missing deps, transitive deps).
     """
     # Exclude encrypted remote config flags at DB level for efficiency
     flags = get_feature_flags(team=team, exclude_encrypted_remote_config=True)
     flags_data = serialize_feature_flags(flags)
-    evaluation_context = _compute_flag_dependencies(flags_data)
+    evaluation_metadata = _compute_flag_dependencies(flags_data)
 
     logger.info(
         "Loaded feature flags for service cache",
@@ -208,7 +208,7 @@ def _get_feature_flags_for_service(team: Team) -> dict[str, Any]:
     )
 
     # Wrap in dict for HyperCache compatibility
-    return {"flags": flags_data, "evaluation_context": evaluation_context}
+    return {"flags": flags_data, "evaluation_metadata": evaluation_metadata}
 
 
 def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str, Any]]:
@@ -226,7 +226,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
         teams: List of Team objects to load flags for
 
     Returns:
-        Dict mapping team_id to {"flags": [...], "evaluation_context": {...}} for each team
+        Dict mapping team_id to {"flags": [...], "evaluation_metadata": {...}} for each team
     """
     if not teams:
         return {}
@@ -266,7 +266,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
     for team in teams:
         team_flags = flags_by_team_id.get(team.id, [])
         flags_data = serialize_feature_flags(team_flags)
-        evaluation_context = _compute_flag_dependencies(flags_data)
+        evaluation_metadata = _compute_flag_dependencies(flags_data)
 
         logger.info(
             "Loaded feature flags for service cache (batch)",
@@ -275,7 +275,7 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
             flag_count=len(flags_data),
         )
 
-        result[team.id] = {"flags": flags_data, "evaluation_context": evaluation_context}
+        result[team.id] = {"flags": flags_data, "evaluation_metadata": evaluation_metadata}
 
     return result
 

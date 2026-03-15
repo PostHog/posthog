@@ -6661,7 +6661,7 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![filtered_continuity_flag, active_normal_flag],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_context: None,
+            evaluation_metadata: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id)
@@ -6855,7 +6855,7 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_context: None,
+            evaluation_metadata: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id)
@@ -6952,7 +6952,7 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_context: None,
+            evaluation_metadata: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id)
@@ -7147,7 +7147,7 @@ mod tests {
         let flags = FeatureFlagList {
             flags: vec![flag_a, flag_b, flag_c],
             filtered_out_flag_ids: filtered_out.clone(),
-            evaluation_context: None,
+            evaluation_metadata: None,
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&flags, team.id)

@@ -1309,7 +1309,7 @@ fn make_flag_list(
     crate::flags::flag_models::FeatureFlagList {
         flags,
         filtered_out_flag_ids,
-        evaluation_context: None,
+        evaluation_metadata: None,
     }
 }
 
@@ -2528,7 +2528,7 @@ mod precomputed_dependency_graph_tests {
     }
 
     #[test]
-    fn test_deserialization_with_evaluation_context() {
+    fn test_deserialization_with_evaluation_metadata() {
         use crate::flags::flag_models::HypercacheFlagsWrapper;
 
         let json = r#"{
@@ -2536,7 +2536,7 @@ mod precomputed_dependency_graph_tests {
                 {"id": 1, "team_id": 1, "key": "test", "name": "Test",
                  "filters": {"groups": []}, "deleted": false, "active": true}
             ],
-            "evaluation_context": {
+            "evaluation_metadata": {
                 "dependency_stages": [[1]],
                 "flags_with_missing_deps": [],
                 "transitive_deps": {"1": []}
@@ -2545,7 +2545,7 @@ mod precomputed_dependency_graph_tests {
         let wrapper: HypercacheFlagsWrapper = serde_json::from_str(json).unwrap();
         assert_eq!(wrapper.flags.len(), 1);
         assert_eq!(wrapper.flags[0].key, "test");
-        let ctx = wrapper.evaluation_context.unwrap();
+        let ctx = wrapper.evaluation_metadata.unwrap();
         assert_eq!(ctx.dependency_stages, vec![vec![1]]);
         assert!(ctx.flags_with_missing_deps.is_empty());
         assert_eq!(ctx.transitive_deps[&1], HashSet::<i32>::new());
@@ -2553,7 +2553,7 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_precomputed_path_selected_when_fields_present() {
-        use crate::flags::flag_models::EvaluationContext;
+        use crate::flags::flag_models::EvaluationMetadata;
         use std::collections::HashMap;
 
         // Flags with precomputed data: A(1) -> B(2) -> C(3)
@@ -2563,7 +2563,7 @@ mod precomputed_dependency_graph_tests {
                 create_flag(2, "flag_b", HashSet::from([3]), true),
                 create_flag(3, "flag_c", HashSet::new(), true),
             ],
-            evaluation_context: Some(EvaluationContext {
+            evaluation_metadata: Some(EvaluationMetadata {
                 dependency_stages: vec![vec![3], vec![2], vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -2604,7 +2604,7 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_precomputed_missing_deps_collected() {
-        use crate::flags::flag_models::EvaluationContext;
+        use crate::flags::flag_models::EvaluationMetadata;
         use std::collections::HashMap;
 
         let feature_flags = FeatureFlagList {
@@ -2613,7 +2613,7 @@ mod precomputed_dependency_graph_tests {
                 create_flag(2, "flag_b", HashSet::new(), true),
                 create_flag(3, "flag_c", HashSet::new(), true),
             ],
-            evaluation_context: Some(EvaluationContext {
+            evaluation_metadata: Some(EvaluationMetadata {
                 dependency_stages: vec![vec![2, 3], vec![1]],
                 flags_with_missing_deps: vec![1, 2],
                 transitive_deps: HashMap::from([
@@ -2634,7 +2634,7 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_fallback_path_used_without_precomputed_fields() {
-        // Flags WITHOUT evaluation_context: A -> B -> C (fallback path)
+        // Flags WITHOUT evaluation_metadata: A -> B -> C (fallback path)
         let feature_flags = FeatureFlagList {
             flags: vec![
                 create_flag(1, "flag_a", HashSet::from([2]), true),
@@ -2665,7 +2665,7 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_precomputed_equivalence_diamond() {
-        use crate::flags::flag_models::EvaluationContext;
+        use crate::flags::flag_models::EvaluationMetadata;
         use std::collections::HashMap;
 
         // Build with precomputed data and without, compare results
@@ -2685,7 +2685,7 @@ mod precomputed_dependency_graph_tests {
         };
         let fallback = PrecomputedDependencyGraph::build(&flags_no_precomputed, 1).unwrap();
 
-        // With precomputed (evaluation_context on the list)
+        // With precomputed (evaluation_metadata on the list)
         let flags_precomputed = FeatureFlagList {
             flags: vec![
                 create_flag(1, "flag_a", deps_a, true),
@@ -2693,7 +2693,7 @@ mod precomputed_dependency_graph_tests {
                 create_flag(3, "flag_c", deps_c, true),
                 create_flag(4, "flag_d", HashSet::new(), true),
             ],
-            evaluation_context: Some(EvaluationContext {
+            evaluation_metadata: Some(EvaluationMetadata {
                 dependency_stages: vec![vec![4], vec![2, 3], vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -2724,7 +2724,7 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_precomputed_filter_stages_works() {
-        use crate::flags::flag_models::EvaluationContext;
+        use crate::flags::flag_models::EvaluationMetadata;
         use std::collections::HashMap;
 
         // A(1)->B(2)->C(3), D(4) independent
@@ -2735,7 +2735,7 @@ mod precomputed_dependency_graph_tests {
                 create_flag(3, "flag_c", HashSet::new(), true),
                 create_flag(4, "flag_d", HashSet::new(), true),
             ],
-            evaluation_context: Some(EvaluationContext {
+            evaluation_metadata: Some(EvaluationMetadata {
                 dependency_stages: vec![vec![3, 4], vec![2], vec![1]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([
@@ -2768,7 +2768,7 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_precomputed_path_handles_cycles_via_missing_deps() {
-        use crate::flags::flag_models::EvaluationContext;
+        use crate::flags::flag_models::EvaluationMetadata;
         use std::collections::HashMap;
 
         // Simulate Django output for A(1)->B(2)->A(1) cycle plus independent C(3)
@@ -2778,7 +2778,7 @@ mod precomputed_dependency_graph_tests {
                 create_flag(2, "flag_b", HashSet::from([1]), true),
                 create_flag(3, "flag_c", HashSet::new(), true),
             ],
-            evaluation_context: Some(EvaluationContext {
+            evaluation_metadata: Some(EvaluationMetadata {
                 dependency_stages: vec![vec![3]], // only C, cycled flags excluded
                 flags_with_missing_deps: vec![1, 2],
                 transitive_deps: HashMap::from([
@@ -2819,14 +2819,14 @@ mod precomputed_dependency_graph_tests {
     }
 
     #[test]
-    fn test_fallback_path_used_when_evaluation_context_absent() {
-        // Without evaluation_context, fallback path is used
+    fn test_fallback_path_used_when_evaluation_metadata_absent() {
+        // Without evaluation_metadata, fallback path is used
         let feature_flags = FeatureFlagList {
             flags: vec![
                 create_flag(1, "flag_a", HashSet::from([2]), true),
                 create_flag(2, "flag_b", HashSet::new(), true),
             ],
-            ..Default::default() // no evaluation_context
+            ..Default::default() // no evaluation_metadata
         };
 
         let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
@@ -2850,7 +2850,7 @@ mod precomputed_dependency_graph_tests {
 
     #[test]
     fn test_filtered_out_flags_do_not_inflate_cycle_count() {
-        use crate::flags::flag_models::EvaluationContext;
+        use crate::flags::flag_models::EvaluationMetadata;
         use std::collections::HashMap;
 
         // Three flags total: flag_a(1) active, flag_b(2) active, flag_c(3) inactive.
@@ -2864,7 +2864,7 @@ mod precomputed_dependency_graph_tests {
                 create_flag(3, "flag_c", HashSet::new(), false),
             ],
             filtered_out_flag_ids: HashSet::from([3]),
-            evaluation_context: Some(EvaluationContext {
+            evaluation_metadata: Some(EvaluationMetadata {
                 dependency_stages: vec![vec![1, 2]],
                 flags_with_missing_deps: vec![],
                 transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),

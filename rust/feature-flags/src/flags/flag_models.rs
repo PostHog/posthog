@@ -62,7 +62,7 @@ where
 /// Pre-computed dependency metadata, built by Django at cache-write time.
 /// Shipped as a top-level field alongside the flags array in the hypercache.
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct EvaluationContext {
+pub struct EvaluationMetadata {
     /// Flag IDs grouped by evaluation stage. Stage 0 (no deps) first.
     pub dependency_stages: Vec<Vec<i32>>,
     /// Flag IDs with missing, cyclic, or transitively broken dependencies.
@@ -80,7 +80,7 @@ pub struct EvaluationContext {
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
     #[serde(default)]
-    pub evaluation_context: Option<EvaluationContext>,
+    pub evaluation_metadata: Option<EvaluationMetadata>,
 }
 
 /// New holdout format: `{"id": 42, "exclusion_percentage": 10}`.
@@ -244,5 +244,5 @@ pub struct FeatureFlagList {
     /// Present when the cache was written by new Django code; absent for PG fallback
     /// or old cache entries.
     #[serde(skip)]
-    pub evaluation_context: Option<EvaluationContext>,
+    pub evaluation_metadata: Option<EvaluationMetadata>,
 }

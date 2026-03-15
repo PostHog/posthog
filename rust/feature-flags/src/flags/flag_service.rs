@@ -162,7 +162,7 @@ impl FlagService {
                 let flags = FeatureFlagList::from_pg(pg_client, team_id).await?;
                 let wrapper = crate::flags::flag_models::HypercacheFlagsWrapper {
                     flags,
-                    evaluation_context: None,
+                    evaluation_metadata: None,
                 };
                 let value = serde_json::to_value(&wrapper).map_err(|e| {
                     tracing::error!(
@@ -177,12 +177,12 @@ impl FlagService {
             .await?;
 
         // Parse the result (from cache or fallback)
-        let (flags, evaluation_context) = FeatureFlagList::parse_hypercache_value(data, team_id)?;
+        let (flags, evaluation_metadata) = FeatureFlagList::parse_hypercache_value(data, team_id)?;
 
         Ok(FlagResult {
             flag_list: FeatureFlagList {
                 flags,
-                evaluation_context,
+                evaluation_metadata,
                 ..Default::default()
             },
             cache_source: source,
@@ -525,7 +525,7 @@ mod tests {
         // Serialize exactly like Django does for large payloads: JSON -> Pickle -> Zstd
         let wrapper = HypercacheFlagsWrapper {
             flags: large_flags.flags.clone(),
-            evaluation_context: None,
+            evaluation_metadata: None,
         };
         let json_string = serde_json::to_string(&wrapper).expect("Failed to serialize to JSON");
 

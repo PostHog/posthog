@@ -728,14 +728,14 @@ pub struct FilteredStagesResult {
 
 impl PrecomputedDependencyGraph {
     /// Builds a `PrecomputedDependencyGraph` from a flag list.
-    /// Uses the fast path when Django-precomputed `evaluation_context` is present,
+    /// Uses the fast path when Django-precomputed `evaluation_metadata` is present,
     /// falls back to full graph construction otherwise.
     /// Returns `None` only for fatal errors (same semantics as `build_dependency_graph`).
     pub fn build(
         feature_flags: &crate::flags::flag_models::FeatureFlagList,
         team_id: common_types::TeamId,
     ) -> Option<Self> {
-        if let Some(ref ctx) = feature_flags.evaluation_context {
+        if let Some(ref ctx) = feature_flags.evaluation_metadata {
             Self::build_from_precomputed(
                 &feature_flags.flags,
                 ctx,
@@ -750,11 +750,11 @@ impl PrecomputedDependencyGraph {
         }
     }
 
-    /// Fast path: consumes the top-level `EvaluationContext` directly.
+    /// Fast path: consumes the top-level `EvaluationMetadata` directly.
     /// No Kahn's algorithm, no per-flag scanning, no ID→key conversion loops.
     fn build_from_precomputed(
         flags: &[FeatureFlag],
-        ctx: &crate::flags::flag_models::EvaluationContext,
+        ctx: &crate::flags::flag_models::EvaluationMetadata,
         filtered_out_flag_ids: &HashSet<i32>,
     ) -> Option<Self> {
         let id_to_flag: HashMap<i32, &FeatureFlag> = flags.iter().map(|f| (f.id, f)).collect();

@@ -1,7 +1,7 @@
 use crate::api::errors::{simplify_serde_error, FlagError};
 use crate::database::get_connection_with_metrics;
 use crate::flags::flag_models::{
-    EvaluationContext, FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
+    EvaluationMetadata, FeatureFlag, FeatureFlagList, FeatureFlagRow, HypercacheFlagsWrapper,
 };
 use crate::metrics::consts::TOMBSTONE_COUNTER;
 use common_database::PostgresReader;
@@ -17,16 +17,16 @@ impl FeatureFlagList {
         }
     }
 
-    /// Parses a JSON Value from hypercache into flags and optional evaluation context.
+    /// Parses a JSON Value from hypercache into flags and optional evaluation metadata.
     ///
     /// Handles:
     /// - Null values (returns empty vec)
     /// - Sentinel "__missing__" value (returns empty vec)
-    /// - Standard hypercache format `{"flags": [...], "evaluation_context": {...}}`
+    /// - Standard hypercache format `{"flags": [...], "evaluation_metadata": {...}}`
     pub fn parse_hypercache_value(
         data: serde_json::Value,
         team_id: TeamId,
-    ) -> Result<(Vec<FeatureFlag>, Option<EvaluationContext>), FlagError> {
+    ) -> Result<(Vec<FeatureFlag>, Option<EvaluationMetadata>), FlagError> {
         // Handle null (can happen when hypercache returns empty)
         if data.is_null() {
             return Ok((vec![], None));
@@ -38,7 +38,7 @@ impl FeatureFlagList {
             return Ok((vec![], None));
         }
 
-        // Parse the hypercache format: {"flags": [...], "evaluation_context": {...}}
+        // Parse the hypercache format: {"flags": [...], "evaluation_metadata": {...}}
         let wrapper: HypercacheFlagsWrapper =
             serde_json::from_value(data.clone()).map_err(|e| {
                 let data_str = data.to_string();
@@ -63,7 +63,7 @@ impl FeatureFlagList {
 
         tracing::debug!("Parsed {} flags for team {}", wrapper.flags.len(), team_id);
 
-        Ok((wrapper.flags, wrapper.evaluation_context))
+        Ok((wrapper.flags, wrapper.evaluation_metadata))
     }
 
     /// Returns feature flags from postgres given a team_id

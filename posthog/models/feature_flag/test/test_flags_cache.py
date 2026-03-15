@@ -52,7 +52,7 @@ class TestServiceFlagsCache(BaseTest):
 
         assert result == {
             "flags": [],
-            "evaluation_context": {
+            "evaluation_metadata": {
                 "dependency_stages": [],
                 "flags_with_missing_deps": [],
                 "transitive_deps": {},
@@ -2467,8 +2467,8 @@ class TestComputeFlagDependenciesIntegration(BaseTest):
         )
         result = _get_feature_flags_for_service(self.team)
 
-        assert "evaluation_context" in result
-        ctx = result["evaluation_context"]
+        assert "evaluation_metadata" in result
+        ctx = result["evaluation_metadata"]
         assert "dependency_stages" in ctx
         assert "flags_with_missing_deps" in ctx
         assert "transitive_deps" in ctx
@@ -2491,7 +2491,7 @@ class TestComputeFlagDependenciesIntegration(BaseTest):
         )
         result = _get_feature_flags_for_teams_batch([self.team])
 
-        assert "evaluation_context" in result[self.team.id]
+        assert "evaluation_metadata" in result[self.team.id]
 
     def test_service_computes_transitive_deps(self):
         flag_c = FeatureFlag.objects.create(
@@ -2528,7 +2528,7 @@ class TestComputeFlagDependenciesIntegration(BaseTest):
         )
 
         result = _get_feature_flags_for_service(self.team)
-        ctx = result["evaluation_context"]
+        ctx = result["evaluation_metadata"]
 
         assert sorted(ctx["transitive_deps"][str(flag_a.id)]) == sorted([flag_b.id, flag_c.id])
         assert ctx["transitive_deps"][str(flag_b.id)] == [flag_c.id]

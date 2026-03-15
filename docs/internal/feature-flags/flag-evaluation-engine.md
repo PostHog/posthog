@@ -45,12 +45,12 @@ pub struct FeatureFlag {
 }
 ```
 
-### EvaluationContext
+### EvaluationMetadata
 
 Pre-computed dependency metadata, built by Django at cache-write time and shipped as a top-level field alongside the flags array in the HyperCache.
 
 ```rust
-pub struct EvaluationContext {
+pub struct EvaluationMetadata {
     pub dependency_stages: Vec<Vec<i32>>,           // flag IDs grouped by stage (stage 0 first)
     pub flags_with_missing_deps: Vec<i32>,          // flag IDs with broken dependencies
     pub transitive_deps: HashMap<i32, HashSet<i32>>, // flag ID → transitive dep IDs
@@ -290,12 +290,12 @@ The dependency graph determines evaluation order so that flags are evaluated aft
 
 #### Pre-computed path (HyperCache)
 
-Django pre-computes all dependency metadata at cache-write time and ships it as a top-level `evaluation_context` alongside the flags array in the HyperCache:
+Django pre-computes all dependency metadata at cache-write time and ships it as a top-level `evaluation_metadata` alongside the flags array in the HyperCache:
 
 ```json
 {
   "flags": [...],
-  "evaluation_context": {
+  "evaluation_metadata": {
     "dependency_stages": [[3], [2], [1]],
     "flags_with_missing_deps": [5],
     "transitive_deps": {"1": [2, 3], "2": [3]}
@@ -307,11 +307,11 @@ Django pre-computes all dependency metadata at cache-write time and ships it as 
 - `flags_with_missing_deps`: Flag IDs with missing, cyclic, or transitively broken dependencies (fail closed).
 - `transitive_deps`: Flag ID → transitive dependency flag IDs. Keys are stringified ints (JSON requirement).
 
-Rust deserializes `EvaluationContext` and maps pre-grouped stages directly to `Vec<Vec<FeatureFlag>>` — no graph construction or Kahn's algorithm needed.
+Rust deserializes `EvaluationMetadata` and maps pre-grouped stages directly to `Vec<Vec<FeatureFlag>>` — no graph construction or Kahn's algorithm needed.
 
 #### Fallback path (PostgreSQL)
 
-When `evaluation_context` is absent (PG fallback, old cache entries), the service builds a DAG using `petgraph`:
+When `evaluation_metadata` is absent (PG fallback, old cache entries), the service builds a DAG using `petgraph`:
 
 1. Extract dependencies from all flag property filters
 2. Build a directed graph (edges from dependent -> dependency)
@@ -321,11 +321,11 @@ When `evaluation_context` is absent (PG fallback, old cache entries), the servic
 
 #### Backwards compatibility
 
-The two paths are fully compatible via `#[serde(default)]` on `evaluation_context`:
+The two paths are fully compatible via `#[serde(default)]` on `evaluation_metadata`:
 
-- **Old Rust + new cache**: `evaluation_context` is an unknown field, ignored. Falls back to petgraph.
-- **New Rust + old cache**: `evaluation_context` absent → `None` → falls back to petgraph.
-- **New Rust + new cache**: `evaluation_context` present → fast pre-computed path.
+- **Old Rust + new cache**: `evaluation_metadata` is an unknown field, ignored. Falls back to petgraph.
+- **New Rust + old cache**: `evaluation_metadata` absent → `None` → falls back to petgraph.
+- **New Rust + new cache**: `evaluation_metadata` present → fast pre-computed path.
 
 ### Evaluation stages
 
@@ -434,7 +434,7 @@ Property overrides from the request body are merged on top of DB-fetched propert
 
 The evaluation engine follows a lazy-but-batched approach:
 
-1. **Flag definitions**: Fetched once per request from HyperCache (Redis -> S3 -> PostgreSQL), including pre-computed `evaluation_context` when available
+1. **Flag definitions**: Fetched once per request from HyperCache (Redis -> S3 -> PostgreSQL), including pre-computed `evaluation_metadata` when available
 2. **Group type mappings**: Fetched once per request if any flag uses groups
 3. **Person properties**: Fetched once per request from PostgreSQL, merged with request overrides
 4. **Group properties**: Fetched once per request from PostgreSQL, merged with request overrides

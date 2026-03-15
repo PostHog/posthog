@@ -12,7 +12,7 @@ use crate::{
     flags::{
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
         flag_models::{
-            EvaluationContext, FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
+            EvaluationMetadata, FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
             HypercacheFlagsWrapper,
         },
         flag_service::FlagService,
@@ -1395,7 +1395,7 @@ async fn test_fetch_and_filter_flags() {
 }
 
 #[tokio::test]
-async fn test_fetch_and_filter_preserves_evaluation_context() {
+async fn test_fetch_and_filter_preserves_evaluation_metadata() {
     let redis_client = setup_redis_client(None).await;
     let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
     let team_hypercache_reader = setup_team_hypercache_reader(redis_client.clone()).await;
@@ -1441,15 +1441,15 @@ async fn test_fetch_and_filter_preserves_evaluation_context() {
         },
     ];
 
-    // Write to cache WITH an evaluation_context
-    let eval_context = EvaluationContext {
+    // Write to cache WITH evaluation_metadata
+    let eval_context = EvaluationMetadata {
         dependency_stages: vec![vec![1], vec![2]],
         flags_with_missing_deps: vec![],
         transitive_deps: HashMap::from([(2, std::collections::HashSet::from([1]))]),
     };
     let wrapper = HypercacheFlagsWrapper {
         flags: flags.clone(),
-        evaluation_context: Some(eval_context),
+        evaluation_metadata: Some(eval_context),
     };
     let json_string = serde_json::to_string(&wrapper).unwrap();
     let pickled_bytes = serde_pickle::to_vec(&json_string, Default::default()).unwrap();
@@ -1473,10 +1473,10 @@ async fn test_fetch_and_filter_preserves_evaluation_context() {
 
     assert_eq!(result.flags.len(), 2);
     assert!(
-        result.evaluation_context.is_some(),
-        "evaluation_context should be preserved by fetch_and_filter, not dropped"
+        result.evaluation_metadata.is_some(),
+        "evaluation_metadata should be preserved by fetch_and_filter, not dropped"
     );
-    let ctx = result.evaluation_context.unwrap();
+    let ctx = result.evaluation_metadata.unwrap();
     assert_eq!(ctx.dependency_stages, vec![vec![1], vec![2]]);
     assert!(ctx.flags_with_missing_deps.is_empty());
     assert!(ctx.transitive_deps.contains_key(&2));
@@ -1709,7 +1709,7 @@ async fn test_parallel_path_matches_sequential_results() {
         feature_flags: FeatureFlagList {
             flags: flags.clone(),
             filtered_out_flag_ids: filtered_out_flag_ids.clone(),
-            evaluation_context: None,
+            evaluation_metadata: None,
         },
         persons_reader: reader.clone(),
         persons_writer: writer.clone(),
@@ -1738,7 +1738,7 @@ async fn test_parallel_path_matches_sequential_results() {
         feature_flags: FeatureFlagList {
             flags,
             filtered_out_flag_ids,
-            evaluation_context: None,
+            evaluation_metadata: None,
         },
         persons_reader: reader.clone(),
         persons_writer: writer.clone(),
