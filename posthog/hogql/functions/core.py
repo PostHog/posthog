@@ -72,6 +72,7 @@ class HogQLFunctionMeta:
     max_params: Optional[int] = 0
     passthrough_suffix_args_count: int = 0
     aggregate: bool = False
+    use_or_null_variant: bool = False
     overloads: Optional[list[Overload]] = None
     """Overloads allow for using a different ClickHouse function depending on the type of the first arg."""
     tz_aware: bool = False
