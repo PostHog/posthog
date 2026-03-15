@@ -16,6 +16,7 @@ from posthog.test.base import (
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
@@ -5450,3 +5451,149 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         # person2 does NOT convert (pageleave -> unrelated -> checkout breaks strict order)
         self.assertEqual(result[0]["count"], 2)
         self.assertEqual(result[1]["count"], 1)
+
+    @freeze_time("2024-01-02T00:00:00Z")
+    def test_funnel_same_event_different_property_filters(self):
+        _create_person(distinct_ids=["user_both"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_both",
+            timestamp="2024-01-01T10:00:00Z",
+            properties={"$current_url": "/home"},
+        )
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_both",
+            timestamp="2024-01-01T11:00:00Z",
+            properties={"$current_url": "/pricing"},
+        )
+
+        _create_person(distinct_ids=["user_only_home"], team_id=self.team.pk)
+        _create_event(
+            team=self.team,
+            event="$pageview",
+            distinct_id="user_only_home",
+            timestamp="2024-01-01T10:00:00Z",
+            properties={"$current_url": "/home"},
+        )
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventPropertyFilter(
+                            key="$current_url",
+                            value="/home",
+                            operator=PropertyOperator.EXACT,
+                            type="event",
+                        )
+                    ],
+                ),
+                EventsNode(
+                    event="$pageview",
+                    properties=[
+                        EventPropertyFilter(
+                            key="$current_url",
+                            value="/pricing",
+                            operator=PropertyOperator.EXACT,
+                            type="event",
+                        )
+                    ],
+                ),
+            ],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+            funnelsFilter=FunnelsFilter(
+                funnelWindowInterval=14, funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY
+            ),
+        )
+        result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
+
+        # Step 1: both users entered with /home
+        self.assertEqual(result[0]["count"], 2)
+        # Step 2: only user_both continued to /pricing
+        self.assertEqual(result[1]["count"], 1)
+
+    @parameterized.expand(
+        [
+            (
+                "event_breakdown",
+                BreakdownType.EVENT,
+                "$browser",
+                None,  # no group_type_index needed
+                False,  # no group setup needed
+            ),
+            (
+                "person_breakdown",
+                BreakdownType.PERSON,
+                "name",
+                None,
+                False,
+            ),
+            (
+                "group_breakdown",
+                BreakdownType.GROUP,
+                "industry",
+                0,
+                True,  # needs group setup
+            ),
+        ]
+    )
+    @freeze_time("2024-01-02T00:00:00Z")
+    def test_funnel_breakdown_value_boxing(self, _name, breakdown_type, breakdown_prop, group_type_index, needs_groups):
+        if needs_groups:
+            self._create_groups()
+
+        _create_person(distinct_ids=["bd_user1"], team_id=self.team.pk)
+        self._signup_event(
+            distinct_id="bd_user1",
+            timestamp="2024-01-01T10:00:00Z",
+            properties={"$browser": "Chrome", "$group_0": "org:5"} if needs_groups else {"$browser": "Chrome"},
+        )
+        self._add_to_cart_event(
+            distinct_id="bd_user1",
+            timestamp="2024-01-01T11:00:00Z",
+            properties={"$browser": "Chrome", "$group_0": "org:5"} if needs_groups else {"$browser": "Chrome"},
+        )
+
+        query = FunnelsQuery(
+            series=[
+                EventsNode(event="user signed up"),
+                EventsNode(event="added to cart"),
+            ],
+            dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+            funnelsFilter=FunnelsFilter(
+                funnelWindowInterval=14, funnelWindowIntervalUnit=FunnelConversionWindowTimeUnit.DAY
+            ),
+            breakdownFilter=BreakdownFilter(
+                breakdown=breakdown_prop,
+                breakdown_type=breakdown_type,
+                breakdown_group_type_index=group_type_index,
+            ),
+        )
+        response = FunnelsQueryRunner(query=query, team=self.team).calculate()
+
+        # Should have at least one breakdown group
+        self.assertGreater(len(response.results), 0)
+
+        # Each breakdown group is a list of steps
+        first_group = response.results[0]
+        self.assertIsInstance(first_group, list)
+        self.assertEqual(len(first_group), 2)
+
+        # Step 1: user entered funnel
+        self.assertEqual(first_group[0]["count"], 1)
+        self.assertEqual(first_group[0]["order"], 0)
+
+        # Step 2: user converted
+        self.assertEqual(first_group[1]["count"], 1)
+        self.assertEqual(first_group[1]["order"], 1)
+
+        # Breakdown value should be present and non-empty
+        bv = first_group[0]["breakdown_value"]
+        self.assertIsNotNone(bv)
+        if breakdown_type in (BreakdownType.EVENT, BreakdownType.PERSON):
+            # These types box the value into a list
+            self.assertIsInstance(bv, list, f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}")
