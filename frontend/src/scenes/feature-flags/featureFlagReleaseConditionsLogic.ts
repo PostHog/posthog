@@ -348,7 +348,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             actions.setAffectedUsers(sortKey, response.users_affected)
             actions.setTotalUsers(response.total_users)
         },
-        addConditionSet: () => {
+        addConditionSet: async () => {
             const newGroup = values.filters.groups[values.filters.groups.length - 1]
             if (newGroup.sort_key) {
                 actions.openCondition(newGroup.sort_key)

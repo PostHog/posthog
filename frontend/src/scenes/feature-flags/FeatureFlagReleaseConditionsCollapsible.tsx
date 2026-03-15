@@ -587,18 +587,23 @@ export function FeatureFlagReleaseConditionsCollapsible({
 
                                             <div>
                                                 <LemonLabel className="mb-1">Rollout percentage</LemonLabel>
-                                                <div className="flex items-center gap-3">
-                                                    <div className="flex-1">
-                                                        <LemonSlider
-                                                            value={group.rollout_percentage ?? 100}
-                                                            onChange={(value) => {
-                                                                updateConditionSet(index, value)
-                                                            }}
-                                                            min={0}
-                                                            max={100}
-                                                            step={1}
-                                                        />
-                                                    </div>
+                                                <div className="flex items-start gap-6">
+                                                    <LemonSlider
+                                                        value={group.rollout_percentage ?? 100}
+                                                        onChange={(value) => updateConditionSet(index, value)}
+                                                        min={0}
+                                                        max={100}
+                                                        step={1}
+                                                        className="w-80"
+                                                        ticks={[
+                                                            { value: 0, label: '0%' },
+                                                            { value: 10, label: '10%' },
+                                                            { value: 25, label: '25%' },
+                                                            { value: 50, label: '50%' },
+                                                            { value: 75, label: '75%' },
+                                                            { value: 100, label: '100%' },
+                                                        ]}
+                                                    />
                                                     <LemonInput
                                                         type="number"
                                                         min={0}
