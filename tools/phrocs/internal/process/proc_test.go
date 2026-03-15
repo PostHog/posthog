@@ -1,8 +1,10 @@
 package process
 
 import (
+	"io"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
@@ -70,5 +72,50 @@ func TestProcess_linesEmpty(t *testing.T) {
 	p := NewProcess("svc", config.ProcConfig{}, 100)
 	if lines := p.Lines(); len(lines) != 0 {
 		t.Errorf("expected empty lines, got %v", lines)
+	}
+}
+
+type chunkReader struct {
+	chunks [][]byte
+	idx    int
+}
+
+func (r *chunkReader) Read(p []byte) (int, error) {
+	if r.idx >= len(r.chunks) {
+		return 0, io.EOF
+	}
+	n := copy(p, r.chunks[r.idx])
+	r.idx++
+	return n, nil
+}
+
+func TestReadLoop_readyPatternAcrossChunkBoundary(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{ReadyPattern: "server started"}, 100)
+
+	var msgs []tea.Msg
+	send := func(msg tea.Msg) {
+		msgs = append(msgs, msg)
+	}
+
+	r := &chunkReader{chunks: [][]byte{
+		[]byte("server sta"),
+		[]byte("rted\n"),
+	}}
+
+	p.readLoop(r, send)
+
+	if got := p.Status(); got != StatusRunning {
+		t.Fatalf("expected status running after split ready pattern, got %s", got)
+	}
+
+	foundRunning := false
+	for _, msg := range msgs {
+		if st, ok := msg.(StatusMsg); ok && st.Status == StatusRunning {
+			foundRunning = true
+			break
+		}
+	}
+	if !foundRunning {
+		t.Fatal("expected StatusRunning notification")
 	}
 }

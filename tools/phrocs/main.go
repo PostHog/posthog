@@ -22,7 +22,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
-	"github.com/posthog/posthog/phrocs/internal/process"
 	"github.com/posthog/posthog/phrocs/internal/tui"
 )
 
@@ -61,17 +60,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	mgr := process.NewManager(cfg)
-	m := tui.New(mgr, cfg.MouseScrollSpeed, logger)
+	m := tui.New(cfg, logger)
 	p := tea.NewProgram(m)
-
-	// StartAll is launched in a goroutine so it doesn't block: p.Send() inside
-	// Start() will block briefly on the Bubble Tea channel until p.Run() starts
-	// its event loop, at which point everything unblocks naturally. Calling
-	// StartAll synchronously before p.Run() deadlocks because the main goroutine
-	// would be stuck in p.Send() and p.Run() would never be reached.
-	mgr.SetSend(p.Send)
-	go mgr.StartAll()
+	m.SetSend(p.Send)
+	go m.StartAll()
 
 	if _, err := p.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: %v\n", err)

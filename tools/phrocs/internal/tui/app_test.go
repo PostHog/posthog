@@ -8,25 +8,24 @@ import (
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
-// testManager creates a Manager with the named stub processes (no autostart).
-func testManager(names ...string) *process.Manager {
+// Creates a config with the named stub processes (no autostart).
+func testConfig(names ...string) *config.Config {
 	f := false
 	procs := make(map[string]config.ProcConfig, len(names))
 	for _, n := range names {
 		procs[n] = config.ProcConfig{Shell: "true", Autostart: &f}
 	}
-	return process.NewManager(&config.Config{
+	return &config.Config{
 		Procs:            procs,
 		MouseScrollSpeed: 3,
 		Scrollback:       1000,
-	})
+	}
 }
 
 // readyModel returns a model that has processed a WindowSizeMsg and is ready.
 func readyModel(t *testing.T, names ...string) Model {
 	t.Helper()
-	mgr := testManager(names...)
-	m := New(mgr, 3, nil)
+	m := New(testConfig(names...), nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return next.(Model)
 }
@@ -47,8 +46,7 @@ func update(m Model, msg tea.Msg) Model {
 // ── New() initial state ───────────────────────────────────────────────────────
 
 func TestNew_initialState(t *testing.T) {
-	mgr := testManager("backend", "frontend")
-	m := New(mgr, 3, nil)
+	m := New(testConfig("backend", "frontend"), nil)
 	if m.ready {
 		t.Error("model should not be ready before WindowSizeMsg")
 	}
@@ -67,8 +65,7 @@ func TestNew_initialState(t *testing.T) {
 }
 
 func TestUpdate_windowSizeSetsReady(t *testing.T) {
-	mgr := testManager("backend")
-	m := New(mgr, 3, nil)
+	m := New(testConfig("backend"), nil)
 	m = update(m, tea.WindowSizeMsg{Width: 120, Height: 40})
 	if !m.ready {
 		t.Error("model should be ready after WindowSizeMsg")
@@ -155,8 +152,8 @@ func TestFocus_swapWithTab(t *testing.T) {
 
 func TestFocus_mouseClickSidebar(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
-	// Click second row in sidebar (row 1 = y=headerHeight+1)
-	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 1})
+	// Click second row in sidebar: header(1) + border(1) + row0(1) = y offset 3
+	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 2})
 	if m.focusedPane != focusSidebar {
 		t.Error("click in sidebar should focus sidebar")
 	}
@@ -250,7 +247,7 @@ func TestCopyMode_exitOnProcSwitch(t *testing.T) {
 	}
 	// Mouse-clicking a different process in the sidebar calls loadActiveProc,
 	// which always exits copy mode.
-	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 1})
+	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 2})
 	if m.copyMode {
 		t.Error("switching process should exit copy mode")
 	}
@@ -291,7 +288,7 @@ func TestStatusMsg_updatesCursor(t *testing.T) {
 	// Manager internals, so just verify that a StatusMsg for a known proc
 	// doesn't panic and doesn't move the cursor unnecessarily.
 	m = update(m, process.StatusMsg{Name: "backend", Status: process.StatusRunning})
-	if m.cursor > len(m.procs)-1 {
+	if m.cursor > len(m.rows)-1 {
 		t.Errorf("cursor %d out of bounds after StatusMsg", m.cursor)
 	}
 }
