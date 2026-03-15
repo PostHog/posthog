@@ -9,6 +9,30 @@ export const getAstroSteps = (ctx: OnboardingComponentsContext): StepDefinition[
 
     return [
         {
+            title: 'Add environment variables',
+            badge: 'required',
+            content: (
+                <>
+                    <Markdown>
+                        Add your PostHog API key and host to your environment variables. Astro exposes variables
+                        prefixed with `PUBLIC_` to client-side code:
+                    </Markdown>
+                    <CodeBlock
+                        blocks={[
+                            {
+                                language: 'bash',
+                                file: '.env',
+                                code: dedent`
+                                    PUBLIC_POSTHOG_KEY=<ph_project_token>
+                                    PUBLIC_POSTHOG_HOST=<ph_client_api_host>
+                                `,
+                            },
+                        ]}
+                    />
+                </>
+            ),
+        },
+        {
             title: 'Create the PostHog component',
             badge: 'required',
             content: (
@@ -28,8 +52,8 @@ export const getAstroSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                         ]}
                     />
                     <Markdown>
-                        In this file, add your PostHog web snippet. Be sure to include the `is:inline` directive to
-                        prevent Astro from processing it:
+                        In this file, add your PostHog web snippet. Use `define:vars` to pass environment variables to
+                        the inline script, and include the `is:inline` directive to prevent Astro from processing it:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -39,11 +63,13 @@ export const getAstroSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                 code: dedent`
                                     ---
                                     // src/components/posthog.astro
+                                    const posthogKey = import.meta.env.PUBLIC_POSTHOG_KEY
+                                    const posthogHost = import.meta.env.PUBLIC_POSTHOG_HOST
                                     ---
-                                    <script is:inline>
+                                    <script is:inline define:vars={{ posthogKey, posthogHost }}>
                                         !function(t,e){var o,n,p,r;e.__SV||(window.posthog=e,e._i=[],e.init=function(i,s,a){function g(t,e){var o=e.split(".");2==o.length&&(t=t[o[0]],e=o[1]),t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}}(p=t.createElement("script")).type="text/javascript",p.async=!0,p.src=s.api_host.replace(".i.posthog.com","-assets.i.posthog.com")+"/static/array.js",(r=t.getElementsByTagName("script")[0]).parentNode.insertBefore(p,r);var u=e;for(void 0!==a?u=e[a]=[]:a="posthog",u.people=u.people||[],u.toString=function(t){var e="posthog";return"posthog"!==a&&(e+="."+a),t||(e+=" (stub)"),e},u.people.toString=function(){return u.toString(1)+".people (stub)"},o="init capture register register_once register_for_session unregister opt_out_capturing has_opted_out_capturing opt_in_capturing reset isFeatureEnabled getFeatureFlag getFeatureFlagPayload reloadFeatureFlags group identify setPersonProperties setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags resetGroups onFeatureFlags addFeatureFlagsHandler onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey getNextSurveyStep".split(" "),n=0;n<o.length;n++)g(u,o[n]);e._i.push([i,s,a])},e.__SV=1)}(document,window.posthog||[]);
-                                        posthog.init('<ph_project_token>', {
-                                            api_host: '<ph_client_api_host>',
+                                        posthog.init(posthogKey, {
+                                            api_host: posthogHost,
                                             defaults: '2026-01-30'
                                         })
                                     </script>
