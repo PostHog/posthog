@@ -79,6 +79,7 @@ CREATE TABLE IF NOT EXISTS {table_name} {on_cluster_clause}
 
     -- attribution
     initial_referring_domain AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
+    initial_referrer AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_source AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_campaign AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
     initial_utm_medium AggregateFunction(argMin, String, DateTime64(6, 'UTC')),
@@ -222,6 +223,7 @@ SELECT
 
     -- attribution
     initializeAggregation('argMinState', {referring_domain}, timestamp) as initial_referring_domain,
+    initializeAggregation('argMinState', {referrer}, timestamp) as initial_referrer,
     initializeAggregation('argMinState', {utm_source}, timestamp) as initial_utm_source,
     initializeAggregation('argMinState', {utm_campaign}, timestamp) as initial_utm_campaign,
     initializeAggregation('argMinState', {utm_medium}, timestamp) as initial_utm_medium,
@@ -282,6 +284,7 @@ WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')),
         geoip_subdivision_city_name=source_string_column("$geoip_subdivision_city_name"),
         geoip_time_zone=source_string_column("$geoip_time_zone"),
         referring_domain=source_string_column("$referring_domain"),
+        referrer=source_string_column("$referrer"),
         utm_source=source_string_column("utm_source"),
         utm_campaign=source_string_column("utm_campaign"),
         utm_medium=source_string_column("utm_medium"),
@@ -346,6 +349,7 @@ SELECT
 
     -- attribution
     argMinState({referring_domain}, timestamp) as initial_referring_domain,
+    argMinState({referrer}, timestamp) as initial_referrer,
     argMinState({utm_source}, timestamp) as initial_utm_source,
     argMinState({utm_campaign}, timestamp) as initial_utm_campaign,
     argMinState({utm_medium}, timestamp) as initial_utm_medium,
@@ -399,6 +403,7 @@ GROUP BY
         current_url_string=source_string_column("$current_url"),
         external_click_url=source_string_column("$external_click_url"),
         referring_domain=source_string_column("$referring_domain"),
+        referrer=source_string_column("$referrer"),
         browser=source_string_column("$browser"),
         browser_version=source_string_column("$browser_version"),
         os=source_string_column("$os"),
@@ -540,6 +545,7 @@ SELECT
     argMinMerge(initial_utm_term) as initial_utm_term,
     argMinMerge(initial_utm_content) as initial_utm_content,
     argMinMerge(initial_referring_domain) as initial_referring_domain,
+    argMinMerge(initial_referrer) as initial_referrer,
     argMinMerge(initial_gclid) as initial_gclid,
     argMinMerge(initial_gad_source) as initial_gad_source,
     argMinMerge(initial_gclsrc) as initial_gclsrc,

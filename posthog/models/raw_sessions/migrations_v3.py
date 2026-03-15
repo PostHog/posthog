@@ -43,6 +43,12 @@ ADD INDEX IF NOT EXISTS flag_keys_bloom_filter flag_keys TYPE bloom_filter() GRA
 """
 
 
+ADD_ENTRY_REFERRER = """
+ALTER TABLE {table_name}
+ADD COLUMN IF NOT EXISTS entry_referrer AggregateFunction(argMin, Nullable(String), DateTime64(6, 'UTC')) AFTER entry_referring_domain
+"""
+
+
 DROP_URLS = """
 ALTER TABLE {table_name}
 DROP COLUMN IF EXISTS urls

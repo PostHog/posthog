@@ -66,6 +66,7 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "geoip_subdivision_city_name": DatabaseField(name="geoip_subdivision_city_name", nullable=False),
     "geoip_time_zone": DatabaseField(name="geoip_time_zone", nullable=False),
     "entry_referring_domain": DatabaseField(name="entry_referring_domain", nullable=False),
+    "entry_referrer": DatabaseField(name="entry_referrer", nullable=False),
     "entry_utm_source": DatabaseField(name="entry_utm_source", nullable=False),
     "entry_utm_campaign": DatabaseField(name="entry_utm_campaign", nullable=False),
     "entry_utm_medium": DatabaseField(name="entry_utm_medium", nullable=False),
@@ -110,6 +111,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$end_pathname": StringDatabaseField(name="$end_pathname"),
     "$end_hostname": StringDatabaseField(name="$end_hostname"),
     "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
+    "$entry_referrer": StringDatabaseField(name="$entry_referrer"),
     "$last_external_click_url": StringDatabaseField(name="$last_external_click_url"),
     # some aliases for people upgrading from v1 to v2/v3
     "$exit_current_url": StringDatabaseField(name="$exit_current_url"),
@@ -234,6 +236,7 @@ def select_from_sessions_table_v3(
         "$entry_utm_term": (arg_min_merge_field("entry_utm_term")),
         "$entry_utm_content": (arg_min_merge_field("entry_utm_content")),
         "$entry_referring_domain": (arg_min_merge_field("entry_referring_domain")),
+        "$entry_referrer": (arg_min_merge_field("entry_referrer")),
         "$entry_gclid": (arg_min_merge_field("entry_gclid")),
         "$entry_gad_source": (arg_min_merge_field("entry_gad_source")),
         "$entry_fbclid": (arg_min_merge_field("entry_fbclid")),
@@ -521,6 +524,7 @@ def get_lazy_session_table_properties_v3(search: Optional[str]):
 # NOTE: Keep the AD IDs in sync with `posthog.hogql_queries.web_analytics.session_attribution_explorer_query_runner.py`
 SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_referring_domain": "finalizeAggregation(entry_referring_domain)",
+    "$entry_referrer": "finalizeAggregation(entry_referrer)",
     "$entry_utm_source": "finalizeAggregation(entry_utm_source)",
     "$entry_utm_campaign": "finalizeAggregation(entry_utm_campaign)",
     "$entry_utm_medium": "finalizeAggregation(entry_utm_medium)",

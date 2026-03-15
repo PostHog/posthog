@@ -48,6 +48,7 @@ RAW_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "entry_url": DatabaseField(name="entry_url", nullable=False),
     "end_url": DatabaseField(name="end_url", nullable=False),
     "initial_referring_domain": DatabaseField(name="initial_referring_domain", nullable=False),
+    "initial_referrer": DatabaseField(name="initial_referrer", nullable=False),
     # UTM parameters
     "initial_utm_source": DatabaseField(name="initial_utm_source", nullable=False),
     "initial_utm_campaign": DatabaseField(name="initial_utm_campaign", nullable=False),
@@ -98,6 +99,7 @@ LAZY_SESSIONS_FIELDS: dict[str, FieldOrTable] = {
     "$end_pathname": StringDatabaseField(name="$end_pathname"),
     "$end_hostname": StringDatabaseField(name="$end_hostname"),
     "$entry_referring_domain": StringDatabaseField(name="$entry_referring_domain"),
+    "$entry_referrer": StringDatabaseField(name="$entry_referrer"),
     # UTM parameters
     "$entry_utm_source": StringDatabaseField(name="$entry_utm_source"),
     "$entry_utm_campaign": StringDatabaseField(name="$entry_utm_campaign"),
@@ -161,6 +163,7 @@ class RawSessionsTableV2(Table):
             "initial_utm_term",
             "initial_utm_content",
             "initial_referring_domain",
+            "initial_referrer",
             "initial_gclid",
             "initial_gad_source",
             "initial_gclsrc",
@@ -259,6 +262,7 @@ def select_from_sessions_table_v2(
         "$entry_utm_term": null_if_empty(arg_min_merge_field("initial_utm_term")),
         "$entry_utm_content": null_if_empty(arg_min_merge_field("initial_utm_content")),
         "$entry_referring_domain": null_if_empty(arg_min_merge_field("initial_referring_domain")),
+        "$entry_referrer": null_if_empty(arg_min_merge_field("initial_referrer")),
         "$entry_gclid": null_if_empty(arg_min_merge_field("initial_gclid")),
         "$entry_gad_source": null_if_empty(arg_min_merge_field("initial_gad_source")),
         "$entry_gclsrc": null_if_empty(arg_min_merge_field("initial_gclsrc")),
@@ -569,6 +573,7 @@ def get_lazy_session_table_properties_v2(search: Optional[str]):
 # NOTE: Keep the AD IDs in sync with `posthog.hogql_queries.web_analytics.session_attribution_explorer_query_runner.py`
 SESSION_PROPERTY_TO_RAW_SESSIONS_EXPR_MAP = {
     "$entry_referring_domain": "finalizeAggregation(initial_referring_domain)",
+    "$entry_referrer": "finalizeAggregation(initial_referrer)",
     "$entry_utm_source": "finalizeAggregation(initial_utm_source)",
     "$entry_utm_campaign": "finalizeAggregation(initial_utm_campaign)",
     "$entry_utm_medium": "finalizeAggregation(initial_utm_medium)",
