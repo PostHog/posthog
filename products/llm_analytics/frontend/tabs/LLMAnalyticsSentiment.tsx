@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconRefresh, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSegmentedButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -15,7 +15,7 @@ import { formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
 import { normalizeMessages } from '../utils'
-import type { SentimentCard } from './llmAnalyticsSentimentLogic'
+import type { SentimentCard, SentimentFeedbackLabel } from './llmAnalyticsSentimentLogic'
 import { llmAnalyticsSentimentLogic, SentimentFilterLabel } from './llmAnalyticsSentimentLogic'
 
 /**
@@ -123,29 +123,30 @@ function SentimentFeedbackButtons({ card }: { card: SentimentCard }): JSX.Elemen
     const cardKey = `${card.generation.uuid}:${card.messageIndex}`
     const currentFeedback = feedbackByCardKey[cardKey]
 
+    const options: { label: SentimentFeedbackLabel; emoji: string; tooltip: string }[] = [
+        { label: 'positive', emoji: '😊', tooltip: 'Label as positive' },
+        { label: 'neutral', emoji: '😐', tooltip: 'Label as neutral' },
+        { label: 'negative', emoji: '😠', tooltip: 'Label as negative' },
+    ]
+
     return (
         <span
             className={`inline-flex items-center gap-0 ${currentFeedback ? 'opacity-100' : 'opacity-0 group-hover/card:opacity-100'} transition-opacity`}
             onClick={(e) => e.stopPropagation()}
         >
-            <Tooltip title="Label as positive">
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    icon={<IconThumbsUp className={currentFeedback === 'positive' ? 'text-success' : ''} />}
-                    onClick={() => submitSentimentFeedback(cardKey, 'positive', card)}
-                    data-attr="llma-sentiment-feedback-positive"
-                />
-            </Tooltip>
-            <Tooltip title="Label as negative">
-                <LemonButton
-                    size="xsmall"
-                    type="tertiary"
-                    icon={<IconThumbsDown className={currentFeedback === 'negative' ? 'text-danger' : ''} />}
-                    onClick={() => submitSentimentFeedback(cardKey, 'negative', card)}
-                    data-attr="llma-sentiment-feedback-negative"
-                />
-            </Tooltip>
+            {options.map(({ label, emoji, tooltip }) => (
+                <Tooltip key={label} title={tooltip}>
+                    <LemonButton
+                        size="xsmall"
+                        type="tertiary"
+                        className={currentFeedback === label ? 'ring-1 ring-current rounded' : 'opacity-60'}
+                        onClick={() => submitSentimentFeedback(cardKey, label, card)}
+                        data-attr={`llma-sentiment-feedback-${label}`}
+                    >
+                        <span className="text-sm">{emoji}</span>
+                    </LemonButton>
+                </Tooltip>
+            ))}
         </span>
     )
 }
@@ -182,11 +183,11 @@ function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: b
                         </p>
                     </Tooltip>
                     <div className="shrink-0 flex items-center gap-1">
+                        <SentimentFeedbackButtons card={card} />
                         <MessageSentimentBar sentiment={sentiment} />
                         <span className="text-xs text-muted whitespace-nowrap tabular-nums">
                             {formatScore(sentiment.score)}
                         </span>
-                        <SentimentFeedbackButtons card={card} />
                         <Link
                             to={urls.llmAnalyticsTrace(traceId, { event: uuid, timestamp, msg: String(messageIndex) })}
                             className="text-xs ml-1"
