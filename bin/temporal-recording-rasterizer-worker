@@ -29,6 +29,7 @@ current_hash=$(cat \
     "$DOCKERFILE" \
     "$ROOT_DIR/pnpm-lock.yaml" \
     "$ROOT_DIR/nodejs/package.json" \
+    "$ROOT_DIR/common/replay-headless/package.json" \
     2>/dev/null | shasum -a 256 | cut -d' ' -f1)
 
 previous_hash=""
@@ -86,8 +87,10 @@ docker run --rm \
     -e AWS_SECRET_ACCESS_KEY=object_storage_root_password \
     -e DISABLE_BROWSER_SECURITY="${DISABLE_BROWSER_SECURITY:-1}" \
     -e MAX_CONCURRENT_ACTIVITIES="${MAX_CONCURRENT_ACTIVITIES:-2}" \
-    -e CAPTURE_BROWSER_LOGS="${CAPTURE_BROWSER_LOGS:-1}" \
+    -e CAPTURE_BROWSER_LOGS="${CAPTURE_BROWSER_LOGS:-0}" \
+    -e LOG_LEVEL="${LOG_LEVEL:-info}" \
     -e CHROME_HOST_RESOLVER_RULES="MAP localhost host.docker.internal" \
     -v "$ROOT_DIR/nodejs/dist/session-replay/recording-rasterizer:/code/nodejs/dist/session-replay/recording-rasterizer" \
-    -v "$ROOT_DIR/common/replay-headless/dist/player.html:/code/common/replay-headless/dist/player.html" \
-    "$IMAGE_NAME"
+    -v "$ROOT_DIR/common/replay-headless/dist:/code/common/replay-headless/dist" \
+    "$IMAGE_NAME" \
+    2>&1 | pnpm --filter=@posthog/nodejs exec pino-pretty --colorize

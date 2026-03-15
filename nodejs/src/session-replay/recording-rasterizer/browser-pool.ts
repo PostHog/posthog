@@ -2,6 +2,9 @@ import { Browser, Page } from 'puppeteer'
 import { launch as launchForCapture } from 'puppeteer-capture'
 
 import { config } from './config'
+import { createLogger } from './logger'
+
+const log = createLogger()
 
 const LAUNCH_ARGS = [
     '--no-sandbox',
@@ -71,7 +74,7 @@ export class BrowserPool {
             try {
                 await this.recycle()
             } catch (err) {
-                console.error('Browser recycle failed:', err)
+                log.error({ error: err instanceof Error ? err.message : String(err) }, 'browser recycle failed')
             }
         }
     }

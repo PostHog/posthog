@@ -1,3 +1,5 @@
+import pLimit from 'p-limit'
+
 import {
     parseJsonSnapshots,
     noOpTelemetry,
@@ -26,7 +28,7 @@ export class DataLoadError extends Error {
 
 const MAX_CONCURRENT_FETCHES = 6
 
-async function fetchBlocks(config: PlayerConfig): Promise<RecordingBlock[]> {
+async function fetchBlockList(config: PlayerConfig): Promise<RecordingBlock[]> {
     const url = `${config.recordingApiBaseUrl}/api/projects/${config.teamId}/recordings/${config.sessionId}/blocks`
 
     const response = await fetch(url, {
@@ -77,10 +79,13 @@ export interface LoadedSources {
     snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse>
 }
 
-export async function loadAllSources(config: PlayerConfig): Promise<LoadedSources> {
-    const blocks = await fetchBlocks(config)
+export async function loadAllSources(
+    config: PlayerConfig,
+    onProgress?: (loaded: number, total: number) => void
+): Promise<LoadedSources> {
+    const blockList = await fetchBlockList(config)
 
-    if (blocks.length === 0) {
+    if (blockList.length === 0) {
         return { sources: [], snapshotsBySource: {} }
     }
 
@@ -88,12 +93,14 @@ export async function loadAllSources(config: PlayerConfig): Promise<LoadedSource
     const sources: SessionRecordingSnapshotSource[] = []
     const snapshotsBySource: Record<SourceKey, SessionRecordingSnapshotSourceResponse> = {}
 
-    const results: { index: number; snapshots: RecordingSnapshot[] }[] = []
-    for (let i = 0; i < blocks.length; i += MAX_CONCURRENT_FETCHES) {
-        const batch = blocks.slice(i, i + MAX_CONCURRENT_FETCHES)
-        const batchResults = await Promise.all(
-            batch.map(async (block, batchIndex) => {
-                const index = i + batchIndex
+    let blocksLoaded = 0
+    const totalBlocks = blockList.length
+    onProgress?.(0, totalBlocks)
+
+    const limit = pLimit(MAX_CONCURRENT_FETCHES)
+    const results = await Promise.all(
+        blockList.map((block, index) =>
+            limit(async () => {
                 const text = await fetchBlock(config, block)
                 const lines = text.split('\n').filter(Boolean)
                 const snapshots: RecordingSnapshot[] = parseJsonSnapshots(
@@ -102,11 +109,11 @@ export async function loadAllSources(config: PlayerConfig): Promise<LoadedSource
                     noOpTelemetry,
                     registerWindowId
                 )
+                onProgress?.(++blocksLoaded, totalBlocks)
                 return { index, snapshots }
             })
         )
-        results.push(...batchResults)
-    }
+    )
 
     for (const { index, snapshots } of results) {
         const source: SessionRecordingSnapshotSource = {

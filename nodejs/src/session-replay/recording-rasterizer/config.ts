@@ -9,6 +9,7 @@ export const config = {
     temporalClientKey: process.env.TEMPORAL_CLIENT_KEY,
 
     // Worker
+    logLevel: (process.env.LOG_LEVEL || 'info') as 'debug' | 'info' | 'warn' | 'error',
     maxConcurrentActivities: parseInt(process.env.MAX_CONCURRENT_ACTIVITIES || '4', 10),
     browserRecycleAfter: parseInt(process.env.BROWSER_RECYCLE_AFTER || '100', 10),
     disableBrowserSecurity: process.env.DISABLE_BROWSER_SECURITY === '1',

@@ -327,6 +327,9 @@ importers:
       '@posthog/rrweb-types':
         specifier: 0.0.26
         version: 0.0.26
+      p-limit:
+        specifier: 3.1.0
+        version: 3.1.0
     devDependencies:
       '@swc/core':
         specifier: ^1.11.29
@@ -1488,6 +1491,9 @@ importers:
       '@posthog/hogvm':
         specifier: workspace:*
         version: link:../common/hogvm/typescript
+      '@posthog/replay-headless':
+        specifier: workspace:*
+        version: link:../common/replay-headless
       '@posthog/siphash':
         specifier: 1.1.1
         version: 1.1.1
@@ -21708,8 +21714,8 @@ packages:
     resolution: {integrity: sha512-hAZsKq7Yy11Zu1DE0OzWjw7nnLZmJZYTDZZyEFHZdUhV8FkH5MCfoU1XMaxXovpyW5nq5scPqq0ZDP9Zyl04oQ==}
     engines: {node: '>= 10.0.0'}
 
-  unlayer-types@1.385.0:
-    resolution: {integrity: sha512-AtgziDIyqq1nubRNB7lcZNZ6CHUi5zxgbEAtFlrbcU358UbDNggcAcwr7RXGyNlwpJPGg3FUyq/XWwyAQLpdVQ==}
+  unlayer-types@1.386.0:
+    resolution: {integrity: sha512-uO2zj3IfEqIKVJCA3kGm2bmOFZT7hD1Ga4PbFegspae25BP+ClWzhe0oK23/PGhFOIxI0Qbp1cpq/pcraoPeWQ==}
 
   unpipe@1.0.0:
     resolution: {integrity: sha512-pjy2bYhSsufwWlKwPc+l3cN7+wuJlK6uz0YdJEOlQDbl6jo/YlPi4mb8agUkVC8BF7V8NuzeyPNqRksA3hztKQ==}
@@ -32202,7 +32208,7 @@ snapshots:
       commander: 9.4.1
       expect-playwright: 0.8.0
       glob: 10.4.5
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.5.4))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.5.4))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-junit: 16.0.0
@@ -40123,7 +40129,7 @@ snapshots:
   jest-playwright-preset@4.0.0(jest-circus@29.7.0)(jest-environment-node@29.7.0)(jest-runner@29.7.0)(jest@29.7.0):
     dependencies:
       expect-playwright: 0.8.0
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.5.4))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.5.4))
       jest-circus: 29.7.0
       jest-environment-node: 29.7.0
       jest-process-manager: 0.4.0
@@ -40547,7 +40553,7 @@ snapshots:
     dependencies:
       ansi-escapes: 6.0.0
       chalk: 5.6.2
-      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.5.4))
+      jest: 29.7.0(@types/node@22.18.8)(ts-node@10.9.1(@swc/core@1.11.4)(@types/node@22.18.8)(typescript@5.5.4))
       jest-regex-util: 29.6.3
       jest-watcher: 29.7.0
       slash: 5.1.0
@@ -44728,7 +44734,7 @@ snapshots:
   react-email-editor@1.7.11(react@18.3.1):
     dependencies:
       react: 18.3.1
-      unlayer-types: 1.385.0
+      unlayer-types: 1.386.0
 
   react-error-overlay@6.0.9: {}
 
@@ -47130,7 +47136,7 @@ snapshots:
 
   universalify@2.0.0: {}
 
-  unlayer-types@1.385.0: {}
+  unlayer-types@1.386.0: {}
 
   unpipe@1.0.0: {}
 

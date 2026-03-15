@@ -148,7 +148,8 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/dist /code/nodejs/
 COPY --from=nodejs-build --chown=posthog:posthog /code/node_modules /code/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/node_modules /code/nodejs/node_modules
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/package.json /code/nodejs/package.json
-COPY --from=nodejs-build --chown=posthog:posthog /code/common/replay-headless/dist/player.html /code/common/replay-headless/dist/player.html
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/replay-headless/dist /code/common/replay-headless/dist
+COPY --from=nodejs-build --chown=posthog:posthog /code/common/replay-headless/package.json /code/common/replay-headless/package.json
 ENV NODE_ENV=production \
     BUILD_LIBRDKAFKA=0 \
     PUPPETEER_EXECUTABLE_PATH=/usr/local/bin/chrome-headless-shell \

@@ -1,11 +1,45 @@
+import { Runtime } from '@temporalio/worker'
 import { NativeConnection, Worker } from '@temporalio/worker'
 import * as fs from 'fs/promises'
 
-import { rasterizeRecordingActivity, setBrowserPool } from './activities'
+import { createActivities } from './activities'
 import { BrowserPool } from './browser-pool'
 import { EncryptionCodec } from './codec'
 import { config } from './config'
+import { createLogger } from './logger'
 import { loadPlayerHtml } from './recorder'
+
+const log = createLogger()
+
+// Route Temporal SDK logs through our JSON logger so all output is structured.
+Runtime.install({
+    logger: {
+        log: (level, message, meta) => {
+            const { sdkComponent, taskQueue, ...rest } = meta ?? {}
+            const fields = { ...rest, sdk_component: sdkComponent, task_queue: taskQueue }
+            switch (level) {
+                case 'TRACE':
+                case 'DEBUG':
+                    log.debug(fields, message)
+                    break
+                case 'INFO':
+                    log.info(fields, message)
+                    break
+                case 'WARN':
+                    log.warn(fields, message)
+                    break
+                case 'ERROR':
+                    log.error(fields, message)
+                    break
+            }
+        },
+        trace: (message, meta) => log.debug(meta ?? {}, message),
+        debug: (message, meta) => log.debug(meta ?? {}, message),
+        info: (message, meta) => log.info(meta ?? {}, message),
+        warn: (message, meta) => log.warn(meta ?? {}, message),
+        error: (message, meta) => log.error(meta ?? {}, message),
+    },
+})
 
 async function buildTLSConfig() {
     const { temporalClientRootCA, temporalClientCert, temporalClientKey } = config
@@ -42,22 +76,21 @@ async function main(): Promise<void> {
     const tls = await buildTLSConfig()
 
     const connection = await NativeConnection.connect({ address, tls })
-    console.log(`Connected to Temporal at ${address}`)
+    log.info({ address }, 'connected to temporal')
 
     const pool = new BrowserPool()
     await pool.launch()
-    setBrowserPool(pool)
 
-    console.log('Browser pool launched')
+    log.info('browser pool launched')
 
     await loadPlayerHtml()
-    console.log(`Player HTML loaded from ${config.playerHtmlPath}`)
+    log.info({ path: config.playerHtmlPath }, 'player html loaded')
 
     const worker = Worker.create({
         connection,
         namespace: config.temporalNamespace,
         taskQueue: config.taskQueue,
-        activities: { 'rasterize-recording': rasterizeRecordingActivity },
+        activities: createActivities(pool),
         maxConcurrentActivityTaskExecutions: config.maxConcurrentActivities,
         dataConverter: config.secretKey ? { payloadCodecs: [new EncryptionCodec(config.secretKey)] } : undefined,
     })
@@ -65,14 +98,14 @@ async function main(): Promise<void> {
     const runningWorker = await worker
 
     const shutdown = () => {
-        console.log('Shutting down...')
+        log.info('shutting down')
         runningWorker.shutdown()
     }
 
     process.on('SIGTERM', shutdown)
     process.on('SIGINT', shutdown)
 
-    console.log(`Worker started on queue "${config.taskQueue}"`)
+    log.info({ task_queue: config.taskQueue }, 'worker started')
     await runningWorker.run()
 
     // run() resolves after shutdown drains all in-flight activities
@@ -80,6 +113,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((err) => {
-    console.error('Worker failed to start:', err)
+    log.error({ error: err instanceof Error ? err.message : String(err) }, 'worker failed to start')
     process.exit(1)
 })

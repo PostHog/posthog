@@ -2,6 +2,22 @@ import { Browser, Page } from 'puppeteer'
 
 import { BrowserPool } from '../browser-pool'
 
+// Shared mock error fn — must live inside the factory to avoid hoisting issues.
+// We retrieve it via require after jest.mock has run.
+jest.mock('../logger', () => {
+    const error = jest.fn()
+    return {
+        __mockLogError: error,
+        createLogger: () => ({
+            info: jest.fn(),
+            warn: jest.fn(),
+            error,
+            debug: jest.fn(),
+            child: jest.fn().mockReturnThis(),
+        }),
+    }
+})
+
 jest.mock(
     'puppeteer-capture',
     () => ({
@@ -130,14 +146,15 @@ describe('BrowserPool', () => {
             .mockRejectedValueOnce(new Error('launch failed'))
             .mockResolvedValueOnce(browser3)
 
-        const consoleSpy = jest.spyOn(console, 'error').mockImplementation()
-
         pool = new BrowserPool(1)
         const p1 = await pool.getPage()
         await pool.releasePage(p1)
 
-        expect(consoleSpy).toHaveBeenCalledWith('Browser recycle failed:', expect.any(Error))
-        consoleSpy.mockRestore()
+        const { __mockLogError } = require('../logger')
+        expect(__mockLogError).toHaveBeenCalledWith(
+            expect.objectContaining({ error: 'launch failed' }),
+            'browser recycle failed'
+        )
 
         const p2 = await pool.getPage()
         expect(p2).toBeDefined()

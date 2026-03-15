@@ -1,3 +1,5 @@
+import type { InactivityPeriod as BaseInactivityPeriod } from '@posthog/replay-headless/protocol'
+
 export interface RasterizeRecordingInput {
     session_id: string
     team_id: number
@@ -19,14 +21,11 @@ export interface RasterizeRecordingInput {
 }
 
 /**
- * Extends the base InactivityPeriod from @posthog/replay-headless with
+ * Extends the base InactivityPeriod from the shared protocol with
  * recording_ts fields that map segment boundaries to post-processed video
- * positions. Keep the base fields in sync with common/replay-headless/src/types.ts.
+ * positions.
  */
-export interface InactivityPeriod {
-    ts_from_s: number
-    ts_to_s: number | null
-    active: boolean
+export interface InactivityPeriod extends BaseInactivityPeriod {
     recording_ts_from_s?: number
     recording_ts_to_s?: number
 }
