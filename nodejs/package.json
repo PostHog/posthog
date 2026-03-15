@@ -98,7 +98,7 @@
         "js-big-decimal": "^2.2.0",
         "jsonwebtoken": "^9.0.2",
         "libsodium-wrappers": "^0.7.15",
-        "liquidjs": "^10.21.1",
+        "liquidjs": "^10.25.0",
         "lodash": "^4.17.21",
         "lru-cache": "^11.0.0",
         "luxon": "^3.4.4",
