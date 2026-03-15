@@ -207,13 +207,6 @@ class EndpointVersion(models.Model):
                 f"Query type '{query_kind}' cannot be materialized. Supported types: {supported}",
             )
 
-        # Check for multiple breakdowns in insight queries
-        if query_kind != "HogQLQuery":
-            breakdown_filter = self.query.get("breakdownFilter") or {}
-            breakdowns = breakdown_filter.get("breakdowns") or []
-            if len(breakdowns) > 1:
-                return False, "Multiple breakdowns not supported for materialization"
-
         if self.query.get("variables"):
             from products.endpoints.backend.materialization import analyze_variables_for_materialization
 

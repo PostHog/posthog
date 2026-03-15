@@ -52,6 +52,7 @@ class MaterializableVariable:
     operator: ast.CompareOperationOp = ast.CompareOperationOp.Eq
     column_ast: Optional[ast.Expr] = None
     value_wrapper_fns: Optional[list[str]] = None
+    cte_name: Optional[str] = None  # CTE containing the variable; None = top-level query
 
 
 @dataclass
@@ -122,15 +123,29 @@ def analyze_variables_for_materialization(
         seen_code_names.add(code_name)
 
         try:
-            variable_usage = find_variable_in_where(ast_node, placeholder)
+            all_usages = find_all_variable_usages(ast_node, placeholder)
         except VariableInHavingClauseError:
             return False, "Variable used in HAVING clause are not supported for materialization.", []
         except ValueError as e:
             capture_exception(e)
             return False, "Invalid variable usage in WHERE clause.", []
 
-        if not variable_usage:
+        if not all_usages:
             return False, "Variable not used in WHERE clause", []
+
+        # Determine CTE context for this variable
+        cte_names = {cte_name for cte_name, _ in all_usages}
+        if len(cte_names) > 1:
+            # Variable used in multiple different locations (e.g. two CTEs, or CTE + top-level)
+            has_top_level = None in cte_names
+            has_cte = any(n is not None for n in cte_names)
+            if has_top_level and has_cte:
+                return False, "Variable used in both CTE and top-level query is not yet supported", []
+            return False, "Variable used in multiple CTEs is not yet supported", []
+
+        cte_name = next(iter(cte_names))
+        # Use the first usage for column info (all usages of the same variable should be consistent)
+        variable_usage = all_usages[0][1]
 
         if variable_usage.operator not in SUPPORTED_MATERIALIZATION_OPS:
             return (
@@ -156,10 +171,24 @@ def analyze_variables_for_materialization(
                 operator=variable_usage.operator,
                 column_ast=variable_usage.column_ast,
                 value_wrapper_fns=variable_usage.value_wrapper_fns,
+                cte_name=cte_name,
             )
         )
 
+    # Safety check: CTE variables + top-level JOINs produce wrong results.
+    # Removing a CTE's WHERE changes its row cardinality, which changes JOIN
+    # output. Filtering after materialization can't recover the original semantics
+    # (e.g. LEFT JOIN non-matches get NULL for the variable column and are lost).
+    has_cte_vars = any(v.cte_name is not None for v in result_vars)
+    if has_cte_vars and isinstance(ast_node, ast.SelectQuery) and _has_joins(ast_node):
+        return False, "CTE variables with JOINs in the top-level query are not supported for materialization", []
+
     return True, "OK", result_vars
+
+
+def _has_joins(node: ast.SelectQuery) -> bool:
+    """Check if a SelectQuery has any JOINs (next_join on select_from)."""
+    return node.select_from is not None and node.select_from.next_join is not None
 
 
 class VariablePlaceholderFinder(TraversingVisitor):
@@ -188,14 +217,34 @@ def find_variable_in_where(
     return finder.result
 
 
+def find_all_variable_usages(
+    ast_node: ast.SelectQuery | ast.SelectSetQuery, placeholder: ast.Placeholder
+) -> list[tuple[Optional[str], VariableUsageInWhere]]:
+    """Find all usages of a variable in WHERE clauses, including inside CTEs.
+
+    Returns list of (cte_name, usage) tuples. cte_name is None for top-level query.
+    """
+    if not isinstance(ast_node, ast.SelectQuery):
+        return []
+    finder = VariableInWhereFinder(placeholder)
+    finder.visit(ast_node)
+    return finder.all_results
+
+
 class VariableInWhereFinder(TraversingVisitor):
-    """Find how a variable is used in WHERE clause"""
+    """Find how a variable is used in WHERE clause, including inside CTEs."""
 
     def __init__(self, target_placeholder: ast.Placeholder):
         super().__init__()
         self.target = target_placeholder
-        self.result: Optional[VariableUsageInWhere] = None
+        self.all_results: list[tuple[Optional[str], VariableUsageInWhere]] = []
         self.in_where = False
+        self._current_cte_name: Optional[str] = None
+
+    @property
+    def result(self) -> Optional[VariableUsageInWhere]:
+        """Backward-compat: return first match's usage."""
+        return self.all_results[0][1] if self.all_results else None
 
     def visit_select_query(self, node: ast.SelectQuery):
         if node.having:
@@ -203,6 +252,14 @@ class VariableInWhereFinder(TraversingVisitor):
             finder.visit(node.having)
             if any(p.chain == self.target.chain for p in finder.variable_placeholders):
                 raise VariableInHavingClauseError()
+
+        # Visit CTEs first (they're part of this SelectQuery)
+        if node.ctes:
+            for cte_name, cte in node.ctes.items():
+                prev_cte = self._current_cte_name
+                self._current_cte_name = cte_name
+                self.visit(cte.expr)
+                self._current_cte_name = prev_cte
 
         if node.where:
             self.in_where = True
@@ -229,20 +286,30 @@ class VariableInWhereFinder(TraversingVisitor):
 
         if isinstance(field_side, ast.Field):
             column_chain = [str(item) for item in field_side.chain]
-            self.result = VariableUsageInWhere(
-                column_chain=column_chain,
-                column_expression=".".join(column_chain),
-                operator=node.op,
-                value_wrapper_fns=wrapper_fns,
+            self.all_results.append(
+                (
+                    self._current_cte_name,
+                    VariableUsageInWhere(
+                        column_chain=column_chain,
+                        column_expression=".".join(column_chain),
+                        operator=node.op,
+                        value_wrapper_fns=wrapper_fns,
+                    ),
+                )
             )
         elif isinstance(field_side, ast.Call):
             column_chain = self._extract_column_chain_from_call(field_side)
-            self.result = VariableUsageInWhere(
-                column_chain=column_chain,
-                column_expression=".".join(column_chain) if column_chain else str(field_side),
-                operator=node.op,
-                column_ast=field_side if not column_chain else None,
-                value_wrapper_fns=wrapper_fns,
+            self.all_results.append(
+                (
+                    self._current_cte_name,
+                    VariableUsageInWhere(
+                        column_chain=column_chain,
+                        column_expression=".".join(column_chain) if column_chain else str(field_side),
+                        operator=node.op,
+                        column_ast=field_side if not column_chain else None,
+                        value_wrapper_fns=wrapper_fns,
+                    ),
+                )
             )
 
     def _contains_target_placeholder(self, node: ast.Expr) -> bool:
@@ -341,47 +408,135 @@ class MaterializationTransformer(CloningVisitor):
     Each variable gets an aliased column in SELECT (aliased by code_name).
     GROUP BY is deduplicated by column_chain to handle same-column range variables
     (e.g., hour >= start AND hour < end → GROUP BY hour, not GROUP BY hour, hour).
+
+    CTE-aware: when variables live in a CTE, the CTE gets the column addition + WHERE removal,
+    and the top-level query gets a passthrough column from the CTE.
     """
 
     def __init__(self, variable_infos: list[MaterializableVariable]):
         super().__init__()
         self.variable_infos = variable_infos
+        self._current_cte_name: Optional[str] = None
 
     def visit_select_query(self, node: ast.SelectQuery):
+        new_ctes = self._process_ctes(node)
+
+        # Visit the select query itself (without re-visiting CTEs)
+        original_ctes = node.ctes
+        node.ctes = None
         new_node = super().visit_select_query(node)
+        node.ctes = original_ctes  # Restore original
+        new_node.ctes = new_ctes
 
-        # Add aliased column per variable to SELECT
-        select_additions = [self._create_column_field(var) for var in self.variable_infos]
-        if new_node.select:
-            new_node.select = [*list(new_node.select), *select_additions]
+        # Add variable columns + remove variable WHERE clauses for current context
+        vars_for_context = self._vars_for_current_context()
+        if vars_for_context:
+            self._add_variable_columns(new_node, vars_for_context)
+
+        # Top-level query: add passthrough columns for CTE variables
+        cte_vars = [v for v in self.variable_infos if v.cte_name is not None]
+        if self._current_cte_name is None and cte_vars:
+            self._add_cte_passthrough_columns(new_node, cte_vars)
+
+        return new_node
+
+    def _process_ctes(self, node: ast.SelectQuery) -> Optional[dict[str, ast.CTE]]:
+        """Process CTEs with proper context tracking, returning transformed CTE dict."""
+        if not node.ctes:
+            return None
+        new_ctes: dict[str, ast.CTE] = {}
+        for cte_name, cte in node.ctes.items():
+            prev_cte = self._current_cte_name
+            self._current_cte_name = cte_name
+            new_expr = self.visit(cte.expr)
+            self._current_cte_name = prev_cte
+            new_ctes[cte_name] = ast.CTE(name=cte_name, expr=new_expr, cte_type=cte.cte_type)
+        return new_ctes
+
+    def _add_variable_columns(self, node: ast.SelectQuery, vars_for_context: list[MaterializableVariable]) -> None:
+        """Add aliased variable columns to SELECT, update GROUP BY, and remove variable WHERE clauses."""
+        select_additions = [self._create_column_field(var) for var in vars_for_context]
+        if node.select:
+            node.select = [*list(node.select), *select_additions]
         else:
-            new_node.select = select_additions
+            node.select = select_additions
 
-        # Add unique columns to GROUP BY (deduplicated by column_chain or expression string)
-        # Also skip columns that already exist in the GROUP BY from the original query
+        if node.group_by is not None or self._current_cte_name is None:
+            self._add_group_by(node, vars_for_context)
+
+        if node.where:
+            node.where = self._remove_variable_from_where(node.where)
+
+    def _add_cte_passthrough_columns(self, node: ast.SelectQuery, cte_vars: list[MaterializableVariable]) -> None:
+        """Add passthrough columns + GROUP BY at top level for CTE-resident variables."""
+        passthrough_additions: list[ast.Expr] = [ast.Field(chain=[var.code_name]) for var in cte_vars]
+        if node.select:
+            node.select = [*list(node.select), *passthrough_additions]
+        else:
+            node.select = passthrough_additions
+
+        if node.group_by is not None or self._has_aggregate_functions(node):
+            self._add_group_by(node, cte_vars, use_field_ref=True)
+
+    @staticmethod
+    def _has_aggregate_functions(node: ast.SelectQuery) -> bool:
+        """Check if any SELECT expression uses an aggregate function (sum, count, avg, etc.)."""
+        from posthog.hogql.functions.mapping import HOGQL_AGGREGATIONS
+
+        agg_names = set(HOGQL_AGGREGATIONS.keys())
+
+        class AggFinder(TraversingVisitor):
+            def __init__(self):
+                super().__init__()
+                self.found = False
+
+            def visit_call(self, node: ast.Call):
+                if node.name in agg_names:
+                    self.found = True
+                else:
+                    super().visit_call(node)
+
+        finder = AggFinder()
+        for expr in node.select or []:
+            finder.visit(expr)
+            if finder.found:
+                return True
+        return False
+
+    def _vars_for_current_context(self) -> list[MaterializableVariable]:
+        """Return variables that apply to the current CTE/top-level context."""
+        return [v for v in self.variable_infos if v.cte_name == self._current_cte_name]
+
+    def _add_group_by(
+        self,
+        node: ast.SelectQuery,
+        vars_to_add: list[MaterializableVariable],
+        use_field_ref: bool = False,
+    ) -> None:
+        """Add unique columns to GROUP BY, deduplicating by column_chain."""
         existing_keys: set[str] = set()
-        if new_node.group_by:
-            for expr in new_node.group_by:
+        if node.group_by:
+            for expr in node.group_by:
                 if isinstance(expr, ast.Field):
                     existing_keys.add(".".join(str(c) for c in expr.chain))
 
         seen_keys: set[str] = set()
         group_by_additions: list[ast.Expr] = []
-        for var in self.variable_infos:
+        for var in vars_to_add:
             dedup_key = ".".join(var.column_chain) if var.column_chain else var.column_expression
+            if use_field_ref:
+                dedup_key = var.code_name
             if dedup_key not in seen_keys and dedup_key not in existing_keys:
                 seen_keys.add(dedup_key)
-                group_by_additions.append(self._variable_expr(var))
+                if use_field_ref:
+                    group_by_additions.append(ast.Field(chain=[var.code_name]))
+                else:
+                    group_by_additions.append(self._variable_expr(var))
 
-        if new_node.group_by:
-            new_node.group_by = [*list(new_node.group_by), *group_by_additions]
-        else:
-            new_node.group_by = group_by_additions
-
-        if new_node.where:
-            new_node.where = self._remove_variable_from_where(new_node.where)
-
-        return new_node
+        if node.group_by:
+            node.group_by = [*list(node.group_by), *group_by_additions]
+        elif group_by_additions:
+            node.group_by = group_by_additions
 
     def _create_column_field(self, var: MaterializableVariable) -> ast.Expr:
         return ast.Alias(
@@ -399,27 +554,7 @@ class MaterializationTransformer(CloningVisitor):
         """
         if var.column_ast is not None:
             return CloningVisitor().visit(var.column_ast)
-
-        chain = var.column_chain
-
-        if len(chain) >= 2 and chain[0] == "properties":
-            properties_chain: list[str | int] = ["properties"]
-            return ast.Call(
-                name="JSONExtractString",
-                args=[
-                    ast.Field(chain=properties_chain),
-                    ast.Constant(value=chain[1]),
-                ],
-            )
-        elif len(chain) >= 3 and chain[1] == "properties":
-            field_chain: list[str | int] = list(chain[:2])
-            return ast.Call(
-                name="JSONExtractString",
-                args=[ast.Field(chain=field_chain), ast.Constant(value=chain[2])],
-            )
-        else:
-            simple_chain: list[str | int] = list(chain)
-            return ast.Field(chain=simple_chain)
+        return ast.Field(chain=list(var.column_chain))
 
     def _remove_variable_from_where(self, where_node: Optional[ast.Expr]) -> Optional[ast.Expr]:
         if where_node is None:

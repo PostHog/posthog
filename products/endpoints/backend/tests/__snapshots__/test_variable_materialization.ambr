@@ -1,4 +1,186 @@
 # serializer version: 1
+# name: TestCTETransformSnapshots.test_cte_property_variable
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              properties.os AS os_name
+          FROM
+              events
+          GROUP BY
+              properties.os)
+  SELECT
+      cnt,
+      os_name
+  FROM
+      cte
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_range_variable_deduped_group_by
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              hour AS start_hour,
+              hour AS end_hour
+          FROM
+              events
+          GROUP BY
+              hour)
+  SELECT
+      cnt,
+      start_hour,
+      end_hour
+  FROM
+      cte
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_two_variables_same_cte
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              event AS event_name,
+              distinct_id AS user_id
+          FROM
+              events
+          GROUP BY
+              event,
+              distinct_id)
+  SELECT
+      cnt,
+      event_name,
+      user_id
+  FROM
+      cte
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_variable_preserves_non_variable_where
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              event AS event_name
+          FROM
+              events
+          WHERE
+              greater(timestamp, '2024-01-01')
+          GROUP BY
+              event)
+  SELECT
+      cnt,
+      event_name
+  FROM
+      cte
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_variable_top_level_no_group_by_passthrough
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              event,
+              event AS event_name
+          FROM
+              events
+          GROUP BY
+              event)
+  SELECT
+      sum(cnt),
+      event_name
+  FROM
+      cte
+  GROUP BY
+      event_name
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_variable_with_group_by
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              toStartOfDay(timestamp) AS date,
+              event AS event_name
+          FROM
+              events
+          GROUP BY
+              date,
+              event)
+  SELECT
+      cnt,
+      date,
+      event_name
+  FROM
+      cte
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_cte_variable_without_group_by
+  '''
+  WITH
+      cte AS (SELECT
+              uuid,
+              event,
+              properties,
+              timestamp,
+              distinct_id,
+              elements_chain,
+              created_at,
+              $session_id,
+              $window_id,
+              person_mode,
+              person_id,
+              $group_0,
+              $group_1,
+              $group_2,
+              $group_3,
+              $group_4,
+              elements_chain_href,
+              elements_chain_texts,
+              elements_chain_ids,
+              elements_chain_elements,
+              event_person_id,
+              event_issue_id,
+              issue_id,
+              event AS event_name
+          FROM
+              events)
+  SELECT
+      count(),
+      event_name
+  FROM
+      cte
+  GROUP BY
+      event_name
+  LIMIT 50000
+  '''
+# ---
+# name: TestCTETransformSnapshots.test_top_level_variable_with_cte_present
+  '''
+  WITH
+      cte AS (SELECT
+              count() AS cnt,
+              event
+          FROM
+              events
+          GROUP BY
+              event)
+  SELECT
+      cnt,
+      event,
+      event AS event_name
+  FROM
+      cte
+  GROUP BY
+      event
+  LIMIT 50000
+  '''
+# ---
 # name: TestTransformQuerySnapshots.test_all_where_conditions_are_variables
   '''
   SELECT
@@ -126,11 +308,11 @@
   '''
   SELECT
       count(),
-      JSONExtractString(person.properties, 'city') AS city
+      person.properties.city AS city
   FROM
       events
   GROUP BY
-      JSONExtractString(person.properties, 'city')
+      person.properties.city
   LIMIT 50000
   '''
 # ---
@@ -152,11 +334,11 @@
   '''
   SELECT
       count(),
-      JSONExtractString(properties, 'os') AS os_name
+      properties.os AS os_name
   FROM
       events
   GROUP BY
-      JSONExtractString(properties, 'os')
+      properties.os
   LIMIT 50000
   '''
 # ---
