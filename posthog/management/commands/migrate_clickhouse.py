@@ -63,8 +63,9 @@ class Command(BaseCommand):
             cluster=CLICKHOUSE_MIGRATIONS_CLUSTER,
             verify_ssl_cert=False,
             randomize_replica_paths=settings.TEST or settings.E2E_TESTING,
+            # don't use the egress proxy, clickhouse is internal
+            trust_env=False,
         )
-        database.request_session.trust_env = False  # bypass HTTP_PROXY for internal ClickHouse
 
         if options["plan"] or options["check"]:
             print("List of clickhouse migrations to be applied:")

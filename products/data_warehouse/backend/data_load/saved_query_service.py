@@ -89,13 +89,13 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
 
 
 def get_saved_query_search_attributes(saved_query: "DataWarehouseSavedQuery") -> TypedSearchAttributes:
-    dag_fk_id = Node.objects.filter(saved_query=saved_query).values_list("dag_fk_id", flat=True).first()
+    dag_id = Node.objects.filter(saved_query=saved_query).values_list("dag_id", flat=True).first()
     search_attributes: list[SearchAttributePair] = [
         SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=saved_query.team_id),
         SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=str(saved_query.team.organization_id)),
     ]
-    if dag_fk_id:
-        search_attributes.append(SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=str(dag_fk_id)))
+    if dag_id:
+        search_attributes.append(SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=str(dag_id)))
     return TypedSearchAttributes(search_attributes=search_attributes)
 
 
