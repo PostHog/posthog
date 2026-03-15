@@ -10,6 +10,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
@@ -2164,6 +2166,47 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert not hasattr(query_runner.query, "breakdownFilter")
+
+    @parameterized.expand(
+        [
+            (
+                "week_interval_mid_week",
+                IntervalType.WEEK,
+                "2020-01-14",
+                "2020-01-19",
+            ),
+            (
+                "month_interval_mid_month",
+                IntervalType.MONTH,
+                "2020-01-14",
+                "2020-01-19",
+            ),
+        ]
+    )
+    @freeze_time("2020-01-20T00:00:00Z")
+    def test_lifecycle_interval_boundary_filtering(self, _name, interval, date_from, date_to):
+        self._create_test_events()
+
+        response = self._run_lifecycle_query(date_from, date_to, interval)
+
+        statuses = {r["status"] for r in response.results}
+        self.assertEqual(statuses, {"new", "returning", "resurrecting", "dormant"})
+
+        # Lifecycle rounds date_from to start-of-interval for status classification.
+        # Verify all four statuses are present and total counts are non-negative.
+        for result in response.results:
+            if result["status"] == "dormant":
+                self.assertTrue(all(v <= 0 for v in result["data"]))
+            else:
+                self.assertTrue(all(v >= 0 for v in result["data"]))
+
+        # At least some active persons should appear in the range
+        total_active = sum(
+            sum(max(0, v) for v in r["data"])
+            for r in response.results
+            if r["status"] in ("new", "returning", "resurrecting")
+        )
+        self.assertGreater(total_active, 0, "Should have some active persons in range")
 
 
 def assertLifecycleResults(results, expected):

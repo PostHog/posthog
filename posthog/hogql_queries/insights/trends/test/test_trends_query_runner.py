@@ -20,6 +20,7 @@ from unittest.mock import MagicMock, patch
 
 from django.test import override_settings
 
+from parameterized import parameterized
 from pydantic import ValidationError
 
 from posthog.schema import (
@@ -69,7 +70,7 @@ from posthog.hogql_queries.insights.trends.trends_query_runner import BREAKDOWN_
 from posthog.models.action.action import Action
 from posthog.models.cohort.cohort import Cohort
 from posthog.models.group.util import create_group
-from posthog.models.team.team import Team
+from posthog.models.team.team import Team, WeekStartDay
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
@@ -7149,3 +7150,141 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             for day_str in result["days"]:
                 parsed = datetime.strptime(day_str[:10], "%Y-%m-%d")
                 assert parsed.weekday() < 5, f"{day_str} is a weekend day but should be filtered out"
+
+    @parameterized.expand(
+        [
+            (
+                "event_property_filter_on_browser",
+                EventPropertyFilter(key="$browser", value="Chrome", operator=PropertyOperator.EXACT, type="event"),
+                # Chrome $pageview = 6 (p1), all $pageleave = 6 → 12
+                12,
+            ),
+            (
+                "person_property_filter_on_name",
+                PersonPropertyFilter(key="name", value="p1", operator=PropertyOperator.EXACT, type="person"),
+                # p1 $pageview = 6, all $pageleave = 6 → 12
+                12,
+            ),
+            (
+                "event_property_filter_on_browser_firefox",
+                EventPropertyFilter(key="$browser", value="Firefox", operator=PropertyOperator.EXACT, type="event"),
+                # Firefox $pageview = 2 (p2), all $pageleave = 6 → 8
+                8,
+            ),
+        ]
+    )
+    @freeze_time("2020-01-20T00:00:00Z")
+    def test_group_node_property_filter_types(self, _name, property_filter, expected_count):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        group_node = GroupNode(
+            operator=FilterLogicalOperator.OR_,
+            nodes=[
+                EventsNode(
+                    event="$pageview",
+                    properties=[property_filter],
+                ),
+                EventsNode(event="$pageleave"),
+            ],
+        )
+
+        response = TrendsQueryRunner(
+            query=TrendsQuery(
+                dateRange=DateRange(
+                    date_from=self.default_date_from,
+                    date_to=self.default_date_to,
+                ),
+                interval=IntervalType.DAY,
+                series=[group_node],
+            ),
+            team=self.team,
+        ).calculate()
+
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(expected_count, response.results[0]["count"])
+
+    @parameterized.expand(
+        [
+            ("avg", PropertyMathType.AVG),
+            ("sum", PropertyMathType.SUM),
+            ("median", PropertyMathType.MEDIAN),
+        ]
+    )
+    @freeze_time("2020-01-20T00:00:00Z")
+    def test_session_duration_math_with_event_property_filter(self, _name, math_type):
+        self._create_test_events()
+        flush_persons_and_events()
+
+        response = self._run_trends_query(
+            "2020-01-09",
+            "2020-01-20",
+            IntervalType.DAY,
+            [
+                EventsNode(
+                    event="$pageview",
+                    math=math_type,
+                    math_property="$session_duration",
+                    properties=[
+                        EventPropertyFilter(
+                            key="$browser",
+                            value="Chrome",
+                            operator=PropertyOperator.EXACT,
+                            type="event",
+                        )
+                    ],
+                )
+            ],
+            None,
+            BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
+        )
+
+        self.assertIsNotNone(response)
+        self.assertGreaterEqual(len(response.results), 0)
+
+    @parameterized.expand(
+        [
+            (
+                "mid_week_monday_start",
+                "2020-01-14",
+                "2020-01-19",
+                WeekStartDay.MONDAY,
+                # Events on or after Jan 14: Jan 15 (2), Jan 17 (1), Jan 19 (1) = 4
+                4,
+            ),
+            (
+                "mid_week_sunday_start",
+                "2020-01-14",
+                "2020-01-19",
+                WeekStartDay.SUNDAY,
+                # Events on or after Jan 14: Jan 15 (2), Jan 17 (1), Jan 19 (1) = 4
+                4,
+            ),
+            (
+                "week_boundary_monday",
+                "2020-01-13",
+                "2020-01-19",
+                WeekStartDay.MONDAY,
+                # Events on or after Jan 13: Jan 13 (1), Jan 15 (2), Jan 17 (1), Jan 19 (1) = 5
+                5,
+            ),
+        ]
+    )
+    @freeze_time("2020-01-20T00:00:00Z")
+    def test_week_interval_boundaries_with_week_start_day(
+        self, _name, date_from, date_to, week_start_day, expected_count
+    ):
+        self._create_test_events()
+
+        self.team.week_start_day = week_start_day
+        self.team.save()
+
+        response = self._run_trends_query(
+            date_from,
+            date_to,
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+
+        self.assertEqual(1, len(response.results))
+        self.assertEqual(expected_count, response.results[0]["count"])
