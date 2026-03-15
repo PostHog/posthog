@@ -114,7 +114,7 @@ jobs:
               uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
 
             - name: Set up QEMU
-              uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+              uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
               with:
                   image: tonistiigi/binfmt:latest
                   platforms: all
