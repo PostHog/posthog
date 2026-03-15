@@ -144,6 +144,7 @@ pub async fn fetch_and_filter(
     with_canonical_log(|log| log.flags_cache_source = Some(flag_result.cache_source.as_log_str()));
 
     let flags = flag_result.flag_list.flags;
+    let evaluation_metadata = flag_result.flag_list.evaluation_metadata;
 
     // Build the filtered-out set: user-disabled, deleted, survey filter, runtime/tag mismatches.
     // This is the single source of truth for "should this flag be skipped during evaluation."
@@ -180,6 +181,7 @@ pub async fn fetch_and_filter(
     Ok(FeatureFlagList {
         flags,
         filtered_out_flag_ids,
+        evaluation_metadata,
     })
 }
 

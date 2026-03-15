@@ -1309,6 +1309,7 @@ fn make_flag_list(
     crate::flags::flag_models::FeatureFlagList {
         flags,
         filtered_out_flag_ids,
+        evaluation_metadata: None,
     }
 }
 
@@ -1753,5 +1754,1126 @@ mod seed_set_closure_tests {
             "Expected a CycleDetected error, got: {:?}",
             result.errors
         );
+    }
+}
+
+#[cfg(test)]
+mod precomputed_dependency_graph_tests {
+    use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup};
+    use crate::utils::graph_utils::{
+        build_dependency_graph, filter_graph_by_keys, PrecomputedDependencyGraph,
+    };
+    use crate::utils::test_utils::create_test_flag;
+    use std::collections::HashSet;
+
+    fn create_flag(id: i32, key: &str, dependencies: HashSet<i32>, active: bool) -> FeatureFlag {
+        let mut filters = FlagFilters {
+            groups: vec![FlagPropertyGroup {
+                properties: Some(vec![]),
+                rollout_percentage: Some(100.0),
+                variant: None,
+            }],
+            multivariate: None,
+            aggregation_group_type_index: None,
+            payloads: None,
+            super_groups: None,
+            holdout_groups: None,
+            holdout: None,
+        };
+
+        for dep_id in dependencies {
+            filters.groups[0].properties.as_mut().unwrap().push(
+                crate::properties::property_models::PropertyFilter {
+                    key: dep_id.to_string(),
+                    value: Some(serde_json::json!(true)),
+                    operator: Some(crate::properties::property_models::OperatorType::Exact),
+                    prop_type: crate::properties::property_models::PropertyType::Flag,
+                    group_type_index: None,
+                    negation: None,
+                },
+            );
+        }
+
+        create_test_flag(
+            Some(id),
+            Some(1),
+            None,
+            Some(key.to_string()),
+            Some(filters),
+            None,
+            Some(active),
+            None,
+        )
+    }
+
+    /// Extracts sorted flag keys from evaluation stages for deterministic comparison.
+    fn stage_keys(stages: &[Vec<FeatureFlag>]) -> Vec<Vec<String>> {
+        stages
+            .iter()
+            .map(|stage| {
+                let mut keys: Vec<String> = stage.iter().map(|f| f.key.clone()).collect();
+                keys.sort();
+                keys
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_build_no_dependencies() {
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::new(), true),
+            create_flag(2, "flag_b", HashSet::new(), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        // All flags are independent, so they should be in a single stage
+        assert_eq!(precomputed.evaluation_stages.len(), 1);
+        assert_eq!(stage_keys(&precomputed.evaluation_stages)[0].len(), 3);
+        assert!(precomputed.flags_with_missing_deps.is_empty());
+        assert_eq!(precomputed.error_count, 0);
+        assert!(!precomputed.has_cycle_errors);
+
+        // Each flag should have no transitive dependencies
+        for id in [1, 2, 3] {
+            assert!(
+                precomputed.transitive_deps[&id].is_empty(),
+                "Flag {} should have no transitive dependencies",
+                id
+            );
+        }
+    }
+
+    #[test]
+    fn test_build_linear_chain() {
+        // flag_a -> flag_b -> flag_c (flag_a depends on flag_b, which depends on flag_c)
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::from([3]), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        // Three stages: flag_c, then flag_b, then flag_a
+        assert_eq!(precomputed.evaluation_stages.len(), 3);
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[0],
+            vec!["flag_c"]
+        );
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[1],
+            vec!["flag_b"]
+        );
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[2],
+            vec!["flag_a"]
+        );
+
+        // Transitive deps
+        assert_eq!(precomputed.transitive_deps[&1], HashSet::from([2, 3]));
+        assert_eq!(precomputed.transitive_deps[&2], HashSet::from([3]));
+        assert!(precomputed.transitive_deps[&3].is_empty());
+    }
+
+    #[test]
+    fn test_build_diamond_dependency() {
+        //   flag_a
+        //   /    \
+        // flag_b  flag_c
+        //   \    /
+        //   flag_d
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2, 3]), true),
+            create_flag(2, "flag_b", HashSet::from([4]), true),
+            create_flag(3, "flag_c", HashSet::from([4]), true),
+            create_flag(4, "flag_d", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        // Three stages: flag_d, then flag_b+flag_c, then flag_a
+        assert_eq!(precomputed.evaluation_stages.len(), 3);
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[0],
+            vec!["flag_d"]
+        );
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[1],
+            vec!["flag_b", "flag_c"]
+        );
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[2],
+            vec!["flag_a"]
+        );
+
+        // flag_a transitively depends on all others
+        assert_eq!(precomputed.transitive_deps[&1], HashSet::from([2, 3, 4]));
+        assert_eq!(precomputed.transitive_deps[&2], HashSet::from([4]));
+        assert_eq!(precomputed.transitive_deps[&3], HashSet::from([4]));
+        assert!(precomputed.transitive_deps[&4].is_empty());
+    }
+
+    #[test]
+    fn test_build_missing_dependency() {
+        // flag_a depends on flag_b (id=2), but flag_b doesn't exist
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert!(precomputed.flags_with_missing_deps.contains(&1));
+        assert!(!precomputed.flags_with_missing_deps.contains(&3));
+        assert!(precomputed.error_count > 0);
+    }
+
+    #[test]
+    fn test_build_transitive_missing_dependency() {
+        // flag_a -> flag_b -> (missing flag_c)
+        // flag_a should also be marked as having missing deps
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::from([999]), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert!(
+            precomputed.flags_with_missing_deps.contains(&1),
+            "flag_a should be transitively marked as missing deps"
+        );
+        assert!(
+            precomputed.flags_with_missing_deps.contains(&2),
+            "flag_b should be directly marked as missing deps"
+        );
+    }
+
+    #[test]
+    fn test_build_empty_flag_list() {
+        let feature_flags = FeatureFlagList {
+            flags: vec![],
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert!(precomputed.evaluation_stages.is_empty());
+        assert!(precomputed.flags_with_missing_deps.is_empty());
+        assert!(precomputed.transitive_deps.is_empty());
+        assert_eq!(precomputed.error_count, 0);
+    }
+
+    #[test]
+    fn test_build_single_flag_no_dependencies() {
+        let flags = vec![create_flag(1, "solo_flag", HashSet::new(), true)];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert_eq!(precomputed.evaluation_stages.len(), 1);
+        assert_eq!(precomputed.evaluation_stages[0].len(), 1);
+        assert_eq!(precomputed.evaluation_stages[0][0].key, "solo_flag");
+        assert!(precomputed.transitive_deps[&1].is_empty());
+    }
+
+    #[test]
+    fn test_build_inactive_flag_skips_dependencies() {
+        // Inactive flag references non-existent dependency — should not produce errors
+        let flags = vec![
+            create_flag(1, "inactive_flag", HashSet::from([999]), false),
+            create_flag(2, "active_flag", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert!(precomputed.flags_with_missing_deps.is_empty());
+        assert_eq!(precomputed.error_count, 0);
+    }
+
+    // --- Equivalence tests: PrecomputedDependencyGraph produces the same results
+    // as the current build_dependency_graph + into_evaluation_stages path ---
+
+    #[test]
+    fn test_equivalence_linear_chain() {
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::from([3]), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags: flags.clone(),
+            ..Default::default()
+        };
+
+        // Old path
+        let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
+        let old_stages = old_result.graph.into_evaluation_stages().unwrap();
+        let old_stage_keys: Vec<Vec<String>> = old_stages
+            .iter()
+            .map(|stage| {
+                let mut keys: Vec<String> = stage.iter().map(|f| f.key.clone()).collect();
+                keys.sort();
+                keys
+            })
+            .collect();
+
+        // New path
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages),
+            old_stage_keys,
+            "Pre-computed stages should match the old path"
+        );
+        assert_eq!(
+            precomputed.flags_with_missing_deps, old_result.flags_with_missing_deps,
+            "Missing deps should match the old path"
+        );
+        assert_eq!(
+            precomputed.error_count,
+            old_result.flags_with_missing_deps.len()
+                + old_result.errors.iter().filter(|e| e.is_cycle()).count(),
+            "error_count counts affected flags, not error edges"
+        );
+    }
+
+    #[test]
+    fn test_equivalence_diamond() {
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2, 3]), true),
+            create_flag(2, "flag_b", HashSet::from([4]), true),
+            create_flag(3, "flag_c", HashSet::from([4]), true),
+            create_flag(4, "flag_d", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags: flags.clone(),
+            ..Default::default()
+        };
+
+        let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
+        let old_stages = old_result.graph.into_evaluation_stages().unwrap();
+        let old_stage_keys: Vec<Vec<String>> = old_stages
+            .iter()
+            .map(|stage| {
+                let mut keys: Vec<String> = stage.iter().map(|f| f.key.clone()).collect();
+                keys.sort();
+                keys
+            })
+            .collect();
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert_eq!(stage_keys(&precomputed.evaluation_stages), old_stage_keys);
+        assert_eq!(
+            precomputed.flags_with_missing_deps,
+            old_result.flags_with_missing_deps
+        );
+    }
+
+    #[test]
+    fn test_equivalence_missing_deps() {
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::from([999]), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags: flags.clone(),
+            ..Default::default()
+        };
+
+        let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert_eq!(
+            precomputed.flags_with_missing_deps, old_result.flags_with_missing_deps,
+            "Missing deps should match between old and new paths"
+        );
+        assert_eq!(
+            precomputed.error_count,
+            old_result.flags_with_missing_deps.len()
+                + old_result.errors.iter().filter(|e| e.is_cycle()).count(),
+            "error_count counts affected flags, not error edges"
+        );
+    }
+
+    #[test]
+    fn test_equivalence_multi_root_no_deps() {
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::new(), true),
+            create_flag(2, "flag_b", HashSet::new(), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags: flags.clone(),
+            ..Default::default()
+        };
+
+        let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
+        let old_stages = old_result.graph.into_evaluation_stages().unwrap();
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        // Both should produce a single stage with all flags
+        assert_eq!(precomputed.evaluation_stages.len(), old_stages.len());
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages),
+            old_stages
+                .iter()
+                .map(|stage| {
+                    let mut keys: Vec<String> = stage.iter().map(|f| f.key.clone()).collect();
+                    keys.sort();
+                    keys
+                })
+                .collect::<Vec<_>>()
+        );
+    }
+
+    // --- filter_stages_by_keys tests ---
+
+    #[test]
+    fn test_filter_stages_no_keys_returns_empty() {
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::new(), true),
+            create_flag(2, "flag_b", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+        let result = precomputed.filter_stages_by_keys(&[]);
+
+        assert!(result.evaluation_stages.is_empty());
+    }
+
+    #[test]
+    fn test_filter_stages_single_flag_no_deps() {
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::new(), true),
+            create_flag(2, "flag_b", HashSet::new(), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+        let result = precomputed.filter_stages_by_keys(&["flag_b".to_string()]);
+
+        assert_eq!(result.evaluation_stages.len(), 1);
+        assert_eq!(result.evaluation_stages[0].len(), 1);
+        assert_eq!(result.evaluation_stages[0][0].key, "flag_b");
+    }
+
+    #[test]
+    fn test_filter_stages_includes_transitive_deps() {
+        // flag_a -> flag_b -> flag_c
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::from([3]), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+            create_flag(4, "flag_d", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        // Requesting flag_a should include flag_b and flag_c but not flag_d
+        let result = precomputed.filter_stages_by_keys(&["flag_a".to_string()]);
+
+        let all_keys: HashSet<String> = result
+            .evaluation_stages
+            .iter()
+            .flat_map(|stage| stage.iter().map(|f| f.key.clone()))
+            .collect();
+
+        assert!(all_keys.contains("flag_a"));
+        assert!(all_keys.contains("flag_b"));
+        assert!(all_keys.contains("flag_c"));
+        assert!(!all_keys.contains("flag_d"));
+
+        // Stages should preserve topological order
+        assert_eq!(result.evaluation_stages.len(), 3);
+        assert_eq!(result.evaluation_stages[0][0].key, "flag_c");
+        assert_eq!(result.evaluation_stages[1][0].key, "flag_b");
+        assert_eq!(result.evaluation_stages[2][0].key, "flag_a");
+    }
+
+    #[test]
+    fn test_filter_stages_missing_key_ignored() {
+        let flags = vec![create_flag(1, "flag_a", HashSet::new(), true)];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+        let result = precomputed.filter_stages_by_keys(&["nonexistent".to_string()]);
+
+        assert!(result.evaluation_stages.is_empty());
+    }
+
+    #[test]
+    fn test_filter_stages_preserves_missing_deps() {
+        // flag_a -> flag_b -> (missing)
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::from([999]), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+        let result = precomputed.filter_stages_by_keys(&["flag_a".to_string()]);
+
+        assert!(
+            result.flags_with_missing_deps.contains(&1),
+            "flag_a should retain missing dep status after filtering"
+        );
+        assert!(
+            result.flags_with_missing_deps.contains(&2),
+            "flag_b should retain missing dep status after filtering"
+        );
+        // flag_c was not requested and should not appear
+        assert!(!result.flags_with_missing_deps.contains(&3));
+    }
+
+    #[test]
+    fn test_filter_stages_equivalence_with_filter_graph_by_keys() {
+        // Diamond: flag_a -> flag_b, flag_c -> flag_d; also flag_e (independent)
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2, 3]), true),
+            create_flag(2, "flag_b", HashSet::from([4]), true),
+            create_flag(3, "flag_c", HashSet::from([4]), true),
+            create_flag(4, "flag_d", HashSet::new(), true),
+            create_flag(5, "flag_e", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags: flags.clone(),
+            ..Default::default()
+        };
+        let requested_keys = vec!["flag_a".to_string()];
+
+        // Old path: build graph, filter, then get stages
+        let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
+        let old_filtered = filter_graph_by_keys(
+            &old_result.graph,
+            &requested_keys,
+            &old_result.flags_with_missing_deps,
+        )
+        .unwrap();
+        let old_stages = old_filtered.graph.into_evaluation_stages().unwrap();
+        let old_stage_keys: Vec<Vec<String>> = old_stages
+            .iter()
+            .map(|stage| {
+                let mut keys: Vec<String> = stage.iter().map(|f| f.key.clone()).collect();
+                keys.sort();
+                keys
+            })
+            .collect();
+
+        // New path
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+        let new_result = precomputed.filter_stages_by_keys(&requested_keys);
+
+        assert_eq!(
+            stage_keys(&new_result.evaluation_stages),
+            old_stage_keys,
+            "Filtered stages should match between old and new paths"
+        );
+        assert_eq!(
+            new_result.flags_with_missing_deps, old_filtered.flags_with_missing_deps,
+            "Filtered missing deps should match"
+        );
+    }
+
+    #[test]
+    fn test_build_with_cycle() {
+        // flag_a -> flag_b -> flag_a (cycle), flag_c is independent
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::from([1]), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert!(precomputed.has_cycle_errors);
+        assert!(precomputed.error_count > 0);
+
+        // Cyclic flags are removed; only flag_c should remain
+        let all_keys: HashSet<String> = precomputed
+            .evaluation_stages
+            .iter()
+            .flat_map(|stage| stage.iter().map(|f| f.key.clone()))
+            .collect();
+        assert!(all_keys.contains("flag_c"));
+        assert!(
+            !all_keys.contains("flag_a"),
+            "Cyclic flag should be removed"
+        );
+        assert!(
+            !all_keys.contains("flag_b"),
+            "Cyclic flag should be removed"
+        );
+    }
+
+    #[test]
+    fn test_equivalence_with_cycle() {
+        // flag_a -> flag_b -> flag_a (cycle), flag_c independent
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::from([1]), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags: flags.clone(),
+            ..Default::default()
+        };
+
+        let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
+        let old_has_cycles = old_result.errors.iter().any(|e| e.is_cycle());
+        let old_stages = old_result.graph.into_evaluation_stages().unwrap();
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert_eq!(precomputed.has_cycle_errors, old_has_cycles);
+        assert_eq!(
+            precomputed.error_count,
+            old_result.flags_with_missing_deps.len()
+                + old_result.errors.iter().filter(|e| e.is_cycle()).count()
+        );
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages),
+            old_stages
+                .iter()
+                .map(|stage| {
+                    let mut keys: Vec<String> = stage.iter().map(|f| f.key.clone()).collect();
+                    keys.sort();
+                    keys
+                })
+                .collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn test_filter_stages_multiple_requested_keys_shared_deps() {
+        // flag_a -> flag_c, flag_b -> flag_c, flag_d (independent)
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([3]), true),
+            create_flag(2, "flag_b", HashSet::from([3]), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+            create_flag(4, "flag_d", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags,
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+        let result =
+            precomputed.filter_stages_by_keys(&["flag_a".to_string(), "flag_b".to_string()]);
+
+        let all_keys: HashSet<String> = result
+            .evaluation_stages
+            .iter()
+            .flat_map(|stage| stage.iter().map(|f| f.key.clone()))
+            .collect();
+
+        assert!(all_keys.contains("flag_a"));
+        assert!(all_keys.contains("flag_b"));
+        assert!(
+            all_keys.contains("flag_c"),
+            "Shared dependency should be included"
+        );
+        assert!(
+            !all_keys.contains("flag_d"),
+            "Unrelated flag should be excluded"
+        );
+    }
+
+    #[test]
+    fn test_filter_stages_equivalence_with_missing_deps() {
+        // flag_a -> flag_b -> (missing 999), flag_c (independent)
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::from([999]), true),
+            create_flag(3, "flag_c", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags: flags.clone(),
+            ..Default::default()
+        };
+        let requested_keys = vec!["flag_a".to_string()];
+
+        // Old path
+        let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
+        let old_filtered = filter_graph_by_keys(
+            &old_result.graph,
+            &requested_keys,
+            &old_result.flags_with_missing_deps,
+        )
+        .unwrap();
+
+        // New path
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+        let new_result = precomputed.filter_stages_by_keys(&requested_keys);
+
+        assert_eq!(
+            new_result.flags_with_missing_deps, old_filtered.flags_with_missing_deps,
+            "Filtered missing deps should match between old and new paths"
+        );
+    }
+
+    #[test]
+    fn test_filter_stages_equivalence_multiple_keys() {
+        // flag_a -> flag_b, flag_c -> flag_d, flag_e (independent)
+        let flags = vec![
+            create_flag(1, "flag_a", HashSet::from([2]), true),
+            create_flag(2, "flag_b", HashSet::new(), true),
+            create_flag(3, "flag_c", HashSet::from([4]), true),
+            create_flag(4, "flag_d", HashSet::new(), true),
+            create_flag(5, "flag_e", HashSet::new(), true),
+        ];
+        let feature_flags = FeatureFlagList {
+            flags: flags.clone(),
+            ..Default::default()
+        };
+        let requested_keys = vec!["flag_a".to_string(), "flag_c".to_string()];
+
+        // Old path
+        let old_result = build_dependency_graph(&feature_flags, 1).unwrap();
+        let old_filtered = filter_graph_by_keys(
+            &old_result.graph,
+            &requested_keys,
+            &old_result.flags_with_missing_deps,
+        )
+        .unwrap();
+        let old_stages = old_filtered.graph.into_evaluation_stages().unwrap();
+        let old_stage_keys: Vec<Vec<String>> = old_stages
+            .iter()
+            .map(|stage| {
+                let mut keys: Vec<String> = stage.iter().map(|f| f.key.clone()).collect();
+                keys.sort();
+                keys
+            })
+            .collect();
+
+        // New path
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+        let new_result = precomputed.filter_stages_by_keys(&requested_keys);
+
+        assert_eq!(
+            stage_keys(&new_result.evaluation_stages),
+            old_stage_keys,
+            "Filtered stages should match between old and new paths for multiple keys"
+        );
+    }
+
+    // --- Precomputed data tests: verify build_from_precomputed path ---
+
+    #[test]
+    fn test_deserialization_without_new_fields() {
+        let json = r#"{
+            "id": 1, "team_id": 1, "key": "test", "name": "Test",
+            "filters": {"groups": []}, "deleted": false, "active": true
+        }"#;
+        let flag: FeatureFlag = serde_json::from_str(json).unwrap();
+        assert_eq!(flag.id, 1);
+        assert_eq!(flag.key, "test");
+        assert!(flag.active);
+    }
+
+    #[test]
+    fn test_deserialization_with_evaluation_metadata() {
+        use crate::flags::flag_models::HypercacheFlagsWrapper;
+
+        let json = r#"{
+            "flags": [
+                {"id": 1, "team_id": 1, "key": "test", "name": "Test",
+                 "filters": {"groups": []}, "deleted": false, "active": true}
+            ],
+            "evaluation_metadata": {
+                "dependency_stages": [[1]],
+                "flags_with_missing_deps": [],
+                "transitive_deps": {"1": []}
+            }
+        }"#;
+        let wrapper: HypercacheFlagsWrapper = serde_json::from_str(json).unwrap();
+        assert_eq!(wrapper.flags.len(), 1);
+        assert_eq!(wrapper.flags[0].key, "test");
+        let ctx = wrapper.evaluation_metadata.unwrap();
+        assert_eq!(ctx.dependency_stages, vec![vec![1]]);
+        assert!(ctx.flags_with_missing_deps.is_empty());
+        assert_eq!(ctx.transitive_deps[&1], HashSet::<i32>::new());
+    }
+
+    #[test]
+    fn test_precomputed_path_selected_when_fields_present() {
+        use crate::flags::flag_models::EvaluationMetadata;
+        use std::collections::HashMap;
+
+        // Flags with precomputed data: A(1) -> B(2) -> C(3)
+        let feature_flags = FeatureFlagList {
+            flags: vec![
+                create_flag(1, "flag_a", HashSet::from([2]), true),
+                create_flag(2, "flag_b", HashSet::from([3]), true),
+                create_flag(3, "flag_c", HashSet::new(), true),
+            ],
+            evaluation_metadata: Some(EvaluationMetadata {
+                dependency_stages: vec![vec![3], vec![2], vec![1]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([
+                    (1, HashSet::from([2, 3])),
+                    (2, HashSet::from([3])),
+                    (3, HashSet::new()),
+                ]),
+            }),
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        // Verify fast path outputs (error_count=0, no cycles from precomputed)
+        assert_eq!(precomputed.error_count, 0);
+        assert!(!precomputed.has_cycle_errors);
+
+        // Verify transitive deps were built from precomputed IDs
+        assert_eq!(precomputed.transitive_deps[&1], HashSet::from([2, 3]));
+        assert_eq!(precomputed.transitive_deps[&2], HashSet::from([3]));
+        assert!(precomputed.transitive_deps[&3].is_empty());
+
+        // Verify stages: flag_c first, then flag_b, then flag_a
+        assert_eq!(precomputed.evaluation_stages.len(), 3);
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[0],
+            vec!["flag_c"]
+        );
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[1],
+            vec!["flag_b"]
+        );
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[2],
+            vec!["flag_a"]
+        );
+    }
+
+    #[test]
+    fn test_precomputed_missing_deps_collected() {
+        use crate::flags::flag_models::EvaluationMetadata;
+        use std::collections::HashMap;
+
+        let feature_flags = FeatureFlagList {
+            flags: vec![
+                create_flag(1, "flag_a", HashSet::from([2]), true),
+                create_flag(2, "flag_b", HashSet::new(), true),
+                create_flag(3, "flag_c", HashSet::new(), true),
+            ],
+            evaluation_metadata: Some(EvaluationMetadata {
+                dependency_stages: vec![vec![2, 3], vec![1]],
+                flags_with_missing_deps: vec![1, 2],
+                transitive_deps: HashMap::from([
+                    (1, HashSet::from([2])),
+                    (2, HashSet::new()),
+                    (3, HashSet::new()),
+                ]),
+            }),
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert!(precomputed.flags_with_missing_deps.contains(&1));
+        assert!(precomputed.flags_with_missing_deps.contains(&2));
+        assert!(!precomputed.flags_with_missing_deps.contains(&3));
+    }
+
+    #[test]
+    fn test_fallback_path_used_without_precomputed_fields() {
+        // Flags WITHOUT evaluation_metadata: A -> B -> C (fallback path)
+        let feature_flags = FeatureFlagList {
+            flags: vec![
+                create_flag(1, "flag_a", HashSet::from([2]), true),
+                create_flag(2, "flag_b", HashSet::from([3]), true),
+                create_flag(3, "flag_c", HashSet::new(), true),
+            ],
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        // Fallback should produce the same results
+        assert_eq!(precomputed.evaluation_stages.len(), 3);
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[0],
+            vec!["flag_c"]
+        );
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[1],
+            vec!["flag_b"]
+        );
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages)[2],
+            vec!["flag_a"]
+        );
+        assert_eq!(precomputed.transitive_deps[&1], HashSet::from([2, 3]));
+    }
+
+    #[test]
+    fn test_precomputed_equivalence_diamond() {
+        use crate::flags::flag_models::EvaluationMetadata;
+        use std::collections::HashMap;
+
+        // Build with precomputed data and without, compare results
+        let deps_a = HashSet::from([2, 3]);
+        let deps_b = HashSet::from([4]);
+        let deps_c = HashSet::from([4]);
+
+        // Without precomputed (fallback path)
+        let flags_no_precomputed = FeatureFlagList {
+            flags: vec![
+                create_flag(1, "flag_a", deps_a.clone(), true),
+                create_flag(2, "flag_b", deps_b.clone(), true),
+                create_flag(3, "flag_c", deps_c.clone(), true),
+                create_flag(4, "flag_d", HashSet::new(), true),
+            ],
+            ..Default::default()
+        };
+        let fallback = PrecomputedDependencyGraph::build(&flags_no_precomputed, 1).unwrap();
+
+        // With precomputed (evaluation_metadata on the list)
+        let flags_precomputed = FeatureFlagList {
+            flags: vec![
+                create_flag(1, "flag_a", deps_a, true),
+                create_flag(2, "flag_b", deps_b, true),
+                create_flag(3, "flag_c", deps_c, true),
+                create_flag(4, "flag_d", HashSet::new(), true),
+            ],
+            evaluation_metadata: Some(EvaluationMetadata {
+                dependency_stages: vec![vec![4], vec![2, 3], vec![1]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([
+                    (1, HashSet::from([2, 3, 4])),
+                    (2, HashSet::from([4])),
+                    (3, HashSet::from([4])),
+                    (4, HashSet::new()),
+                ]),
+            }),
+            ..Default::default()
+        };
+        let precomputed = PrecomputedDependencyGraph::build(&flags_precomputed, 1).unwrap();
+
+        assert_eq!(
+            stage_keys(&precomputed.evaluation_stages),
+            stage_keys(&fallback.evaluation_stages),
+            "Precomputed and fallback should produce identical stages"
+        );
+        assert_eq!(
+            precomputed.transitive_deps, fallback.transitive_deps,
+            "Transitive deps should match"
+        );
+        assert_eq!(
+            precomputed.flags_with_missing_deps,
+            fallback.flags_with_missing_deps,
+        );
+    }
+
+    #[test]
+    fn test_precomputed_filter_stages_works() {
+        use crate::flags::flag_models::EvaluationMetadata;
+        use std::collections::HashMap;
+
+        // A(1)->B(2)->C(3), D(4) independent
+        let feature_flags = FeatureFlagList {
+            flags: vec![
+                create_flag(1, "flag_a", HashSet::from([2]), true),
+                create_flag(2, "flag_b", HashSet::from([3]), true),
+                create_flag(3, "flag_c", HashSet::new(), true),
+                create_flag(4, "flag_d", HashSet::new(), true),
+            ],
+            evaluation_metadata: Some(EvaluationMetadata {
+                dependency_stages: vec![vec![3, 4], vec![2], vec![1]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([
+                    (1, HashSet::from([2, 3])),
+                    (2, HashSet::from([3])),
+                    (3, HashSet::new()),
+                    (4, HashSet::new()),
+                ]),
+            }),
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+        let result = precomputed.filter_stages_by_keys(&["flag_a".to_string()]);
+
+        let all_keys: HashSet<String> = result
+            .evaluation_stages
+            .iter()
+            .flat_map(|s| s.iter().map(|f| f.key.clone()))
+            .collect();
+
+        assert!(all_keys.contains("flag_a"));
+        assert!(all_keys.contains("flag_b"));
+        assert!(all_keys.contains("flag_c"));
+        assert!(
+            !all_keys.contains("flag_d"),
+            "flag_d is independent, should be excluded"
+        );
+    }
+
+    #[test]
+    fn test_precomputed_path_handles_cycles_via_missing_deps() {
+        use crate::flags::flag_models::EvaluationMetadata;
+        use std::collections::HashMap;
+
+        // Simulate Django output for A(1)->B(2)->A(1) cycle plus independent C(3)
+        let feature_flags = FeatureFlagList {
+            flags: vec![
+                create_flag(1, "flag_a", HashSet::from([2]), true),
+                create_flag(2, "flag_b", HashSet::from([1]), true),
+                create_flag(3, "flag_c", HashSet::new(), true),
+            ],
+            evaluation_metadata: Some(EvaluationMetadata {
+                dependency_stages: vec![vec![3]], // only C, cycled flags excluded
+                flags_with_missing_deps: vec![1, 2],
+                transitive_deps: HashMap::from([
+                    (1, HashSet::from([2])),
+                    (2, HashSet::from([1])),
+                    (3, HashSet::new()),
+                ]),
+            }),
+            ..Default::default()
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        // Cyclic flags should be excluded from stages
+        let all_keys: HashSet<String> = precomputed
+            .evaluation_stages
+            .iter()
+            .flat_map(|s| s.iter().map(|f| f.key.clone()))
+            .collect();
+        assert!(
+            !all_keys.contains("flag_a"),
+            "Cyclic flag should be excluded from stages"
+        );
+        assert!(
+            !all_keys.contains("flag_b"),
+            "Cyclic flag should be excluded from stages"
+        );
+        assert!(all_keys.contains("flag_c"));
+
+        // Both cyclic flags should be in missing deps
+        assert!(precomputed.flags_with_missing_deps.contains(&1));
+        assert!(precomputed.flags_with_missing_deps.contains(&2));
+        assert!(!precomputed.flags_with_missing_deps.contains(&3));
+
+        // Error count should reflect both missing deps and cycles
+        assert!(precomputed.error_count > 0);
+        assert!(precomputed.has_cycle_errors);
+    }
+
+    #[test]
+    fn test_fallback_path_used_when_evaluation_metadata_absent() {
+        // Without evaluation_metadata, fallback path is used
+        let feature_flags = FeatureFlagList {
+            flags: vec![
+                create_flag(1, "flag_a", HashSet::from([2]), true),
+                create_flag(2, "flag_b", HashSet::new(), true),
+            ],
+            ..Default::default() // no evaluation_metadata
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        let all_keys: HashSet<String> = precomputed
+            .evaluation_stages
+            .iter()
+            .flat_map(|s| s.iter().map(|f| f.key.clone()))
+            .collect();
+
+        // Both flags should be present
+        assert!(all_keys.contains("flag_a"));
+        assert!(all_keys.contains("flag_b"));
+
+        // flag_b should be evaluated before flag_a (flag_a depends on flag_b)
+        let stages = stage_keys(&precomputed.evaluation_stages);
+        assert_eq!(stages.len(), 2);
+        assert_eq!(stages[0], vec!["flag_b"]);
+        assert_eq!(stages[1], vec!["flag_a"]);
+    }
+
+    #[test]
+    fn test_filtered_out_flags_do_not_inflate_cycle_count() {
+        use crate::flags::flag_models::EvaluationMetadata;
+        use std::collections::HashMap;
+
+        // Three flags total: flag_a(1) active, flag_b(2) active, flag_c(3) inactive.
+        // flag_c is in filtered_out_flag_ids and excluded from dependency_stages.
+        // Without the fix, cycle_count = flags.len(3) - flags_in_stages.len(2) = 1,
+        // falsely reporting a cycle.
+        let feature_flags = FeatureFlagList {
+            flags: vec![
+                create_flag(1, "flag_a", HashSet::new(), true),
+                create_flag(2, "flag_b", HashSet::new(), true),
+                create_flag(3, "flag_c", HashSet::new(), false),
+            ],
+            filtered_out_flag_ids: HashSet::from([3]),
+            evaluation_metadata: Some(EvaluationMetadata {
+                dependency_stages: vec![vec![1, 2]],
+                flags_with_missing_deps: vec![],
+                transitive_deps: HashMap::from([(1, HashSet::new()), (2, HashSet::new())]),
+            }),
+        };
+
+        let precomputed = PrecomputedDependencyGraph::build(&feature_flags, 1).unwrap();
+
+        assert!(!precomputed.has_cycle_errors);
+        assert_eq!(precomputed.error_count, 0);
     }
 }

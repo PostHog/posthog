@@ -1,12 +1,89 @@
+use serde::de::{self, Deserializer, MapAccess, Visitor};
+use serde::ser::{SerializeMap, Serializer};
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::fmt;
 
 use crate::properties::property_models::PropertyFilter;
+
+/// Deserializes a JSON object with string keys into `HashMap<i32, HashSet<i32>>`.
+/// JSON only supports string keys, so Python serializes `{1: [2, 3]}` as `{"1": [2, 3]}`.
+fn deserialize_string_keyed_i32_map<'de, D>(
+    deserializer: D,
+) -> Result<HashMap<i32, HashSet<i32>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    struct StringKeyedMapVisitor;
+
+    impl<'de> Visitor<'de> for StringKeyedMapVisitor {
+        type Value = HashMap<i32, HashSet<i32>>;
+
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result {
+            f.write_str("a map with string-encoded i32 keys")
+        }
+
+        fn visit_map<M>(self, mut access: M) -> Result<Self::Value, M::Error>
+        where
+            M: MapAccess<'de>,
+        {
+            let mut map = HashMap::with_capacity(access.size_hint().unwrap_or(0));
+            while let Some((key, value)) = access.next_entry::<String, Vec<i32>>()? {
+                let id = key.parse::<i32>().map_err(de::Error::custom)?;
+                map.insert(id, value.into_iter().collect());
+            }
+            Ok(map)
+        }
+    }
+
+    deserializer.deserialize_map(StringKeyedMapVisitor)
+}
+
+/// Serializes `HashMap<i32, HashSet<i32>>` back to JSON with string keys.
+fn serialize_string_keyed_i32_map<S>(
+    map: &HashMap<i32, HashSet<i32>>,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    let mut ser_map = serializer.serialize_map(Some(map.len()))?;
+    let mut keys: Vec<&i32> = map.keys().collect();
+    keys.sort_unstable();
+    for k in keys {
+        let v = &map[k];
+        let sorted: Vec<i32> = {
+            let mut s: Vec<i32> = v.iter().copied().collect();
+            s.sort_unstable();
+            s
+        };
+        ser_map.serialize_entry(&k.to_string(), &sorted)?;
+    }
+    ser_map.end()
+}
+
+/// Pre-computed dependency metadata, built by Django at cache-write time.
+/// Shipped as a top-level field alongside the flags array in the hypercache.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct EvaluationMetadata {
+    /// Flag IDs grouped by evaluation stage. Stage 0 (no deps) first.
+    pub dependency_stages: Vec<Vec<i32>>,
+    /// Flag IDs with missing, cyclic, or transitively broken dependencies.
+    pub flags_with_missing_deps: Vec<i32>,
+    /// Flag ID → transitive dependency flag IDs.
+    #[serde(
+        deserialize_with = "deserialize_string_keyed_i32_map",
+        serialize_with = "serialize_string_keyed_i32_map"
+    )]
+    pub transitive_deps: HashMap<i32, HashSet<i32>>,
+}
 
 /// Wrapper struct for deserializing hypercache format: {"flags": [...]}
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct HypercacheFlagsWrapper {
     pub flags: Vec<FeatureFlag>,
+    #[serde(default)]
+    pub evaluation_metadata: Option<EvaluationMetadata>,
 }
 
 /// New holdout format: `{"id": 42, "exclusion_percentage": 10}`.
@@ -166,4 +243,9 @@ pub struct FeatureFlagList {
     /// Not serialized — this is a request-scoped concern, not a cache concern.
     #[serde(skip)]
     pub filtered_out_flag_ids: HashSet<i32>,
+    /// Pre-computed dependency metadata from Django's hypercache.
+    /// Present when the cache was written by new Django code; absent for PG fallback
+    /// or old cache entries.
+    #[serde(skip)]
+    pub evaluation_metadata: Option<EvaluationMetadata>,
 }

@@ -29,10 +29,7 @@ use crate::metrics::consts::{
 };
 use crate::properties::property_models::PropertyFilter;
 use crate::rayon_dispatcher::RayonDispatcher;
-use crate::utils::graph_utils::{
-    build_dependency_graph, filter_graph_by_keys, log_dependency_graph_operation_error,
-    DependencyGraph, DependencyGraphResult, FilteredGraphResult,
-};
+use crate::utils::graph_utils::PrecomputedDependencyGraph;
 use anyhow::Result;
 use common_metrics::{histogram, inc, timing_guard};
 use common_types::collections::HashMapExt;
@@ -330,39 +327,27 @@ impl FeatureFlagMatcher {
     ) -> Result<FlagsResponse, FlagError> {
         let eval_timer = common_metrics::timing_guard(FLAG_EVALUATION_TIME, &[]);
 
-        // Build dependency graph once - reused for both optimization check and evaluation
-        let DependencyGraphResult {
-            graph: global_dependency_graph,
-            errors: graph_errors,
-            flags_with_missing_deps: global_flags_with_missing_deps,
-        } = match build_dependency_graph(&feature_flags, self.team_id) {
+        // Build precomputed dependency graph with evaluation stages and transitive dependency map
+        let precomputed = match PrecomputedDependencyGraph::build(&feature_flags, self.team_id) {
             Some(result) => result,
             None => return Ok(FlagsResponse::new(true, HashMap::new(), None, request_id)),
         };
 
-        // Move the filter set onto the matcher now that the borrow from graph construction has ended.
-        // This is the single source of truth for "should this flag be skipped" during evaluation.
         self.filtered_out_flag_ids = feature_flags.filtered_out_flag_ids;
 
-        // Filter graph by flag_keys if specified (includes transitive dependencies)
-        let (dependency_graph, flags_with_missing_deps) = if let Some(ref keys) = flag_keys {
-            match filter_graph_by_keys(
-                &global_dependency_graph,
-                keys,
-                &global_flags_with_missing_deps,
-            ) {
-                Some(FilteredGraphResult {
-                    graph,
-                    flags_with_missing_deps,
-                }) => (graph, flags_with_missing_deps),
-                None => return Ok(FlagsResponse::new(true, HashMap::new(), None, request_id)),
-            }
+        // Filter stages by flag_keys if specified (uses pre-computed transitive dependency map)
+        let (evaluation_stages, flags_with_missing_deps) = if let Some(ref keys) = flag_keys {
+            let filtered = precomputed.filter_stages_by_keys(keys);
+            (filtered.evaluation_stages, filtered.flags_with_missing_deps)
         } else {
-            (global_dependency_graph, global_flags_with_missing_deps)
+            (
+                precomputed.evaluation_stages,
+                precomputed.flags_with_missing_deps,
+            )
         };
 
-        if !graph_errors.is_empty() {
-            with_canonical_log(|log| log.dependency_graph_errors = graph_errors.len());
+        if precomputed.error_count > 0 {
+            with_canonical_log(|log| log.dependency_graph_errors = precomputed.error_count);
         }
 
         // Compute experience continuity stats from the filtered graph.
@@ -371,7 +356,7 @@ impl FeatureFlagMatcher {
             let mut continuity_count = 0;
             let mut needs_override = false;
 
-            for flag in dependency_graph.iter_nodes() {
+            for flag in evaluation_stages.iter().flatten() {
                 if !self.filtered_out_flag_ids.contains(&flag.id)
                     && flag.has_experience_continuity()
                 {
@@ -442,17 +427,16 @@ impl FeatureFlagMatcher {
             request_hash_key_override,
         };
 
-        // Pass the pre-built graph to avoid redundant graph construction
         let flags_response = self
             .evaluate_flags_with_overrides(
                 overrides,
                 request_id,
-                dependency_graph,
+                evaluation_stages,
                 flags_with_missing_deps,
             )
             .await?;
 
-        let has_cycle_errors = graph_errors.iter().any(|e| e.is_cycle());
+        let has_cycle_errors = precomputed.has_cycle_errors;
         let has_errors = flag_hash_key_override_error
             || flags_response.errors_while_computing_flags
             || has_cycle_errors;
@@ -628,20 +612,20 @@ impl FeatureFlagMatcher {
 
     /// Evaluates feature flags with property and hash key overrides.
     ///
-    /// Takes a pre-built dependency graph which should already be filtered by flag_keys if needed.
-    /// The graph determines which flags are evaluated and in what order.
+    /// Takes pre-computed evaluation stages which should already be filtered by flag_keys if needed.
+    /// The stages determine which flags are evaluated and in what order.
     pub async fn evaluate_flags_with_overrides(
         &mut self,
         overrides: FlagEvaluationOverrides,
         request_id: Uuid,
-        dependency_graph: DependencyGraph<FeatureFlag>,
+        evaluation_stages: Vec<Vec<FeatureFlag>>,
         flags_with_missing_deps: HashSet<i32>,
     ) -> Result<FlagsResponse, FlagError> {
         let mut errors_while_computing_flags = overrides.hash_key_override_error;
         let mut evaluated_flags_map = HashMap::new();
 
-        // Collect flags from the graph for preparation steps
-        let flags: Vec<&FeatureFlag> = dependency_graph.iter_nodes().collect();
+        // Collect flags from evaluation stages for preparation steps
+        let flags: Vec<&FeatureFlag> = evaluation_stages.iter().flatten().collect();
 
         // Handle hash key override errors by creating error responses for flags that need experience continuity
         if overrides.hash_key_override_error && overrides.hash_key_overrides.is_none() {
@@ -677,19 +661,22 @@ impl FeatureFlagMatcher {
                 .add_flag_evaluation_result(flag_id, FlagValue::Boolean(false));
         }
 
-        // Step 3: Evaluate flags using the dependency graph
-        let graph_evaluation_errors = self
-            .evaluate_flags_with_dependency_graph(
-                dependency_graph,
-                &overrides.person_property_overrides,
-                &overrides.group_property_overrides,
-                &overrides.hash_key_overrides,
-                &overrides.request_hash_key_override,
-                &mut evaluated_flags_map,
-                &flags_with_missing_deps,
-            )
-            .await?;
-        errors_while_computing_flags |= graph_evaluation_errors;
+        // Step 3: Evaluate flags stage by stage in dependency order
+        for stage in evaluation_stages {
+            let (level_evaluated_flags_map, level_errors) = self
+                .evaluate_flags_in_level(
+                    stage,
+                    &mut evaluated_flags_map,
+                    &overrides.person_property_overrides,
+                    &overrides.group_property_overrides,
+                    &overrides.hash_key_overrides,
+                    &overrides.request_hash_key_override,
+                    &flags_with_missing_deps,
+                )
+                .await?;
+            errors_while_computing_flags |= level_errors;
+            evaluated_flags_map.extend(level_evaluated_flags_map);
+        }
 
         Ok(FlagsResponse::new(
             errors_while_computing_flags,
@@ -697,49 +684,6 @@ impl FeatureFlagMatcher {
             None,
             request_id,
         ))
-    }
-
-    /// Evaluates flags using the provided dependency graph.
-    /// Returns true if there were errors during evaluation.
-    #[allow(clippy::too_many_arguments)]
-    async fn evaluate_flags_with_dependency_graph(
-        &mut self,
-        flag_dependency_graph: DependencyGraph<FeatureFlag>,
-        person_property_overrides: &Option<HashMap<String, Value>>,
-        group_property_overrides: &Option<HashMap<String, HashMap<String, Value>>>,
-        hash_key_overrides: &Option<HashMap<String, String>>,
-        request_hash_key_override: &Option<String>,
-        evaluated_flags_map: &mut HashMap<String, FlagDetails>,
-        flags_with_missing_deps: &HashSet<i32>,
-    ) -> Result<bool, FlagError> {
-        // Consume the graph to get owned flags in evaluation order
-        let evaluation_stages = match flag_dependency_graph.into_evaluation_stages() {
-            Ok(stages) => stages,
-            Err(e) => {
-                log_dependency_graph_operation_error("get evaluation stages", &e, self.team_id);
-                return Ok(true);
-            }
-        };
-
-        // Evaluate flags in dependency order
-        let mut errors_while_computing_flags = false;
-        for stage in evaluation_stages {
-            let (level_evaluated_flags_map, level_errors) = self
-                .evaluate_flags_in_level(
-                    stage,
-                    evaluated_flags_map,
-                    person_property_overrides,
-                    group_property_overrides,
-                    hash_key_overrides,
-                    request_hash_key_override,
-                    flags_with_missing_deps,
-                )
-                .await?;
-            errors_while_computing_flags |= level_errors;
-            evaluated_flags_map.extend(level_evaluated_flags_map);
-        }
-
-        Ok(errors_while_computing_flags)
     }
 
     /// Prepares evaluation state for flags that require database properties.
