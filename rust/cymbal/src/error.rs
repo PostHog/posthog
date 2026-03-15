@@ -198,6 +198,8 @@ pub enum EventError {
     NoTeamForToken(String),
     #[error("Suppressed issue: {0}")]
     Suppressed(Uuid),
+    #[error("Suppressed by rule: {0}")]
+    SuppressedByRule(Uuid),
     #[error("Could not deserialize event data: {1}")]
     FailedToDeserialize(Box<CapturedEvent>, String),
     #[error("Filtered by team id")]

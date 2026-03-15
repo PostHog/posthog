@@ -67,6 +67,12 @@ def generate_byte_code(team: Team, props: PropertyGroupFilterValue):
     return bytecode
 
 
+def generate_match_all_bytecode():
+    """Generate bytecode that always returns true (matches all events)."""
+    with_return = ast.ReturnStatement(expr=ast.Constant(value=True))
+    return create_bytecode(with_return).bytecode
+
+
 def validate_bytecode(bytecode: list[Any]) -> None:
     for i, op in enumerate(bytecode):
         if not isinstance(op, Operation):

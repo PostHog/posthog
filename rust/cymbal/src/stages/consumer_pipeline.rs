@@ -69,7 +69,7 @@ fn handle_result(
         }
         Err(err) => match err {
             // we keep suppressed errors to drop events later in the pipeline
-            EventError::Suppressed(_) => Err(err),
+            EventError::Suppressed(_) | EventError::SuppressedByRule(_) => Err(err),
             // we attach error to original event and continue
             evt_err => match clickhouse_event.attach_error(evt_err.to_string()) {
                 Ok(_) => Ok(clickhouse_event),

@@ -23,6 +23,7 @@ pub mod router;
 pub mod server;
 pub mod spike_config;
 pub mod stages;
+pub mod suppression_rules;
 pub mod symbol_store;
 pub mod teams;
 #[cfg(test)]

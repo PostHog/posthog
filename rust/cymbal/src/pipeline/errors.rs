@@ -72,6 +72,9 @@ pub async fn report_error(_context: Arc<AppContext>, error: EventError) {
             // fine.
             counter!(DROPPED_EVENTS, "reason" => "suppressed").increment(1);
         }
+        EventError::SuppressedByRule(_) => {
+            counter!(DROPPED_EVENTS, "reason" => "suppressed_by_rule").increment(1);
+        }
         EventError::FailedToDeserialize(_, _) => {
             // TODO - we should emit these events to a dead letter queue, and potentially panic here,
             // as receiving events we can't process from capture indicates a potential capture issue.
