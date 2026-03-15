@@ -2,14 +2,12 @@ import { useValues } from 'kea'
 
 import { ScrollDepthMouseCanvas, scrollDepthColor } from 'lib/components/heatmaps/ScrollDepthCanvas'
 import { useMousePosition } from 'lib/components/heatmaps/useMousePosition'
+import { useScrollSync } from 'lib/components/heatmaps/useScrollSync'
 import { useShiftKeyPressed } from 'lib/components/heatmaps/useShiftKeyPressed'
 
 import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 
-import { toolbarConfigLogic } from '../toolbarConfigLogic'
-
-function ScrollDepthMouseInfo(): JSX.Element | null {
-    const { posthog } = useValues(toolbarConfigLogic)
+function ScrollDepthMouseInfo({ scrollYRef }: { scrollYRef: React.MutableRefObject<number> }): JSX.Element | null {
     const { heatmapElements, rawHeatmapLoading } = useValues(heatmapToolbarMenuLogic)
 
     const shiftPressed = useShiftKeyPressed()
@@ -19,8 +17,7 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
         return null
     }
 
-    const scrollOffset = (posthog as any).scrollManager.scrollY()
-    const scrolledMouseY = mouseY + scrollOffset
+    const scrolledMouseY = mouseY + scrollYRef.current
 
     const elementInMouseY = heatmapElements.find((x, i) => {
         const lastY = heatmapElements[i - 1]?.y ?? 0
@@ -42,10 +39,12 @@ function ScrollDepthMouseInfo(): JSX.Element | null {
 }
 
 export function ScrollDepth(): JSX.Element | null {
-    const { posthog } = useValues(toolbarConfigLogic)
-
     const { heatmapEnabled, heatmapFilters, heatmapElements, scrollDepthPosthogJsError, heatmapColorPalette } =
         useValues(heatmapToolbarMenuLogic)
+
+    const { innerRef, scrollYRef } = useScrollSync(
+        heatmapEnabled && heatmapFilters.enabled && heatmapFilters.type === 'scrolldepth'
+    )
 
     if (!heatmapEnabled || !heatmapFilters.enabled || heatmapFilters.type !== 'scrolldepth') {
         return null
@@ -55,18 +54,16 @@ export function ScrollDepth(): JSX.Element | null {
         return null
     }
 
-    const scrollOffset = (posthog as any).scrollManager.scrollY()
-
-    // We want to have a fading color from red to orange to green to blue to grey, fading from the highest count to the lowest
     const maxCount = heatmapElements[0]?.count ?? 0
 
     return (
         <div className="fixed inset-0 overflow-hidden">
             <div
+                ref={innerRef}
                 className="absolute top-0 left-0 right-0"
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{
-                    transform: `translateY(${-scrollOffset}px)`,
+                    willChange: 'transform',
                 }}
             >
                 {heatmapElements.map(({ y, count }, i) => (
@@ -82,7 +79,7 @@ export function ScrollDepth(): JSX.Element | null {
                     />
                 ))}
             </div>
-            <ScrollDepthMouseInfo />
+            <ScrollDepthMouseInfo scrollYRef={scrollYRef} />
         </div>
     )
 }
