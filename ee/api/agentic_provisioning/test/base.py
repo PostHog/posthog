@@ -1,17 +1,18 @@
 import json
 import time
+from datetime import timedelta
 from urllib.parse import urlencode
 
 import pytest
 from posthog.test.base import APIBaseTest
 
-from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from rest_framework.test import APIClient
 
 from ee.api.agentic_provisioning.signature import compute_signature
-from ee.api.agentic_provisioning.views import AUTH_CODE_CACHE_PREFIX
+from ee.models.agentic_provisioning import AgenticProvisioningState
 
 HMAC_SECRET = "test_hmac_secret"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
@@ -97,9 +98,10 @@ class StripeProvisioningTestBase(APIBaseTest):
 
     def _get_bearer_token(self) -> str:
         code = f"test_code_{id(self)}"
-        cache.set(
-            f"{AUTH_CODE_CACHE_PREFIX}{code}",
-            {
+        AgenticProvisioningState.objects.create(
+            purpose=AgenticProvisioningState.Purpose.AUTH_CODE,
+            token=code,
+            payload={
                 "user_id": self.user.id,
                 "org_id": str(self.organization.id),
                 "team_id": self.team.id,
@@ -107,7 +109,7 @@ class StripeProvisioningTestBase(APIBaseTest):
                 "scopes": ["query:read"],
                 "region": "US",
             },
-            timeout=300,
+            expires_at=timezone.now() + timedelta(seconds=300),
         )
         body = urlencode({"grant_type": "authorization_code", "code": code}).encode()
         ts = int(time.time())
@@ -117,6 +119,5 @@ class StripeProvisioningTestBase(APIBaseTest):
             data=body,
             content_type="application/x-www-form-urlencoded",
             HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
         )
         return res.json()["access_token"]

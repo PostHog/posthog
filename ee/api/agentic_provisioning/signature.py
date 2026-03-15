@@ -22,26 +22,30 @@ API_VERSION_HEADER = "API-Version"
 MAX_TIMESTAMP_DRIFT_SECONDS = 300
 
 
-def verify_stripe_signature(request: Request) -> Response | None:
-    """Verify the Stripe-Signature HMAC and API-Version header.
+def verify_stripe_signature(request: Request, *, skip_api_version: bool = False) -> Response | None:
+    """Verify the Stripe-Signature HMAC and optionally the API-Version header.
 
     Returns None if verification passes, or an error Response if it fails.
     Called at the top of every view (Vercel-style, not middleware).
+
+    Set skip_api_version=True for endpoints where Stripe does not send
+    the API-Version header (e.g. /oauth/token per APP 0.1d spec).
     """
     endpoint = request.path
 
-    api_version = request.META.get("HTTP_API_VERSION", "")
-    if api_version not in SUPPORTED_VERSIONS:
-        _log_and_capture_event("invalid_api_version", 400, endpoint, api_version=api_version)
-        return Response(
-            {
-                "error": {
-                    "code": "invalid_api_version",
-                    "message": f"Supported API-Versions: {', '.join(SUPPORTED_VERSIONS)}",
-                }
-            },
-            status=400,
-        )
+    if not skip_api_version:
+        api_version = request.META.get("HTTP_API_VERSION", "")
+        if api_version not in SUPPORTED_VERSIONS:
+            _log_and_capture_event("invalid_api_version", 400, endpoint, api_version=api_version)
+            return Response(
+                {
+                    "error": {
+                        "code": "invalid_api_version",
+                        "message": f"Supported API-Versions: {', '.join(SUPPORTED_VERSIONS)}",
+                    }
+                },
+                status=400,
+            )
 
     secret = settings.STRIPE_APP_SECRET_KEY
     if not secret:

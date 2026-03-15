@@ -54,7 +54,6 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
             data=token_body,
             content_type="application/x-www-form-urlencoded",
             HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
         )
         assert res.status_code == 200
         token_data = res.json()
@@ -132,7 +131,6 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
             data=refresh_body,
             content_type="application/x-www-form-urlencoded",
             HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
         )
         assert res.status_code == 200
         new_access_token = res.json()["access_token"]

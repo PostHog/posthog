@@ -2,7 +2,6 @@ from datetime import timedelta
 
 from unittest.mock import patch
 
-from django.core.cache import cache
 from django.db import IntegrityError
 from django.test import override_settings
 from django.utils import timezone
@@ -11,8 +10,8 @@ from rest_framework.response import Response
 
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning import PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
+from ee.models.agentic_provisioning import AgenticProvisioningState
 
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
@@ -74,19 +73,21 @@ class TestAccountRequests(StripeProvisioningTestBase):
         assert "state=my_secret_state" in url
         assert "/api/agentic/authorize" in url
 
-    def test_existing_user_caches_pending_auth(self):
+    def test_existing_user_stores_pending_auth_in_db(self):
         User.objects.create_user(email="existing@example.com", password="testpass", first_name="Existing")
         payload = self._account_request_payload(
             email="existing@example.com",
-            confirmation_secret="cs_cache_test",
+            confirmation_secret="cs_db_test",
         )
         self._post_signed("/api/agentic/provisioning/account_requests", data=payload)
-        pending = cache.get(f"{PENDING_AUTH_CACHE_PREFIX}cs_cache_test")
-        assert pending is not None
-        assert pending["email"] == "existing@example.com"
-        assert pending["scopes"] == ["query:read", "project:read"]
-        assert pending["stripe_account_id"] == "acct_stripe_456"
-        assert pending["region"] == "US"
+        state = AgenticProvisioningState.objects.get(
+            token="cs_db_test",
+            purpose=AgenticProvisioningState.Purpose.PENDING_AUTH,
+        )
+        assert state.payload["email"] == "existing@example.com"
+        assert state.payload["scopes"] == ["query:read", "project:read"]
+        assert state.payload["stripe_account_id"] == "acct_stripe_456"
+        assert state.payload["region"] == "US"
 
     def test_expired_request_returns_400(self):
         payload = self._account_request_payload(expires_at=(timezone.now() - timedelta(minutes=1)).isoformat())

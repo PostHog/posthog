@@ -1,10 +1,12 @@
-from django.core.cache import cache
+from datetime import timedelta
+
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET, StripeProvisioningTestBase
-from ee.api.agentic_provisioning.views import DEEP_LINK_CACHE_PREFIX
+from ee.models.agentic_provisioning import AgenticProvisioningState
 
 
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET)
@@ -42,10 +44,11 @@ class TestDeepLinks(StripeProvisioningTestBase):
 class TestAgenticLogin(StripeProvisioningTestBase):
     def _create_deep_link_token(self) -> str:
         token = "test_deep_link_token"
-        cache.set(
-            f"{DEEP_LINK_CACHE_PREFIX}{token}",
-            {"user_id": self.user.id, "team_id": self.team.id},
-            timeout=600,
+        AgenticProvisioningState.objects.create(
+            purpose=AgenticProvisioningState.Purpose.DEEP_LINK,
+            token=token,
+            payload={"user_id": self.user.id, "team_id": self.team.id},
+            expires_at=timezone.now() + timedelta(seconds=600),
         )
         return token
 
@@ -84,35 +87,35 @@ class TestAgenticLogin(StripeProvisioningTestBase):
         assert expected_error in res["Location"]
 
     def test_without_team_id_redirects_to_root(self):
-        token = "test_no_team_token"
-        cache.set(
-            f"{DEEP_LINK_CACHE_PREFIX}{token}",
-            {"user_id": self.user.id, "team_id": None},
-            timeout=600,
+        AgenticProvisioningState.objects.create(
+            purpose=AgenticProvisioningState.Purpose.DEEP_LINK,
+            token="test_no_team_token",
+            payload={"user_id": self.user.id, "team_id": None},
+            expires_at=timezone.now() + timedelta(seconds=600),
         )
-        res = self.client.get(f"/agentic/login?token={token}")
+        res = self.client.get("/agentic/login?token=test_no_team_token")
         assert res.status_code == 302
         assert res["Location"] == "/"
 
     def test_expired_token_redirects_with_error(self):
-        token = "test_expired_token"
-        cache.set(
-            f"{DEEP_LINK_CACHE_PREFIX}{token}",
-            {"user_id": self.user.id, "team_id": self.team.id},
-            timeout=0,
+        AgenticProvisioningState.objects.create(
+            purpose=AgenticProvisioningState.Purpose.DEEP_LINK,
+            token="test_expired_token",
+            payload={"user_id": self.user.id, "team_id": self.team.id},
+            expires_at=timezone.now() - timedelta(seconds=1),
         )
-        res = self.client.get(f"/agentic/login?token={token}")
+        res = self.client.get("/agentic/login?token=test_expired_token")
         assert res.status_code == 302
         assert res["Location"] == "/?error=expired_or_invalid_token"
 
     def test_deleted_user_redirects_with_error(self):
-        token = "test_deleted_user_token"
-        cache.set(
-            f"{DEEP_LINK_CACHE_PREFIX}{token}",
-            {"user_id": 999999, "team_id": self.team.id},
-            timeout=600,
+        AgenticProvisioningState.objects.create(
+            purpose=AgenticProvisioningState.Purpose.DEEP_LINK,
+            token="test_deleted_user_token",
+            payload={"user_id": 999999, "team_id": self.team.id},
+            expires_at=timezone.now() + timedelta(seconds=600),
         )
-        res = self.client.get(f"/agentic/login?token={token}")
+        res = self.client.get("/agentic/login?token=test_deleted_user_token")
         assert res.status_code == 302
         assert res["Location"] == "/?error=user_not_found"
 

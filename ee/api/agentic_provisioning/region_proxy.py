@@ -3,8 +3,6 @@ from __future__ import annotations
 import functools
 from urllib.parse import urlparse, urlunparse
 
-from django.core.cache import cache
-
 import requests
 import structlog
 from rest_framework.request import Request
@@ -13,7 +11,6 @@ from rest_framework.response import Response
 from posthog.models.oauth import find_oauth_refresh_token
 from posthog.utils import get_instance_region
 
-from . import AUTH_CODE_CACHE_PREFIX
 from .signature import verify_stripe_signature
 
 logger = structlog.get_logger(__name__)
@@ -97,14 +94,17 @@ def _should_proxy_body_region(request: Request, current_region: str) -> bool:
 
 
 def _should_proxy_token_lookup(request: Request, current_region: str) -> bool:
+    from ee.models.agentic_provisioning import AgenticProvisioningState
+
     grant_type = request.data.get("grant_type", "")
 
     if grant_type == "authorization_code":
         code = request.data.get("code", "")
         if not code:
             return False
-        cache_key = f"{AUTH_CODE_CACHE_PREFIX}{code}"
-        return cache.get(cache_key) is None
+        return not AgenticProvisioningState.objects.filter(
+            token=code, purpose=AgenticProvisioningState.Purpose.AUTH_CODE
+        ).exists()
 
     if grant_type == "refresh_token":
         refresh_token_value = request.data.get("refresh_token", "")
@@ -123,11 +123,12 @@ _STRATEGY_CHECKS = {
 
 def stripe_region_proxy(strategy: str):
     check_fn = _STRATEGY_CHECKS[strategy]
+    skip_api_version = strategy == "token_lookup"
 
     def decorator(view_func):
         @functools.wraps(view_func)
         def wrapper(request: Request, *args, **kwargs) -> Response:
-            error = verify_stripe_signature(request)
+            error = verify_stripe_signature(request, skip_api_version=skip_api_version)
             if error:
                 return error
 

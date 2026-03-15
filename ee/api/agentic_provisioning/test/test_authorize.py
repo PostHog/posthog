@@ -1,17 +1,18 @@
 import json
 import time
+from datetime import timedelta
 
 import pytest
 from posthog.test.base import APIBaseTest
 
-from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from posthog.models.user import User
 
-from ee.api.agentic_provisioning import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX
 from ee.api.agentic_provisioning.signature import compute_signature
 from ee.api.agentic_provisioning.test.base import HMAC_SECRET
+from ee.models.agentic_provisioning import AgenticProvisioningState
 
 DUMMY_CALLBACK = "https://marketplace.stripe.com/oauth/callback"
 
@@ -26,7 +27,12 @@ class TestAgenticAuthorize(APIBaseTest):
             "region": "US",
             **extra,
         }
-        cache.set(f"{PENDING_AUTH_CACHE_PREFIX}{state}", data, timeout=600)
+        AgenticProvisioningState.objects.create(
+            purpose=AgenticProvisioningState.Purpose.PENDING_AUTH,
+            token=state,
+            payload=data,
+            expires_at=timezone.now() + timedelta(seconds=600),
+        )
 
     def test_requires_login(self):
         self.client.logout()
@@ -61,18 +67,23 @@ class TestAgenticAuthorize(APIBaseTest):
     def test_pending_auth_deleted_after_use(self):
         self._set_pending_auth("state_once", self.user.email)
         self.client.get("/api/agentic/authorize?state=state_once")
-        assert cache.get(f"{PENDING_AUTH_CACHE_PREFIX}state_once") is None
+        assert not AgenticProvisioningState.objects.filter(
+            token="state_once",
+            purpose=AgenticProvisioningState.Purpose.PENDING_AUTH,
+        ).exists()
 
-    def test_auth_code_created_in_cache(self):
+    def test_auth_code_created_in_db(self):
         self._set_pending_auth("state_code", self.user.email)
         res = self.client.get("/api/agentic/authorize?state=state_code")
         code = res["Location"].split("code=")[1].split("&")[0]
-        code_data = cache.get(f"{AUTH_CODE_CACHE_PREFIX}{code}")
-        assert code_data is not None
-        assert code_data["user_id"] == self.user.id
-        assert code_data["org_id"] == str(self.team.organization.id)
-        assert code_data["team_id"] == self.team.id
-        assert code_data["scopes"] == ["query:read", "project:read"]
+        state = AgenticProvisioningState.objects.get(
+            token=code,
+            purpose=AgenticProvisioningState.Purpose.AUTH_CODE,
+        )
+        assert state.payload["user_id"] == self.user.id
+        assert state.payload["org_id"] == str(self.team.organization.id)
+        assert state.payload["team_id"] == self.team.id
+        assert state.payload["scopes"] == ["query:read", "project:read"]
 
     @pytest.mark.requires_secrets
     @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET, STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
@@ -91,7 +102,6 @@ class TestAgenticAuthorize(APIBaseTest):
             data=body,
             content_type="application/json",
             HTTP_STRIPE_SIGNATURE=f"t={ts},v1={sig}",
-            HTTP_API_VERSION="0.1d",
         )
         assert token_res.status_code == 200
         data = token_res.json()
@@ -105,10 +115,11 @@ class TestAgenticAuthorizeNoOrg(APIBaseTest):
     def test_user_without_org_redirects_with_error(self):
         orphan = User.objects.create(email="orphan@example.com", first_name="Orphan")
         self.client.force_login(orphan)
-        cache.set(
-            f"{PENDING_AUTH_CACHE_PREFIX}state_no_org",
-            {"email": "orphan@example.com", "scopes": [], "stripe_account_id": "", "region": "US"},
-            timeout=600,
+        AgenticProvisioningState.objects.create(
+            purpose=AgenticProvisioningState.Purpose.PENDING_AUTH,
+            token="state_no_org",
+            payload={"email": "orphan@example.com", "scopes": [], "stripe_account_id": "", "region": "US"},
+            expires_at=timezone.now() + timedelta(seconds=600),
         )
         res = self.client.get("/api/agentic/authorize?state=state_no_org")
         assert res.status_code == 302
