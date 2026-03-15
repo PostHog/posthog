@@ -26,3 +26,25 @@ in another
 pnpm exec playwright install
 pnpm --filter=@posthog/storybook test:visual:debug
 ```
+
+## Viewport width variants
+
+You can snapshot a story at multiple viewport widths
+by setting `viewportWidths` in `testOptions`.
+This produces one snapshot per width instead of the default single snapshot.
+
+Available widths: `narrow` (568px), `medium` (960px), `wide` (1300px), `superwide` (1920px).
+
+```ts
+export const MyStoryViewports: Story = createInsightStory(fixture, 'edit')
+MyStoryViewports.parameters = {
+  testOptions: {
+    viewportWidths: ['medium', 'wide', 'superwide'],
+  },
+}
+```
+
+Each width generates a separate snapshot file suffixed with the width name,
+e.g. `my-story-viewports--medium--light.png`.
+
+See `frontend/src/scenes/insights/stories/TrendsLine.stories.tsx` for a working example.
