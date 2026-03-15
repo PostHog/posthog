@@ -8,6 +8,7 @@ import pytz
 import structlog
 from asgiref.sync import sync_to_async
 from langchain_anthropic import ChatAnthropic
+from langchain_aws import ChatBedrock
 from langchain_core.messages import BaseMessage, SystemMessage
 from langchain_core.outputs import LLMResult
 from langchain_core.prompts import SystemMessagePromptTemplate
@@ -259,3 +260,53 @@ class MaxChatAnthropic(MaxChatMixin, ChatAnthropic):
         kwargs = self._with_posthog_properties(kwargs)
 
         return await super().agenerate(messages, *args, **kwargs)
+
+
+class MaxChatBedrock(MaxChatMixin, ChatBedrock):
+    """PostHog-tuned ChatBedrock.
+
+    Authenticates via the AWS_BEARER_TOKEN_BEDROCK env var (picked up automatically by boto3).
+    Injects project/org/user context and PostHog billing metadata like the other Max* classes.
+    """
+
+    def generate(
+        self,
+        messages: list[list[BaseMessage]],
+        *args,
+        **kwargs,
+    ) -> LLMResult:
+        if self.inject_context:
+            project_org_user_variables = self._get_project_org_user_variables()
+            messages = self._enrich_messages(messages, project_org_user_variables)
+
+        kwargs = self._with_posthog_properties(kwargs)
+
+        return super().generate(messages, *args, **kwargs)
+
+    async def agenerate(
+        self,
+        messages: list[list[BaseMessage]],
+        *args,
+        **kwargs,
+    ) -> LLMResult:
+        if self.inject_context:
+            project_org_user_variables = await self._aget_project_org_user_variables()
+            messages = self._enrich_messages(messages, project_org_user_variables)
+
+        kwargs = self._with_posthog_properties(kwargs)
+
+        return await super().agenerate(messages, *args, **kwargs)
+
+    def get_num_tokens_from_messages(self, messages: list[BaseMessage], **kwargs: Any) -> int:
+        """Bedrock doesn't support the count_tokens API. Use char/4 estimation."""
+        total = 0
+        for msg in messages:
+            if isinstance(msg.content, str):
+                total += len(msg.content)
+            elif isinstance(msg.content, list):
+                for block in msg.content:
+                    if isinstance(block, str):
+                        total += len(block)
+                    elif isinstance(block, dict):
+                        total += len(str(block))
+        return total // 4

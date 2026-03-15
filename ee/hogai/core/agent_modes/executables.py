@@ -39,7 +39,7 @@ from ee.hogai.core.agent_modes.prompts import (
 )
 from ee.hogai.core.agent_modes.toolkit import AgentToolkitManager
 from ee.hogai.core.executable import BaseAgentExecutable
-from ee.hogai.llm import MaxChatAnthropic
+from ee.hogai.llm import MaxChatAnthropic, MaxChatBedrock
 from ee.hogai.tool import MaxTool, ToolMessagesArtifact
 from ee.hogai.tool_errors import MaxToolError
 from ee.hogai.utils.anthropic import add_cache_control, convert_to_anthropic_messages
@@ -219,37 +219,59 @@ class AgentExecutable(BaseAgentLoopRootExecutable):
         ]
 
     def _get_model(self, state: AssistantState, tools: list["MaxTool"]):
+        from django.conf import settings as django_settings
+
         model_name = "claude-sonnet-4-6"
         if self._has_legacy_summarize_sessions_messages(state.messages):
             model_name = "claude-sonnet-4-5"
 
         is_sonnet_4_5 = model_name == "claude-sonnet-4-5"
+        use_bedrock = bool(getattr(django_settings, "AWS_BEARER_TOKEN_BEDROCK", ""))
 
-        base_model = MaxChatAnthropic(
-            model=model_name,
-            streaming=True,
-            stream_usage=True,
-            user=self._user,
-            team=self._team,
-            betas=[
-                "interleaved-thinking-2025-05-14",
-                "context-1m-2025-08-07",
-                "fine-grained-tool-streaming-2025-05-14",
-            ],
-            max_tokens=8192 if is_sonnet_4_5 else 16384,
-            thinking=self.THINKING_CONFIG if not is_sonnet_4_5 else {"type": "enabled", "budget_tokens": 1024},
-            # langchain-anthropic 0.3.x doesn't have a first-class effort field;
-            # forward it via model_kwargs so the Anthropic API receives output_config.
-            model_kwargs={"output_config": {"effort": "medium"}} if not is_sonnet_4_5 else {},
-            conversation_start_dt=state.start_dt,
-            billable=True,
-        )
+        if use_bedrock:
+            base_model = MaxChatBedrock(
+                model_id=getattr(django_settings, "AWS_BEDROCK_MODEL_ID", "") or model_name,
+                region_name=getattr(django_settings, "AWS_BEDROCK_REGION", "us-east-1"),
+                streaming=True,
+                user=self._user,
+                team=self._team,
+                max_tokens=8192 if is_sonnet_4_5 else 16384,
+                model_kwargs={
+                    "thinking": self.THINKING_CONFIG
+                    if not is_sonnet_4_5
+                    else {"type": "enabled", "budget_tokens": 1024},
+                },
+                conversation_start_dt=state.start_dt,
+                billable=True,
+            )
+        else:
+            base_model = MaxChatAnthropic(
+                model=model_name,
+                streaming=True,
+                stream_usage=True,
+                user=self._user,
+                team=self._team,
+                betas=[
+                    "interleaved-thinking-2025-05-14",
+                    "context-1m-2025-08-07",
+                    "fine-grained-tool-streaming-2025-05-14",
+                ],
+                max_tokens=8192 if is_sonnet_4_5 else 16384,
+                thinking=self.THINKING_CONFIG if not is_sonnet_4_5 else {"type": "enabled", "budget_tokens": 1024},
+                # langchain-anthropic 0.3.x doesn't have a first-class effort field;
+                # forward it via model_kwargs so the Anthropic API receives output_config.
+                model_kwargs={"output_config": {"effort": "medium"}} if not is_sonnet_4_5 else {},
+                conversation_start_dt=state.start_dt,
+                billable=True,
+            )
 
         # The agent can operate in loops. Since insight building is an expensive operation, we want to limit a recursion depth.
         # This will remove the functions, so the agent doesn't have any other option but to exit.
         if self._is_hard_limit_reached(state.root_tool_calls_count):
             return base_model
 
+        if use_bedrock:
+            return base_model.bind_tools(tools)
         return base_model.bind_tools(tools, parallel_tool_calls=True)
 
     def _construct_messages(
