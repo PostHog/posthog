@@ -196,7 +196,7 @@ const MarketingAnalyticsCellInternal = ({
     // Handle different no-data scenarios
     if (!item || (item.value == null && item.previous == null)) {
         return (
-            <Tooltip title={getNoDataTooltip(item)} delayMs={0} className="cursor-default">
+            <Tooltip title={getNoDataTooltip(item)} delayMs={300} className="cursor-default">
                 <div
                     className="flex items-center justify-start min-w-0 cursor-default text-muted w-full hover:bg-warning-highlight h-full"
                     style={{ padding: '0.5rem', ...style }}
@@ -213,7 +213,7 @@ const MarketingAnalyticsCellInternal = ({
             currency: baseCurrency,
         })
         return (
-            <Tooltip title={getNoDataTooltip(item)} delayMs={0} className="cursor-default">
+            <Tooltip title={getNoDataTooltip(item)} delayMs={300} className="cursor-default">
                 <div
                     className="flex flex-wrap items-center min-w-0 cursor-default text-muted w-full hover:bg-warning-highlight h-full"
                     style={{ padding: '0.5rem', ...style }}
@@ -256,7 +256,7 @@ const MarketingAnalyticsCellInternal = ({
     const bgColor = getChangeBackgroundColor(item.changeFromPreviousPct, item.isIncreaseBad)
 
     return (
-        <Tooltip title={tooltip} delayMs={0} className="cursor-default">
+        <Tooltip title={tooltip} delayMs={300} className="cursor-default">
             <div
                 className="flex flex-wrap items-center min-w-0 cursor-default w-full hover:bg-warning-highlight h-full"
                 style={{
