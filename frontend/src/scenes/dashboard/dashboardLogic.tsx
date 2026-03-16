@@ -258,6 +258,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
         /** Set the dashboard mode, see DashboardMode for details. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
+        /** Pending name/description during edit mode — only persisted on save, cleared on cancel. */
+        setPendingName: (name: string) => ({ name }),
+        setPendingDescription: (description: string) => ({ description }),
+        clearPendingMetadata: true,
         /** Optimistic pin/unpin toggle. */
         togglePinned: true,
         /** Open/close the Terraform export modal. */
@@ -398,6 +402,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const dashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
+                                ...(values.pendingName !== null ? { name: values.pendingName } : {}),
+                                ...(values.pendingDescription !== null
+                                    ? { description: values.pendingDescription }
+                                    : {}),
                                 filters: values.effectiveEditBarFilters,
                                 variables: values.effectiveDashboardVariableOverrides,
                                 breakdown_colors: values.temporaryBreakdownColors,
@@ -779,6 +787,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDashboardMode: (_, { mode }) => mode,
             },
         ],
+        pendingName: [
+            null as string | null,
+            {
+                setPendingName: (_, { name }) => name,
+                clearPendingMetadata: () => null,
+                // Clear once the single save PATCH confirms — avoids flicker where
+                // display briefly shows the old dashboard.name before the response
+                saveEditModeChangesSuccess: () => null,
+            },
+        ],
+        pendingDescription: [
+            null as string | null,
+            {
+                setPendingDescription: (_, { description }) => description,
+                clearPendingMetadata: () => null,
+                saveEditModeChangesSuccess: () => null,
+            },
+        ],
         loadLayoutFromServerOnPreview: [
             false,
             {
@@ -848,13 +874,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
             false,
             {
                 setTerraformModalOpen: (_, { open }) => open,
-            },
-        ],
-
-        dashboardLoadedAt: [
-            null as number | null,
-            {
-                loadDashboardSuccess: () => Date.now(),
             },
         ],
 
@@ -1291,23 +1310,6 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     : false
             },
         ],
-        isNewDashboard: [
-            (s) => [s.dashboard, s.dashboardLoading, s.dashboardLoadedAt],
-            (dashboard, dashboardLoading, dashboardLoadedAt): boolean => {
-                if (!dashboard || dashboardLoading) {
-                    return false
-                }
-                const isRecentlyCreated =
-                    dashboardLoadedAt != null && dashboardLoadedAt - new Date(dashboard.created_at).getTime() < 30000
-                return (
-                    Boolean(dashboard._highlight) ||
-                    dashboard.name === 'New Dashboard' ||
-                    isRecentlyCreated ||
-                    !dashboard.tiles ||
-                    dashboard.tiles.length === 0
-                )
-            },
-        ],
         canRestrictDashboard: [
             // Sync conditions with backend can_user_restrict
             (s) => [s.dashboard, userLogic.selectors.user, teamLogic.selectors.currentTeam],
@@ -1357,15 +1359,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad],
-            (dashboard, error404, dashboardFailedToLoad): Breadcrumb[] => {
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, router.selectors.searchParams],
+            (dashboard, error404, dashboardFailedToLoad, searchParams): Breadcrumb[] => {
+                const backUrl = searchParams.backUrl as string | undefined
+                const backName = searchParams.backName as string | undefined
                 return [
-                    {
-                        key: Scene.Dashboards,
-                        name: 'Dashboards',
-                        path: urls.dashboards(),
-                        iconType: 'dashboard',
-                    },
+                    backUrl
+                        ? {
+                              key: backUrl,
+                              name: backName || 'Back',
+                              path: backUrl,
+                              iconType: 'dashboard',
+                          }
+                        : {
+                              key: Scene.Dashboards,
+                              name: 'Dashboards',
+                              path: urls.dashboards(),
+                              iconType: 'dashboard',
+                          },
                     {
                         key: [Scene.Dashboard, dashboard?.id || 'new'],
                         name: dashboard?.id
@@ -1908,12 +1919,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 eventUsageLogic.actions.reportDashboardPropertiesChanged(values.dashboard)
             }
         },
+        saveEditModeChangesSuccess: ({ dashboard }) => {
+            if (dashboard) {
+                // Sync the saved dashboard (including any name/description changes) to
+                // dashboardsModel so the sidebar and other global views stay up to date
+                dashboardsModel.actions.updateDashboardSuccess(dashboard)
+            }
+        },
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 clearDOMTextSelection()
                 lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
-                // cancel edit mode changesdashboardLogi
+                // cancel edit mode changes — discard pending name/description without saving
+                actions.clearPendingMetadata()
 
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
@@ -1945,6 +1964,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     source === DashboardEventSource.SceneCommonButtons)
             ) {
                 // save edit mode changes when exiting via Save button or E key/Edit layout button
+                // Pending name/description are included in the saveEditModeChanges PATCH
+                // to avoid a race between two concurrent PATCHes to the same endpoint.
                 actions.saveEditModeChanges()
             }
 

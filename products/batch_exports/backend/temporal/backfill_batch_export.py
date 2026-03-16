@@ -19,13 +19,6 @@ from asgiref.sync import sync_to_async
 from structlog.contextvars import bind_contextvars
 
 from posthog.batch_exports.models import BatchExport, BatchExportBackfill, BatchExportRun
-from posthog.batch_exports.service import (
-    BackfillBatchExportInputs,
-    BackfillDetails,
-    acreate_batch_export_backfill,
-    unpause_batch_export,
-    update_batch_export_backfill,
-)
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
@@ -33,6 +26,13 @@ from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
 
+from products.batch_exports.backend.service import (
+    BackfillBatchExportInputs,
+    BackfillDetails,
+    acreate_batch_export_backfill,
+    unpause_batch_export,
+    update_batch_export_backfill,
+)
 from products.batch_exports.backend.temporal.record_batch_model import SessionsRecordBatchModel
 from products.batch_exports.backend.temporal.spmc import compose_filters_clause
 

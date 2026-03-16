@@ -33,7 +33,7 @@ pub enum PipelineResult {
     String(String),
     /// Raw bytes (GET raw bytes)
     Bytes(Vec<u8>),
-    /// Boolean result (SET NX EX)
+    /// Boolean result (SET NX EX, EXPIRE)
     Bool(bool),
     /// Count result (SCARD)
     Count(u64),
@@ -86,6 +86,10 @@ pub enum PipelineCommand {
     SAdd {
         key: String,
         member: String,
+    },
+    Expire {
+        key: String,
+        seconds: u64,
     },
     ZRangeByScore {
         key: String,
@@ -249,6 +253,15 @@ impl<C> Pipeline<C> {
         self
     }
 
+    /// Add an EXPIRE command to the pipeline.
+    pub fn expire(mut self, key: impl Into<String>, seconds: u64) -> Self {
+        self.commands.push(PipelineCommand::Expire {
+            key: key.into(),
+            seconds,
+        });
+        self
+    }
+
     /// Add a ZRANGEBYSCORE command to the pipeline.
     pub fn zrangebyscore(
         mut self,
@@ -359,9 +372,14 @@ mod tests {
             .hincrby("k12", "f12", 5)
             .scard("k13")
             .sadd("k14", "m14")
-            .zrangebyscore("k15", "0", "100");
+            .expire("k15", 300)
+            .zrangebyscore("k16", "0", "100");
 
-        assert_eq!(pipeline.len(), 15);
+        let (_, commands) = pipeline.into_commands();
+        assert_eq!(commands.len(), 16);
+        assert!(
+            matches!(&commands[14], PipelineCommand::Expire { key, seconds } if key == "k15" && *seconds == 300)
+        );
     }
 
     #[test]

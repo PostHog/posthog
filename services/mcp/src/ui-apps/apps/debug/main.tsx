@@ -1,6 +1,7 @@
 import '../../styles/tailwind.css'
 
-import { useState } from 'react'
+import type { App } from '@modelcontextprotocol/ext-apps'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import {
@@ -20,16 +21,170 @@ import {
 
 import { AppErrorState, AppLoadingState } from '../../components/AppWrapper'
 import { useToolResult } from '../../hooks/useToolResult'
-// -- Debug tab --
 import type { UseToolResultReturn } from '../../hooks/useToolResult'
+
+// -- Host message logging --
+
+interface HostMessage {
+    id: number
+    timestamp: string
+    data: unknown
+}
+
+let messageIdCounter = 0
+
+
+function useHostMessageLog(): HostMessage[] {
+    const [messages, setMessages] = useState<HostMessage[]>([])
+
+    useEffect(() => {
+        const handler = (event: MessageEvent): void => {
+            const entry: HostMessage = {
+                id: ++messageIdCounter,
+                timestamp: new Date().toISOString(),
+                data: event.data,
+            }
+
+            setMessages((prev) => {
+                const updated = [...prev, entry]
+                // Keep only last 1000 messages
+                return updated.length > 1000 ? updated.slice(-1000) : updated
+            })
+        }
+
+        window.addEventListener('message', handler)
+
+        return () => window.removeEventListener('message', handler)
+    }, [])
+
+    return messages
+}
+
+
+// -- Tool call results tracking --
+
+interface ToolCallEntry {
+    id: number
+    sentAt: string
+    message: string
+    status: 'pending' | 'success' | 'error'
+    result?: unknown
+    error?: string
+    receivedAt?: string
+}
+
+let toolCallIdCounter = 0
+
+// -- Debug tab state hook (lives in parent to survive tab switches) --
+
+interface DebugTabState {
+    toolCalls: ToolCallEntry[]
+    isCalling: boolean
+    hasNewMessages: boolean
+    callDebugTool: () => void
+    setHasNewMessages: (v: boolean) => void
+}
+
+function useDebugTabState(app: App | null, hostMessageCount: number): DebugTabState {
+    const [toolCalls, setToolCalls] = useState<ToolCallEntry[]>([])
+    const [isCalling, setIsCalling] = useState(false)
+    const [hasNewMessages, setHasNewMessages] = useState(false)
+    const [lastSeenCount, setLastSeenCount] = useState(hostMessageCount)
+
+    // When new messages arrive while the user hasn't acknowledged them, flash
+    useEffect(() => {
+        if (hostMessageCount > lastSeenCount) {
+            setHasNewMessages(true)
+        }
+    }, [hostMessageCount, lastSeenCount])
+
+    const callDebugTool = useCallback(async () => {
+        if (!app || isCalling) {
+            return
+        }
+
+        const callId = ++toolCallIdCounter
+        const sentAt = new Date().toISOString()
+        const message = `Debug call #${callId} at ${sentAt}`
+
+        const entry: ToolCallEntry = { id: callId, sentAt, message, status: 'pending' }
+        setToolCalls((prev) => [...prev, entry])
+        setIsCalling(true)
+
+        try {
+            const result = await app.callServerTool({
+                name: 'debug-mcp-ui-apps',
+                arguments: { message },
+            })
+
+            const receivedAt = new Date().toISOString()
+
+            setToolCalls((prev) =>
+                prev.map((c) => {
+                    if (c.id !== callId) {
+                        return c
+                    }
+                    const updated: ToolCallEntry = {
+                        ...c,
+                        status: result.isError ? 'error' : 'success',
+                        result: result.structuredContent ?? result.content,
+                        receivedAt,
+                    }
+                    if (result.isError) {
+                        updated.error = 'Tool returned an error'
+                    }
+                    return updated
+                })
+            )
+        } catch (e) {
+            const receivedAt = new Date().toISOString()
+            const errMsg = e instanceof Error ? e.message : String(e)
+            console.error('[PostHog MCP Debug] Tool call error:', { callId, error: errMsg, receivedAt })
+
+            setToolCalls((prev) =>
+                prev.map((c) => (c.id === callId ? { ...c, status: 'error', error: errMsg, receivedAt } : c))
+            )
+        } finally {
+            setIsCalling(false)
+        }
+    }, [app, isCalling])
+
+    const dismissNewMessages = useCallback(() => {
+        setHasNewMessages(false)
+        setLastSeenCount(hostMessageCount)
+    }, [hostMessageCount])
+
+    return { toolCalls, isCalling, hasNewMessages, callDebugTool, setHasNewMessages: dismissNewMessages }
+}
+
+// -- Debug tab --
 
 function DebugTab({
     data,
     isConnected,
     error,
     app,
-}: Pick<UseToolResultReturn<unknown>, 'data' | 'isConnected' | 'error' | 'app'>): JSX.Element {
+    hostMessages,
+    debugState,
+}: Pick<UseToolResultReturn<unknown>, 'data' | 'isConnected' | 'error' | 'app'> & {
+    hostMessages: HostMessage[]
+    debugState: DebugTabState
+}): JSX.Element {
     const hostContext = app?.getHostContext()
+    const messagesContainerRef = useRef<HTMLDivElement>(null)
+    const { toolCalls, isCalling, hasNewMessages, callDebugTool, setHasNewMessages } = debugState
+
+    // Clear flash when user scrolls to bottom
+    const handleMessagesScroll = useCallback(() => {
+        const container = messagesContainerRef.current
+        if (!container) {
+            return
+        }
+        const isAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40
+        if (isAtBottom) {
+            setHasNewMessages(false)
+        }
+    }, [setHasNewMessages])
 
     if (error) {
         return (
@@ -68,9 +223,71 @@ function DebugTab({
                 </pre>
             </Stack>
 
+            {/* Call debug tool button */}
+            <Card padding="md">
+                <Stack gap="sm">
+                    <Stack direction="row" justify="between" align="center">
+                        <span className="text-sm font-medium text-text-secondary">Call debug tool from app</span>
+                        <button
+                            onClick={callDebugTool}
+                            disabled={isCalling}
+                            className="rounded-md bg-info px-3 py-1.5 text-xs font-medium text-white hover:bg-info/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                        >
+                            {isCalling ? 'Calling...' : 'Call debug-mcp-ui-apps'}
+                        </button>
+                    </Stack>
+                    <span className="text-xs text-text-secondary">
+                        Each call includes a unique timestamp so you can identify it in the results.
+                    </span>
+                </Stack>
+            </Card>
+
+            {/* Tool call results */}
+            {toolCalls.length > 0 && (
+                <Stack gap="xs">
+                    <span className="text-sm font-medium text-text-secondary">
+                        Tool call results ({toolCalls.length})
+                    </span>
+                    <div className="rounded-md bg-bg-tertiary border border-border-primary p-3 overflow-auto max-h-96">
+                        <Stack gap="xs">
+                            {toolCalls.map((call) => (
+                                <div key={call.id} className="border-b border-border-primary pb-2 last:border-b-0">
+                                    <Stack direction="row" gap="sm" align="center">
+                                        <Badge
+                                            variant={
+                                                call.status === 'success'
+                                                    ? 'success'
+                                                    : call.status === 'error'
+                                                      ? 'danger'
+                                                      : 'warning'
+                                            }
+                                            size="sm"
+                                        >
+                                            {call.status}
+                                        </Badge>
+                                        <span className="text-[10px] text-text-secondary font-mono">#{call.id}</span>
+                                    </Stack>
+                                    <span className="text-[10px] text-text-secondary font-mono block mt-1">
+                                        Sent: {call.sentAt}
+                                        {call.receivedAt && ` | Received: ${call.receivedAt}`}
+                                    </span>
+                                    <pre className="text-xs font-mono whitespace-pre-wrap break-all mt-1">
+                                        {call.error
+                                            ? call.error
+                                            : call.result
+                                              ? JSON.stringify(call.result, null, 2)
+                                              : 'Waiting for response...'}
+                                    </pre>
+                                </div>
+                            ))}
+                        </Stack>
+                    </div>
+                </Stack>
+            )}
+
             {data ? (
                 <Stack gap="xs">
-                    <span className="text-sm font-medium text-text-secondary">Tool result data</span>
+                    <span className="text-sm font-medium text-text-secondary">Tool result data (from host)</span>
                     <pre className="rounded-md bg-bg-tertiary border border-border-primary p-3 text-xs font-mono overflow-auto max-h-72">
                         {JSON.stringify(data, null, 2)}
                     </pre>
@@ -84,6 +301,53 @@ function DebugTab({
                     </span>
                 </Stack>
             )}
+
+            <Stack gap="xs">
+                <Stack direction="row" justify="between" align="center">
+                    <span className="text-sm font-medium text-text-secondary">
+                        Host messages ({hostMessages.length})
+                    </span>
+                    <span className="text-xs text-text-secondary">All messages logged to console</span>
+                </Stack>
+                <div className="relative">
+                    <div
+                        ref={messagesContainerRef}
+                        onScroll={handleMessagesScroll}
+                        className="rounded-md bg-bg-tertiary border border-border-primary p-3 overflow-auto max-h-96"
+                    >
+                        {hostMessages.length === 0 ? (
+                            <span className="text-xs text-text-secondary">No messages received yet.</span>
+                        ) : (
+                            <Stack gap="xs">
+                                {hostMessages.map((msg) => (
+                                    <div key={msg.id} className="border-b border-border-primary pb-2 last:border-b-0">
+                                        <span className="text-[10px] text-text-secondary font-mono">
+                                            {msg.timestamp}
+                                        </span>
+                                        <pre className="text-xs font-mono whitespace-pre-wrap break-all mt-0.5">
+                                            {JSON.stringify(msg.data, null, 2)}
+                                        </pre>
+                                    </div>
+                                ))}
+                            </Stack>
+                        )}
+                    </div>
+                    {hasNewMessages && (
+                        <button
+                            onClick={() => {
+                                const container = messagesContainerRef.current
+                                if (container) {
+                                    container.scrollTop = container.scrollHeight
+                                }
+                                setHasNewMessages(false)
+                            }}
+                            className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full bg-info px-3 py-1 text-[10px] font-medium text-white shadow-md animate-bounce"
+                        >
+                            New messages below
+                        </button>
+                    )}
+                </div>
+            </Stack>
         </Stack>
     )
 }
@@ -354,6 +618,8 @@ function TabsDemo(): JSX.Element {
 
 function DebugApp(): JSX.Element {
     const toolResult = useToolResult<unknown>({ appName: 'MCP Apps Debug' })
+    const hostMessages = useHostMessageLog()
+    const debugState = useDebugTabState(toolResult.app, hostMessages.length)
 
     return (
         <div className="p-4">
@@ -376,7 +642,14 @@ function DebugApp(): JSX.Element {
                     <TabsTrigger value="error">Error</TabsTrigger>
                 </TabsList>
                 <TabsContent value="debug">
-                    <DebugTab {...toolResult} />
+                    <DebugTab
+                        data={toolResult.data}
+                        isConnected={toolResult.isConnected}
+                        error={toolResult.error}
+                        app={toolResult.app}
+                        hostMessages={hostMessages}
+                        debugState={debugState}
+                    />
                 </TabsContent>
                 <TabsContent value="badge">
                     <BadgeDemo />

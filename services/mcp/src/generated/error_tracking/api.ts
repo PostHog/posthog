@@ -212,7 +212,7 @@ export const ErrorTrackingExternalReferencesListResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -260,7 +260,7 @@ export const ErrorTrackingExternalReferencesCreateBody = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
-            'slack-twig',
+            'slack-posthog-code',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -307,7 +307,7 @@ export const ErrorTrackingExternalReferencesRetrieveResponse = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
-            'slack-twig',
+            'slack-posthog-code',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -354,7 +354,7 @@ export const ErrorTrackingExternalReferencesUpdateBody = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
-            'slack-twig',
+            'slack-posthog-code',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -392,7 +392,7 @@ export const ErrorTrackingExternalReferencesUpdateResponse = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
-            'slack-twig',
+            'slack-posthog-code',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -445,7 +445,7 @@ export const ErrorTrackingExternalReferencesPartialUpdateResponse = zod.object({
         id: zod.number(),
         kind: zod.enum([
             'slack',
-            'slack-twig',
+            'slack-posthog-code',
             'salesforce',
             'hubspot',
             'google-pubsub',
@@ -776,7 +776,7 @@ export const ErrorTrackingIssuesListResponse = zod.object({
                         id: zod.number(),
                         kind: zod.enum([
                             'slack',
-                            'slack-twig',
+                            'slack-posthog-code',
                             'salesforce',
                             'hubspot',
                             'google-pubsub',
@@ -842,7 +842,7 @@ export const ErrorTrackingIssuesCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -907,7 +907,7 @@ export const ErrorTrackingIssuesRetrieveResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -972,7 +972,7 @@ export const ErrorTrackingIssuesUpdateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1028,7 +1028,7 @@ export const ErrorTrackingIssuesUpdateResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1096,7 +1096,7 @@ export const ErrorTrackingIssuesPartialUpdateBody = zod.object({
                     id: zod.number(),
                     kind: zod.enum([
                         'slack',
-                        'slack-twig',
+                        'slack-posthog-code',
                         'salesforce',
                         'hubspot',
                         'google-pubsub',
@@ -1153,7 +1153,7 @@ export const ErrorTrackingIssuesPartialUpdateResponse = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1233,7 +1233,7 @@ export const ErrorTrackingIssuesAssignPartialUpdateBody = zod.object({
                     id: zod.number(),
                     kind: zod.enum([
                         'slack',
-                        'slack-twig',
+                        'slack-posthog-code',
                         'salesforce',
                         'hubspot',
                         'google-pubsub',
@@ -1298,7 +1298,7 @@ export const ErrorTrackingIssuesCohortUpdateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1362,7 +1362,7 @@ export const ErrorTrackingIssuesMergeCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1426,7 +1426,7 @@ export const ErrorTrackingIssuesSplitCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1497,7 +1497,7 @@ export const ErrorTrackingIssuesBulkCreateBody = zod.object({
                 id: zod.number(),
                 kind: zod.enum([
                     'slack',
-                    'slack-twig',
+                    'slack-posthog-code',
                     'salesforce',
                     'hubspot',
                     'google-pubsub',
@@ -1813,6 +1813,10 @@ export const ErrorTrackingSuppressionRulesListResponse = zod.object({
                 .number()
                 .min(errorTrackingSuppressionRulesListResponseResultsItemOrderKeyMin)
                 .max(errorTrackingSuppressionRulesListResponseResultsItemOrderKeyMax),
+            disabled_data: zod.unknown().nullish(),
+            sampling_rate: zod.number().optional(),
+            created_at: zod.string().datetime({}).optional(),
+            updated_at: zod.string().datetime({}).optional(),
         })
     ),
 })
@@ -1834,6 +1838,8 @@ export const ErrorTrackingSuppressionRulesCreateBody = zod.object({
         .number()
         .min(errorTrackingSuppressionRulesCreateBodyOrderKeyMin)
         .max(errorTrackingSuppressionRulesCreateBodyOrderKeyMax),
+    disabled_data: zod.unknown().nullish(),
+    sampling_rate: zod.number().optional(),
 })
 
 export const ErrorTrackingSuppressionRulesRetrieveParams = zod.object({
@@ -1855,6 +1861,10 @@ export const ErrorTrackingSuppressionRulesRetrieveResponse = zod.object({
         .number()
         .min(errorTrackingSuppressionRulesRetrieveResponseOrderKeyMin)
         .max(errorTrackingSuppressionRulesRetrieveResponseOrderKeyMax),
+    disabled_data: zod.unknown().nullish(),
+    sampling_rate: zod.number().optional(),
+    created_at: zod.string().datetime({}).optional(),
+    updated_at: zod.string().datetime({}).optional(),
 })
 
 export const ErrorTrackingSuppressionRulesUpdateParams = zod.object({
@@ -1875,6 +1885,8 @@ export const ErrorTrackingSuppressionRulesUpdateBody = zod.object({
         .number()
         .min(errorTrackingSuppressionRulesUpdateBodyOrderKeyMin)
         .max(errorTrackingSuppressionRulesUpdateBodyOrderKeyMax),
+    disabled_data: zod.unknown().nullish(),
+    sampling_rate: zod.number().optional(),
 })
 
 export const errorTrackingSuppressionRulesUpdateResponseOrderKeyMin = -2147483648
@@ -1887,6 +1899,10 @@ export const ErrorTrackingSuppressionRulesUpdateResponse = zod.object({
         .number()
         .min(errorTrackingSuppressionRulesUpdateResponseOrderKeyMin)
         .max(errorTrackingSuppressionRulesUpdateResponseOrderKeyMax),
+    disabled_data: zod.unknown().nullish(),
+    sampling_rate: zod.number().optional(),
+    created_at: zod.string().datetime({}).optional(),
+    updated_at: zod.string().datetime({}).optional(),
 })
 
 export const ErrorTrackingSuppressionRulesPartialUpdateParams = zod.object({
@@ -1908,6 +1924,8 @@ export const ErrorTrackingSuppressionRulesPartialUpdateBody = zod.object({
         .min(errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMin)
         .max(errorTrackingSuppressionRulesPartialUpdateBodyOrderKeyMax)
         .optional(),
+    disabled_data: zod.unknown().nullish(),
+    sampling_rate: zod.number().optional(),
 })
 
 export const errorTrackingSuppressionRulesPartialUpdateResponseOrderKeyMin = -2147483648
@@ -1920,6 +1938,10 @@ export const ErrorTrackingSuppressionRulesPartialUpdateResponse = zod.object({
         .number()
         .min(errorTrackingSuppressionRulesPartialUpdateResponseOrderKeyMin)
         .max(errorTrackingSuppressionRulesPartialUpdateResponseOrderKeyMax),
+    disabled_data: zod.unknown().nullish(),
+    sampling_rate: zod.number().optional(),
+    created_at: zod.string().datetime({}).optional(),
+    updated_at: zod.string().datetime({}).optional(),
 })
 
 export const ErrorTrackingSuppressionRulesDestroyParams = zod.object({
@@ -1949,6 +1971,8 @@ export const ErrorTrackingSuppressionRulesReorderPartialUpdateBody = zod.object(
         .min(errorTrackingSuppressionRulesReorderPartialUpdateBodyOrderKeyMin)
         .max(errorTrackingSuppressionRulesReorderPartialUpdateBodyOrderKeyMax)
         .optional(),
+    disabled_data: zod.unknown().nullish(),
+    sampling_rate: zod.number().optional(),
 })
 
 export const ErrorTrackingSymbolSetsListParams = zod.object({
