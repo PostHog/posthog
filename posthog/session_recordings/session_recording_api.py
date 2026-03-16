@@ -109,7 +109,7 @@ SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
 SNAPSHOT_SOURCE_REQUESTED = Counter(
     "session_snapshots_requested_counter",
     "When calling the API and providing a concrete snapshot type to load.",
-    labelnames=["source"],
+    labelnames=["source", "is_personal_api_key"],
 )
 
 GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
@@ -992,7 +992,7 @@ class SessionRecordingViewSet(
         ):
             raise exceptions.NotFound("Recording not found")
 
-        SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
+        SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label, is_personal_api_key=is_personal_api_key).inc()
 
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
