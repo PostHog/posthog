@@ -1,6 +1,8 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { actionToUrl } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getDefaultInterval, isValidRelativeOrAbsoluteDate, updateDatesWithInterval, uuid } from 'lib/utils'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
 import { mapUrlToProvider } from 'scenes/data-warehouse/settings/DataWarehouseSourceIcon'
@@ -19,6 +21,7 @@ import {
     IntegrationFilter,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsColumnsSchemaNames,
+    MarketingAnalyticsDrillDownLevel,
     NativeMarketingSource,
     NodeKind,
     ProductIntentContext,
@@ -175,6 +178,8 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             ['sources_map', 'conversion_goals'],
             dataWarehouseSettingsLogic,
             ['dataWarehouseTables', 'dataWarehouseSourcesLoading', 'dataWarehouseSources'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
         actions: [
             dataWarehouseSettingsLogic,
@@ -217,6 +222,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             integrationSourceIds?: string[]
             chartDisplayType?: ChartDisplayType
             tileColumnSelection?: string
+            drillDownLevel?: MarketingAnalyticsDrillDownLevel
         }) => ({ params }),
         showColumnConfigModal: true,
         hideColumnConfigModal: true,
@@ -224,6 +230,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         hideConversionGoalModal: true,
         setChartDisplayType: (chartDisplayType: ChartDisplayType) => ({ chartDisplayType }),
         setTileColumnSelection: (column: validColumnsForTiles) => ({ column }),
+        setDrillDownLevel: (level: MarketingAnalyticsDrillDownLevel) => ({ level }),
         setInitialized: true,
     }),
     reducers({
@@ -366,8 +373,24 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                         : state,
             },
         ],
+        _drillDownLevel: [
+            MarketingAnalyticsDrillDownLevel.Campaign as MarketingAnalyticsDrillDownLevel,
+            persistConfig,
+            {
+                setDrillDownLevel: (_, { level }) => level,
+                syncFromUrl: (state, { params }) =>
+                    params.drillDownLevel !== undefined ? params.drillDownLevel : state,
+            },
+        ],
     }),
     selectors({
+        drillDownLevel: [
+            (s) => [s._drillDownLevel, s.featureFlags],
+            (level: MarketingAnalyticsDrillDownLevel, featureFlags: Record<string, boolean | string>) =>
+                featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_DRILL_DOWN]
+                    ? level
+                    : MarketingAnalyticsDrillDownLevel.Campaign,
+        ],
         validSourcesMap: [
             (s) => [s.sources_map],
             (sources_map) => {
@@ -718,6 +741,11 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
                 searchParams.set('tile_column', values.tileColumnSelection)
             }
 
+            // Drill-down level
+            if (values.drillDownLevel && values.drillDownLevel !== MarketingAnalyticsDrillDownLevel.Campaign) {
+                searchParams.set('drill_down_level', values.drillDownLevel)
+            }
+
             return [window.location.pathname, searchParams.toString()]
         }
 
@@ -729,6 +757,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             setIntegrationFilter: buildUrl,
             setChartDisplayType: buildUrl,
             setTileColumnSelection: buildUrl,
+            setDrillDownLevel: buildUrl,
             // Note: syncFromUrl is NOT mapped here - it's only for receiving URL changes
         }
     }),
@@ -754,6 +783,7 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
             setIntegrationFilter: trackDashboardInteraction,
             setChartDisplayType: trackDashboardInteraction,
             setTileColumnSelection: trackDashboardInteraction,
+            setDrillDownLevel: trackDashboardInteraction,
             reloadAll: trackDashboardInteraction,
             applyConversionGoal: [
                 () => {
@@ -867,13 +897,17 @@ export const marketingAnalyticsLogic = kea<marketingAnalyticsLogicType>([
         if (tileColumn) {
             params.tileColumnSelection = tileColumn
         }
+        const drillDownLevel = searchParams.get('drill_down_level') as MarketingAnalyticsDrillDownLevel | null
+        if (drillDownLevel && Object.values(MarketingAnalyticsDrillDownLevel).includes(drillDownLevel)) {
+            params.drillDownLevel = drillDownLevel
+        }
 
         // Apply URL params if any were found
         if (Object.keys(params).length > 0) {
             actions.syncFromUrl(params)
         }
 
-        actions.loadSources(null)
+        actions.loadSources()
         actions.loadDatabase()
     }),
 ])

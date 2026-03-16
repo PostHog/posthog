@@ -4,13 +4,13 @@ from typing import Any
 
 from django.conf import settings
 
+import aiohttp
 import structlog
 from slack_sdk.errors import SlackApiError
 
 from posthog.models.exported_asset import ExportedAsset
 from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.subscription import Subscription
-from posthog.security.outbound_proxy import external_aiohttp_session
 
 from ee.tasks.subscriptions.subscription_utils import ASSET_GENERATION_FAILED_MESSAGE, _has_asset_failed
 
@@ -116,11 +116,16 @@ def _prepare_slack_message(
     channel = subscription.target_value.split("|")[0]
     first_asset, *other_assets = assets
 
+    if subscription.title:
+        display_name = f"*{subscription.title}* ({resource_info.kind}: {resource_info.name})"
+    else:
+        display_name = f"the {resource_info.kind} *{resource_info.name}*"
+
     if is_new_subscription:
-        title = f"This channel has been subscribed to the {resource_info.kind} *{resource_info.name}* on PostHog! 🎉"
+        title = f"This channel has been subscribed to {display_name} on PostHog! 🎉"
         title += f"\nThis subscription is {subscription.summary}. The next one will be sent on {subscription.next_delivery_date.strftime('%A %B %d, %Y')}"
     else:
-        title = f"Your subscription to the {resource_info.kind} *{resource_info.name}* is ready! 🎉"
+        title = f"Your subscription to {display_name} is ready! 🎉"
 
     blocks = [
         {"type": "section", "text": {"type": "mrkdwn", "text": title}},
@@ -246,7 +251,7 @@ async def send_slack_message_with_integration_async(
     message_data = _prepare_slack_message(subscription, assets, total_asset_count, is_new_subscription)
     slack_integration = SlackIntegration(integration)
 
-    async with external_aiohttp_session() as slack_session:
+    async with aiohttp.ClientSession(trust_env=True) as slack_session:
         async_client = slack_integration.async_client(session=slack_session)
 
         message_res = await _send_slack_message_with_retry(

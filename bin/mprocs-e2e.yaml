@@ -35,7 +35,8 @@ procs:
             E2E_TESTING: '1'
 
     docker-compose:
-        shell: 'docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up --pull always -d && docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml logs --tail=0 -f'
+        shell: 'docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up --pull always -d && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml logs --tail=100 -f'
+        ready_pattern: 'docker-compose ready'
 
     reset-db:
         shell: |-

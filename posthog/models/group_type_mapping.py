@@ -7,7 +7,7 @@ from django.utils import timezone
 import structlog
 
 from posthog.models.utils import RootTeamMixin
-from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
 from posthog.rbac.decorators import field_access_control
 from posthog.utils import get_safe_cache, safe_cache_delete, safe_cache_set
 
@@ -127,13 +127,18 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
     if use_personhog():
         try:
             result = _fetch_group_types_via_personhog(project_id)
-            PERSONHOG_ROUTING_TOTAL.labels(operation="get_group_types_for_project", source="personhog").inc()
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_group_types_for_project", source="personhog", client_name=get_client_name()
+            ).inc()
             safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
             safe_cache_set(stale_cache_key, result, GROUP_TYPES_STALE_CACHE_TTL)
             return result
         except Exception:
             PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
-                operation="get_group_types_for_project", source="personhog", error_type="grpc_error"
+                operation="get_group_types_for_project",
+                source="personhog",
+                error_type="grpc_error",
+                client_name=get_client_name(),
             ).inc()
             logger.warning("personhog_group_types_failure", project_id=project_id, exc_info=True)
 
@@ -143,7 +148,9 @@ def get_group_types_for_project(project_id: int) -> list[dict[str, Any]]:
             .order_by("group_type_index")
             .values(*GROUP_TYPE_MAPPING_SERIALIZER_FIELDS)
         )
-        PERSONHOG_ROUTING_TOTAL.labels(operation="get_group_types_for_project", source="django_orm").inc()
+        PERSONHOG_ROUTING_TOTAL.labels(
+            operation="get_group_types_for_project", source="django_orm", client_name=get_client_name()
+        ).inc()
         safe_cache_set(cache_key, result, GROUP_TYPES_CACHE_TTL)
         safe_cache_set(stale_cache_key, result, GROUP_TYPES_STALE_CACHE_TTL)
         return result

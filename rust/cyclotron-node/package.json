@@ -19,7 +19,7 @@
     "license": "MIT",
     "devDependencies": {
         "@types/node": "^22.13.14",
-        "typescript": "5.4.5",
+        "typescript": "catalog:",
         "undici-types": "^7.3.0"
     },
     "files": [

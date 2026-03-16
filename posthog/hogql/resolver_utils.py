@@ -154,6 +154,40 @@ def extract_select_queries(select: ast.SelectSetQuery | ast.SelectQuery) -> Gene
             yield from extract_select_queries(select_query.select_query)
 
 
+def extract_base_table_types(select_type: ast.SelectQueryType | ast.SelectSetQueryType) -> list[ast.TableType]:
+    table_types: list[ast.TableType] = []
+
+    def visit_query(query_type: ast.SelectQueryType | ast.SelectSetQueryType) -> None:
+        if isinstance(query_type, ast.SelectSetQueryType):
+            for sub_type in query_type.types:
+                visit_query(sub_type)
+            return
+
+        for table_type in query_type.tables.values():
+            visit_table_type(table_type)
+
+        for anonymous_table in query_type.anonymous_tables:
+            visit_query(anonymous_table)
+
+    def visit_table_type(table_type: ast.TableOrSelectType) -> None:
+        if isinstance(table_type, ast.TableType):
+            table_types.append(table_type)
+        elif isinstance(table_type, ast.TableAliasType):
+            visit_table_type(table_type.table_type)
+        elif isinstance(table_type, ast.CTETableType):
+            visit_query(table_type.select_query_type)
+        elif isinstance(table_type, ast.CTETableAliasType):
+            visit_table_type(table_type.cte_table_type)
+        elif isinstance(table_type, ast.SelectQueryAliasType):
+            visit_query(table_type.select_query_type)
+        elif isinstance(table_type, ast.SelectViewType):
+            visit_query(table_type.select_query_type)
+
+    visit_query(select_type)
+
+    return table_types
+
+
 def _constant_type_to_database_field(name: str, const_type: ast.ConstantType) -> DatabaseField:
     nullable = const_type.nullable
 

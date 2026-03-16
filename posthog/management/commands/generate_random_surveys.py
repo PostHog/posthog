@@ -739,10 +739,21 @@ class Command(BaseCommand):
             "response_sampling_daily_limits": None,
         }
 
-    def generate_response_for_question(self, question: dict[str, Any]) -> str | list[str] | None:
-        """Generate a realistic response for a given question type."""
+    def generate_response_for_question(
+        self, question: dict[str, Any], allow_skip: bool = True
+    ) -> str | list[str] | None:
+        """Generate a realistic response for a given question type.
+
+        If the question is optional and allow_skip is True, there's a chance
+        of returning None to simulate a skipped response.
+        """
+        is_optional = question.get("optional", False)
         question_type = question.get("type")
         question_text = question.get("question", "").lower()
+
+        # ~15% chance of skipping optional questions
+        if allow_skip and is_optional and random.random() < 0.15:
+            return None
 
         if question_type == "open":
             # Check for LLM feedback survey question

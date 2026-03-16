@@ -13,11 +13,8 @@ use tracing::{error, instrument, Span};
 
 use crate::{
     api::CaptureError,
-    config::CaptureMode,
     debug_or_info, error_tracking_sampler,
-    event_restrictions::{
-        AppliedRestrictions, EventContext as RestrictionEventContext, EventRestrictionService,
-    },
+    event_restrictions::{EventContext as RestrictionEventContext, EventRestrictionService},
     prometheus::report_dropped_events,
     router, sinks,
     utils::uuid_v7,
@@ -87,6 +84,7 @@ pub fn process_single_event(
         force_overflow: false,
         skip_person_processing: false,
         redirect_to_dlq: false,
+        redirect_to_topic: None,
     };
 
     if historical_cfg.should_reroute(metadata.data_type, computed_timestamp) {
@@ -170,18 +168,20 @@ pub async fn process_events<'a>(
                 now_ts,
             };
 
-            let restrictions = service.get_restrictions(&e.event.token, &event_ctx).await;
-            let applied = AppliedRestrictions::from_restrictions(restrictions, CaptureMode::Events);
+            let applied = service.get_restrictions(&e.event.token, &event_ctx).await;
 
-            if applied.should_drop {
+            if applied.should_drop() {
                 report_dropped_events("event_restriction_drop", 1);
                 continue;
             }
 
             let mut event = e;
-            event.metadata.force_overflow |= applied.force_overflow;
-            event.metadata.skip_person_processing |= applied.skip_person_processing;
-            event.metadata.redirect_to_dlq |= applied.redirect_to_dlq;
+            event.metadata.force_overflow |= applied.force_overflow();
+            event.metadata.skip_person_processing |= applied.skip_person_processing();
+            event.metadata.redirect_to_dlq |= applied.redirect_to_dlq();
+            if let Some(topic) = applied.redirect_to_topic() {
+                event.metadata.redirect_to_topic = Some(topic.to_string());
+            }
 
             // Dual-write exception events to error tracking pipeline if feature flag is enabled
             // This is temporary, and will be removed once the new error tracking pipeline is tested.
@@ -458,6 +458,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -501,6 +502,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::ForceOverflow,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -545,6 +547,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::SkipPersonProcessing,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -589,6 +592,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::RedirectToDlq,
                 scope: RestrictionScope::AllEvents,
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -634,10 +638,12 @@ mod tests {
                 Restriction {
                     restriction_type: RestrictionType::ForceOverflow,
                     scope: RestrictionScope::AllEvents,
+                    args: None,
                 },
                 Restriction {
                     restriction_type: RestrictionType::SkipPersonProcessing,
                     scope: RestrictionScope::AllEvents,
+                    args: None,
                 },
             ],
         );
@@ -693,6 +699,7 @@ mod tests {
         assert!(!captured[0].metadata.force_overflow);
         assert!(!captured[0].metadata.skip_person_processing);
         assert!(!captured[0].metadata.redirect_to_dlq);
+        assert!(captured[0].metadata.redirect_to_topic.is_none());
     }
 
     #[tokio::test]
@@ -721,6 +728,7 @@ mod tests {
             vec![Restriction {
                 restriction_type: RestrictionType::DropEvent,
                 scope: RestrictionScope::Filtered(filters),
+                args: None,
             }],
         );
         service.update(manager).await;
@@ -790,5 +798,52 @@ mod tests {
         // Both should have the same event data
         assert_eq!(captured[0].event.uuid, captured[1].event.uuid);
         assert_eq!(captured[0].event.distinct_id, captured[1].event.distinct_id);
+    }
+
+    #[tokio::test]
+    async fn test_process_events_redirect_to_topic_restriction() {
+        let now = DateTime::parse_from_rfc3339("2023-01-01T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let context = create_test_context(now, None);
+        let events = vec![create_test_event(
+            Some("2023-01-01T11:00:00Z".to_string()),
+            None,
+            None,
+        )];
+
+        let sink = Arc::new(MockSink::new());
+        let dropper = Arc::new(limiters::token_dropper::TokenDropper::default());
+        let historical_cfg = router::HistoricalConfig::new(false, 1);
+
+        let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+        let mut manager = RestrictionManager::new();
+        manager.restrictions.insert(
+            "test_token".to_string(),
+            vec![Restriction {
+                restriction_type: RestrictionType::RedirectToTopic,
+                scope: RestrictionScope::AllEvents,
+                args: Some(json!({"topic": "custom_events_topic"})),
+            }],
+        );
+        service.update(manager).await;
+
+        let result = process_events(
+            sink.clone(),
+            dropper,
+            Some(service),
+            historical_cfg,
+            &events,
+            &context,
+        )
+        .await;
+
+        assert!(result.is_ok());
+        let captured = sink.get_events();
+        assert_eq!(captured.len(), 1);
+        assert_eq!(
+            captured[0].metadata.redirect_to_topic,
+            Some("custom_events_topic".to_string())
+        );
     }
 }

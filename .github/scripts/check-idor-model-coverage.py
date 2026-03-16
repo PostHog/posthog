@@ -130,17 +130,22 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "CodeInviteRedemption",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
+        "FeatureFlagEvaluationContext",
         "Run",
         "RunSnapshot",
         "TicketAssignment",
         # --- Internal config / OneToOne settings ---
+        # Model kept to avoid a deletion migration but has no API endpoint
+        "ErrorTrackingAutoCaptureControls",
         "DuckLakeCatalog",
         "DuckgresServer",
         "EvaluationConfig",
         "RemoteConfig",
         "TeamConversationsSlackConfig",
         "TeamCustomerAnalyticsConfig",
+        "TeamDefaultEvaluationContext",
         "TeamDefaultEvaluationTag",
+        "TeamDataWarehouseConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
         # --- User preferences with no IDOR risk (read own data only) ---

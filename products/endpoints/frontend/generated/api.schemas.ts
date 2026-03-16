@@ -228,7 +228,14 @@ export const GroupPropertyFilterApiType = {
     Group: 'group',
 } as const
 
+/**
+ * @nullable
+ */
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+
 export interface GroupPropertyFilterApi {
+    /** @nullable */
+    group_key_names?: GroupPropertyFilterApiGroupKeyNames
     /** @nullable */
     group_type_index?: number | null
     key: string
@@ -821,6 +828,11 @@ export type HogQLQueryApiValues = { [key: string]: unknown } | null | null
 export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null | null
 
 export interface HogQLQueryApi {
+    /**
+     * Optional direct external data source id for running against a specific source
+     * @nullable
+     */
+    connectionId?: string | null
     /** @nullable */
     explain?: boolean | null
     filters?: HogQLFiltersApi | null
@@ -990,6 +1002,10 @@ export interface BoxPlotDatumApi {
     min: number
     p25: number
     p75: number
+    /** @nullable */
+    series_index?: number | null
+    /** @nullable */
+    series_label?: string | null
 }
 
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
@@ -3142,6 +3158,7 @@ export const WebStatsBreakdownApi = {
     ScreenName: 'ScreenName',
     InitialChannelType: 'InitialChannelType',
     InitialReferringDomain: 'InitialReferringDomain',
+    InitialReferringURL: 'InitialReferringURL',
     InitialUTMSource: 'InitialUTMSource',
     InitialUTMCampaign: 'InitialUTMCampaign',
     InitialUTMMedium: 'InitialUTMMedium',

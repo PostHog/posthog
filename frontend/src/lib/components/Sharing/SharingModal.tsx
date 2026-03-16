@@ -300,7 +300,7 @@ export function SharingModalContent({
                                         formKey="sharingSettings"
                                         className="deprecated-space-y-2"
                                     >
-                                        <div className="grid grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 grid-flow *:odd:last:col-span-2">
                                             {insight && (
                                                 <LemonField name="noHeader">
                                                     {({ value, onChange }) => (

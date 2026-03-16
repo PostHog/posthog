@@ -46,19 +46,21 @@ function LinkedFlagSelector(): JSX.Element | null {
             >
                 <div className="flex flex-col gap-2">
                     <div className="flex justify-between items-center">
-                        <LemonLabel className="text-base">Select feature flag</LemonLabel>
+                        <LemonLabel className="text-base">
+                            Select feature flag{' '}
+                            <Since
+                                web={{ version: '1.110.0' }}
+                                ios={{ version: '3.11.0' }}
+                                android={{ version: '3.11.0' }}
+                                reactNative={{ version: '3.6.3' }}
+                                flutter={{ version: '4.7.0' }}
+                            />
+                        </LemonLabel>
                         <IngestionControls.FlagSelector />
                     </div>
 
                     <p>
                         Only record when this flag is enabled. <strong>Shared across web and mobile.</strong>
-                        <Since
-                            web={{ version: '1.110.0' }}
-                            ios={{ version: '3.11.0' }}
-                            android={{ version: '3.11.0' }}
-                            reactNative={{ version: '3.6.3' }}
-                            flutter={{ version: '4.7.0' }}
-                        />
                     </p>
                     <IngestionControls.FlagVariantSelector
                         tooltip={
@@ -167,13 +169,12 @@ function EventTriggerOptions(): JSX.Element | null {
     return (
         <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2 justify-between">
-                <LemonLabel className="text-base">Select events</LemonLabel>
+                <LemonLabel className="text-base">
+                    Select events <Since web={{ version: '1.186.0' }} />
+                </LemonLabel>
                 <IngestionControls.EventTriggerSelect events={eventTriggerConfig} onChange={updateEventTriggerConfig} />
             </div>
-            <p>
-                Start recording when a PostHog event is queued.
-                <Since web={{ version: '1.186.0' }} />
-            </p>
+            <p>Start recording when a PostHog event is queued.</p>
 
             <div className="flex gap-2 flex-wrap">
                 {eventTriggerConfig?.map((trigger) => (
@@ -196,7 +197,15 @@ function Sampling(): JSX.Element {
         <PayGateMini feature={AvailableFeature.SESSION_REPLAY_SAMPLING}>
             <div className="flex flex-col gap-2">
                 <div className="flex flex-row justify-between items-center">
-                    <LemonLabel className="text-base">Sample rate</LemonLabel>
+                    <LemonLabel className="text-base">
+                        Sample rate{' '}
+                        <Since
+                            web={{ version: '1.85.0' }}
+                            android={{ version: '3.34.0' }}
+                            ios={{ version: '3.42.0' }}
+                            reactNative={{ version: '4.37.0' }}
+                        />
+                    </LemonLabel>
                     <IngestionControls.SamplingTrigger
                         initialSampleRate={
                             typeof currentTeam?.session_recording_sample_rate === 'string'
@@ -206,15 +215,7 @@ function Sampling(): JSX.Element {
                         onChange={(v) => updateCurrentTeam({ session_recording_sample_rate: v.toString() })}
                     />
                 </div>
-                <p>
-                    Choose how many sessions to record. 100% = record every session, 50% = record roughly half.
-                    <Since
-                        web={{ version: '1.85.0' }}
-                        android={{ version: '3.34.0' }}
-                        ios={{ version: '3.42.0' }}
-                        reactNative={{ version: '4.37.0' }}
-                    />
-                </p>
+                <p>Choose how many sessions to record. 100% = record every session, 50% = record roughly half.</p>
             </div>
         </PayGateMini>
     )
@@ -228,7 +229,9 @@ function MinimumDurationSetting(): JSX.Element | null {
         <PayGateMini feature={AvailableFeature.REPLAY_RECORDING_DURATION_MINIMUM}>
             <div className="flex flex-col gap-2">
                 <div className="flex flex-row justify-between items-center">
-                    <LemonLabel className="text-base">Duration threshold</LemonLabel>
+                    <LemonLabel className="text-base">
+                        Duration threshold <Since web={{ version: '1.85.0' }} />
+                    </LemonLabel>
                     <IngestionControls.MinDuration
                         value={currentTeam?.session_recording_minimum_duration_milliseconds}
                         onChange={(v) => updateCurrentTeam({ session_recording_minimum_duration_milliseconds: v })}
@@ -246,11 +249,8 @@ function MinimumDurationSetting(): JSX.Element | null {
                         </>
                     }
                 >
-                    <p>
-                        Setting a minimum session duration will ensure that only sessions that last longer than that
-                        value are collected. This helps you avoid collecting sessions that are too short to be useful.
-                        <Since web={{ version: '1.85.0' }} />
-                    </p>
+                    Setting a minimum session duration will ensure that only sessions that last longer than that value
+                    are collected. This helps you avoid collecting sessions that are too short to be useful.
                 </Tooltip>
             </div>
         </PayGateMini>
@@ -353,7 +353,13 @@ export function ReplayTriggers(): JSX.Element {
                             panels={[
                                 {
                                     key: 'sampling',
-                                    header: <TriggerPanelHeader title="Sampling" status={statuses.samplingStatus} />,
+                                    header: (
+                                        <TriggerPanelHeader
+                                            title="Sampling"
+                                            status={statuses.samplingStatus}
+                                            showMatchTag
+                                        />
+                                    ),
                                     content: <Sampling />,
                                 },
                                 {

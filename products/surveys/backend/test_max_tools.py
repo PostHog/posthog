@@ -569,6 +569,99 @@ class TestEditSurveyTool(BaseTest):
 
     @pytest.mark.django_db
     @pytest.mark.asyncio
+    async def test_edit_survey_questions_preserves_ids_with_numeric_labels(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "uuid-first"},
+                {"type": "open", "question": "Second?", "id": "uuid-second"},
+            ]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="1", type="open", question="First (edited)?"),
+                SimpleSurveyQuestion(id="2", type="open", question="Second (edited)?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["id"] == "uuid-first"
+        assert updated_survey.questions[1]["id"] == "uuid-second"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_reorder_preserves_ids(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "uuid-first"},
+                {"type": "open", "question": "Second?", "id": "uuid-second"},
+            ]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="2", type="open", question="Second (now first)?"),
+                SimpleSurveyQuestion(id="1", type="open", question="First (now second)?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["id"] == "uuid-second"
+        assert updated_survey.questions[1]["id"] == "uuid-first"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_new_question_gets_fresh_id(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[{"type": "open", "question": "Existing?", "id": "uuid-existing"}]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="1", type="open", question="Existing (kept)?"),
+                SimpleSurveyQuestion(type="open", question="Brand new?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert updated_survey.questions[0]["id"] == "uuid-existing"
+        assert updated_survey.questions[1]["id"] != "uuid-existing"
+        assert updated_survey.questions[1]["id"]  # non-empty fresh UUID
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
+    async def test_edit_survey_questions_remove_question_keeps_remaining_ids(self):
+        tool = self._setup_tool()
+        survey = await self._create_test_survey(
+            questions=[
+                {"type": "open", "question": "First?", "id": "uuid-first"},
+                {"type": "open", "question": "Second?", "id": "uuid-second"},
+            ]
+        )
+
+        _, _ = await tool._arun_impl(
+            survey_id=str(survey.id),
+            questions=[
+                SimpleSurveyQuestion(id="1", type="open", question="First (kept)?"),
+            ],
+        )
+
+        updated_survey = await sync_to_async(Survey.objects.get)(id=survey.id)
+        assert updated_survey.questions is not None
+        assert len(updated_survey.questions) == 1
+        assert updated_survey.questions[0]["id"] == "uuid-first"
+
+    @pytest.mark.django_db
+    @pytest.mark.asyncio
     async def test_edit_survey_url_targeting(self):
         tool = self._setup_tool()
         survey = await self._create_test_survey()

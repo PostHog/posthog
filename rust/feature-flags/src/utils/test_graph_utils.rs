@@ -1,8 +1,30 @@
 #[cfg(test)]
 mod tests {
     use crate::api::errors::FlagError;
-    use crate::utils::graph_utils::{DependencyGraph, DependencyProvider, DependencyType};
-    use std::collections::HashSet;
+    use crate::utils::graph_utils::{
+        DependencyGraph, DependencyProvider, DependencyType, GraphError,
+    };
+    use std::collections::{HashMap, HashSet};
+
+    /// Convenience helper that extracts edges from each node's `extract_dependencies()`
+    /// and delegates to `DependencyGraph::from_nodes`. Keeps test call sites simple.
+    #[allow(clippy::type_complexity)]
+    fn build_graph_from_nodes(
+        nodes: &[TestItem],
+    ) -> Result<
+        (
+            DependencyGraph<TestItem>,
+            Vec<GraphError<i64>>,
+            HashSet<i64>,
+        ),
+        FlagError,
+    > {
+        let mut edges = HashMap::with_capacity(nodes.len());
+        for node in nodes {
+            edges.insert(node.get_id(), node.extract_dependencies()?);
+        }
+        DependencyGraph::from_nodes(nodes.to_vec(), &edges)
+    }
 
     // Test helper struct that implements DependencyProvider
     #[derive(Debug, Clone, PartialEq, Eq)]
@@ -144,6 +166,22 @@ mod tests {
             assert!(matches!(
                 result.unwrap_err(),
                 FlagError::DependencyCycle(DependencyType::Flag, _)
+            ));
+        }
+
+        #[test]
+        fn test_root_not_in_pool_returns_error() {
+            let root = TestItem::new(1, HashSet::from([2]));
+            let pool = vec![
+                TestItem::new(2, HashSet::new()),
+                TestItem::new(3, HashSet::new()),
+            ];
+
+            let result = DependencyGraph::new(root, &pool);
+            assert!(result.is_err());
+            assert!(matches!(
+                result.unwrap_err(),
+                FlagError::DependencyNotFound(DependencyType::Flag, 1)
             ));
         }
     }
@@ -339,8 +377,6 @@ mod tests {
     }
 
     mod from_nodes_tests {
-        use crate::utils::graph_utils::GraphError;
-
         use super::*;
 
         #[test]
@@ -351,8 +387,7 @@ mod tests {
                 TestItem::new(3, HashSet::new()),
             ];
 
-            let (graph, errors, nodes_with_missing_deps) =
-                DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, nodes_with_missing_deps) = build_graph_from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             assert!(
                 nodes_with_missing_deps.is_empty(),
@@ -373,8 +408,7 @@ mod tests {
                 TestItem::new(6, HashSet::new()),
             ];
 
-            let (graph, errors, nodes_with_missing_deps) =
-                DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, nodes_with_missing_deps) = build_graph_from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             assert!(
                 nodes_with_missing_deps.is_empty(),
@@ -412,7 +446,7 @@ mod tests {
                 TestItem::new(16, HashSet::from([14])),
             ];
 
-            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = build_graph_from_nodes(&items).unwrap();
             assert_eq!(
                 errors.len(),
                 2,
@@ -480,8 +514,7 @@ mod tests {
                 TestItem::new(6, HashSet::from([1000])), // Direct missing dependency
             ];
 
-            let (graph, errors, nodes_with_missing_deps) =
-                DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, nodes_with_missing_deps) = build_graph_from_nodes(&items).unwrap();
 
             // All nodes are kept in the graph (no removal of broken flags)
             assert_eq!(
@@ -561,8 +594,7 @@ mod tests {
                 TestItem::new(4, HashSet::from([999])),  // Missing dependency
             ];
 
-            let (graph, errors, nodes_with_missing_deps) =
-                DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, nodes_with_missing_deps) = build_graph_from_nodes(&items).unwrap();
 
             assert_eq!(graph.node_count(), 4);
             assert_eq!(errors.len(), 1);
@@ -593,8 +625,7 @@ mod tests {
                 TestItem::new(5, HashSet::new()),     // No deps, valid
             ];
 
-            let (graph, errors, nodes_with_missing_deps) =
-                DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, nodes_with_missing_deps) = build_graph_from_nodes(&items).unwrap();
 
             assert_eq!(graph.node_count(), 5);
             assert_eq!(errors.len(), 1);
@@ -611,6 +642,48 @@ mod tests {
             assert!(!nodes_with_missing_deps.contains(&4));
             assert!(!nodes_with_missing_deps.contains(&5));
         }
+
+        #[test]
+        fn test_edges_referencing_absent_node_reports_missing_dependency() {
+            use std::collections::HashMap;
+
+            let items = vec![
+                TestItem::new(1, HashSet::from([2])),
+                TestItem::new(2, HashSet::new()),
+            ];
+            // Edge map claims node 2 depends on node 99, which isn't in nodes.
+            let mut edges: HashMap<i64, HashSet<i64>> = HashMap::new();
+            edges.insert(1, HashSet::from([2]));
+            edges.insert(2, HashSet::from([99]));
+
+            let (graph, errors, nodes_with_missing_deps) =
+                DependencyGraph::from_nodes(items, &edges).unwrap();
+
+            assert_eq!(graph.node_count(), 2);
+            assert_eq!(errors.len(), 1);
+            assert!(nodes_with_missing_deps.contains(&2));
+            assert!(nodes_with_missing_deps.contains(&1));
+        }
+
+        #[test]
+        fn test_node_with_no_entry_in_edges_map_treated_as_no_deps() {
+            use std::collections::HashMap;
+
+            let items = vec![
+                TestItem::new(1, HashSet::from([2])),
+                TestItem::new(2, HashSet::new()),
+            ];
+            // Only provide edges for node 1; node 2 has no entry at all.
+            let mut edges: HashMap<i64, HashSet<i64>> = HashMap::new();
+            edges.insert(1, HashSet::from([2]));
+
+            let (graph, errors, nodes_with_missing_deps) =
+                DependencyGraph::from_nodes(items, &edges).unwrap();
+
+            assert_eq!(graph.node_count(), 2);
+            assert!(errors.is_empty());
+            assert!(nodes_with_missing_deps.is_empty());
+        }
     }
 
     mod evaluation_stages {
@@ -624,7 +697,7 @@ mod tests {
                 TestItem::new(3, HashSet::new()),
             ];
 
-            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = build_graph_from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
@@ -651,7 +724,7 @@ mod tests {
                 TestItem::new(3, HashSet::new()),
             ];
 
-            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = build_graph_from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
@@ -671,7 +744,7 @@ mod tests {
                 TestItem::new(6, HashSet::new()),
             ];
 
-            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = build_graph_from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
@@ -703,7 +776,7 @@ mod tests {
                 TestItem::new(4, HashSet::new()),
             ];
 
-            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = build_graph_from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
@@ -740,7 +813,7 @@ mod tests {
                 TestItem::new(9, HashSet::new()),
             ];
 
-            let (graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
+            let (graph, errors, _) = build_graph_from_nodes(&items).unwrap();
             assert!(errors.is_empty(), "Expected no errors, found: {errors:?}");
             let stages = graph.evaluation_stages().unwrap();
 
@@ -817,9 +890,9 @@ mod tests {
 
             for (name, items) in cases {
                 // Build two identical graphs — one for borrowed, one for owned
-                let (borrowed_graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
+                let (borrowed_graph, errors, _) = build_graph_from_nodes(&items).unwrap();
                 assert!(errors.is_empty(), "{name}: unexpected errors: {errors:?}");
-                let (owned_graph, errors, _) = DependencyGraph::from_nodes(&items).unwrap();
+                let (owned_graph, errors, _) = build_graph_from_nodes(&items).unwrap();
                 assert!(errors.is_empty(), "{name}: unexpected errors: {errors:?}");
 
                 let borrowed_stages = borrowed_graph.evaluation_stages().unwrap();
@@ -848,11 +921,11 @@ mod tests {
 
 #[cfg(test)]
 mod filter_graph_by_keys_tests {
-    use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup};
+    use super::make_flag_list;
+    use crate::flags::flag_models::FeatureFlag;
     use crate::utils::graph_utils::{
         build_dependency_graph, filter_graph_by_keys, DependencyGraphResult, FilteredGraphResult,
     };
-    use crate::utils::test_utils::create_test_flag;
     use std::collections::HashSet;
 
     // Helper function to create a test flag with dependencies for graph testing
@@ -861,43 +934,7 @@ mod filter_graph_by_keys_tests {
         key: &str,
         dependencies: HashSet<i32>,
     ) -> FeatureFlag {
-        let mut filters = FlagFilters {
-            groups: vec![FlagPropertyGroup {
-                properties: Some(vec![]),
-                rollout_percentage: Some(100.0),
-                variant: None,
-            }],
-            multivariate: None,
-            aggregation_group_type_index: None,
-            payloads: None,
-            super_groups: None,
-            holdout_groups: None,
-        };
-
-        // Add dependency filters for each dependency
-        for dep_id in dependencies {
-            filters.groups[0].properties.as_mut().unwrap().push(
-                crate::properties::property_models::PropertyFilter {
-                    key: dep_id.to_string(),
-                    value: Some(serde_json::json!(true)),
-                    operator: Some(crate::properties::property_models::OperatorType::Exact),
-                    prop_type: crate::properties::property_models::PropertyType::Flag,
-                    group_type_index: None,
-                    negation: None,
-                },
-            );
-        }
-
-        create_test_flag(
-            Some(id),
-            Some(1), // team_id
-            None,    // name
-            Some(key.to_string()),
-            Some(filters),
-            None, // deleted
-            None, // active
-            None, // ensure_experience_continuity
-        )
+        super::create_flag_with_deps(id, key, dependencies, true, false)
     }
 
     #[test]
@@ -908,7 +945,7 @@ mod filter_graph_by_keys_tests {
         let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -935,7 +972,7 @@ mod filter_graph_by_keys_tests {
         let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -970,7 +1007,7 @@ mod filter_graph_by_keys_tests {
         let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1011,7 +1048,7 @@ mod filter_graph_by_keys_tests {
         let flag4 = create_test_flag_with_dependencies(4, "flag4", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3, flag4];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1052,7 +1089,7 @@ mod filter_graph_by_keys_tests {
         let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
 
         let flags = vec![flag1, flag2];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1082,7 +1119,7 @@ mod filter_graph_by_keys_tests {
         let flag2 = create_test_flag_with_dependencies(2, "flag2", HashSet::new());
 
         let flags = vec![flag1, flag2];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1123,7 +1160,7 @@ mod filter_graph_by_keys_tests {
         let flag6 = create_test_flag_with_dependencies(6, "flag6", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3, flag4, flag5, flag6];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1173,7 +1210,7 @@ mod filter_graph_by_keys_tests {
         let flag4 = create_test_flag_with_dependencies(4, "flag4", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3, flag4];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1220,7 +1257,7 @@ mod filter_graph_by_keys_tests {
         let flag3 = create_test_flag_with_dependencies(3, "flag3", HashSet::new());
 
         let flags = vec![flag1, flag2, flag3];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
         let team_id = 1;
 
         let DependencyGraphResult {
@@ -1257,63 +1294,91 @@ mod filter_graph_by_keys_tests {
     }
 }
 
+/// Creates a test flag with the given dependencies, active state, and deleted state.
+/// Builds a `FeatureFlagList` with `filtered_out_flag_ids` pre-populated
+/// from inactive/deleted flags, matching production behavior.
+#[cfg(test)]
+fn make_flag_list(
+    flags: Vec<crate::flags::flag_models::FeatureFlag>,
+) -> crate::flags::flag_models::FeatureFlagList {
+    let filtered_out_flag_ids = flags
+        .iter()
+        .filter(|f| !f.active || f.deleted)
+        .map(|f| f.id)
+        .collect();
+    crate::flags::flag_models::FeatureFlagList {
+        flags,
+        filtered_out_flag_ids,
+    }
+}
+
+/// Shared helper for `build_dependency_graph` integration tests.
+#[cfg(test)]
+fn create_flag_with_deps(
+    id: i32,
+    key: &str,
+    dependencies: std::collections::HashSet<i32>,
+    active: bool,
+    deleted: bool,
+) -> crate::flags::flag_models::FeatureFlag {
+    use crate::flags::flag_models::{FlagFilters, FlagPropertyGroup};
+
+    let mut filters = FlagFilters {
+        groups: vec![FlagPropertyGroup {
+            properties: Some(vec![]),
+            rollout_percentage: Some(100.0),
+            variant: None,
+        }],
+        multivariate: None,
+        aggregation_group_type_index: None,
+        payloads: None,
+        super_groups: None,
+        holdout_groups: None,
+        holdout: None,
+    };
+
+    for dep_id in dependencies {
+        filters.groups[0].properties.as_mut().unwrap().push(
+            crate::properties::property_models::PropertyFilter {
+                key: dep_id.to_string(),
+                value: Some(serde_json::json!(true)),
+                operator: Some(crate::properties::property_models::OperatorType::Exact),
+                prop_type: crate::properties::property_models::PropertyType::Flag,
+                group_type_index: None,
+                negation: None,
+            },
+        );
+    }
+
+    crate::utils::test_utils::create_test_flag(
+        Some(id),
+        Some(1),
+        None,
+        Some(key.to_string()),
+        Some(filters),
+        Some(deleted),
+        Some(active),
+        None,
+    )
+}
+
 #[cfg(test)]
 mod inactive_flag_dependency_tests {
-    use crate::flags::flag_models::{FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup};
+    use super::{create_flag_with_deps, make_flag_list};
     use crate::utils::graph_utils::build_dependency_graph;
-    use crate::utils::test_utils::create_test_flag;
     use std::collections::HashSet;
-
-    /// Creates a test flag with the given dependencies and active state.
-    fn create_flag(id: i32, key: &str, dependencies: HashSet<i32>, active: bool) -> FeatureFlag {
-        let mut filters = FlagFilters {
-            groups: vec![FlagPropertyGroup {
-                properties: Some(vec![]),
-                rollout_percentage: Some(100.0),
-                variant: None,
-            }],
-            multivariate: None,
-            aggregation_group_type_index: None,
-            payloads: None,
-            super_groups: None,
-            holdout_groups: None,
-        };
-
-        for dep_id in dependencies {
-            filters.groups[0].properties.as_mut().unwrap().push(
-                crate::properties::property_models::PropertyFilter {
-                    key: dep_id.to_string(),
-                    value: Some(serde_json::json!(true)),
-                    operator: Some(crate::properties::property_models::OperatorType::Exact),
-                    prop_type: crate::properties::property_models::PropertyType::Flag,
-                    group_type_index: None,
-                    negation: None,
-                },
-            );
-        }
-
-        create_test_flag(
-            Some(id),
-            Some(1),
-            None,
-            Some(key.to_string()),
-            Some(filters),
-            None,
-            Some(active),
-            None,
-        )
-    }
 
     #[test]
     fn test_inactive_flag_with_missing_dependency_produces_no_error() {
         // An inactive flag references a non-existent flag (id=999). Since the
         // inactive flag's dependencies are skipped, no MissingDependency error
         // should be produced.
-        let inactive_flag = create_flag(1, "inactive_flag", HashSet::from([999]), false);
-        let other_flag = create_flag(2, "other_flag", HashSet::new(), true);
+        let inactive_flag =
+            create_flag_with_deps(1, "inactive_flag", HashSet::from([999]), false, false);
+        let other_flag = create_flag_with_deps(2, "other_flag", HashSet::new(), true, false);
 
         let flags = vec![inactive_flag, other_flag];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
 
         let result = build_dependency_graph(&feature_flags, 1).unwrap();
         assert!(
@@ -1329,11 +1394,11 @@ mod inactive_flag_dependency_tests {
         // Active flag depends on an inactive flag. The inactive flag should
         // still be present in the graph (it's in id_map), so the active flag's
         // dependency is satisfied.
-        let active_flag = create_flag(1, "active_flag", HashSet::from([2]), true);
-        let inactive_dep = create_flag(2, "inactive_dep", HashSet::new(), false);
+        let active_flag = create_flag_with_deps(1, "active_flag", HashSet::from([2]), true, false);
+        let inactive_dep = create_flag_with_deps(2, "inactive_dep", HashSet::new(), false, false);
 
         let flags = vec![active_flag, inactive_dep];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
 
         let result = build_dependency_graph(&feature_flags, 1).unwrap();
         assert!(
@@ -1353,36 +1418,41 @@ mod inactive_flag_dependency_tests {
     fn test_inactive_flag_with_missing_dep_does_not_affect_active_flags() {
         // Mix of active and inactive flags. The inactive flag references a
         // deleted flag (id=999), but this should not propagate missing-dep
-        // status to unrelated active flags.
-        let active_flag = create_flag(1, "active_flag", HashSet::new(), true);
-        let inactive_flag = create_flag(2, "inactive_flag", HashSet::from([999]), false);
+        // status to unrelated active flags. The inactive flag is excluded
+        // from the graph because it is not an active seed and no active
+        // flag depends on it.
+        let active_flag = create_flag_with_deps(1, "active_flag", HashSet::new(), true, false);
+        let inactive_flag =
+            create_flag_with_deps(2, "inactive_flag", HashSet::from([999]), false, false);
 
         let flags = vec![active_flag, inactive_flag];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
 
         let result = build_dependency_graph(&feature_flags, 1).unwrap();
         assert!(result.errors.is_empty());
         assert!(result.flags_with_missing_deps.is_empty());
-        assert_eq!(result.graph.node_count(), 2);
+        assert_eq!(result.graph.node_count(), 1);
     }
 
     #[test]
     fn test_inactive_flag_with_present_dependency_produces_no_edge() {
-        // An inactive flag references a present flag. The dependency should be
-        // skipped entirely (not just error-suppressed), producing zero edges.
-        let inactive_flag = create_flag(1, "inactive_flag", HashSet::from([2]), false);
-        let present_dep = create_flag(2, "present_dep", HashSet::new(), true);
+        // An inactive flag references a present flag. The inactive flag is
+        // excluded from the graph (not an active seed, not depended upon by
+        // any active flag), so only the active flag remains.
+        let inactive_flag =
+            create_flag_with_deps(1, "inactive_flag", HashSet::from([2]), false, false);
+        let present_dep = create_flag_with_deps(2, "present_dep", HashSet::new(), true, false);
 
         let flags = vec![inactive_flag, present_dep];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
 
         let result = build_dependency_graph(&feature_flags, 1).unwrap();
         assert!(result.errors.is_empty());
-        assert_eq!(result.graph.node_count(), 2);
+        assert_eq!(result.graph.node_count(), 1);
         assert_eq!(
             result.graph.edge_count(),
             0,
-            "Inactive flag should not create dependency edges"
+            "Inactive flag should not be in the graph"
         );
     }
 
@@ -1390,13 +1460,298 @@ mod inactive_flag_dependency_tests {
     fn test_active_flag_with_missing_dependency_still_produces_error() {
         // Sanity check: an active flag referencing a non-existent flag should
         // still produce a MissingDependency error.
-        let active_flag = create_flag(1, "active_flag", HashSet::from([999]), true);
+        let active_flag =
+            create_flag_with_deps(1, "active_flag", HashSet::from([999]), true, false);
 
         let flags = vec![active_flag];
-        let feature_flags = FeatureFlagList { flags };
+        let feature_flags = make_flag_list(flags);
 
         let result = build_dependency_graph(&feature_flags, 1).unwrap();
         assert_eq!(result.errors.len(), 1);
         assert!(result.flags_with_missing_deps.contains(&1));
+    }
+}
+
+#[cfg(test)]
+mod seed_set_closure_tests {
+    use super::{create_flag_with_deps, make_flag_list};
+    use crate::utils::graph_utils::build_dependency_graph;
+    use std::collections::HashSet;
+
+    #[test]
+    fn test_seed_set_only_includes_active_flags() {
+        // 5 flags: 3 active with no deps, 2 inactive with no deps.
+        // Only the 3 active flags should appear in the graph.
+        let flags = vec![
+            create_flag_with_deps(1, "active_1", HashSet::new(), true, false),
+            create_flag_with_deps(2, "active_2", HashSet::new(), true, false),
+            create_flag_with_deps(3, "active_3", HashSet::new(), true, false),
+            create_flag_with_deps(4, "inactive_1", HashSet::new(), false, false),
+            create_flag_with_deps(5, "inactive_2", HashSet::new(), false, false),
+        ];
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert_eq!(result.graph.node_count(), 3);
+        assert!(result.graph.contains_node(1));
+        assert!(result.graph.contains_node(2));
+        assert!(result.graph.contains_node(3));
+        assert!(!result.graph.contains_node(4));
+        assert!(!result.graph.contains_node(5));
+    }
+
+    #[test]
+    fn test_seed_set_transitive_closure_includes_only_reachable_deps() {
+        // A(active) -> B(active) -> C(active) chain, plus D(active, no deps)
+        // and E(inactive, no deps). Graph should have 4 nodes: A, B, C, D.
+        let flags = vec![
+            create_flag_with_deps(1, "a", HashSet::from([2]), true, false),
+            create_flag_with_deps(2, "b", HashSet::from([3]), true, false),
+            create_flag_with_deps(3, "c", HashSet::new(), true, false),
+            create_flag_with_deps(4, "d", HashSet::new(), true, false),
+            create_flag_with_deps(5, "e", HashSet::new(), false, false),
+        ];
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert_eq!(result.graph.node_count(), 4);
+        assert!(result.graph.contains_node(1));
+        assert!(result.graph.contains_node(2));
+        assert!(result.graph.contains_node(3));
+        assert!(result.graph.contains_node(4));
+        assert!(!result.graph.contains_node(5));
+    }
+
+    #[test]
+    fn test_seed_set_diamond_dependency_pattern() {
+        // A -> B, A -> C, B -> D, C -> D (diamond). All active.
+        // Graph should have 4 nodes and 4 edges.
+        let flags = vec![
+            create_flag_with_deps(1, "a", HashSet::from([2, 3]), true, false),
+            create_flag_with_deps(2, "b", HashSet::from([4]), true, false),
+            create_flag_with_deps(3, "c", HashSet::from([4]), true, false),
+            create_flag_with_deps(4, "d", HashSet::new(), true, false),
+        ];
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert!(result.errors.is_empty());
+        assert_eq!(result.graph.node_count(), 4);
+        assert_eq!(result.graph.edge_count(), 4);
+    }
+
+    #[test]
+    fn test_seed_set_large_flag_set_reduction() {
+        // 100 flags total, but only 5 active flags forming a chain (1->2->3->4->5).
+        // The remaining 95 flags are inactive. Graph should have exactly 5 nodes.
+        let mut flags = Vec::with_capacity(100);
+        for i in 1..=5 {
+            let deps = if i < 5 {
+                HashSet::from([i + 1])
+            } else {
+                HashSet::new()
+            };
+            flags.push(create_flag_with_deps(
+                i,
+                &format!("active_{i}"),
+                deps,
+                true,
+                false,
+            ));
+        }
+        for i in 6..=100 {
+            flags.push(create_flag_with_deps(
+                i,
+                &format!("inactive_{i}"),
+                HashSet::new(),
+                false,
+                false,
+            ));
+        }
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert_eq!(result.graph.node_count(), 5);
+    }
+
+    #[test]
+    fn test_seed_set_includes_inactive_dep_of_active_flag() {
+        // Active flag A depends on inactive flag B. B should be pulled into the
+        // closure (as a terminal node) so from_nodes can wire the edge.
+        let flags = vec![
+            create_flag_with_deps(1, "active_a", HashSet::from([2]), true, false),
+            create_flag_with_deps(2, "inactive_b", HashSet::new(), false, false),
+        ];
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert_eq!(result.graph.node_count(), 2);
+        assert_eq!(result.graph.edge_count(), 1);
+        assert!(result.graph.contains_node(1));
+        assert!(result.graph.contains_node(2));
+    }
+
+    #[test]
+    fn test_seed_set_excludes_deleted_flags() {
+        // An active-but-deleted flag should not be in the seed set.
+        let flags = vec![
+            create_flag_with_deps(1, "alive", HashSet::new(), true, false),
+            create_flag_with_deps(2, "deleted_flag", HashSet::new(), true, true),
+        ];
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert_eq!(result.graph.node_count(), 1);
+        assert!(result.graph.contains_node(1));
+        assert!(!result.graph.contains_node(2));
+    }
+
+    #[test]
+    fn test_deleted_flag_pulled_in_as_dependency() {
+        // An active, non-deleted flag depends on a deleted flag. The deleted
+        // flag should be pulled into the closure via BFS.
+        let flags = vec![
+            create_flag_with_deps(1, "active", HashSet::from([2]), true, false),
+            create_flag_with_deps(2, "deleted_dep", HashSet::new(), true, true),
+        ];
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert_eq!(result.graph.node_count(), 2);
+        assert!(result.graph.contains_node(1));
+        assert!(result.graph.contains_node(2));
+        assert_eq!(result.graph.edge_count(), 1);
+    }
+
+    #[test]
+    fn test_seed_set_transitive_closure_through_inactive_deps() {
+        // Active A -> inactive B -> inactive C. B is pulled into the closure
+        // because A depends on it. However, extract_dependencies() returns
+        // empty for inactive flags, so B's dependency on C is not followed
+        // and C is not included in the graph.
+        let flags = vec![
+            create_flag_with_deps(1, "active_a", HashSet::from([2]), true, false),
+            create_flag_with_deps(2, "inactive_b", HashSet::from([3]), false, false),
+            create_flag_with_deps(3, "inactive_c", HashSet::new(), false, false),
+        ];
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert_eq!(result.graph.node_count(), 2);
+        assert_eq!(result.graph.edge_count(), 1);
+        assert!(result.graph.contains_node(1));
+        assert!(result.graph.contains_node(2));
+        assert!(!result.graph.contains_node(3));
+    }
+
+    #[test]
+    fn test_seed_set_empty_flag_list() {
+        let feature_flags = make_flag_list(vec![]);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert_eq!(result.graph.node_count(), 0);
+        assert!(result.errors.is_empty());
+        assert!(result.flags_with_missing_deps.is_empty());
+    }
+
+    #[test]
+    fn test_seed_set_all_inactive_produces_empty_graph() {
+        let flags = vec![
+            create_flag_with_deps(1, "a", HashSet::new(), false, false),
+            create_flag_with_deps(2, "b", HashSet::from([1]), false, false),
+        ];
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert_eq!(result.graph.node_count(), 0);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_deleted_flag_deps_not_followed_when_dep_is_also_seed() {
+        // Active A -> deleted B (active=true, deleted=true) -> C (active, not deleted).
+        // B is filtered out (deleted), so its deps are not followed. C appears
+        // in the graph only because it is an active seed, not because of B.
+        let flags = vec![
+            create_flag_with_deps(1, "active_a", HashSet::from([2]), true, false),
+            create_flag_with_deps(2, "deleted_b", HashSet::from([3]), true, true),
+            create_flag_with_deps(3, "dep_c", HashSet::new(), true, false),
+        ];
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert_eq!(result.graph.node_count(), 3);
+        assert!(result.graph.contains_node(1));
+        assert!(result.graph.contains_node(2));
+        assert!(result.graph.contains_node(3));
+        // B's dependency on C is NOT wired because B is filtered out.
+        // A->B is the only edge; C is disconnected (present as a seed).
+        assert_eq!(result.graph.edge_count(), 1);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_deleted_flag_deps_not_followed_when_dep_is_not_seed() {
+        // Active A -> deleted B -> inactive C. B is filtered out so its deps
+        // are not followed. C is also filtered out (inactive) and not
+        // reachable from any seed, so it is excluded entirely.
+        let flags = vec![
+            create_flag_with_deps(1, "active_a", HashSet::from([2]), true, false),
+            create_flag_with_deps(2, "deleted_b", HashSet::from([3]), true, true),
+            create_flag_with_deps(3, "inactive_c", HashSet::new(), false, false),
+        ];
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert_eq!(result.graph.node_count(), 2);
+        assert!(result.graph.contains_node(1));
+        assert!(result.graph.contains_node(2));
+        assert!(!result.graph.contains_node(3));
+        assert_eq!(result.graph.edge_count(), 1);
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_runtime_filtered_active_flag_deps_not_followed() {
+        // Simulate a flag that is active+non-deleted but filtered at runtime
+        // (e.g., tag filter or runtime mismatch). Its dependencies should not
+        // be followed even though extract_dependencies() would return them.
+        // Flag 3 is inactive so it won't be a seed — it can only enter the
+        // graph if flag 2's dependencies are followed.
+        let flags = vec![
+            create_flag_with_deps(1, "seed_flag", HashSet::from([2]), true, false),
+            create_flag_with_deps(2, "runtime_filtered", HashSet::from([3]), true, false),
+            create_flag_with_deps(3, "deep_dep", HashSet::new(), false, false),
+        ];
+        let mut feature_flags = make_flag_list(flags);
+        // Manually mark flag 2 as runtime-filtered (on top of make_flag_list's
+        // inactive/deleted filtering which already excluded flag 3).
+        feature_flags.filtered_out_flag_ids.insert(2);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        // Flag 2 is pulled in as a dependency of flag 1, but flag 3
+        // is excluded because flag 2's deps are suppressed.
+        assert_eq!(result.graph.node_count(), 2);
+        assert!(result.graph.contains_node(1));
+        assert!(result.graph.contains_node(2));
+        assert!(!result.graph.contains_node(3));
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn test_cycle_among_active_flags_produces_error() {
+        let flags = vec![
+            create_flag_with_deps(1, "a", HashSet::from([2]), true, false),
+            create_flag_with_deps(2, "b", HashSet::from([3]), true, false),
+            create_flag_with_deps(3, "c", HashSet::from([1]), true, false),
+        ];
+        let feature_flags = make_flag_list(flags);
+
+        let result = build_dependency_graph(&feature_flags, 1).unwrap();
+        assert!(
+            result.errors.iter().any(|e| e.is_cycle()),
+            "Expected a CycleDetected error, got: {:?}",
+            result.errors
+        );
     }
 }

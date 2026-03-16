@@ -84,6 +84,9 @@ metadata:
             name: mprocs
             about: Process orchestrator that runs all dev services in parallel with live
                 output and easy process management.
+        phrocs:
+            name: phrocs
+            about: PostHog's custom process runner (replaces mprocs).
 devenv:
     dev:setup: null
     dev:generate: null
@@ -159,8 +162,9 @@ health_checks:
 start:
     start:
         bin_script: start
-        description: Main entry point that launches all dev services via mprocs orchestrator
+        description: Main entry point that launches all dev services via phrocs/mprocs
         services:
+            - phrocs
             - mprocs
             - docker
             - django
@@ -290,6 +294,9 @@ build:
     build:openapi-types:
         cmd: pnpm --filter=@posthog/frontend run openapi:types
         description: Generate TypeScript API types from the backend OpenAPI schema
+    build:openapi-mcp-types:
+        cmd: pnpm --filter=@posthog/mcp run generate-mcp-types
+        description: Generate full TypeScript type namespace for MCP from OpenAPI schema
     build:openapi-mcp:
         cmd: pnpm --filter=@posthog/mcp run generate-orval-schemas
         description: Generate Orval Zod schemas for MCP tool handlers
@@ -300,6 +307,7 @@ build:
         steps:
             - build:openapi-schema
             - build:openapi-types
+            - build:openapi-mcp-types
             - build:openapi-mcp
             - build:openapi-mcp-tools
         description: Generate OpenAPI schema and TypeScript types from the backend
@@ -400,6 +408,19 @@ migrations:
             - postgresql
             - clickhouse
 db:
+    db:pg:
+        cmd: psql postgres://posthog:posthog@localhost:5432/posthog
+        description: Connect to local PostgreSQL (extra args passed to psql)
+        services:
+            - postgresql
+    db:ch:
+        cmd: clickhouse client --host localhost --port 9000 --user default
+        description: Connect to local ClickHouse (extra args passed to clickhouse client)
+        services:
+            - clickhouse
+    db:dg:
+        cmd: psql postgres://posthog:posthog@localhost:15432/ducklake
+        description: Connect to local Duckgres (extra args passed to psql)
     db:upgrade:
         bin_script: upgrade-postgres
         description: Upgrade PostgreSQL from version 12 to 15 (interactive migration tool)
@@ -517,10 +538,17 @@ quality:
         cmd: pnpm exec markdownlint-cli2 --config .config/.markdownlint-cli2.jsonc --fix
             "$@" && pnpm exec oxfmt --no-error-on-unmatched-pattern "$@"
         description: Format Markdown files
+    format:mcp:
+        cmd: pnpm run --filter @posthog/mcp format
+        description: Format MCP files
 tools:
     tool:temporal-django-worker:
         bin_script: temporal-django-worker
         description: Start Temporal worker with graceful shutdown handling
+    tool:temporal-recording-rasterizer-worker:
+        bin_script: temporal-recording-rasterizer-worker
+        description: Start recording rasterizer Temporal worker (Puppeteer + Chromium)
+        hidden: true
     tool:nodejs:
         bin_script: nodejs
         description: Start nodejs with optional restart loop
@@ -625,6 +653,18 @@ tools:
     generate_personhog_proto:
         bin_script: generate_personhog_proto.sh
         description: 'TODO: add description for generate_personhog_proto.sh'
+        hidden: true
+    phrocs:build:
+        cmd: cd tools/phrocs && go build -o ../../bin/phrocs .
+        description: Build the phrocs binary from source (Go required; run once or after
+            changing tools/phrocs/)
+    phrocs:
+        bin_script: phrocs
+        description: Run phrocs directly with a custom mprocs-format YAML config
+        hidden: true
+    ci:wait:for:docker:
+        bin_script: ci-wait-for-docker
+        description: Launch Docker Compose services in CI and later wait for readiness
         hidden: true
 utilities:
     nuke:

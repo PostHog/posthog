@@ -23,10 +23,10 @@ Keep the total output under {max_length} characters. Respond with only the title
 </ticket>
 """
 
-ZENDESK_ACTIONABILITY_PROMPT = """You are a product feedback analyst. Given a customer support ticket, determine if it contains actionable product feedback.
+ZENDESK_ACTIONABILITY_PROMPT = """You are a product feedback analyst. Given a customer support ticket, determine if it contains feedback that engineers could address with code changes (bug fixes, new features, performance improvements, etc.).
 
 A ticket is ACTIONABLE if it describes:
-- A bug, error, or unexpected behavior in the product (including billing/payment bugs like wrong charges or coupons not applied)
+- A bug, error, or unexpected behavior in the product (including billing bugs where the product itself malfunctioned, e.g. a coupon code not being applied by the system, checkout flow crashing)
 - A feature request or suggestion for improvement
 - A usability issue or confusion about the product
 - A performance problem
@@ -36,9 +36,9 @@ A ticket is ACTIONABLE if it describes:
 
 A ticket is NOT_ACTIONABLE if it is:
 - Spam, abuse, or profanity with no real feedback
-- A routine billing/account question that does NOT indicate a product bug or feature request (e.g. requesting a refund, updating payment info, asking about pricing)
-- A generic "thank you"
-- An auto-generated or bot message
+- Tickets whose primary ask is a manual human action, not a code change (e.g. requesting a refund, updating payment method or billing email, asking about pricing, plan changes, invoice questions). Even if the user provides context explaining why they want the action, the ticket is still NOT_ACTIONABLE if the ask itself is manual
+- A generic "thank you" or confirmation that an issue was resolved
+- An auto-generated, bot, or out-of-office message
 - An internal test message
 
 When in doubt, classify as ACTIONABLE. It is worse to miss real feedback than to let some noise through.
@@ -121,6 +121,8 @@ def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
 
 
 ZENDESK_TICKETS_CONFIG = SignalSourceTableConfig(
+    source_product="zendesk",
+    source_type="ticket",
     emitter=zendesk_ticket_emitter,
     partition_field="created_at",
     fields=REQUIRED_FIELDS + EXTRA_FIELDS,

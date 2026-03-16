@@ -60,22 +60,11 @@ jobs:
             - name: Install pnpm
               uses: pnpm/action-setup@41ff72655975bd51cab0327fa583b6e92b6d3061 # v4.2.0
 
-            - name: Fix node-gyp permissions
-              run: chmod +x ~/setup-pnpm/node_modules/.pnpm/pnpm@*/node_modules/pnpm/dist/node_modules/node-gyp/gyp/gyp_main.py
-
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
               with:
                   node-version: 18
                   cache: 'pnpm'
-
-            - name: Restore node-gyp cache
-              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ~/.cache/node-gyp
-                  key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-18-${{ hashFiles('**/pnpm-lock.yaml') }}
-                  restore-keys: |
-                      ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-18-
 
             - name: Run Python and Node setup in parallel
               env:
@@ -98,7 +87,7 @@ jobs:
 
                   (
                     echo ">>> [Node] Installing dependencies..."
-                    pnpm install --frozen-lockfile
+                    pnpm install --frozen-lockfile --filter=@posthog/root
                   ) &
                   NODE_PID=$!
 
@@ -113,9 +102,3 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=8192
                   TURBO_SCM_BASE: ${{ env.TURBO_SCM_BASE }}
-
-            - name: Save node-gyp cache
-              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5
-              with:
-                  path: ~/.cache/node-gyp
-                  key: ${{ runner.os }}-${{ env.ARCH }}-node-gyp-node-18-${{ hashFiles('**/pnpm-lock.yaml') }}

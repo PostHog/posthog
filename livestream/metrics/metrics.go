@@ -110,6 +110,22 @@ var (
 		Buckets: []float64{1, 2, 5, 10, 30, 60, 120, 300, 600, 900, 1800, 3600},
 	})
 
+	RedisFlushBatchSize = promauto.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Name:    "livestream_redis_flush_batch_size",
+			Help:    "Number of Redis keys per flush",
+			Buckets: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000},
+		},
+		[]string{"operation"},
+	)
+	RedisFlushTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "livestream_redis_flush_total",
+			Help: "Total number of Redis batch flushes",
+		},
+		[]string{"operation"},
+	)
+
 	RedisErrors = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "livestream_redis_errors_total",
@@ -125,4 +141,26 @@ var (
 		},
 		[]string{"operation"},
 	)
+
+	// Redis pub/sub metrics
+	RedisPublishTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_publish_total",
+		Help: "Total number of events published to Redis pub/sub",
+	})
+	RedisPublishErrorsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_publish_errors_total",
+		Help: "Total number of Redis pub/sub publish errors",
+	})
+	RedisSubscribeTotal = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "livestream_redis_subscribe_total",
+		Help: "Current number of active Redis channel subscriptions",
+	})
+	RedisMessagesReceivedTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_messages_received_total",
+		Help: "Total number of messages received from Redis pub/sub",
+	})
+	RedisReceiveDropsTotal = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "livestream_redis_receive_drops_total",
+		Help: "Messages dropped at the Redis receive layer due to full message channel",
+	})
 )

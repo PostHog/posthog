@@ -12,10 +12,7 @@ import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ErrorTrackingIssuesListSchema = ErrorTrackingIssuesListQueryParams
 
-const errorTrackingIssuesList = (): ToolBase<
-    typeof ErrorTrackingIssuesListSchema,
-    Schemas.PaginatedErrorTrackingIssueFullList & { _posthogUrl: string }
-> => ({
+const errorTrackingIssuesList = (): ToolBase<typeof ErrorTrackingIssuesListSchema, unknown> => ({
     name: 'error-tracking-issues-list',
     schema: ErrorTrackingIssuesListSchema,
     handler: async (context: Context, params: z.infer<typeof ErrorTrackingIssuesListSchema>) => {
@@ -28,10 +25,20 @@ const errorTrackingIssuesList = (): ToolBase<
                 offset: params.offset,
             },
         })
+        const items = (result as any).results ?? result
         return {
             ...(result as any),
+            results: (items as any[]).map((item: any) => ({
+                ...item,
+                _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking/${item.id}`,
+            })),
             _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking`,
         }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/error-issue-list.html',
+        },
     },
 })
 
@@ -39,7 +46,7 @@ const ErrorTrackingIssuesRetrieveSchema = ErrorTrackingIssuesRetrieveParams.omit
 
 const errorTrackingIssuesRetrieve = (): ToolBase<
     typeof ErrorTrackingIssuesRetrieveSchema,
-    Schemas.ErrorTrackingIssueFull
+    Schemas.ErrorTrackingIssueFull & { _posthogUrl: string }
 > => ({
     name: 'error-tracking-issues-retrieve',
     schema: ErrorTrackingIssuesRetrieveSchema,
@@ -49,7 +56,15 @@ const errorTrackingIssuesRetrieve = (): ToolBase<
             method: 'GET',
             path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/`,
         })
-        return result
+        return {
+            ...(result as any),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking/${(result as any).id}`,
+        }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/error-issue.html',
+        },
     },
 })
 
@@ -59,7 +74,7 @@ const ErrorTrackingIssuesPartialUpdateSchema = ErrorTrackingIssuesPartialUpdateP
 
 const errorTrackingIssuesPartialUpdate = (): ToolBase<
     typeof ErrorTrackingIssuesPartialUpdateSchema,
-    Schemas.ErrorTrackingIssueFull
+    Schemas.ErrorTrackingIssueFull & { _posthogUrl: string }
 > => ({
     name: 'error-tracking-issues-partial-update',
     schema: ErrorTrackingIssuesPartialUpdateSchema,
@@ -89,7 +104,15 @@ const errorTrackingIssuesPartialUpdate = (): ToolBase<
             path: `/api/environments/${projectId}/error_tracking/issues/${params.id}/`,
             body,
         })
-        return result
+        return {
+            ...(result as any),
+            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking/${(result as any).id}`,
+        }
+    },
+    _meta: {
+        ui: {
+            resourceUri: 'ui://posthog/error-issue.html',
+        },
     },
 })
 

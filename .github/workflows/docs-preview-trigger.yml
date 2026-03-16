@@ -44,7 +44,7 @@ jobs:
                       await commentFn({
                         github,
                         context,
-                        prNumber: parseInt(process.env.PR_NUMBER),
+                        prNumber: parseInt(process.env.PR_NUMBER, 10),
                         triggerStatus: process.env.TRIGGER_STATUS,
                         deploymentUrl: process.env.DEPLOYMENT_URL,
                         deploymentId: process.env.DEPLOYMENT_ID
