@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { identifierToHuman } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -228,6 +229,21 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        saveEarlyAccessFeatureFailure: ({ error }) => {
+            // DRF returns field-level errors as { field_name: ["error message"] }
+            if (error?.data && typeof error.data === 'object' && !error.detail) {
+                const fieldErrors = Object.entries(error.data)
+                    .map(([field, messages]) => {
+                        const fieldName = identifierToHuman(field)
+                        const message = Array.isArray(messages) ? messages.join(', ') : String(messages)
+                        return `${fieldName}: ${message}`
+                    })
+                    .join('\n')
+                if (fieldErrors) {
+                    lemonToast.error(fieldErrors)
+                }
+            }
+        },
         saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }) => {
             lemonToast.success('Early access feature saved')
             earlyAccessFeaturesLogic.findMounted()?.actions.loadEarlyAccessFeatures()
@@ -242,9 +258,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         showGAPromotionConfirmation: async ({ onConfirm }) => {
             const { LemonDialog } = await import('lib/lemon-ui/LemonDialog')
             LemonDialog.open({
-                title: 'Promote to General Availability?',
+                title: 'Promote to general availability?',
                 description:
-                    'Once promoted to General Availability, this feature cannot be edited anymore. Users will have access to the stable version.',
+                    'This action is permanent. Once promoted:\n\n' +
+                    '\u2022 The feature becomes read-only and can no longer be edited.\n' +
+                    '\u2022 Opted-in users retain their feature flag access.\n' +
+                    '\u2022 Enrolled users will receive a stage change notification event.',
                 primaryButton: {
                     children: 'Promote to GA',
                     type: 'primary',
