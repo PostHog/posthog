@@ -6,6 +6,10 @@ noindex: true
 
 This guide explains how to create isolated PostHog development environments using Flox and Git worktrees for seamless branch switching.
 
+> This guide builds on the [developing locally](./developing-locally) setup.
+> You should have Flox installed and be able to run `hogli start`
+> (PostHog's developer CLI, available inside the Flox environment) before proceeding.
+
 **Key Benefits:**
 
 - Work on multiple branches simultaneously with isolated environments
@@ -40,34 +44,6 @@ For example:
 export POSTHOG_WORKTREE_BASE="$HOME/code/worktrees"
 # Worktrees will be created in ~/code/worktrees/<branch-name>
 ```
-
-### Worktree Location Management
-
-The `phw list` and `phw remove` commands work with **all** your PostHog worktrees, regardless of where they were created. This is helpful if you:
-
-- Changed your `POSTHOG_WORKTREE_BASE` setting after creating some worktrees
-- Have worktrees in multiple locations
-- Want to clean up old worktrees from previous setups
-
-**Example scenario:**
-
-```bash
-# You had worktrees in the old location
-ls ~/.worktrees/posthog/
-# old-feature/  pr-1234-teammate/
-
-# You changed your worktree base
-export POSTHOG_WORKTREE_BASE="$HOME/dev/worktrees"
-
-# phw list still shows ALL worktrees
-phw list
-# Shows both old location worktrees AND new location worktrees
-
-# phw remove works with any worktree location
-phw remove pr-1234-teammate  # Works even though it's in old location!
-```
-
-This uses Git's native worktree tracking (`git worktree list`) rather than trying to guess paths.
 
 ## Quick Start
 
@@ -224,6 +200,34 @@ phw list
 # Remove when done (works regardless of location)
 phw remove pr-5678-teammate
 ```
+
+### Worktree Location Management
+
+The `phw list` and `phw remove` commands work with **all** your PostHog worktrees, regardless of where they were created. This is helpful if you:
+
+- Changed your `POSTHOG_WORKTREE_BASE` setting after creating some worktrees
+- Have worktrees in multiple locations
+- Want to clean up old worktrees from previous setups
+
+**Example scenario:**
+
+```bash
+# You had worktrees in the old location
+ls ~/.worktrees/posthog/
+# old-feature/  pr-1234-teammate/
+
+# You changed your worktree base
+export POSTHOG_WORKTREE_BASE="$HOME/dev/worktrees"
+
+# phw list still shows ALL worktrees
+phw list
+# Shows both old location worktrees AND new location worktrees
+
+# phw remove works with any worktree location
+phw remove pr-1234-teammate  # Works even though it's in old location!
+```
+
+This uses Git's native worktree tracking (`git worktree list`) rather than trying to guess paths.
 
 ## Quick Reference
 
