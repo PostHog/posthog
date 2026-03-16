@@ -6,6 +6,7 @@ import dataclasses
 
 from django.conf import settings
 
+import posthoganalytics
 import temporalio.common
 import temporalio.activity
 import temporalio.workflow
@@ -95,6 +96,49 @@ async def deliver_subscription_report_activity(inputs: DeliverSubscriptionReport
 
 
 @dataclasses.dataclass
+class EmitSubscriptionDeliveryOutcomeInputs:
+    succeeded_subscription_ids: list[int]
+    failed_deliveries: list[dict[str, typing.Any]]
+
+
+@temporalio.activity.defn
+async def emit_subscription_delivery_outcome_events_activity(
+    inputs: EmitSubscriptionDeliveryOutcomeInputs,
+) -> None:
+    all_sub_ids = inputs.succeeded_subscription_ids + [f["subscription_id"] for f in inputs.failed_deliveries]
+
+    @database_sync_to_async(thread_sensitive=False)
+    def load_team_ids() -> dict[int, int]:
+        return dict(Subscription.objects.filter(id__in=all_sub_ids).values_list("id", "team_id"))
+
+    sub_to_team = await load_team_ids()
+
+    for sub_id in inputs.succeeded_subscription_ids:
+        team_id = sub_to_team.get(sub_id, 0)
+        posthoganalytics.capture(
+            distinct_id=str(team_id),
+            event="subscription_delivery_succeeded",
+            properties={"subscription_id": sub_id, "team_id": team_id},
+        )
+
+    for failure in inputs.failed_deliveries:
+        sub_id = failure["subscription_id"]
+        team_id = sub_to_team.get(sub_id, 0)
+        posthoganalytics.capture(
+            distinct_id=str(team_id),
+            event="subscription_delivery_exhausted",
+            properties={
+                "subscription_id": sub_id,
+                "team_id": team_id,
+                "error_type": failure.get("error_type", ""),
+                "error_message": failure.get("error_message", ""),
+            },
+        )
+
+    posthoganalytics.flush()
+
+
+@dataclasses.dataclass
 class ScheduleAllSubscriptionsWorkflowInputs:
     """Inputs for the `ScheduleAllSubscriptionsWorkflow`."""
 
@@ -138,7 +182,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
         )
 
         # Fan-out delivery activities in parallel
-        tasks = []
+        tasks: list[tuple[int, typing.Coroutine[typing.Any, typing.Any, None]]] = []
         for sub_id in subscription_ids:
             task = temporalio.workflow.execute_activity(
                 deliver_subscription_report_activity,
@@ -151,10 +195,40 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
                     non_retryable_error_types=[],
                 ),
             )
-            tasks.append(task)
+            tasks.append((sub_id, task))
 
-        if tasks:
-            await asyncio.gather(*tasks)
+        if not tasks:
+            return
+
+        results = await asyncio.gather(*[t for _, t in tasks], return_exceptions=True)
+
+        succeeded: list[int] = []
+        failed: list[dict[str, typing.Any]] = []
+        for (sub_id, _), result in zip(tasks, results):
+            if isinstance(result, BaseException):
+                failed.append(
+                    {
+                        "subscription_id": sub_id,
+                        "error_type": type(result).__name__,
+                        "error_message": str(result),
+                    }
+                )
+            else:
+                succeeded.append(sub_id)
+
+        await temporalio.workflow.execute_activity(
+            emit_subscription_delivery_outcome_events_activity,
+            EmitSubscriptionDeliveryOutcomeInputs(
+                succeeded_subscription_ids=succeeded,
+                failed_deliveries=failed,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=2),
+            retry_policy=temporalio.common.RetryPolicy(
+                initial_interval=dt.timedelta(seconds=5),
+                maximum_interval=dt.timedelta(minutes=1),
+                maximum_attempts=3,
+            ),
+        )
 
 
 @temporalio.workflow.defn(name="handle-subscription-value-change")
@@ -166,13 +240,40 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: DeliverSubscriptionReportActivityInputs) -> None:
+        succeeded: list[int] = []
+        failed: list[dict[str, typing.Any]] = []
+
+        try:
+            await temporalio.workflow.execute_activity(
+                deliver_subscription_report_activity,
+                inputs,
+                start_to_close_timeout=dt.timedelta(minutes=settings.TEMPORAL_TASK_TIMEOUT_MINUTES),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(minutes=2),
+                    maximum_attempts=3,
+                ),
+            )
+            succeeded.append(inputs.subscription_id)
+        except Exception as e:
+            failed.append(
+                {
+                    "subscription_id": inputs.subscription_id,
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                }
+            )
+
         await temporalio.workflow.execute_activity(
-            deliver_subscription_report_activity,
-            inputs,
-            start_to_close_timeout=dt.timedelta(minutes=settings.TEMPORAL_TASK_TIMEOUT_MINUTES),
+            emit_subscription_delivery_outcome_events_activity,
+            EmitSubscriptionDeliveryOutcomeInputs(
+                succeeded_subscription_ids=succeeded,
+                failed_deliveries=failed,
+            ),
+            start_to_close_timeout=dt.timedelta(minutes=2),
             retry_policy=temporalio.common.RetryPolicy(
                 initial_interval=dt.timedelta(seconds=5),
-                maximum_interval=dt.timedelta(minutes=2),
+                maximum_interval=dt.timedelta(minutes=1),
                 maximum_attempts=3,
             ),
         )
