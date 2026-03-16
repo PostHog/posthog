@@ -4,7 +4,7 @@ import dataclasses
 
 from django.conf import settings
 
-from azure.storage.blob.aio import BlobServiceClient, ContainerClient
+from azure.storage.blob.aio import BlobServiceClient, ContainerClient, ExponentialRetry
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
@@ -158,6 +158,9 @@ class AzureBlobConsumer(Consumer):
             conn_str=connection_string,
             max_single_put_size=64 * 1024 * 1024,  # 64 MiB
             max_block_size=4 * 1024 * 1024,  # 4 MiB
+            connection_timeout=30,
+            read_timeout=600,
+            retry_policy=ExponentialRetry(initial_backoff=2, increment_base=3, retry_total=3),
         )
         container_client = blob_service_client.get_container_client(inputs.container_name)
 
