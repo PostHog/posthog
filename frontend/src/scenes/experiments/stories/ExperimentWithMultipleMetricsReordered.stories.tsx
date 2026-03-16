@@ -25,6 +25,9 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_WITH_MULTIPLE_METRICS_REORDERED.id),
+        testOptions: {
+            waitForSelector: '[data-attr="metrics-chart-tick-labels"]',
+        },
     },
     decorators: [
         mswDecorator({
@@ -63,4 +66,4 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 // Small delay to ensure charts render completely
-export const ExperimentWithMultipleMetricsReordered: Story = { play: makeDelay(500) }
+export const ExperimentWithMultipleMetricsReordered: Story = { play: makeDelay(1000) }

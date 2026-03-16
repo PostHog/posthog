@@ -145,6 +145,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "TeamCustomerAnalyticsConfig",
         "TeamDefaultEvaluationContext",
         "TeamDefaultEvaluationTag",
+        "TeamDataWarehouseConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
         # --- User preferences with no IDOR risk (read own data only) ---

@@ -8,6 +8,7 @@ from django.db import close_old_connections
 import structlog
 import temporalio.activity
 
+from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
 from posthog.dags.common.health.observability import push_health_check_metrics
 from posthog.sync import database_sync_to_async
 from posthog.temporal.health_checks.models import BatchResult, HealthCheckWorkflowInputs
@@ -42,6 +43,15 @@ def _get_team_id_batches_sync(inputs: HealthCheckWorkflowInputs) -> list[list[in
     # Temporal activities run in a thread pool where DB connections can go stale
     # between executions. close_old_connections() ensures we get a fresh connection.
     close_old_connections()
+
+    kill_switch_level = get_kill_switch_level()
+    if kill_switch_level != KillSwitchLevel.OFF:
+        logger.info(
+            "skipping health check due to clickhouse kill switch",
+            kind=inputs.kind,
+            kill_switch_level=kill_switch_level.value,
+        )
+        return []
 
     if inputs.team_ids:
         team_ids = inputs.team_ids

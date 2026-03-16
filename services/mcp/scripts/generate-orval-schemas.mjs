@@ -18,10 +18,9 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { filterSchemaByOperationIds } from '@posthog/openapi-codegen'
+import { applyNestedExclusions, filterSchemaByOperationIds } from '@posthog/openapi-codegen'
 
 import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
-import { applyNestedExclusions } from './lib/schema-exclusions.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const mcpRoot = path.resolve(__dirname, '..')
