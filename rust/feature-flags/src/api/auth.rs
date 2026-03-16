@@ -90,12 +90,12 @@ pub(crate) fn hash_personal_api_key(value: &str) -> String {
 }
 
 /// Validates personal API key with feature flag scopes for a specific team
-/// Returns Ok(()) if the personal API key has access to the specified team
+/// Returns the PAK id (String) on success for use in last_used_at tracking
 pub async fn validate_personal_api_key_with_scopes_for_team(
     state: &AppState,
     key: &str,
     team: &Team,
-) -> Result<(), FlagError> {
+) -> Result<String, FlagError> {
     use sqlx::Row;
 
     debug!(team_id = team.id, "Validating personal API key for team");
@@ -138,6 +138,8 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
             warn!("Personal API key not found or doesn't have required scopes");
             FlagError::PersonalApiKeyInvalid
         })?;
+
+    let pak_id: String = row.get("key_id");
 
     // Validate scoped_teams restriction
     let scoped_teams: Option<Vec<i32>> = row.try_get("scoped_teams").ok();
@@ -213,7 +215,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
         "Personal API key validated successfully"
     );
 
-    Ok(())
+    Ok(pak_id)
 }
 
 #[cfg(test)]
