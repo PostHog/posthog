@@ -6,7 +6,14 @@ import warnings
 
 import pytest
 
+import pytest_asyncio
 from google.cloud import bigquery
+
+from posthog.models.integration import Integration
+
+from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
+    has_valid_credentials as has_valid_aws_credentials,
+)
 
 
 @pytest.fixture
@@ -54,6 +61,63 @@ def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigqu
         warnings.warn(
             f"Failed to clean up dataset: {dataset_id} due to '{exc.__class__.__name__}': {str(exc)}", stacklevel=1
         )
+
+
+async def key_file_integration(ateam, bigquery_config):
+    integration = await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+        integration_id=f"{ateam.id}-{bigquery_config['client_email']}",
+        config={
+            "project_id": bigquery_config["project_id"],
+            "service_account_email": bigquery_config["client_email"],
+        },
+        sensitive_config={
+            "private_key": bigquery_config["private_key"],
+            "private_key_id": bigquery_config["private_key_id"],
+            "token_uri": bigquery_config["token_uri"],
+        },
+    )
+    return integration
+
+
+async def impersonated_integration(ateam, bigquery_config):
+    """Configure integration to impersonate our test service account.
+
+    This requires the `BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT` setting to be set, as
+    that's the original service account that will be assumed to do the impersonation.
+    """
+    integration = await Integration.objects.acreate(
+        team_id=ateam.pk,
+        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
+        integration_id=f"{ateam.id}-{bigquery_config['client_email']}",
+        config={
+            "project_id": bigquery_config["project_id"],
+            "service_account_email": bigquery_config["client_email"],
+        },
+    )
+    return integration
+
+
+@pytest_asyncio.fixture
+async def integration(request, ateam, bigquery_config) -> None | Integration:
+    try:
+        integration_type = request.param
+    except Exception:
+        return None
+
+    match integration_type:
+        case "impersonated":
+            if not has_valid_aws_credentials():
+                pytest.skip("AWS credentials not available")
+
+            integration = await impersonated_integration(ateam, bigquery_config)
+        case "key_file":
+            integration = await key_file_integration(ateam, bigquery_config)
+        case _:
+            integration = None
+
+    return integration
 
 
 @pytest.fixture
