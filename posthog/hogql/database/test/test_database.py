@@ -2102,6 +2102,33 @@ class TestDatabase(BaseTest, QueryMatchingTest):
                 f"Table {table_name} should not be added to ROOT_TABLES__DO_NOT_ADD_ANY_MORE. Add the table to the `posthog` TableNode"
             )
 
+    def test_posthog_qualified_table_names_are_resolvable(self):
+        database = Database.create_for(team=self.team)
+        posthog_table_names = database.get_posthog_table_names()
+
+        for table_name in posthog_table_names:
+            qualified_name = f"posthog.{table_name}"
+            assert database.has_table(qualified_name), f"Table {qualified_name} should be resolvable"
+
+            table = database.get_table(qualified_name)
+            assert table is not None, f"Table {qualified_name} should return a valid table"
+
+            unqualified_table = database.get_table(table_name)
+            assert type(table) is type(unqualified_table), (
+                f"posthog.{table_name} should resolve to the same table type as {table_name}"
+            )
+
+    def test_posthog_qualified_table_names_resolve_in_select(self):
+        database = Database.create_for(team=self.team)
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=database,
+            modifiers=create_default_modifiers_for_team(self.team),
+        )
+
+        prepare_and_print_ast(parse_select("select * from posthog.events"), context, dialect="clickhouse")
+
     def test_database_serialization_handles_invalid_sources_gracefully(self):
         """Test that serialization continues even with sources that have invalid prefixes."""
         # Create a valid source
