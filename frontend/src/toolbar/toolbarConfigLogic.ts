@@ -3,7 +3,7 @@ import { combineUrl, encodeParams } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
 import { withTokenRefresh } from './toolbarAuth'
@@ -162,7 +162,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                 const pkce = await generatePKCE()
                 verifier = pkce.verifier
                 challenge = pkce.challenge
-            } catch {
+            } catch (e) {
+                captureToolbarException(e, 'pkce_generation')
                 lemonToast.error('Failed to start authentication. Ensure you are on a secure (HTTPS) page.')
                 return
             }
@@ -403,6 +404,9 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
+            captureToolbarException(error, 'ui_host_check', {
+                error_type: classifyFetchError(error),
+            })
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
@@ -493,10 +497,12 @@ async function exchangeCodeForTokens(
             return true
         }
         console.error('PostHog Toolbar: token exchange failed', data.error || data)
+        captureToolbarException(new Error(`Token exchange failed: ${data.error || 'unknown'}`), 'token_exchange')
         lemonToast.error('Authentication failed. Please try again.')
         return false
     } catch (err) {
         console.error('PostHog Toolbar: token exchange network error', err)
+        captureToolbarException(err, 'token_exchange_network')
         lemonToast.error('Authentication failed due to a network error. Please try again.')
         return false
     } finally {

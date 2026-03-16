@@ -8,7 +8,12 @@ import { useMocks } from '~/mocks/jest'
 import { actionsModel } from '~/models/actionsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { initKeaTests } from '~/test/init'
-import { mockActionDefinition, mockGetEventDefinitions, mockGetPropertyDefinitions } from '~/test/mocks'
+import {
+    mockActionDefinition,
+    mockEventPropertyDefinition,
+    mockGetEventDefinitions,
+    mockGetPropertyDefinitions,
+} from '~/test/mocks'
 
 import { TaxonomicFilter } from './TaxonomicFilter'
 import { TaxonomicFilterGroupType } from './types'
@@ -607,5 +612,62 @@ describe('TaxonomicFilter', () => {
                 expect(screen.queryByTestId('prop-filter-events-0')).not.toBeInTheDocument()
             })
         })
+    })
+
+    it.each([
+        {
+            search: 'url',
+            expectedFirstProperty: '$current_url',
+            description: 'promotes $current_url for exact search term',
+        },
+        {
+            search: 'urls',
+            expectedFirstProperty: '$initial_referring_url',
+            description: 'does not promote for near-miss search term',
+        },
+    ])('$description', async ({ search, expectedFirstProperty }) => {
+        // Return $current_url after other url-containing properties so we can
+        // verify that promotion moves it to position 0.
+        useMocks({
+            get: {
+                '/api/projects/:team/property_definitions': (req: { url: URL }) => {
+                    const search = req.url.searchParams.get('search') ?? ''
+                    const allProps = [
+                        { ...mockEventPropertyDefinition, id: 'url-other', name: '$initial_referring_url' },
+                        { ...mockEventPropertyDefinition, id: 'url-other-2', name: 'signup_url' },
+                        { ...mockEventPropertyDefinition, id: 'url-current', name: '$current_url' },
+                    ]
+                    // Keep near-miss searches returning URL-like properties so we can
+                    // assert that only exact promotion terms change ordering.
+                    const filterSearch = search === 'urls' ? 'url' : search
+                    const results = filterSearch ? allProps.filter((p) => p.name.includes(filterSearch)) : allProps
+                    return [200, { results, count: results.length }]
+                },
+            },
+        })
+
+        const { onChange } = renderFilter({
+            taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
+        })
+
+        await waitFor(() => {
+            expect(screen.getByTestId('prop-filter-event_properties-0')).toBeInTheDocument()
+        })
+
+        await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), search)
+
+        await waitFor(() => {
+            expect(screen.getByTestId('prop-filter-event_properties-0')).toHaveTextContent(
+                new RegExp(expectedFirstProperty.replace(/^\$/, '').replace(/_/g, '[ _]'), 'i')
+            )
+        })
+
+        // Clicking the first result should select the promoted (or unpromoted) first result.
+        await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
+
+        await waitFor(() => {
+            expect(onChange).toHaveBeenCalledTimes(1)
+        })
+        expect(onChange.mock.calls[0][1]).toBe(expectedFirstProperty)
     })
 })
