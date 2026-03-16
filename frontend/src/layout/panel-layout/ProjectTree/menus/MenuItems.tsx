@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronRight } from '@posthog/icons'
+import { IconChevronRight, IconStar } from '@posthog/icons'
 
 import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
@@ -254,7 +254,13 @@ export function MenuItems({
                 ) : isItemAlreadyInShortcut ? (
                     <MenuItem asChild disabled={true} data-attr="tree-item-menu-add-to-shortcuts-disabled-button">
                         <ButtonPrimitive menuItem disabled={true}>
-                            {isAIFirst ? 'Already starred' : 'Already in shortcuts panel'}
+                            {isAIFirst ? (
+                                <>
+                                    <IconStar className="size-4 text-tertiary" /> Already starred
+                                </>
+                            ) : (
+                                'Already in shortcuts panel'
+                            )}
                         </ButtonPrimitive>
                     </MenuItem>
                 ) : root !== 'custom-products://' ? (
@@ -269,7 +275,13 @@ export function MenuItems({
                         data-attr="tree-item-menu-add-to-shortcuts-button"
                     >
                         <ButtonPrimitive menuItem>
-                            {isAIFirst ? 'Add to starred' : 'Add to shortcuts panel'}
+                            {isAIFirst ? (
+                                <>
+                                    <IconStar className="size-4 text-tertiary" /> Add to starred
+                                </>
+                            ) : (
+                                'Add to shortcuts panel'
+                            )}
                         </ButtonPrimitive>
                     </MenuItem>
                 ) : null
