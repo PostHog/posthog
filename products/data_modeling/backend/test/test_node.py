@@ -20,8 +20,7 @@ class TestNodeNameSync(BaseTest):
 
         node = Node.objects.create(
             team=self.team,
-            dag_fk=dag,
-            dag_id_text="test",
+            dag=dag,
             name="ignored_name",
             saved_query=saved_query,
             type=NodeType.VIEW,
@@ -39,8 +38,7 @@ class TestNodeNameSync(BaseTest):
 
         node = Node.objects.create(
             team=self.team,
-            dag_fk=dag,
-            dag_id_text="test",
+            dag=dag,
             name="saved_query_name",
             saved_query=saved_query,
             type=NodeType.VIEW,
@@ -62,8 +60,7 @@ class TestNodeNameSync(BaseTest):
 
         node = Node.objects.create(
             team=self.team,
-            dag_fk=dag,
-            dag_id_text="test",
+            dag=dag,
             name="original_name",
             saved_query=saved_query,
             type=NodeType.VIEW,
@@ -79,8 +76,7 @@ class TestNodeNameSync(BaseTest):
         dag = DAG.objects.create(team=self.team, name="test")
         node = Node.objects.create(
             team=self.team,
-            dag_fk=dag,
-            dag_id_text="test",
+            dag=dag,
             name="events",
             saved_query=None,
             type=NodeType.TABLE,
@@ -99,8 +95,7 @@ class TestNodeNameSync(BaseTest):
         with self.assertRaises(ValueError) as context:
             Node.objects.create(
                 team=self.team,
-                dag_fk=dag,
-                dag_id_text="test",
+                dag=dag,
                 name="",
                 saved_query=None,
                 type=NodeType.TABLE,
@@ -119,15 +114,13 @@ class TestNodeNameSync(BaseTest):
 
         node1 = Node.objects.create(
             team=self.team,
-            dag_fk=dag_one,
-            dag_id_text="dag_one",
+            dag=dag_one,
             saved_query=saved_query,
             type=NodeType.VIEW,
         )
         node2 = Node.objects.create(
             team=self.team,
-            dag_fk=dag_two,
-            dag_id_text="dag_two",
+            dag=dag_two,
             saved_query=saved_query,
             type=NodeType.VIEW,
         )
@@ -153,16 +146,14 @@ class TestNodeNameSync(BaseTest):
         dag = DAG.objects.create(team=self.team, name="dag_one")
         Node.objects.create(
             team=self.team,
-            dag_fk=dag,
-            dag_id_text="dag_one",
+            dag=dag,
             saved_query=saved_query,
             type=NodeType.VIEW,
         )
         with pytest.raises(IntegrityError):
             Node.objects.create(
                 team=self.team,
-                dag_fk=dag,
-                dag_id_text="dag_one",
+                dag=dag,
                 saved_query=saved_query,
                 type=NodeType.VIEW,
             )

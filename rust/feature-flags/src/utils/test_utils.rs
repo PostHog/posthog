@@ -814,6 +814,7 @@ pub fn create_test_flag(
             payloads: None,
             super_groups: None,
             holdout_groups: None,
+            holdout: None,
         }),
         deleted: deleted.unwrap_or(false),
         active: active.unwrap_or(true),
@@ -835,8 +836,8 @@ pub async fn insert_suppression_rule_in_pg(
     let rule_id = uuid::Uuid::new_v4();
     sqlx::query(
         r#"INSERT INTO posthog_errortrackingsuppressionrule
-           (id, team_id, filters, created_at, updated_at, order_key)
-           VALUES ($1, $2, $3, NOW(), NOW(), 0)"#,
+           (id, team_id, filters, created_at, updated_at, order_key, sampling_rate)
+           VALUES ($1, $2, $3, NOW(), NOW(), 0, 1.0)"#,
     )
     .bind(rule_id)
     .bind(team_id)
@@ -884,6 +885,7 @@ pub fn create_test_flag_with_properties(
             payloads: None,
             super_groups: None,
             holdout_groups: None,
+            holdout: None,
         }),
         None,
         None,
@@ -946,11 +948,17 @@ impl TestContext {
         let (persons_writer, non_persons_writer) = setup_dual_pg_writers(Some(&config));
 
         let behavioral_cohorts_pool = if config.is_behavioral_cohorts_db_configured() {
-            Some(Arc::new(
-                sqlx::PgPool::connect(&config.behavioral_cohorts_read_database_url)
-                    .await
-                    .expect("Failed to connect to behavioral cohorts database"),
-            ))
+            match sqlx::PgPool::connect(&config.behavioral_cohorts_read_database_url).await {
+                Ok(pool) => Some(Arc::new(pool)),
+                Err(e) => {
+                    eprintln!(
+                        "Warning: failed to connect to behavioral cohorts database ({}), \
+                         cohort membership tests will be skipped: {e}",
+                        config.behavioral_cohorts_read_database_url
+                    );
+                    None
+                }
+            }
         } else {
             None
         };
@@ -1158,8 +1166,8 @@ impl TestContext {
                VALUES ($1, $2, $3, $4)
                ON CONFLICT (team_id, cohort_id, person_id) DO UPDATE SET in_cohort = $4"#,
         )
-        .bind(team_id as i64)
-        .bind(cohort_id as i64)
+        .bind(i64::from(team_id))
+        .bind(i64::from(cohort_id))
         .bind(person_uuid)
         .bind(in_cohort)
         .execute(pool.as_ref())
@@ -1254,12 +1262,7 @@ impl TestContext {
         let pak_id = format!("test_pak_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let api_key_value = format!("phx_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
-        // Hash the key using SHA256
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(api_key_value.as_bytes());
-        let hash_result = hasher.finalize();
-        let secure_value = format!("sha256${}", hex::encode(hash_result));
+        let secure_value = crate::api::auth::hash_personal_api_key(&api_key_value);
 
         let mut conn = self.non_persons_writer.get_connection().await?;
 

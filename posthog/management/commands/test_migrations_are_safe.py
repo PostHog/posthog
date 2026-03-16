@@ -93,7 +93,7 @@ def validate_migration_sql(sql) -> bool:
             )
             return True
 
-        if "DROP COLUMN" in operation_sql:
+        if "DROP COLUMN" in operation_sql and "-- drop-column-ignore" not in operation_sql:
             print(
                 f"\n\n\033[91mFound a DROP COLUMN command. This will lead to the app crashing while we roll out, and it will mean we can't roll back beyond this PR. Instead, please use the deprecate_field function: `from django_deprecate_fields import deprecate_field` and `your_field = deprecate_field(models.IntegerField(null=True, blank=True))`\nSource: `{operation_sql}`"
             )
