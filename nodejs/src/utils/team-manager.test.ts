@@ -64,6 +64,7 @@ describe('TeamManager()', () => {
                   "person_display_name_properties": [],
                   "person_processing_opt_out": null,
                   "project_id": 2,
+                  "secret_api_token": null,
                   "session_recording_opt_in": true,
                   "slack_incoming_webhook": null,
                   "timezone": "UTC",

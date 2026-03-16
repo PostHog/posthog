@@ -41,7 +41,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -875,6 +875,7 @@ class DashboardsViewSet(
         """
         results = {}
         tiles = dashboard.tiles.filter(insight__isnull=False).select_related("insight")
+        analytics_props = get_request_analytics_properties(request)
 
         for tile in tiles:
             insight = tile.insight
@@ -893,7 +894,7 @@ class DashboardsViewSet(
                     query,
                     execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                     user=request.user if request.user.is_authenticated else None,
-                    request=request,
+                    analytics_props=analytics_props,
                 )
 
                 result_data = None

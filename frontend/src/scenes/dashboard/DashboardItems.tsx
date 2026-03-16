@@ -26,7 +26,7 @@ import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType }
 import { DashboardTextItem } from './items/DashboardTextItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
-const DRAG_AUTO_SCROLL_SPEED = 8
+const DRAG_AUTO_SCROLL_SPEED = 50
 
 export function DashboardItems(): JSX.Element {
     const {
@@ -134,6 +134,7 @@ export function DashboardItems(): JSX.Element {
                             enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
                             handle: '.CardMeta,.TextCard__body',
                             cancel: 'a,table,button,input,.Popover',
+                            bounded: true,
                         }}
                         resizeConfig={{
                             enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
