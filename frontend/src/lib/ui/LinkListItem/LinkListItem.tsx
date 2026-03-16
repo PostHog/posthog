@@ -1,4 +1,5 @@
 import { IconEllipsis } from '@posthog/icons'
+import { Spinner } from '@posthog/lemon-ui'
 
 import { ButtonGroupPrimitive, ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from 'lib/ui/DropdownMenu/DropdownMenu'
@@ -71,9 +72,7 @@ function Content({
                 </span>
             )}
             <span className="flex-1 line-clamp-1 text-primary">{title}</span>
-            {isLoading && (
-                <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            )}
+            {isLoading && <Spinner className="h-3 w-3" />}
             {meta && (
                 <span
                     className={cn(
