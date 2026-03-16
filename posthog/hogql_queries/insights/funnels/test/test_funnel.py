@@ -5590,15 +5590,16 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         assert first_group[1]["count"] == 1
         assert first_group[1]["order"] == 1
 
-        # Breakdown value should be present and correctly typed.
-        # The boxing bug caused GROUP breakdown values to be raw strings instead of lists.
+        # Breakdown value should be present and boxed as a list for all breakdown types.
+        # Known bug: GROUP breakdowns currently return unboxed strings instead of lists.
         bv = first_group[0]["breakdown_value"]
         assert bv is not None
-        if breakdown_type in (BreakdownType.EVENT, BreakdownType.PERSON):
+        if breakdown_type == BreakdownType.GROUP:
+            # Assert current (buggy) behavior so this test breaks when the bug is fixed,
+            # prompting update to the stricter list assertion below.
+            assert isinstance(bv, str), (
+                f"GROUP breakdown boxing bug appears fixed! "
+                f"Got list instead of str — remove this branch and use the list assertion for all types."
+            )
+        else:
             assert isinstance(bv, list), f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}"
-        elif breakdown_type == BreakdownType.GROUP:
-            # Group breakdowns currently return unboxed strings — this documents the
-            # existing behavior. If boxing is fixed for groups, update to assert list.
-            assert isinstance(bv, (str, list)), f"Unexpected breakdown_value type for GROUP: {type(bv)}"
-            if isinstance(bv, str):
-                assert len(bv) > 0, "GROUP breakdown_value should not be empty"

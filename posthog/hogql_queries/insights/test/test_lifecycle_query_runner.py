@@ -2199,8 +2199,8 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
             # Two week buckets: [Jan 12, Jan 19]
             # Test data: p1 (Jan 11,12,13,15,17,19), p2 (Jan 9,12), p3 (Jan 12), p4 (Jan 15)
             #
-            # Week of Jan 12: p1 new (first week with events), p2 returning (had Jan 9),
-            #   p3 new, p4 not yet → new=2, returning=2
+            # Week of Jan 12: p1 returning (had Jan 11 in prior week), p2 returning (had Jan 9),
+            #   p3 new, p4 new → new=2, returning=2
             # Week of Jan 19: p1 returning, dormant=p2,p3,p4 (3 go dormant) → returning=1, dormant=-3
             assert by_status["new"]["data"] == [2.0, 0.0]
             assert by_status["returning"]["data"] == [2.0, 1.0]
