@@ -220,10 +220,6 @@ class QueryEventsExtractor:
         if isinstance(series, ActionsNode):
             return self._get_action_events(action_id=int(series.id), project_id=self.team.project_id)
         if isinstance(series, GroupNode):
-            # For groups, return the group name if available, or extract events from nested values
-            if series.name:
-                return [series.name]
-            # Fall back to extracting events from the nested values
             return [event for value in series.nodes for event in self._get_series_events(value)]
 
         return []

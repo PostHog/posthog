@@ -15588,18 +15588,20 @@ class AnyDataWarehouseNode(RootModel[DataWarehouseNode | FunnelsDataWarehouseNod
     root: DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode
 
 
-class AnyEntityNodeDataWarehouseNodeFunnelsDataWarehouseNode(
-    RootModel[EventsNode | ActionsNode | DataWarehouseNode | FunnelsDataWarehouseNode]
-):
-    root: EventsNode | ActionsNode | DataWarehouseNode | FunnelsDataWarehouseNode
-
-
 class AnyEntityNodeDataWarehouseNode(RootModel[EventsNode | ActionsNode | DataWarehouseNode]):
     root: EventsNode | ActionsNode | DataWarehouseNode
 
 
+class AnyEntityNodeFunnelsDataWarehouseNode(RootModel[EventsNode | ActionsNode | FunnelsDataWarehouseNode]):
+    root: EventsNode | ActionsNode | FunnelsDataWarehouseNode
+
+
 class AnyEntityNodeLifecycleDataWarehouseNode(RootModel[EventsNode | ActionsNode | LifecycleDataWarehouseNode]):
     root: EventsNode | ActionsNode | LifecycleDataWarehouseNode
+
+
+class AnyEntityNodeNever(RootModel[EventsNode | ActionsNode]):
+    root: EventsNode | ActionsNode
 
 
 class AnyResponseType(
@@ -16932,7 +16934,7 @@ class WebVitalsPathBreakdownQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3E(BaseModel):
+class GroupNode3Cnever3E(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -16983,9 +16985,7 @@ class GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3E(BaseModel):
     math_property_revenue_currency: RevenueCurrencyPropertyConfig | None = None
     math_property_type: str | None = None
     name: str | None = None
-    nodes: list[EventsNode | ActionsNode | DataWarehouseNode | FunnelsDataWarehouseNode] = Field(
-        ..., description="Entities to combine in this group"
-    )
+    nodes: list[EventsNode | ActionsNode] = Field(..., description="Entities to combine in this group")
     operator: FilterLogicalOperator = Field(..., description="Group of entities combined with AND/OR operator")
     optionalInFunnel: bool | None = None
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
@@ -17375,62 +17375,6 @@ class ExperimentQueryResponse(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
 
 
-class FunnelsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
-    breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
-    dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
-    dateRange: DateRange | None = Field(default=None, description="Date range for the query")
-    filterTestAccounts: bool | None = Field(
-        default=False,
-        description=("Exclude internal and test users by applying the respective filters"),
-    )
-    funnelsFilter: FunnelsFilter | None = Field(default=None, description="Properties specific to the funnels insight")
-    interval: IntervalType | None = Field(
-        default=None,
-        description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
-    )
-    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    properties: (
-        list[
-            EventPropertyFilter
-            | PersonPropertyFilter
-            | ElementPropertyFilter
-            | EventMetadataPropertyFilter
-            | SessionPropertyFilter
-            | CohortPropertyFilter
-            | RecordingPropertyFilter
-            | LogEntryPropertyFilter
-            | GroupPropertyFilter
-            | FeaturePropertyFilter
-            | FlagPropertyFilter
-            | HogQLPropertyFilter
-            | EmptyPropertyFilter
-            | DataWarehousePropertyFilter
-            | DataWarehousePersonPropertyFilter
-            | ErrorTrackingIssueFilter
-            | LogPropertyFilter
-            | RevenueAnalyticsPropertyFilter
-        ]
-        | PropertyGroupFilter
-        | None
-    ) = Field(default=[], description="Property filters for all series")
-    response: FunnelsQueryResponse | None = None
-    samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[
-        GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3E
-        | EventsNode
-        | ActionsNode
-        | DataWarehouseNode
-        | FunnelsDataWarehouseNode
-    ] = Field(..., description="Events and actions to include")
-    tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
 class GroupNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -17515,7 +17459,7 @@ class GroupNode(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class GroupNodeDataWarehouseNodeFunnelsDataWarehouseNode(BaseModel):
+class GroupNodeNever(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
@@ -17566,9 +17510,7 @@ class GroupNodeDataWarehouseNodeFunnelsDataWarehouseNode(BaseModel):
     math_property_revenue_currency: RevenueCurrencyPropertyConfig | None = None
     math_property_type: str | None = None
     name: str | None = None
-    nodes: list[EventsNode | ActionsNode | DataWarehouseNode | FunnelsDataWarehouseNode] = Field(
-        ..., description="Entities to combine in this group"
-    )
+    nodes: list[EventsNode | ActionsNode] = Field(..., description="Entities to combine in this group")
     operator: FilterLogicalOperator = Field(..., description="Group of entities combined with AND/OR operator")
     optionalInFunnel: bool | None = None
     orderBy: list[str] | None = Field(default=None, description="Columns to order by")
@@ -17597,6 +17539,10 @@ class GroupNodeDataWarehouseNodeFunnelsDataWarehouseNode(BaseModel):
     ) = Field(default=None, description="Properties configurable in the interface")
     response: dict[str, Any] | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class GroupNodeWithoutDataWarehouse(RootModel[GroupNode3Cnever3E]):
+    root: GroupNode3Cnever3E
 
 
 class InsightsQueryBaseCalendarHeatmapResponse(BaseModel):
@@ -17998,22 +17944,6 @@ class LogsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class QueryResponseAlternative18(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    funnels_query: FunnelsQuery | None = None
-    insight: list[list[dict[str, Any]]]
-    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantFunnelsBaseStats]
-
-
 class QueryResponseAlternative20(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18040,22 +17970,6 @@ class QueryResponseAlternative20(BaseModel):
     stats_version: int | None = None
     variant_results: list[ExperimentVariantResultFrequentist] | list[ExperimentVariantResultBayesian] | None = None
     variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats] | None = None
-
-
-class QueryResponseAlternative61(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    funnels_query: FunnelsQuery | None = None
-    insight: list[list[dict[str, Any]]]
-    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantFunnelsBaseStats]
 
 
 class SessionsQuery(BaseModel):
@@ -18243,81 +18157,6 @@ class TrendsQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class VisualizationBlock(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    query: (
-        TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantHogQLQuery
-    ) = Field(
-        ...,
-        description="The query to render (same as VisualizationArtifactContent.query)",
-    )
-    title: str | None = Field(default=None, description="Optional title for the visualization")
-    type: Literal["visualization"] = "visualization"
-
-
-class VisualizationItem(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: (
-        TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantHogQLQuery
-    )
-    initiator: str | None = None
-    plan: str | None = None
-    query: str | None = ""
-
-
-class VisualizationMessage(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    answer: (
-        TrendsQuery
-        | FunnelsQuery
-        | RetentionQuery
-        | HogQLQuery
-        | RevenueAnalyticsGrossRevenueQuery
-        | RevenueAnalyticsMetricsQuery
-        | RevenueAnalyticsMRRQuery
-        | RevenueAnalyticsTopCustomersQuery
-        | AssistantTrendsQuery
-        | AssistantFunnelsQuery
-        | AssistantRetentionQuery
-        | AssistantHogQLQuery
-    )
-    id: str | None = None
-    initiator: str | None = None
-    parent_tool_call_id: str | None = None
-    plan: str | None = None
-    query: str | None = ""
-    short_id: str | None = None
-    type: Literal["ai/viz"] = "ai/viz"
-
-
 class NamedArgs(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18339,37 +18178,6 @@ class IsExperimentRatioMetric(BaseModel):
 
 class IsExperimentRetentionMetric(BaseModel):
     namedArgs: NamedArgs | None = None
-
-
-class CachedExperimentFunnelsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    cache_key: str
-    cache_target_age: AwareDatetime | None = None
-    calculation_trigger: str | None = Field(
-        default=None,
-        description=("What triggered the calculation of the query, leave empty if user/immediate"),
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    funnels_query: FunnelsQuery | None = None
-    insight: list[list[dict[str, Any]]]
-    is_cached: bool
-    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    last_refresh: AwareDatetime
-    next_allowed_client_refresh: AwareDatetime
-    probability: dict[str, float]
-    query_metadata: dict[str, Any] | None = None
-    query_status: QueryStatus | None = Field(
-        default=None,
-        description=("Query status indicates whether next to the provided data, a query is still running."),
-    )
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    timezone: str
-    variants: list[ExperimentVariantFunnelsBaseStats]
 
 
 class CachedExperimentQueryResponse(BaseModel):
@@ -18478,22 +18286,6 @@ class CachedLegacyExperimentQueryResponse(BaseModel):
     variants: list[ExperimentVariantTrendsBaseStats] | list[ExperimentVariantFunnelsBaseStats]
 
 
-class Response23(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    funnels_query: FunnelsQuery | None = None
-    insight: list[list[dict[str, Any]]]
-    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantFunnelsBaseStats]
-
-
 class Response24(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -18509,22 +18301,6 @@ class Response24(BaseModel):
     significant: bool
     stats_version: int | None = None
     variants: list[ExperimentVariantTrendsBaseStats]
-
-
-class ExperimentFunnelsQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    credible_intervals: dict[str, list[float]]
-    expected_loss: float
-    funnels_query: FunnelsQuery | None = None
-    insight: list[list[dict[str, Any]]]
-    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantFunnelsBaseStats]
 
 
 class ExperimentMetricTimeseries(BaseModel):
@@ -18572,6 +18348,487 @@ class ExperimentTrendsQueryResponse(BaseModel):
     significant: bool
     stats_version: int | None = None
     variants: list[ExperimentVariantTrendsBaseStats]
+
+
+class FunnelsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_group_type_index: int | None = Field(default=None, description="Groups aggregation")
+    breakdownFilter: BreakdownFilter | None = Field(default=None, description="Breakdown of the events and actions")
+    dataColorTheme: float | None = Field(default=None, description="Colors used in the insight's visualization")
+    dateRange: DateRange | None = Field(default=None, description="Date range for the query")
+    filterTestAccounts: bool | None = Field(
+        default=False,
+        description=("Exclude internal and test users by applying the respective filters"),
+    )
+    funnelsFilter: FunnelsFilter | None = Field(default=None, description="Properties specific to the funnels insight")
+    interval: IntervalType | None = Field(
+        default=None,
+        description=("Granularity of the response. Can be one of `hour`, `day`, `week` or `month`"),
+    )
+    kind: Literal["FunnelsQuery"] = "FunnelsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | PropertyGroupFilter
+        | None
+    ) = Field(default=[], description="Property filters for all series")
+    response: FunnelsQueryResponse | None = None
+    samplingFactor: float | None = Field(default=None, description="Sampling rate")
+    series: list[GroupNodeWithoutDataWarehouse | EventsNode | ActionsNode | FunnelsDataWarehouseNode] = Field(
+        ..., description="Events and actions to include"
+    )
+    tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class QueryResponseAlternative18(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    expected_loss: float
+    funnels_query: FunnelsQuery | None = None
+    insight: list[list[dict[str, Any]]]
+    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class QueryResponseAlternative19(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: TrendsQuery | None = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: TrendsQuery | None = None
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    variants: list[ExperimentVariantTrendsBaseStats]
+
+
+class QueryResponseAlternative61(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    expected_loss: float
+    funnels_query: FunnelsQuery | None = None
+    insight: list[list[dict[str, Any]]]
+    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class QueryResponseAlternative62(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: TrendsQuery | None = None
+    credible_intervals: dict[str, list[float]]
+    exposure_query: TrendsQuery | None = None
+    insight: list[dict[str, Any]]
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    p_value: float
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    variants: list[ExperimentVariantTrendsBaseStats]
+
+
+class QueryResponseAlternative72(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    joins: list[DataWarehouseViewLink]
+    tables: dict[
+        str,
+        DatabaseSchemaPostHogTable
+        | DatabaseSchemaSystemTable
+        | DatabaseSchemaDataWarehouseTable
+        | DatabaseSchemaViewTable
+        | DatabaseSchemaManagedViewTable
+        | DatabaseSchemaBatchExportTable
+        | DatabaseSchemaMaterializedViewTable
+        | DatabaseSchemaEndpointTable,
+    ]
+
+
+class QueryResponseAlternative(
+    RootModel[
+        dict[str, Any]
+        | QueryResponseAlternative1
+        | QueryResponseAlternative2
+        | QueryResponseAlternative3
+        | QueryResponseAlternative4
+        | QueryResponseAlternative5
+        | QueryResponseAlternative6
+        | QueryResponseAlternative7
+        | QueryResponseAlternative8
+        | QueryResponseAlternative9
+        | QueryResponseAlternative10
+        | QueryResponseAlternative11
+        | QueryResponseAlternative14
+        | QueryResponseAlternative15
+        | QueryResponseAlternative16
+        | QueryResponseAlternative17
+        | QueryResponseAlternative18
+        | QueryResponseAlternative19
+        | QueryResponseAlternative20
+        | QueryResponseAlternative21
+        | QueryResponseAlternative22
+        | QueryResponseAlternative23
+        | QueryResponseAlternative24
+        | QueryResponseAlternative25
+        | QueryResponseAlternative27
+        | QueryResponseAlternative28
+        | QueryResponseAlternative29
+        | QueryResponseAlternative30
+        | QueryResponseAlternative31
+        | QueryResponseAlternative32
+        | QueryResponseAlternative33
+        | QueryResponseAlternative34
+        | QueryResponseAlternative35
+        | QueryResponseAlternative36
+        | QueryResponseAlternative37
+        | Any
+        | QueryResponseAlternative38
+        | QueryResponseAlternative39
+        | QueryResponseAlternative40
+        | QueryResponseAlternative41
+        | QueryResponseAlternative42
+        | QueryResponseAlternative43
+        | QueryResponseAlternative44
+        | QueryResponseAlternative46
+        | QueryResponseAlternative47
+        | QueryResponseAlternative48
+        | QueryResponseAlternative49
+        | QueryResponseAlternative50
+        | QueryResponseAlternative51
+        | QueryResponseAlternative52
+        | QueryResponseAlternative53
+        | QueryResponseAlternative54
+        | QueryResponseAlternative56
+        | QueryResponseAlternative57
+        | QueryResponseAlternative58
+        | QueryResponseAlternative59
+        | QueryResponseAlternative61
+        | QueryResponseAlternative62
+        | QueryResponseAlternative63
+        | QueryResponseAlternative64
+        | QueryResponseAlternative65
+        | QueryResponseAlternative66
+        | QueryResponseAlternative67
+        | QueryResponseAlternative68
+        | QueryResponseAlternative69
+        | QueryResponseAlternative71
+        | QueryResponseAlternative72
+        | QueryResponseAlternative73
+        | QueryResponseAlternative74
+        | QueryResponseAlternative75
+        | QueryResponseAlternative76
+        | QueryResponseAlternative77
+        | QueryResponseAlternative78
+        | QueryResponseAlternative79
+        | QueryResponseAlternative80
+        | QueryResponseAlternative82
+        | QueryResponseAlternative83
+        | QueryResponseAlternative84
+        | QueryResponseAlternative85
+        | QueryResponseAlternative86
+        | QueryResponseAlternative87
+        | QueryResponseAlternative88
+    ]
+):
+    root: (
+        dict[str, Any]
+        | QueryResponseAlternative1
+        | QueryResponseAlternative2
+        | QueryResponseAlternative3
+        | QueryResponseAlternative4
+        | QueryResponseAlternative5
+        | QueryResponseAlternative6
+        | QueryResponseAlternative7
+        | QueryResponseAlternative8
+        | QueryResponseAlternative9
+        | QueryResponseAlternative10
+        | QueryResponseAlternative11
+        | QueryResponseAlternative14
+        | QueryResponseAlternative15
+        | QueryResponseAlternative16
+        | QueryResponseAlternative17
+        | QueryResponseAlternative18
+        | QueryResponseAlternative19
+        | QueryResponseAlternative20
+        | QueryResponseAlternative21
+        | QueryResponseAlternative22
+        | QueryResponseAlternative23
+        | QueryResponseAlternative24
+        | QueryResponseAlternative25
+        | QueryResponseAlternative27
+        | QueryResponseAlternative28
+        | QueryResponseAlternative29
+        | QueryResponseAlternative30
+        | QueryResponseAlternative31
+        | QueryResponseAlternative32
+        | QueryResponseAlternative33
+        | QueryResponseAlternative34
+        | QueryResponseAlternative35
+        | QueryResponseAlternative36
+        | QueryResponseAlternative37
+        | Any
+        | QueryResponseAlternative38
+        | QueryResponseAlternative39
+        | QueryResponseAlternative40
+        | QueryResponseAlternative41
+        | QueryResponseAlternative42
+        | QueryResponseAlternative43
+        | QueryResponseAlternative44
+        | QueryResponseAlternative46
+        | QueryResponseAlternative47
+        | QueryResponseAlternative48
+        | QueryResponseAlternative49
+        | QueryResponseAlternative50
+        | QueryResponseAlternative51
+        | QueryResponseAlternative52
+        | QueryResponseAlternative53
+        | QueryResponseAlternative54
+        | QueryResponseAlternative56
+        | QueryResponseAlternative57
+        | QueryResponseAlternative58
+        | QueryResponseAlternative59
+        | QueryResponseAlternative61
+        | QueryResponseAlternative62
+        | QueryResponseAlternative63
+        | QueryResponseAlternative64
+        | QueryResponseAlternative65
+        | QueryResponseAlternative66
+        | QueryResponseAlternative67
+        | QueryResponseAlternative68
+        | QueryResponseAlternative69
+        | QueryResponseAlternative71
+        | QueryResponseAlternative72
+        | QueryResponseAlternative73
+        | QueryResponseAlternative74
+        | QueryResponseAlternative75
+        | QueryResponseAlternative76
+        | QueryResponseAlternative77
+        | QueryResponseAlternative78
+        | QueryResponseAlternative79
+        | QueryResponseAlternative80
+        | QueryResponseAlternative82
+        | QueryResponseAlternative83
+        | QueryResponseAlternative84
+        | QueryResponseAlternative85
+        | QueryResponseAlternative86
+        | QueryResponseAlternative87
+        | QueryResponseAlternative88
+    )
+
+
+class VisualizationBlock(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    query: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantHogQLQuery
+    ) = Field(
+        ...,
+        description="The query to render (same as VisualizationArtifactContent.query)",
+    )
+    title: str | None = Field(default=None, description="Optional title for the visualization")
+    type: Literal["visualization"] = "visualization"
+
+
+class VisualizationItem(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantHogQLQuery
+    )
+    initiator: str | None = None
+    plan: str | None = None
+    query: str | None = ""
+
+
+class VisualizationMessage(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    answer: (
+        TrendsQuery
+        | FunnelsQuery
+        | RetentionQuery
+        | HogQLQuery
+        | RevenueAnalyticsGrossRevenueQuery
+        | RevenueAnalyticsMetricsQuery
+        | RevenueAnalyticsMRRQuery
+        | RevenueAnalyticsTopCustomersQuery
+        | AssistantTrendsQuery
+        | AssistantFunnelsQuery
+        | AssistantRetentionQuery
+        | AssistantHogQLQuery
+    )
+    id: str | None = None
+    initiator: str | None = None
+    parent_tool_call_id: str | None = None
+    plan: str | None = None
+    query: str | None = ""
+    short_id: str | None = None
+    type: Literal["ai/viz"] = "ai/viz"
+
+
+class CachedExperimentFunnelsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    credible_intervals: dict[str, list[float]]
+    expected_loss: float
+    funnels_query: FunnelsQuery | None = None
+    insight: list[list[dict[str, Any]]]
+    is_cached: bool
+    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
+    last_refresh: AwareDatetime
+    next_allowed_client_refresh: AwareDatetime
+    probability: dict[str, float]
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    timezone: str
+    variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class Response23(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    expected_loss: float
+    funnels_query: FunnelsQuery | None = None
+    insight: list[list[dict[str, Any]]]
+    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class DatabaseSchemaQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    joins: list[DataWarehouseViewLink]
+    tables: dict[
+        str,
+        DatabaseSchemaPostHogTable
+        | DatabaseSchemaSystemTable
+        | DatabaseSchemaDataWarehouseTable
+        | DatabaseSchemaViewTable
+        | DatabaseSchemaManagedViewTable
+        | DatabaseSchemaBatchExportTable
+        | DatabaseSchemaMaterializedViewTable
+        | DatabaseSchemaEndpointTable,
+    ]
+
+
+class ExperimentFunnelsQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    credible_intervals: dict[str, list[float]]
+    expected_loss: float
+    funnels_query: FunnelsQuery | None = None
+    insight: list[list[dict[str, Any]]]
+    kind: Literal["ExperimentFunnelsQuery"] = "ExperimentFunnelsQuery"
+    probability: dict[str, float]
+    significance_code: ExperimentSignificanceCode
+    significant: bool
+    stats_version: int | None = None
+    variants: list[ExperimentVariantFunnelsBaseStats]
+
+
+class ExperimentTrendsQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    count_query: TrendsQuery
+    experiment_id: int | None = None
+    exposure_query: TrendsQuery | None = None
+    fingerprint: str | None = None
+    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    name: str | None = None
+    response: ExperimentTrendsQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    uuid: str | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class FunnelPathsFilter(BaseModel):
@@ -18698,227 +18955,19 @@ class ProductAnalyticsInsightQueryNode(
     root: TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery
 
 
-class QueryResponseAlternative19(BaseModel):
+class DatabaseSchemaQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    count_query: TrendsQuery | None = None
-    credible_intervals: dict[str, list[float]]
-    exposure_query: TrendsQuery | None = None
-    insight: list[dict[str, Any]]
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    p_value: float
-    probability: dict[str, float]
-    significance_code: ExperimentSignificanceCode
-    significant: bool
-    stats_version: int | None = None
-    variants: list[ExperimentVariantTrendsBaseStats]
-
-
-class QueryResponseAlternative72(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
+    connectionId: str | None = Field(
+        default=None,
+        description="Optional direct external data source id for schema introspection",
     )
-    joins: list[DataWarehouseViewLink]
-    tables: dict[
-        str,
-        DatabaseSchemaPostHogTable
-        | DatabaseSchemaSystemTable
-        | DatabaseSchemaDataWarehouseTable
-        | DatabaseSchemaViewTable
-        | DatabaseSchemaManagedViewTable
-        | DatabaseSchemaBatchExportTable
-        | DatabaseSchemaMaterializedViewTable
-        | DatabaseSchemaEndpointTable,
-    ]
-
-
-class QueryResponseAlternative(
-    RootModel[
-        dict[str, Any]
-        | QueryResponseAlternative1
-        | QueryResponseAlternative2
-        | QueryResponseAlternative3
-        | QueryResponseAlternative4
-        | QueryResponseAlternative5
-        | QueryResponseAlternative6
-        | QueryResponseAlternative7
-        | QueryResponseAlternative8
-        | QueryResponseAlternative9
-        | QueryResponseAlternative10
-        | QueryResponseAlternative11
-        | QueryResponseAlternative14
-        | QueryResponseAlternative15
-        | QueryResponseAlternative16
-        | QueryResponseAlternative17
-        | QueryResponseAlternative18
-        | QueryResponseAlternative19
-        | QueryResponseAlternative20
-        | QueryResponseAlternative21
-        | QueryResponseAlternative22
-        | QueryResponseAlternative23
-        | QueryResponseAlternative24
-        | QueryResponseAlternative25
-        | QueryResponseAlternative27
-        | QueryResponseAlternative28
-        | QueryResponseAlternative29
-        | QueryResponseAlternative30
-        | QueryResponseAlternative31
-        | QueryResponseAlternative32
-        | QueryResponseAlternative33
-        | QueryResponseAlternative34
-        | QueryResponseAlternative35
-        | QueryResponseAlternative36
-        | QueryResponseAlternative37
-        | Any
-        | QueryResponseAlternative38
-        | QueryResponseAlternative39
-        | QueryResponseAlternative40
-        | QueryResponseAlternative41
-        | QueryResponseAlternative42
-        | QueryResponseAlternative43
-        | QueryResponseAlternative44
-        | QueryResponseAlternative46
-        | QueryResponseAlternative47
-        | QueryResponseAlternative48
-        | QueryResponseAlternative49
-        | QueryResponseAlternative50
-        | QueryResponseAlternative51
-        | QueryResponseAlternative52
-        | QueryResponseAlternative53
-        | QueryResponseAlternative54
-        | QueryResponseAlternative56
-        | QueryResponseAlternative57
-        | QueryResponseAlternative58
-        | QueryResponseAlternative59
-        | QueryResponseAlternative61
-        | QueryResponseAlternative63
-        | QueryResponseAlternative64
-        | QueryResponseAlternative65
-        | QueryResponseAlternative66
-        | QueryResponseAlternative67
-        | QueryResponseAlternative68
-        | QueryResponseAlternative69
-        | QueryResponseAlternative71
-        | QueryResponseAlternative72
-        | QueryResponseAlternative73
-        | QueryResponseAlternative74
-        | QueryResponseAlternative75
-        | QueryResponseAlternative76
-        | QueryResponseAlternative77
-        | QueryResponseAlternative78
-        | QueryResponseAlternative79
-        | QueryResponseAlternative80
-        | QueryResponseAlternative82
-        | QueryResponseAlternative83
-        | QueryResponseAlternative84
-        | QueryResponseAlternative85
-        | QueryResponseAlternative86
-        | QueryResponseAlternative87
-        | QueryResponseAlternative88
-    ]
-):
-    root: (
-        dict[str, Any]
-        | QueryResponseAlternative1
-        | QueryResponseAlternative2
-        | QueryResponseAlternative3
-        | QueryResponseAlternative4
-        | QueryResponseAlternative5
-        | QueryResponseAlternative6
-        | QueryResponseAlternative7
-        | QueryResponseAlternative8
-        | QueryResponseAlternative9
-        | QueryResponseAlternative10
-        | QueryResponseAlternative11
-        | QueryResponseAlternative14
-        | QueryResponseAlternative15
-        | QueryResponseAlternative16
-        | QueryResponseAlternative17
-        | QueryResponseAlternative18
-        | QueryResponseAlternative19
-        | QueryResponseAlternative20
-        | QueryResponseAlternative21
-        | QueryResponseAlternative22
-        | QueryResponseAlternative23
-        | QueryResponseAlternative24
-        | QueryResponseAlternative25
-        | QueryResponseAlternative27
-        | QueryResponseAlternative28
-        | QueryResponseAlternative29
-        | QueryResponseAlternative30
-        | QueryResponseAlternative31
-        | QueryResponseAlternative32
-        | QueryResponseAlternative33
-        | QueryResponseAlternative34
-        | QueryResponseAlternative35
-        | QueryResponseAlternative36
-        | QueryResponseAlternative37
-        | Any
-        | QueryResponseAlternative38
-        | QueryResponseAlternative39
-        | QueryResponseAlternative40
-        | QueryResponseAlternative41
-        | QueryResponseAlternative42
-        | QueryResponseAlternative43
-        | QueryResponseAlternative44
-        | QueryResponseAlternative46
-        | QueryResponseAlternative47
-        | QueryResponseAlternative48
-        | QueryResponseAlternative49
-        | QueryResponseAlternative50
-        | QueryResponseAlternative51
-        | QueryResponseAlternative52
-        | QueryResponseAlternative53
-        | QueryResponseAlternative54
-        | QueryResponseAlternative56
-        | QueryResponseAlternative57
-        | QueryResponseAlternative58
-        | QueryResponseAlternative59
-        | QueryResponseAlternative61
-        | QueryResponseAlternative63
-        | QueryResponseAlternative64
-        | QueryResponseAlternative65
-        | QueryResponseAlternative66
-        | QueryResponseAlternative67
-        | QueryResponseAlternative68
-        | QueryResponseAlternative69
-        | QueryResponseAlternative71
-        | QueryResponseAlternative72
-        | QueryResponseAlternative73
-        | QueryResponseAlternative74
-        | QueryResponseAlternative75
-        | QueryResponseAlternative76
-        | QueryResponseAlternative77
-        | QueryResponseAlternative78
-        | QueryResponseAlternative79
-        | QueryResponseAlternative80
-        | QueryResponseAlternative82
-        | QueryResponseAlternative83
-        | QueryResponseAlternative84
-        | QueryResponseAlternative85
-        | QueryResponseAlternative86
-        | QueryResponseAlternative87
-        | QueryResponseAlternative88
-    )
-
-
-class DatabaseSchemaQueryResponse(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    joins: list[DataWarehouseViewLink]
-    tables: dict[
-        str,
-        DatabaseSchemaPostHogTable
-        | DatabaseSchemaSystemTable
-        | DatabaseSchemaDataWarehouseTable
-        | DatabaseSchemaViewTable
-        | DatabaseSchemaManagedViewTable
-        | DatabaseSchemaBatchExportTable
-        | DatabaseSchemaMaterializedViewTable
-        | DatabaseSchemaEndpointTable,
-    ]
+    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    response: DatabaseSchemaQueryResponse | None = None
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
 class DocumentArtifactContent(BaseModel):
@@ -18939,23 +18988,6 @@ class ExperimentFunnelsQuery(BaseModel):
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     name: str | None = None
     response: ExperimentFunnelsQueryResponse | None = None
-    tags: QueryLogTags | None = None
-    uuid: str | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class ExperimentTrendsQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    count_query: TrendsQuery
-    experiment_id: int | None = None
-    exposure_query: TrendsQuery | None = None
-    fingerprint: str | None = None
-    kind: Literal["ExperimentTrendsQuery"] = "ExperimentTrendsQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    name: str | None = None
-    response: ExperimentTrendsQueryResponse | None = None
     tags: QueryLogTags | None = None
     uuid: str | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
@@ -19054,21 +19086,6 @@ class WebVitalsQuery(BaseModel):
     ) = Field(..., discriminator="kind")
     tags: QueryLogTags | None = None
     useSessionsTable: bool | None = None
-    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-
-
-class DatabaseSchemaQuery(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    connectionId: str | None = Field(
-        default=None,
-        description="Optional direct external data source id for schema introspection",
-    )
-    kind: Literal["DatabaseSchemaQuery"] = "DatabaseSchemaQuery"
-    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
-    response: DatabaseSchemaQueryResponse | None = None
-    tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 

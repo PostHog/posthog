@@ -6,7 +6,6 @@ from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_person, snapshot_clickhouse_queries
 
 from posthog.schema import (
-    DataWarehouseNode,
     DataWarehousePropertyFilter,
     DateRange,
     EventsNode,
@@ -172,18 +171,18 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2025-11-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="uuid",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="uuid",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
             ],
@@ -267,11 +266,11 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
                 dateRange=DateRange(date_from="2025-11-01"),
                 series=[
                     EventsNode(event="$pageview"),
-                    DataWarehouseNode(
+                    FunnelsDataWarehouseNode(
                         id=table_name,
                         table_name=table_name,
                         id_field="uuid",
-                        distinct_id_field="toUUID(user_id)",
+                        aggregation_target_field="toUUID(user_id)",
                         timestamp_field="created",
                     ),
                 ],
@@ -292,18 +291,18 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2025-11-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="id",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="id",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
             ],
@@ -324,18 +323,18 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2025-11-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="id_decimal",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="id_decimal",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
             ],
@@ -357,22 +356,24 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2025-11-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="id_with_nulls",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_name,
                     table_name=table_name,
                     id_field="id_with_nulls",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                 ),
             ],
         )
+        assert isinstance(funnels_query.series[0], FunnelsDataWarehouseNode)  # for mypy
+        assert isinstance(funnels_query.series[1], FunnelsDataWarehouseNode)  # for mypy
 
         # throws an error because of nulls in id field
         with freeze_time("2025-11-07"):
@@ -406,25 +407,25 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2024-05-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=lead_table_name,
                     table_name=lead_table_name,
                     id_field="id",
-                    distinct_id_field="coalesce(converted_opportunity_id, id)",
+                    aggregation_target_field="coalesce(converted_opportunity_id, id)",
                     timestamp_field="created_date",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=opportunity_table_name,
                     table_name=opportunity_table_name,
                     id_field="id",
-                    distinct_id_field="id",
+                    aggregation_target_field="id",
                     timestamp_field="created_date",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=opportunity_table_name,
                     table_name=opportunity_table_name,
                     id_field="id",
-                    distinct_id_field="id",
+                    aggregation_target_field="id",
                     timestamp_field="close_date",
                 ),
             ],
@@ -452,18 +453,18 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2024-05-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=opportunity_table_name,
                     table_name=opportunity_table_name,
                     id_field="id",
-                    distinct_id_field="id",
+                    aggregation_target_field="id",
                     timestamp_field="created_date",
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=opportunity_table_name,
                     table_name=opportunity_table_name,
                     id_field="id",
-                    distinct_id_field="id",
+                    aggregation_target_field="id",
                     timestamp_field="close_date",
                 ),
             ],
@@ -485,19 +486,19 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
             kind="FunnelsQuery",
             dateRange=DateRange(date_from="2025-11-01"),
             series=[
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_one_name,
                     table_name=table_one_name,
                     id_field="id",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                     properties=[DataWarehousePropertyFilter(key="step_tag", value="go", operator="exact")],
                 ),
-                DataWarehouseNode(
+                FunnelsDataWarehouseNode(
                     id=table_two_name,
                     table_name=table_two_name,
                     id_field="id",
-                    distinct_id_field="user_id",
+                    aggregation_target_field="user_id",
                     timestamp_field="created",
                     properties=[],
                 ),

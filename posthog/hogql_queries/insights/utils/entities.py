@@ -11,26 +11,29 @@ from posthog.schema import (
     FunnelsDataWarehouseNode,
     GroupNode,
     HogQLPropertyFilter,
+    LifecycleDataWarehouseNode,
 )
 
-from posthog.types import AnyPropertyFilter, EntityNode, ExclusionEntityNode
-
-type DataWarehouseEntityNode = DataWarehouseNode | FunnelsDataWarehouseNode
+from posthog.types import AnyPropertyFilter, EntityNode, FunnelExclusionEntityNode
 
 
-def is_equal_type(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
+def is_equal_type(a: EntityNode, b: EntityNode | FunnelExclusionEntityNode) -> bool:
     if isinstance(a, EventsNode):
         return isinstance(b, EventsNode) or isinstance(b, FunnelExclusionEventsNode)
     if isinstance(a, ActionsNode):
         return isinstance(b, ActionsNode) or isinstance(b, FunnelExclusionActionsNode)
-    if isinstance(a, DataWarehouseNode) or isinstance(a, FunnelsDataWarehouseNode):
-        return isinstance(b, DataWarehouseNode) or isinstance(b, FunnelsDataWarehouseNode)
+    if isinstance(a, DataWarehouseNode):
+        return isinstance(b, DataWarehouseNode)
+    if isinstance(a, LifecycleDataWarehouseNode):
+        return isinstance(b, LifecycleDataWarehouseNode)
+    if isinstance(a, FunnelsDataWarehouseNode):
+        return isinstance(b, FunnelsDataWarehouseNode)
     if isinstance(a, GroupNode):
         return isinstance(b, GroupNode)
     raise ValueError(detail=f"Type comparison for {type(a)} and {type(b)} not implemented.")
 
 
-def is_equal(a: EntityNode, b: EntityNode | ExclusionEntityNode, compare_properties=True) -> bool:
+def is_equal(a: EntityNode, b: EntityNode | FunnelExclusionEntityNode, compare_properties=True) -> bool:
     """Checks if two entities are semantically equal."""
 
     # different type
@@ -62,12 +65,41 @@ def is_equal(a: EntityNode, b: EntityNode | ExclusionEntityNode, compare_propert
 
     # different data source
     if (
-        isinstance(a, DataWarehouseEntityNode)
-        and isinstance(b, DataWarehouseEntityNode)
-        and (a.id != b.id or a.id_field != b.id_field)
+        isinstance(a, DataWarehouseNode)
+        and isinstance(b, DataWarehouseNode)
+        and (
+            a.id != b.id
+            or a.table_name != b.table_name
+            or a.id_field != b.id_field
+            or a.timestamp_field != b.timestamp_field
+            or a.distinct_id_field != b.distinct_id_field
+        )
     ):
         return False
-
+    elif (
+        isinstance(a, LifecycleDataWarehouseNode)
+        and isinstance(b, LifecycleDataWarehouseNode)
+        and (
+            a.id != b.id
+            or a.table_name != b.table_name
+            or a.timestamp_field != b.timestamp_field
+            or a.aggregation_target_field != b.aggregation_target_field
+            or a.created_at_field != b.created_at_field
+        )
+    ):
+        return False
+    elif (
+        isinstance(a, FunnelsDataWarehouseNode)
+        and isinstance(b, FunnelsDataWarehouseNode)
+        and (
+            a.id != b.id
+            or a.table_name != b.table_name
+            or a.id_field != b.id_field
+            or a.timestamp_field != b.timestamp_field
+            or a.aggregation_target_field != b.aggregation_target_field
+        )
+    ):
+        return False
     # different properties
     if compare_properties and _sorted_property_reprs(a.properties) != _sorted_property_reprs(b.properties):
         return False
@@ -81,7 +113,7 @@ def is_equal(a: EntityNode, b: EntityNode | ExclusionEntityNode, compare_propert
     return True
 
 
-def is_superset(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
+def is_superset(a: EntityNode, b: EntityNode | FunnelExclusionEntityNode) -> bool:
     """Checks if this entity is a superset version of other. The nodes match and the properties of (a) is a subset of the properties of (b)."""
 
     if not is_equal(a, b, compare_properties=False):
@@ -100,8 +132,8 @@ def is_superset(a: EntityNode, b: EntityNode | ExclusionEntityNode) -> bool:
 
 
 def _nodes_equal(
-    a_nodes: list[EventsNode | ActionsNode | DataWarehouseEntityNode],
-    b_nodes: list[EventsNode | ActionsNode | DataWarehouseEntityNode],
+    a_nodes: list[EventsNode | ActionsNode | DataWarehouseNode],
+    b_nodes: list[EventsNode | ActionsNode | DataWarehouseNode],
     compare_properties: bool,
 ) -> bool:
     """Order-independent comparison of child nodes in a GroupNode."""

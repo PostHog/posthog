@@ -95,7 +95,7 @@ def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode | None) ->
     return isinstance(entity, DataWarehouseNode) or isinstance(entity, FunnelsDataWarehouseNode)
 
 
-def data_warehouse_config_key(node: FunnelDataWarehouseEntity) -> tuple[str, str, str, str]:
+def data_warehouse_config_key(node: FunnelsDataWarehouseNode) -> tuple[str, str, str, str]:
     return (
         node.table_name,
         node.id_field,
@@ -104,7 +104,7 @@ def data_warehouse_config_key(node: FunnelDataWarehouseEntity) -> tuple[str, str
     )
 
 
-def entity_config_mismatch(step_entity: EntityNode, table_entity: EntityNode | None) -> bool:
+def entity_config_mismatch(step_entity: FunnelEntityNode, table_entity: FunnelEntityNode | None) -> bool:
     if is_data_warehouse_entity(step_entity) != is_data_warehouse_entity(table_entity):
         return True
 

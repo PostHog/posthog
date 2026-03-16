@@ -640,22 +640,6 @@
                 }
             ]
         },
-        "AnyEntityNode<(DataWarehouseNode|FunnelsDataWarehouseNode)>": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                },
-                {
-                    "$ref": "#/definitions/DataWarehouseNode"
-                },
-                {
-                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
-                }
-            ]
-        },
         "AnyEntityNode<DataWarehouseNode>": {
             "anyOf": [
                 {
@@ -669,6 +653,19 @@
                 }
             ]
         },
+        "AnyEntityNode<FunnelsDataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                }
+            ]
+        },
         "AnyEntityNode<LifecycleDataWarehouseNode>": {
             "anyOf": [
                 {
@@ -679,6 +676,16 @@
                 },
                 {
                     "$ref": "#/definitions/LifecycleDataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<never>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
                 }
             ]
         },
@@ -17002,10 +17009,10 @@
                     "items": {
                         "anyOf": [
                             {
-                                "$ref": "#/definitions/AnyEntityNode%3C(DataWarehouseNode%7CFunnelsDataWarehouseNode)%3E"
+                                "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
                             },
                             {
-                                "$ref": "#/definitions/GroupNode%3C(DataWarehouseNode%7CFunnelsDataWarehouseNode)%3E"
+                                "$ref": "#/definitions/GroupNodeWithoutDataWarehouse"
                             }
                         ]
                     },
@@ -17291,7 +17298,7 @@
             "required": ["kind", "nodes", "operator"],
             "type": "object"
         },
-        "GroupNode<(DataWarehouseNode|FunnelsDataWarehouseNode)>": {
+        "GroupNode<never>": {
             "additionalProperties": false,
             "properties": {
                 "custom_name": {
@@ -17339,7 +17346,7 @@
                 "nodes": {
                     "description": "Entities to combine in this group",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode%3C(DataWarehouseNode%7CFunnelsDataWarehouseNode)%3E"
+                        "$ref": "#/definitions/AnyEntityNode%3Cnever%3E"
                     },
                     "type": "array"
                 },
@@ -17374,6 +17381,9 @@
             },
             "required": ["kind", "nodes", "operator"],
             "type": "object"
+        },
+        "GroupNodeWithoutDataWarehouse": {
+            "$ref": "#/definitions/GroupNode%3Cnever%3E"
         },
         "GroupPropertyFilter": {
             "additionalProperties": false,
