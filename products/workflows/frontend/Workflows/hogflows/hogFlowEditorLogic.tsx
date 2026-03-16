@@ -345,7 +345,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const _params: AppMetricsTotalsRequest = {
                         ...params,
                         breakdownBy: ['instance_id', 'metric_name'],
-                        metricName: ['succeeded', 'failed', 'disabled_permanently', 'rate_limited', 'triggered'],
+                        metricName: ['succeeded', 'failed', 'rate_limited', 'triggered'],
                     }
                     const response = await loadAppMetricsTotals(_params, timezone)
                     await breakpoint(10)
@@ -362,9 +362,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
                             if (['succeeded', 'failed'].includes(metricName)) {
                                 instanceId = EXIT_NODE_ID
-                            } else if (['disabled_permanently', 'rate_limited', 'triggered'].includes(metricName)) {
+                            } else if (['rate_limited', 'triggered'].includes(metricName)) {
                                 instanceId = TRIGGER_NODE_ID
-                                if (['disabled_permanently', 'rate_limited'].includes(metricName)) {
+                                if (['rate_limited'].includes(metricName)) {
                                     metricName = 'failed'
                                 }
                                 if (['triggered'].includes(metricName)) {
@@ -758,26 +758,29 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         const prefix = outputVar.key
                         if (outputVar.spread) {
                             // Create individual variables for each expected property
-                            const spreadKeys = [
-                                'status',
-                                'priority',
-                                'ticket_number',
-                                'channel_source',
-                                'message_count',
-                                'last_message_at',
-                                'last_message_text',
-                                'unread_team_count',
-                                'unread_customer_count',
-                            ].map((prop) => `${prefix}_${prop}`)
+                            const spreadFields: [string, string][] = [
+                                ['status', 'Status'],
+                                ['priority', 'Priority'],
+                                ['number', 'Number'],
+                                ['channel_source', 'Channel source'],
+                                ['last_message_at', 'Last message at'],
+                                ['last_message_text', 'Last message text'],
+                                ['unread_team_count', 'Unread team'],
+                                ['unread_customer_count', 'Unread customer'],
+                                ['sla', 'SLA'],
+                                ['assignee', 'Assignee'],
+                                ['url', 'URL'],
+                                ['tags', 'Tags'],
+                            ]
 
-                            const newVars = spreadKeys
-                                .filter((key) => !updatedVariables?.some((v) => v.key === key))
-                                .map((key) => ({
-                                    key,
-                                    label: key,
+                            const newVars = spreadFields
+                                .map(([prop, label]) => ({
+                                    key: `${prefix}_${prop}`,
+                                    label,
                                     type: 'string' as const,
                                     default: '',
                                 }))
+                                .filter(({ key }) => !updatedVariables?.some((v) => v.key === key))
 
                             if (newVars.length > 0) {
                                 updatedVariables = [...(updatedVariables || []), ...newVars]

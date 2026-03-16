@@ -3,6 +3,7 @@ use crate::api::types::{FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMat
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
+use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::PostgresRouter;
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
@@ -24,8 +25,9 @@ use crate::metrics::consts::{
     FLAG_EVALUATE_ALL_CONDITIONS_TIME, FLAG_EVALUATION_ERROR_COUNTER, FLAG_EVALUATION_TIME,
     FLAG_EXPERIENCE_CONTINUITY_OPTIMIZED, FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER,
     FLAG_GET_MATCH_TIME, FLAG_GROUP_CACHE_FETCH_TIME, FLAG_GROUP_DB_FETCH_TIME,
-    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER, PROPERTY_CACHE_HITS_COUNTER,
-    PROPERTY_CACHE_MISSES_COUNTER,
+    FLAG_HASH_KEY_PROCESSING_TIME, FLAG_HASH_KEY_WRITES_COUNTER,
+    FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, FLAG_REALTIME_COHORT_QUERY_TIME,
+    PROPERTY_CACHE_HITS_COUNTER, PROPERTY_CACHE_MISSES_COUNTER,
 };
 use crate::properties::property_models::PropertyFilter;
 use crate::rayon_dispatcher::RayonDispatcher;
@@ -136,14 +138,18 @@ impl FeatureFlagMatch {
 pub struct FlagEvaluationState {
     /// The person ID associated with the distinct_id being evaluated
     person_id: Option<PersonId>,
+    /// The person UUID, needed for realtime cohort membership lookups
+    person_uuid: Option<Uuid>,
     /// Properties associated with the person, fetched from the database
     pub(crate) person_properties: Option<HashMap<String, Value>>,
     /// Properties for each group type involved in flag evaluation
     group_properties: HashMap<GroupTypeIndex, HashMap<String, Value>>,
     /// Cohorts for the current request
     cohorts: Option<Vec<Cohort>>,
-    /// Cache of static cohort membership results to avoid repeated DB lookups
-    static_cohort_matches: Option<HashMap<CohortId, bool>>,
+    /// Cache of cohort membership results (both static and realtime) to avoid repeated lookups.
+    /// Static results come from `posthog_cohortpeople`, realtime results from `cohort_membership`.
+    /// The two sources produce disjoint key sets partitioned by `CohortType`.
+    cohort_matches: Option<HashMap<CohortId, bool>>,
     /// Cache of flag evaluation results to avoid repeated DB lookups
     flag_evaluation_results: HashMap<FeatureFlagId, FlagValue>,
 }
@@ -161,12 +167,20 @@ impl FlagEvaluationState {
         &self.group_properties
     }
 
-    pub fn get_static_cohort_matches(&self) -> Option<&HashMap<CohortId, bool>> {
-        self.static_cohort_matches.as_ref()
+    pub fn get_cohort_matches(&self) -> Option<&HashMap<CohortId, bool>> {
+        self.cohort_matches.as_ref()
+    }
+
+    pub fn get_person_uuid(&self) -> Option<Uuid> {
+        self.person_uuid
     }
 
     pub fn set_person_id(&mut self, id: PersonId) {
         self.person_id = Some(id);
+    }
+
+    pub fn set_person_uuid(&mut self, uuid: Uuid) {
+        self.person_uuid = Some(uuid);
     }
 
     pub fn set_person_properties(&mut self, properties: HashMap<String, Value>) {
@@ -185,22 +199,22 @@ impl FlagEvaluationState {
         self.group_properties.insert(group_type_index, properties);
     }
 
-    pub fn set_static_cohort_matches(&mut self, matches: HashMap<CohortId, bool>) {
-        self.static_cohort_matches = Some(matches);
+    pub fn set_cohort_matches(&mut self, matches: HashMap<CohortId, bool>) {
+        self.cohort_matches = Some(matches);
+    }
+
+    /// Merge additional cohort membership results into the existing map.
+    /// Used to add realtime cohort results after static results are already set.
+    pub fn merge_cohort_matches(&mut self, additional: HashMap<CohortId, bool>) {
+        match &mut self.cohort_matches {
+            Some(existing) => existing.extend(additional),
+            None => self.cohort_matches = Some(additional),
+        }
     }
 
     pub fn add_flag_evaluation_result(&mut self, flag_id: FeatureFlagId, flag_value: FlagValue) {
         self.flag_evaluation_results.insert(flag_id, flag_value);
     }
-}
-
-/// Represents the group-related data needed for feature flag evaluation
-#[derive(Debug)]
-struct GroupEvaluationData {
-    /// Set of group type indexes required for flag evaluation
-    type_indexes: HashSet<GroupTypeIndex>,
-    /// Set of group keys that need to be evaluated
-    keys: HashSet<String>,
 }
 
 /// Evaluates feature flags for a specific user/group context.
@@ -248,6 +262,9 @@ pub struct FeatureFlagMatcher {
     /// Flag IDs that should be skipped during evaluation.
     /// Populated once per request from `FeatureFlagList::filtered_out_flag_ids`.
     pub(crate) filtered_out_flag_ids: HashSet<i32>,
+    /// Provider for realtime/behavioral cohort membership lookups.
+    /// Queries the behavioral cohorts database for cohorts with CohortType::Realtime or Behavioral.
+    cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
 }
 
 /// Lightweight snapshot of a flag's identity fields, saved before moving
@@ -290,6 +307,7 @@ impl FeatureFlagMatcher {
                 .unwrap_or_else(|| GroupTypeMappingCache::new(team_id)),
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
+            cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
             parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
             rayon_dispatcher: None,
             skip_writes: false,
@@ -309,6 +327,14 @@ impl FeatureFlagMatcher {
 
     pub fn with_skip_writes(mut self, skip_writes: bool) -> Self {
         self.skip_writes = skip_writes;
+        self
+    }
+
+    pub fn with_cohort_membership_provider(
+        mut self,
+        provider: Arc<dyn CohortMembershipProvider>,
+    ) -> Self {
+        self.cohort_membership_provider = provider;
         self
     }
 
@@ -591,10 +617,8 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Evaluates cohort filters
-    /// Uses the static cohort results from the cache, and
-    /// evaluates dynamic cohorts based on the provided properties
-    /// (converts dynamic cohorts into property filters and then evaluates them)
+    /// Evaluates cohort filters using cached membership results (both static and realtime)
+    /// and evaluates dynamic cohorts based on the provided properties.
     pub fn evaluate_cohort_filters(
         &self,
         cohort_property_filters: &[PropertyFilter],
@@ -604,14 +628,13 @@ impl FeatureFlagMatcher {
         // Track cohort evaluations in canonical log
         with_canonical_log(|log| log.eval.cohorts_evaluated += cohort_property_filters.len());
 
-        // Get cached static cohort results or evaluate them if not cached
-        let static_cohort_matches = match self.flag_evaluation_state.get_static_cohort_matches() {
+        // Get cached cohort results (static + realtime, merged during prepare_flag_evaluation_state)
+        let cached_matches = match self.flag_evaluation_state.get_cohort_matches() {
             Some(matches) => matches.clone(),
-            None => HashMap::new(), // NB: this happens if a flag has static cohort filters but is targeting an anonymous user.  Shouldn't error, just return empty.
+            None => HashMap::new(), // Happens when targeting an anonymous user with no person record
         };
 
-        // Store all cohort match results, starting with static cohort results
-        let mut cohort_matches = static_cohort_matches;
+        let mut cohort_matches = cached_matches;
 
         // For any cohorts not yet evaluated (i.e., dynamic ones), evaluate them
         for filter in cohort_property_filters {
@@ -1292,20 +1315,18 @@ impl FeatureFlagMatcher {
         // experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
         // Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
         // a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
-        if let Some(holdout_groups) = &flag.filters.holdout_groups {
-            if !holdout_groups.is_empty() {
-                let (is_match, holdout_value, evaluation_reason) =
-                    self.is_holdout_condition_match(flag, request_hash_key_override)?;
-                if is_match {
-                    let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
-                    return Ok(FeatureFlagMatch {
-                        matches: true,
-                        variant: holdout_value,
-                        reason: evaluation_reason,
-                        condition_index: None,
-                        payload,
-                    });
-                }
+        if flag.filters.holdout.is_some() || flag.filters.holdout_groups.is_some() {
+            let (is_match, holdout_value, evaluation_reason) =
+                self.is_holdout_condition_match(flag, request_hash_key_override)?;
+            if is_match {
+                let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
+                return Ok(FeatureFlagMatch {
+                    matches: true,
+                    variant: holdout_value,
+                    reason: evaluation_reason,
+                    condition_index: None,
+                    payload,
+                });
             }
         }
         let conditions: Vec<(usize, &FlagPropertyGroup)> =
@@ -1564,9 +1585,28 @@ impl FeatureFlagMatcher {
         flag: &FeatureFlag,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
-        // TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
+        // New format takes precedence: `holdout` has explicit id and exclusion_percentage.
+        // During the migration, Django writes both formats, so both may be present.
+        if let Some(holdout) = &flag.filters.holdout {
+            let percentage = holdout.exclusion_percentage.clamp(0.0, 100.0);
 
-        if let Some(holdout_groups) = &flag.filters.holdout_groups {
+            if percentage < 100.0
+                && self.get_holdout_hash(flag, None, request_hash_key_override)?
+                    > (percentage / 100.0)
+            {
+                // User's hash is above the exclusion threshold — not in holdout
+                return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
+            }
+
+            // User is in holdout — variant name is derived from the holdout id
+            return Ok((
+                true,
+                Some(format!("holdout-{}", holdout.id)),
+                FeatureFlagMatchReason::HoldoutConditionValue,
+            ));
+        }
+        // Legacy format fallback: original holdout_groups logic, unchanged.
+        else if let Some(holdout_groups) = &flag.filters.holdout_groups {
             if !holdout_groups.is_empty() {
                 let condition = &holdout_groups[0];
                 // TODO: Check properties and match based on them
@@ -1830,6 +1870,7 @@ impl FeatureFlagMatcher {
     /// Prepares all database-sourced data needed for flag evaluation.
     /// This includes:
     /// - Static cohort memberships
+    /// - Realtime cohort memberships (via behavioral cohorts database)
     /// - Group type mappings
     /// - Person and group properties
     ///
@@ -1844,6 +1885,8 @@ impl FeatureFlagMatcher {
         self.flag_evaluation_state.set_cohorts(cohorts.clone());
 
         // Get static cohort IDs
+        // NOTE: relies on `is_static` and `uses_realtime_membership()` being mutually exclusive
+        // (a cohort with is_static=true should never have CohortType::Realtime/Behavioral).
         let static_cohort_ids: Vec<CohortId> = cohorts
             .iter()
             .filter(|c| c.is_static)
@@ -1863,8 +1906,7 @@ impl FeatureFlagMatcher {
             self.router.get_persons_reader().clone(),
             self.distinct_id.clone(),
             self.team_id,
-            &group_data.type_indexes,
-            &group_data.keys,
+            &group_data,
             static_cohort_ids,
         )
         .await
@@ -1872,7 +1914,6 @@ impl FeatureFlagMatcher {
             Ok(_) => {
                 inc(DB_PERSON_AND_GROUP_PROPERTIES_READS_COUNTER, &[], 1);
                 db_fetch_timer.label("outcome", "success").fin();
-                Ok(())
             }
             Err(e) => {
                 error!(
@@ -1880,57 +1921,113 @@ impl FeatureFlagMatcher {
                     self.team_id, self.distinct_id, e
                 );
                 db_fetch_timer.label("outcome", "error").fin();
-                Err(e)
+                return Err(e);
             }
         }
+
+        // Fetch realtime cohort memberships for Realtime/Behavioral cohorts.
+        // This is a separate DB call to the behavioral cohorts database, isolated from
+        // the static cohort path above which uses the persons_reader pool.
+        let realtime_cohort_ids: Vec<CohortId> = cohorts
+            .iter()
+            .filter(|c| c.uses_realtime_membership())
+            .map(|c| c.id)
+            .collect();
+
+        if !realtime_cohort_ids.is_empty() {
+            with_canonical_log(|log| {
+                log.realtime_cohorts_evaluated += realtime_cohort_ids.len();
+            });
+
+            let all_non_member = || -> HashMap<CohortId, bool> {
+                realtime_cohort_ids.iter().map(|id| (*id, false)).collect()
+            };
+
+            let realtime_memberships = if let Some(person_uuid) =
+                self.flag_evaluation_state.get_person_uuid()
+            {
+                let query_labels = [("team_id".to_string(), self.team_id.to_string())];
+                let realtime_timer = timing_guard(FLAG_REALTIME_COHORT_QUERY_TIME, &query_labels);
+                let realtime_start = std::time::Instant::now();
+
+                let result = self
+                    .cohort_membership_provider
+                    .check_memberships(self.team_id, person_uuid, &realtime_cohort_ids)
+                    .await;
+
+                let duration = realtime_start.elapsed();
+                realtime_timer.fin();
+                with_canonical_log(|log| {
+                    log.realtime_cohort_queries += 1;
+                    log.realtime_cohort_query_time_ms += duration.as_millis() as u64;
+                });
+
+                match result {
+                    Ok(memberships) => memberships,
+                    Err(e) => {
+                        inc(FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, &query_labels, 1);
+                        warn!(
+                            team_id = self.team_id,
+                            person_uuid = %person_uuid,
+                            realtime_cohort_count = realtime_cohort_ids.len(),
+                            error = %e,
+                            "Realtime cohort membership lookup failed, treating all as non-members"
+                        );
+                        // Graceful degradation: treat all realtime cohorts as non-members
+                        all_non_member()
+                    }
+                }
+            } else {
+                // No person UUID available (anonymous user). Realtime cohorts return false.
+                all_non_member()
+            };
+
+            self.flag_evaluation_state
+                .merge_cohort_matches(realtime_memberships);
+        }
+
+        Ok(())
     }
 
-    /// Analyzes flags and prepares required group type data for flag evaluation.
-    /// This includes:
-    /// - Extracting required group type indexes from flags
-    /// - Mapping group names to group_type_index and group_keys
+    /// Builds a paired mapping from group type index to group key for flag
+    /// evaluation, filtered to only the group types required by the given flags.
     fn prepare_group_data(
         &mut self,
         flags: &[&FeatureFlag],
-    ) -> Result<GroupEvaluationData, FlagError> {
-        // Extract required group type indexes from flags
-        let type_indexes: HashSet<GroupTypeIndex> = flags
+    ) -> Result<HashMap<GroupTypeIndex, String>, FlagError> {
+        let required_type_indexes: HashSet<GroupTypeIndex> = flags
             .iter()
             .filter_map(|flag| flag.get_group_type_index())
             .collect();
 
-        // Map group names to group_type_index and group_keys
-        let group_type_to_key_map: HashMap<GroupTypeIndex, String> = self
+        if required_type_indexes.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let types_to_indexes = match self.group_type_mapping_cache.get_group_types_to_indexes() {
+            Ok(map) => map,
+            Err(FlagError::NoGroupTypeMappings) => return Ok(HashMap::new()),
+            Err(e) => return Err(e),
+        };
+
+        let group_type_to_key: HashMap<GroupTypeIndex, String> = self
             .groups
             .iter()
             .filter_map(|(group_type, group_key_value)| {
                 let group_key = match group_key_value {
                     Value::String(s) => s.clone(),
                     Value::Number(n) => n.to_string(),
-                    _ => return None, // Skip non-string, non-number group keys
+                    _ => return None,
                 };
-                self.group_type_mapping_cache
-                    .get_group_types_to_indexes()
-                    .ok()?
+                types_to_indexes
                     .get(group_type)
                     .cloned()
+                    .filter(|idx| required_type_indexes.contains(idx))
                     .map(|group_type_index| (group_type_index, group_key))
             })
             .collect();
 
-        // Extract group_keys that are relevant to the required group_type_indexes
-        let keys: HashSet<String> = group_type_to_key_map
-            .iter()
-            .filter_map(|(group_type_index, group_key)| {
-                if type_indexes.contains(group_type_index) {
-                    Some(group_key.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Ok(GroupEvaluationData { type_indexes, keys })
+        Ok(group_type_to_key)
     }
 
     /// Get person properties from the `FlagEvaluationState` only, returning empty HashMap if not found.

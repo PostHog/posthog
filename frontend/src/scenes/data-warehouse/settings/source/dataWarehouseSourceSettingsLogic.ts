@@ -130,14 +130,16 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             [] as ExternalDataJob[],
             {
                 loadJobs: async () => {
+                    const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
+
                     if (values.jobs.length === 0) {
-                        return await api.externalDataSources.jobs(values.sourceId, null, null)
+                        return await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
                     }
 
                     // Re-fetch recent jobs without an `after` filter to get updated statuses.
                     // The API returns up to 50 jobs sorted by created_at desc, so this
                     // will refresh the status of recent jobs (e.g. Running -> Completed).
-                    const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null)
+                    const freshJobs = await api.externalDataSources.jobs(values.sourceId, null, null, schemas)
 
                     // Merge fresh jobs with existing jobs, preferring the fresh data
                     const jobsById = new Map(values.jobs.map((job) => [job.id, job]))
@@ -151,10 +153,16 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
                     )
                 },
                 loadMoreJobs: async () => {
-                    const hasJobs = values.jobs.length >= 0
+                    const schemas = values.selectedSchemas.length > 0 ? values.selectedSchemas : undefined
+                    const hasJobs = values.jobs.length > 0
                     if (hasJobs) {
                         const lastJobCreatedAt = values.jobs[values.jobs.length - 1].created_at
-                        const oldJobs = await api.externalDataSources.jobs(values.sourceId, lastJobCreatedAt, null)
+                        const oldJobs = await api.externalDataSources.jobs(
+                            values.sourceId,
+                            lastJobCreatedAt,
+                            null,
+                            schemas
+                        )
 
                         if (oldJobs.length === 0) {
                             actions.setCanLoadMoreJobs(false)
@@ -197,6 +205,7 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
         ],
         showEnabledSchemasOnly: [
             false as boolean,
+            { persist: true },
             {
                 setShowEnabledSchemasOnly: (_, { showEnabledSchemasOnly }) => showEnabledSchemasOnly,
             },
@@ -364,6 +373,13 @@ export const dataWarehouseSourceSettingsLogic = kea<dataWarehouseSourceSettingsL
             } finally {
                 actions.setRefreshingSchemas(false)
             }
+        },
+        setSelectedSchemas: () => {
+            // Reset jobs so loadJobs fetches fresh data for the new filter
+            // instead of merging with stale results from a different selection
+            actions.loadJobsSuccess([])
+            actions.setCanLoadMoreJobs(true)
+            actions.loadJobs()
         },
         loadJobsSuccess: () => {
             cache.disposables.add(() => {

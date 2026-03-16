@@ -235,6 +235,7 @@ class FeatureFlagMatcher:
         # experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
         # Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
         # a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
+        # TODO: when Phase 5 drops holdout_groups, update this gate and is_holdout_condition_match together to read holdout
         if feature_flag.filters.get("holdout_groups", None):
             (
                 is_match,

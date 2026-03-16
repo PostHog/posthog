@@ -272,7 +272,7 @@ exports[`marketing analytics utils createMarketingTile snapshots GoogleAds - roa
 
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - clicks 1`] = `
 {
-  "custom_name": "prefix.campaign_stats clicks",
+  "custom_name": "prefix.campaign_group_stats clicks",
   "distinct_id_field": "id",
   "id": "LinkedinAds-stats-table-id",
   "id_field": "id",
@@ -280,14 +280,14 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - c
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(clicks), 0))",
   "name": "linkedin",
-  "table_name": "prefix.campaign_stats",
+  "table_name": "prefix.campaign_group_stats",
   "timestamp_field": "date_start",
 }
 `;
 
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - cost 1`] = `
 {
-  "custom_name": "prefix.campaign_stats cost",
+  "custom_name": "prefix.campaign_group_stats cost",
   "distinct_id_field": "id",
   "id": "LinkedinAds-stats-table-id",
   "id_field": "id",
@@ -295,14 +295,14 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - c
   "math": "hogql",
   "math_hogql": "toFloat(convertCurrency('USD', 'USD', SUM(toFloat(cost_in_usd))))",
   "name": "linkedin",
-  "table_name": "prefix.campaign_stats",
+  "table_name": "prefix.campaign_group_stats",
   "timestamp_field": "date_start",
 }
 `;
 
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - impressions 1`] = `
 {
-  "custom_name": "prefix.campaign_stats impressions",
+  "custom_name": "prefix.campaign_group_stats impressions",
   "distinct_id_field": "id",
   "id": "LinkedinAds-stats-table-id",
   "id_field": "id",
@@ -310,14 +310,14 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - i
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(impressions), 0))",
   "name": "linkedin",
-  "table_name": "prefix.campaign_stats",
+  "table_name": "prefix.campaign_group_stats",
   "timestamp_field": "date_start",
 }
 `;
 
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - reported_conversion (missing conversion fields) 1`] = `
 {
-  "custom_name": "prefix.campaign_stats reported_conversion",
+  "custom_name": "prefix.campaign_group_stats reported_conversion",
   "distinct_id_field": "id",
   "id": "LinkedinAds-stats-table-id",
   "id_field": "id",
@@ -325,14 +325,14 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - r
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(external_website_conversions), 0))",
   "name": "linkedin",
-  "table_name": "prefix.campaign_stats",
+  "table_name": "prefix.campaign_group_stats",
   "timestamp_field": "date_start",
 }
 `;
 
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - reported_conversion 1`] = `
 {
-  "custom_name": "prefix.campaign_stats reported_conversion",
+  "custom_name": "prefix.campaign_group_stats reported_conversion",
   "distinct_id_field": "id",
   "id": "LinkedinAds-stats-table-id",
   "id_field": "id",
@@ -340,14 +340,14 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - r
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(external_website_conversions), 0))",
   "name": "linkedin",
-  "table_name": "prefix.campaign_stats",
+  "table_name": "prefix.campaign_group_stats",
   "timestamp_field": "date_start",
 }
 `;
 
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - reported_conversion_value (missing conversion fields) 1`] = `
 {
-  "custom_name": "prefix.campaign_stats reported_conversion_value",
+  "custom_name": "prefix.campaign_group_stats reported_conversion_value",
   "distinct_id_field": "id",
   "id": "LinkedinAds-stats-table-id",
   "id_field": "id",
@@ -355,14 +355,14 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - r
   "math": "hogql",
   "math_hogql": "0",
   "name": "linkedin",
-  "table_name": "prefix.campaign_stats",
+  "table_name": "prefix.campaign_group_stats",
   "timestamp_field": "date_start",
 }
 `;
 
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - reported_conversion_value 1`] = `
 {
-  "custom_name": "prefix.campaign_stats reported_conversion_value",
+  "custom_name": "prefix.campaign_group_stats reported_conversion_value",
   "distinct_id_field": "id",
   "id": "LinkedinAds-stats-table-id",
   "id_field": "id",
@@ -370,14 +370,14 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - r
   "math": "hogql",
   "math_hogql": "toFloat(convertCurrency('USD', 'USD', SUM(ifNull(toFloat(conversion_value_in_local_currency), 0))))",
   "name": "linkedin",
-  "table_name": "prefix.campaign_stats",
+  "table_name": "prefix.campaign_group_stats",
   "timestamp_field": "date_start",
 }
 `;
 
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - roas (missing conversion fields) 1`] = `
 {
-  "custom_name": "prefix.campaign_stats roas",
+  "custom_name": "prefix.campaign_group_stats roas",
   "distinct_id_field": "id",
   "id": "LinkedinAds-stats-table-id",
   "id_field": "id",
@@ -385,14 +385,14 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - r
   "math": "hogql",
   "math_hogql": "0",
   "name": "linkedin",
-  "table_name": "prefix.campaign_stats",
+  "table_name": "prefix.campaign_group_stats",
   "timestamp_field": "date_start",
 }
 `;
 
 exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - roas 1`] = `
 {
-  "custom_name": "prefix.campaign_stats roas",
+  "custom_name": "prefix.campaign_group_stats roas",
   "distinct_id_field": "id",
   "id": "LinkedinAds-stats-table-id",
   "id_field": "id",
@@ -400,7 +400,7 @@ exports[`marketing analytics utils createMarketingTile snapshots LinkedinAds - r
   "math": "hogql",
   "math_hogql": "SUM(ifNull(toFloat(conversion_value_in_local_currency), 0)) / nullIf(SUM(toFloat(cost_in_usd)), 0)",
   "name": "linkedin",
-  "table_name": "prefix.campaign_stats",
+  "table_name": "prefix.campaign_group_stats",
   "timestamp_field": "date_start",
 }
 `;
@@ -473,7 +473,7 @@ exports[`marketing analytics utils createMarketingTile snapshots MetaAds - repor
   "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
-  "math_hogql": "SUM(if(arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(actions, '[]')))) > 0, arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(actions, '[]')))), arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('purchase', 'offsite_conversion.fb_pixel_purchase', 'app_custom_event.fb_mobile_purchase', 'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped', 'complete_registration', 'offsite_conversion.fb_pixel_complete_registration', 'app_custom_event.fb_mobile_complete_registration', 'offsite_complete_registration_add_meta_leads', 'app_install', 'mobile_app_install', 'subscribe', 'offsite_conversion.fb_pixel_subscribe'), JSONExtractArrayRaw(coalesce(actions, '[]'))))))",
+  "math_hogql": "SUM(if(arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(actions, '[]')))) > 0, arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(actions, '[]')))), arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('purchase', 'lead', 'complete_registration', 'app_install', 'subscribe'), JSONExtractArrayRaw(coalesce(actions, '[]'))))))",
   "name": "meta",
   "table_name": "prefix.campaign_stats",
   "timestamp_field": "date_stop",
@@ -503,7 +503,7 @@ exports[`marketing analytics utils createMarketingTile snapshots MetaAds - repor
   "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
-  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(account_currency, 'USD'), 'USD', if(arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))) > 0, arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))), arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('purchase', 'offsite_conversion.fb_pixel_purchase', 'app_custom_event.fb_mobile_purchase', 'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped', 'complete_registration', 'offsite_conversion.fb_pixel_complete_registration', 'app_custom_event.fb_mobile_complete_registration', 'offsite_complete_registration_add_meta_leads', 'app_install', 'mobile_app_install', 'subscribe', 'offsite_conversion.fb_pixel_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]'))))))))",
+  "math_hogql": "SUM(toFloat(convertCurrency(coalesce(account_currency, 'USD'), 'USD', if(arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))) > 0, arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))), arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('purchase', 'lead', 'complete_registration', 'app_install', 'subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]'))))))))",
   "name": "meta",
   "table_name": "prefix.campaign_stats",
   "timestamp_field": "date_stop",
@@ -533,7 +533,7 @@ exports[`marketing analytics utils createMarketingTile snapshots MetaAds - roas 
   "id_field": "campaign_id",
   "kind": "DataWarehouseNode",
   "math": "hogql",
-  "math_hogql": "SUM(if(arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))) > 0, arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))), arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('purchase', 'offsite_conversion.fb_pixel_purchase', 'app_custom_event.fb_mobile_purchase', 'lead', 'offsite_conversion.fb_pixel_lead', 'onsite_conversion.lead_grouped', 'complete_registration', 'offsite_conversion.fb_pixel_complete_registration', 'app_custom_event.fb_mobile_complete_registration', 'offsite_complete_registration_add_meta_leads', 'app_install', 'mobile_app_install', 'subscribe', 'offsite_conversion.fb_pixel_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))))) / nullIf(SUM(toFloat(spend)), 0)",
+  "math_hogql": "SUM(if(arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))) > 0, arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('omni_purchase', 'omni_lead', 'omni_complete_registration', 'omni_app_install', 'omni_subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))), arraySum(x -> JSONExtractFloat(x, 'value'), arrayFilter(x -> JSONExtractString(x, 'action_type') IN ('purchase', 'lead', 'complete_registration', 'app_install', 'subscribe'), JSONExtractArrayRaw(coalesce(action_values, '[]')))))) / nullIf(SUM(toFloat(spend)), 0)",
   "name": "meta",
   "table_name": "prefix.campaign_stats",
   "timestamp_field": "date_stop",

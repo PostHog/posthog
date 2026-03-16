@@ -37,6 +37,7 @@ from posthog.models.activity_logging.activity_log import (
 )
 from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.data_color_theme import DataColorTheme
+from posthog.models.evaluation_context import EvaluationContext, TeamDefaultEvaluationContext, normalize_context_name
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.feature_flag import TeamDefaultEvaluationTag
 from posthog.models.group_type_mapping import get_group_types_for_project
@@ -1376,6 +1377,88 @@ class TeamViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.Mo
         )
 
         return response.Response({"enabled": config.enabled, "default_groups": config.default_groups})
+
+    @action(
+        methods=["GET", "POST", "DELETE"],
+        detail=True,
+        permission_classes=[IsAuthenticated],
+    )
+    def default_evaluation_contexts(self, request: request.Request, id: str, **kwargs) -> response.Response:
+        """Manage default evaluation contexts for a team."""
+        team = self.get_object()
+
+        if request.method == "GET":
+            defaults = TeamDefaultEvaluationContext.objects.filter(team=team).select_related("evaluation_context")
+            defaults_data = [{"id": d.id, "name": d.evaluation_context.name} for d in defaults]
+            all_contexts = list(
+                EvaluationContext.objects.filter(team=team).values_list("name", flat=True).order_by("name")
+            )
+            return response.Response(
+                {
+                    "default_evaluation_contexts": defaults_data,
+                    "available_contexts": all_contexts,
+                    "enabled": team.default_evaluation_contexts_enabled,
+                }
+            )
+
+        elif request.method == "POST":
+            context_name = request.data.get("context_name", "")
+            if not isinstance(context_name, str):
+                return response.Response({"error": "context_name must be a string"}, status=400)
+            context_name = normalize_context_name(context_name)
+            if not context_name:
+                return response.Response({"error": "context_name is required"}, status=400)
+            if len(context_name) > 255:
+                return response.Response({"error": "context_name must be at most 255 characters"}, status=400)
+
+            with transaction.atomic():
+                existing = list(TeamDefaultEvaluationContext.objects.filter(team=team).select_for_update())
+                if len(existing) >= 10:
+                    return response.Response({"error": "Maximum of 10 default evaluation contexts allowed"}, status=400)
+
+                ctx, _ = EvaluationContext.objects.get_or_create(name=context_name, team=team)
+                default_ctx, created = TeamDefaultEvaluationContext.objects.get_or_create(
+                    team=team, evaluation_context=ctx
+                )
+
+                if created:
+                    report_user_action(
+                        cast(User, request.user),
+                        "default evaluation context added",
+                        {"team_id": team.id, "context_name": context_name},
+                        team=team,
+                        request=request,
+                    )
+
+            return response.Response({"id": default_ctx.id, "name": ctx.name, "created": created})
+
+        else:  # DELETE
+            context_name = request.data.get("context_name", "") or request.GET.get("context_name", "")
+            if not isinstance(context_name, str):
+                return response.Response({"error": "context_name must be a string"}, status=400)
+            context_name = normalize_context_name(context_name)
+            if not context_name:
+                return response.Response({"error": "context_name is required"}, status=400)
+
+            with transaction.atomic():
+                try:
+                    ctx = EvaluationContext.objects.get(name=context_name, team=team)
+                    deleted_count, _ = TeamDefaultEvaluationContext.objects.filter(
+                        team=team, evaluation_context=ctx
+                    ).delete()
+
+                    if deleted_count > 0:
+                        report_user_action(
+                            cast(User, request.user),
+                            "default evaluation context removed",
+                            {"team_id": team.id, "context_name": context_name},
+                            team=team,
+                            request=request,
+                        )
+
+                    return response.Response({"success": True})
+                except EvaluationContext.DoesNotExist:
+                    return response.Response({"error": "Evaluation context not found"}, status=404)
 
     @action(
         methods=["GET"],

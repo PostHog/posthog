@@ -43,12 +43,15 @@ from ee.hogai.core.base import BaseAssistantGraph
 from ee.hogai.core.stream_processor import AssistantStreamProcessorProtocol
 from ee.hogai.tool import ApprovalRequest
 from ee.hogai.utils.exceptions import (
+    HTTPX_TRANSPORT_EXCEPTIONS,
     LLM_API_EXCEPTIONS,
     LLM_CLIENT_ERROR_COUNTER,
     LLM_CLIENT_EXCEPTIONS,
     LLM_PROVIDER_ERROR_COUNTER,
     LLM_TRANSIENT_EXCEPTIONS,
+    LLM_TRANSPORT_ERROR_COUNTER,
     GenerationCanceled,
+    resolve_llm_provider,
 )
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 from ee.hogai.utils.helpers import extract_stream_update
@@ -298,7 +301,7 @@ class BaseAgentRunner(ABC):
                 # Client/validation errors (400, 422) - these won't resolve on retry
                 if self._use_checkpointer:
                     await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                provider = type(e).__module__.partition(".")[0] or "unknown_provider"
+                provider = resolve_llm_provider(e)
                 LLM_CLIENT_ERROR_COUNTER.labels(provider=provider).inc()
                 logger.exception("llm_client_error", error=str(e), provider=provider)
                 posthoganalytics.capture_exception(
@@ -318,11 +321,35 @@ class BaseAgentRunner(ABC):
                     ),
                 )
                 return  # Don't run interrupt handling after client errors
+            except HTTPX_TRANSPORT_EXCEPTIONS as e:
+                # Network-level transport errors (not LLM provider errors).
+                # Tracked on a separate counter to avoid false provider alerts.
+                if self._use_checkpointer:
+                    await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
+                error_type = type(e).__name__
+                LLM_TRANSPORT_ERROR_COUNTER.labels(error_type=error_type).inc()
+                logger.exception("llm_transport_error", error=str(e), error_type=error_type)
+                posthoganalytics.capture_exception(
+                    e,
+                    distinct_id=self._user.distinct_id if self._user else None,
+                    properties={
+                        "error_type": "llm_transport_error",
+                        "tag": "max_ai",
+                    },
+                )
+                yield (
+                    AssistantEventType.MESSAGE,
+                    FailureMessage(
+                        content="I'm unable to respond right now due to a temporary service issue. Please try again later.",
+                        id=str(uuid4()),
+                    ),
+                )
+                return  # Don't run interrupt handling after transport errors
             except LLM_TRANSIENT_EXCEPTIONS as e:
                 # Transient errors (5xx, rate limits, timeouts) - may resolve on retry
                 if self._use_checkpointer:
                     await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                provider = type(e).__module__.partition(".")[0] or "unknown_provider"
+                provider = resolve_llm_provider(e)
                 LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
                 logger.exception("llm_provider_error", error=str(e), provider=provider)
                 posthoganalytics.capture_exception(
@@ -346,7 +373,7 @@ class BaseAgentRunner(ABC):
                 # Catch-all for other API errors (auth errors, etc.)
                 if self._use_checkpointer:
                     await self._graph.aupdate_state(config, self._partial_state_type.get_reset_state())
-                provider = type(e).__module__.partition(".")[0] or "unknown_provider"
+                provider = resolve_llm_provider(e)
                 LLM_PROVIDER_ERROR_COUNTER.labels(provider=provider).inc()
                 logger.exception("llm_api_error", error=str(e), provider=provider)
                 posthoganalytics.capture_exception(

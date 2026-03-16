@@ -29,6 +29,6 @@ class TestDefaultWarehouseWebhookTemplate(BaseHogFunctionTemplateTest):
             ("empty_object", {}),
         ]
     )
-    def test_returns_request_body_as_is(self, _name, body):
-        res = self.run_function(inputs={}, globals={"request": {"body": body}})
-        assert res.result == body
+    def test_produces_request_body_to_warehouse(self, _name, body):
+        self.run_function(inputs={}, globals={"request": {"body": body}})
+        self.mock_produce_to_warehouse_webhooks.assert_called_once_with(body)

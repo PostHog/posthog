@@ -13,6 +13,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
 logger = get_write_only_logger()
@@ -100,6 +101,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
 
 class PostHogClientInterceptor(Interceptor):
     """PostHog Interceptor class which will report workflow & activity exceptions to PostHog"""
+
+    task_queue = ALL_TASK_QUEUES
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         """Implementation of

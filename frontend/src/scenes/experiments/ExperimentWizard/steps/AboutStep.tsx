@@ -1,12 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { LemonInput, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, Link } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { slugifyFeatureFlagKey } from 'scenes/feature-flags/featureFlagLogic'
+
+import type { FeatureFlagType } from '~/types'
 
 import { SelectExistingFeatureFlagModal } from '../../ExperimentForm/SelectExistingFeatureFlagModal'
 import { selectExistingFeatureFlagModalLogic } from '../../ExperimentForm/selectExistingFeatureFlagModalLogic'
@@ -37,11 +39,22 @@ export function AboutStep(): JSX.Element {
 
     const isDeparted = !!departedSteps.about
     const nameError = isDeparted && !experiment.name?.trim() ? 'Name is required' : undefined
+
+    const existingFlag = featureFlagKeyValidation?.existingFlag
     const featureFlagKeyError =
         (!linkedFeatureFlag && featureFlagKeyValidation?.valid === false
             ? featureFlagKeyValidation.error
             : undefined) ??
         (isDeparted && !experiment.feature_flag_key?.trim() ? 'Feature flag key is required' : undefined)
+
+    const linkExistingFlag = (flag: FeatureFlagType): void => {
+        setLinkedFeatureFlag(flag)
+        clearFeatureFlagKeyValidation()
+        setFeatureFlagConfig({
+            feature_flag_key: flag.key,
+            feature_flag_variants: flag.filters?.multivariate?.variants || [],
+        })
+    }
 
     return (
         <div className="space-y-6">
@@ -105,6 +118,24 @@ export function AboutStep(): JSX.Element {
                         </div>
                     }
                     error={featureFlagKeyError}
+                    renderError={
+                        existingFlag
+                            ? (error) => (
+                                  <div className="text-danger flex items-center gap-1 text-sm">
+                                      {error}{' '}
+                                      <LemonButton
+                                          type="secondary"
+                                          size="xsmall"
+                                          onClick={() => linkExistingFlag(existingFlag)}
+                                          data-attr="experiment-wizard-link-existing-flag"
+                                      >
+                                          Use this flag
+                                      </LemonButton>
+                                  </div>
+                              )
+                            : // undefined results in using default error rendering
+                              undefined
+                    }
                 >
                     <LemonInput
                         placeholder="e.g., new-checkout-flow-test"
@@ -124,12 +155,7 @@ export function AboutStep(): JSX.Element {
             <SelectExistingFeatureFlagModal
                 onClose={closeSelectExistingFeatureFlagModal}
                 onSelect={(flag) => {
-                    setLinkedFeatureFlag(flag)
-                    clearFeatureFlagKeyValidation()
-                    setFeatureFlagConfig({
-                        feature_flag_key: flag.key,
-                        feature_flag_variants: flag.filters?.multivariate?.variants || [],
-                    })
+                    linkExistingFlag(flag)
                     closeSelectExistingFeatureFlagModal()
                 }}
             />

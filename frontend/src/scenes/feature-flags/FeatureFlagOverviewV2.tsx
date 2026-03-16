@@ -17,7 +17,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
 import { EditableOverviewSection } from './EditableOverviewSection'
-import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
@@ -35,17 +35,22 @@ interface FeatureFlagOverviewV2Props {
 
 interface TagsDisplayProps {
     tags: string[]
-    evaluationTags: string[]
+    evaluationContexts: string[]
     flagId: number | null
-    hasEvaluationTags: boolean
+    hasEvaluationContexts: boolean
 }
 
-function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDisplayProps): JSX.Element {
-    const hasTags = tags.length > 0 || evaluationTags.length > 0
+function TagsDisplay({ tags, evaluationContexts, flagId, hasEvaluationContexts }: TagsDisplayProps): JSX.Element {
+    const hasTags = tags.length > 0 || evaluationContexts.length > 0
 
-    if (hasEvaluationTags && hasTags) {
+    if (hasEvaluationContexts && hasTags) {
         return (
-            <FeatureFlagEvaluationTags tags={tags} evaluationTags={evaluationTags} flagId={flagId} context="static" />
+            <FeatureFlagEvaluationContexts
+                tags={tags}
+                evaluationContexts={evaluationContexts}
+                flagId={flagId}
+                context="static"
+            />
         )
     }
 
@@ -201,14 +206,12 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <div className="font-semibold">Advanced options</div>
 
                             <div className="flex flex-col gap-2">
-                                <label className="text-sm font-medium">
-                                    {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
-                                </label>
+                                {!hasEvaluationTags && <label className="text-sm font-medium">Tags</label>}
                                 <TagsDisplay
                                     tags={featureFlag.tags || []}
-                                    evaluationTags={featureFlag.evaluation_tags || []}
+                                    evaluationContexts={featureFlag.evaluation_contexts || []}
                                     flagId={featureFlag.id}
-                                    hasEvaluationTags={hasEvaluationTags}
+                                    hasEvaluationContexts={hasEvaluationTags}
                                 />
                             </div>
 

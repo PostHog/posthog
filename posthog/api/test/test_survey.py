@@ -2099,6 +2099,7 @@ class TestSurvey(APIBaseTest):
                         "version": ANY,  # Add version field with ANY matcher
                         "evaluation_runtime": "all",
                         "evaluation_tags": [],
+                        "evaluation_contexts": [],
                         "bucketing_identifier": "distinct_id",
                     },
                     "linked_flag": None,

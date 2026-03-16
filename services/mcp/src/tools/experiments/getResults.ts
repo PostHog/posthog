@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { EXPERIMENT_RESULTS_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import type { ExperimentResultsSummary } from '@/schema/experiments'
 import { transformExperimentResults } from '@/schema/experiments'
 import { ExperimentResultsGetSchema } from '@/schema/tool-inputs'
@@ -8,7 +9,7 @@ import type { Context, ToolBase } from '@/tools/types'
 const schema = ExperimentResultsGetSchema
 
 type Params = z.infer<typeof schema>
-type Result = ExperimentResultsSummary
+type Result = ExperimentResultsSummary & { _posthogUrl: string }
 
 /**
  * Get experiment results including metrics and exposures data
@@ -32,18 +33,26 @@ export const getResultsHandler: ToolBase<typeof schema, Result>['handler'] = asy
 
     const { experiment, primaryMetricsResults, secondaryMetricsResults, exposures } = result.data
 
-    return transformExperimentResults({
-        experiment,
-        primaryMetricsResults,
-        secondaryMetricsResults,
-        exposures,
-    })
+    return {
+        ...transformExperimentResults({
+            experiment,
+            primaryMetricsResults,
+            secondaryMetricsResults,
+            exposures,
+        }),
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/experiments/${params.experimentId}`,
+    }
 }
 
 const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'experiment-results-get',
     schema,
     handler: getResultsHandler,
+    _meta: {
+        ui: {
+            resourceUri: EXPERIMENT_RESULTS_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool

@@ -28,6 +28,7 @@ import { isKeyOf } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
 import { ProxyRecord, proxyLogic } from './proxyLogic'
+import { ProxySDKSetup } from './ProxySDKSetup'
 
 const statusText = {
     valid: 'live',
@@ -50,6 +51,7 @@ export function ManagedReverseProxy(): JSX.Element {
     const maxRecordsReached = proxyRecords.length >= maxProxyRecords
 
     const recordsWithMessages = proxyRecords.filter((record) => !!record.message)
+    const validProxyRecords = proxyRecords.filter((record) => record.status === 'valid')
 
     const columns: LemonTableColumns<ProxyRecord> = [
         {
@@ -164,10 +166,21 @@ export function ManagedReverseProxy(): JSX.Element {
 
             <WaitingRecords />
 
+            {validProxyRecords.length > 0 && (
+                <div className="flex flex-col gap-2 bg-surface-primary rounded border my-4 px-5 py-4">
+                    <div className="text-xl font-semibold leading-tight">Update your SDK configuration</div>
+                    <p className="text-secondary">
+                        Now that your proxy is live, update your SDK initialization to send data through your custom
+                        domain.
+                    </p>
+                    <ProxySDKSetup />
+                </div>
+            )}
+
             {formState === 'collapsed' ? (
                 maxRecordsReached ? (
                     <LemonBanner type="info">
-                        There is a maximum of {maxProxyRecords} records allowed per organization.
+                        There is a maximum of {maxProxyRecords} proxy records allowed per organization.
                     </LemonBanner>
                 ) : (
                     <div className="flex">

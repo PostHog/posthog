@@ -59,8 +59,6 @@ from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 from products.data_warehouse.backend.models import DataWarehouseCredential, DataWarehouseTable
-from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
-from products.data_warehouse.backend.types import ExternalDataSourceType
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import (
@@ -4321,31 +4319,6 @@ class TestPostgresPrinter(BaseTest):
         self.assertNotIn("team_id", postgres)
         self.assertNotEqual(postgres, clickhouse)
 
-    def test_prints_direct_postgres_tables(self):
-        source = ExternalDataSource.objects.create(
-            source_id="source-id",
-            connection_id="connection-id",
-            destination_id="destination-id",
-            team=self.team,
-            sync_frequency=ExternalDataSource.SyncFrequency.DAILY,
-            status=ExternalDataSource.Status.COMPLETED,
-            source_type=ExternalDataSourceType.POSTGRES,
-            prefix="Readable Name",
-            access_method=ExternalDataSource.AccessMethod.DIRECT,
-        )
-        DataWarehouseTable.objects.create(
-            name="accounts",
-            format=DataWarehouseTable.TableFormat.Parquet,
-            team=self.team,
-            external_data_source=source,
-            columns={"id": {"clickhouse": "String", "hogql": "StringDatabaseField"}},
-        )
-
-        self.assertEqual(
-            self._select("SELECT id FROM accounts"),
-            "SELECT accounts.id FROM public.accounts AS accounts LIMIT 50000",
-        )
-
     def test_boolean_and_null_literals(self):
         self.assertEqual(self._expr("true"), "true")
         self.assertEqual(self._expr("false"), "false")
@@ -4371,10 +4344,96 @@ class TestPostgresPrinter(BaseTest):
     def test_simple_identifiers_render_without_quotes(self):
         self.assertEqual(self._expr("count(id)"), "count(id)")
 
+    @parameterized.expand(
+        [
+            ("toStartOfSecond(timestamp)", "date_trunc('second', events.timestamp)"),
+            ("toStartOfMinute(timestamp)", "date_trunc('minute', events.timestamp)"),
+            ("toStartOfHour(timestamp)", "date_trunc('hour', events.timestamp)"),
+            ("toStartOfDay(timestamp)", "date_trunc('day', events.timestamp)"),
+            ("toStartOfMonth(timestamp)", "date_trunc('month', events.timestamp)"),
+            ("toStartOfQuarter(timestamp)", "date_trunc('quarter', events.timestamp)"),
+            ("toStartOfYear(timestamp)", "date_trunc('year', events.timestamp)"),
+            (
+                "toStartOfISOYear(timestamp)",
+                "date_trunc('week', make_date(extract(isoyear from events.timestamp)::int, 1, 4)::timestamp)",
+            ),
+        ]
+    )
+    def test_to_start_of_functions_render_as_date_trunc(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_to_start_of_week_defaults_to_sunday_in_postgres(self):
+        self.assertEqual(
+            self._expr("toStartOfWeek(timestamp)"),
+            "(date_trunc('week', (events.timestamp + interval '1 day')) - interval '1 day')",
+        )
+
+    def test_to_start_of_week_uses_project_week_start_day_in_postgres(self):
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            database=Database(week_start_day=WeekStartDay.MONDAY),
+        )
+
+        self.assertEqual(self._expr("toStartOfWeek(timestamp)", context), "date_trunc('week', events.timestamp)")
+
+    @parameterized.expand(
+        [
+            (
+                "toStartOfWeek(timestamp, 0)",
+                "(date_trunc('week', (events.timestamp + interval '1 day')) - interval '1 day')",
+            ),
+            ("toStartOfWeek(timestamp, 3)", "date_trunc('week', events.timestamp)"),
+        ]
+    )
+    def test_to_start_of_week_preserves_supported_modes_in_postgres(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    def test_to_start_of_week_rejects_unsupported_mode_in_postgres(self):
+        with self.assertRaises(QueryError) as error:
+            self._expr("toStartOfWeek(timestamp, 2)")
+
+        self.assertIn("Unsupported toStartOfWeek mode", str(error.exception))
+
+    def test_to_start_of_day_rejects_timezone_override_in_postgres(self):
+        with self.assertRaises(QueryError) as error:
+            self._expr("toStartOfDay(timestamp, 'UTC')")
+
+        self.assertIn("timezone override", str(error.exception))
+
+    @parameterized.expand(
+        [
+            (
+                "toStartOfFiveMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 5)::int * 5 * interval '1 minute')",
+            ),
+            (
+                "toStartOfTenMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 10)::int * 10 * interval '1 minute')",
+            ),
+            (
+                "toStartOfFifteenMinutes(timestamp)",
+                "date_trunc('hour', events.timestamp) + "
+                "(floor(extract(minute from events.timestamp) / 15)::int * 15 * interval '1 minute')",
+            ),
+        ]
+    )
+    def test_to_start_of_minute_bucket_functions_render_in_postgres(self, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
     def test_reserved_identifiers_are_quoted(self):
         printed = self._select("SELECT events.event AS select FROM events")
 
         self.assertIn('AS "select"', printed)
+
+    def test_long_generated_identifier_is_truncated_for_postgres(self):
+        long_alias = "posthog_user__posthog_organizationmemberships__organization___id"
+        printed = self._select(f"SELECT event AS {long_alias} FROM events")
+
+        self.assertIn("AS ", printed)
+        self.assertNotIn(long_alias, printed)
 
     def test_window_functions_keep_postgres_shape(self):
         printed = self._select("SELECT lag(timestamp) OVER (ORDER BY timestamp) FROM events")
@@ -4587,3 +4646,172 @@ class TestPostgresPrinter(BaseTest):
     def test_except_all(self):
         result = self._select("select 1 as id except all select 2 as id")
         self.assertIn("EXCEPT ALL", result)
+
+    # -- ClickHouse → Postgres function translation tests --
+
+    @parameterized.expand(
+        [
+            # Renames
+            ("ifNull", "ifNull(1, 2)", "COALESCE(1, 2)"),
+            ("replaceAll", "replaceAll('abc', 'a', 'z')", "REPLACE('abc', 'a', 'z')"),
+            ("replaceRegexpAll", "replaceRegexpAll('abc', 'a', 'z')", "REGEXP_REPLACE('abc', 'a', 'z')"),
+            ("toTypeName", "toTypeName(1)", "pg_typeof(1)"),
+            ("now", "now()", "NOW()"),
+            ("any", "any(event)", "MIN(events.event)"),
+            ("startsWith", "startsWith('hello', 'he')", "starts_with('hello', 'he')"),
+            ("rand", "rand()", "random()"),
+            ("generateSeries", "generateSeries(1, 10, 1)", "generate_series(1, 10, 1)"),
+            # Type conversions
+            ("toDate", "toDate('2024-01-01')", "CAST('2024-01-01' AS DATE)"),
+            ("toDateTime", "toDateTime('2024-01-01')", "CAST('2024-01-01' AS TIMESTAMP)"),
+            ("toDateTime_tz", "toDateTime('2024-01-01', 'UTC')", "CAST('2024-01-01' AS TIMESTAMP)"),
+            ("toString", "toString(123)", "CAST(123 AS TEXT)"),
+            ("toInt", "toInt(3.14)", "CAST(3.14 AS BIGINT)"),
+            ("toFloat", "toFloat(1)", "CAST(1 AS DOUBLE PRECISION)"),
+            ("toFloatOrZero", "toFloatOrZero('1.5')", "CAST('1.5' AS DOUBLE PRECISION)"),
+            ("toFloatOrDefault", "toFloatOrDefault('1.5')", "CAST('1.5' AS DOUBLE PRECISION)"),
+            ("toIntOrZero", "toIntOrZero('42')", "CAST('42' AS BIGINT)"),
+            ("toBool", "toBool(1)", "CAST(1 AS BOOLEAN)"),
+            ("toUUID", "toUUID('abc')", "CAST('abc' AS UUID)"),
+            ("toDecimal", "toDecimal(1, 2)", "CAST(1 AS DECIMAL)"),
+            ("toDateTime64", "toDateTime64('2024-01-01', 3)", "CAST('2024-01-01' AS TIMESTAMP)"),
+            # Date extraction
+            ("toYear", "toYear(now())", "EXTRACT(YEAR FROM NOW())"),
+            ("toQuarter", "toQuarter(now())", "EXTRACT(QUARTER FROM NOW())"),
+            ("toMonth", "toMonth(now())", "EXTRACT(MONTH FROM NOW())"),
+            ("toDayOfMonth", "toDayOfMonth(now())", "EXTRACT(DAY FROM NOW())"),
+            ("toDayOfWeek", "toDayOfWeek(now())", "EXTRACT(ISODOW FROM NOW())"),
+            ("toDayOfYear", "toDayOfYear(now())", "EXTRACT(DOY FROM NOW())"),
+            ("toHour", "toHour(now())", "EXTRACT(HOUR FROM NOW())"),
+            ("toMinute", "toMinute(now())", "EXTRACT(MINUTE FROM NOW())"),
+            ("toSecond", "toSecond(now())", "EXTRACT(SECOND FROM NOW())"),
+            ("toISOWeek", "toISOWeek(now())", "EXTRACT(WEEK FROM NOW())"),
+            ("toISOYear", "toISOYear(now())", "EXTRACT(ISOYEAR FROM NOW())"),
+            ("toUnixTimestamp", "toUnixTimestamp(now())", "CAST(EXTRACT(EPOCH FROM NOW()) AS BIGINT)"),
+            ("toYYYYMM", "toYYYYMM(now())", "CAST(TO_CHAR(NOW(), 'YYYYMM') AS INTEGER)"),
+            ("toYYYYMMDD", "toYYYYMMDD(now())", "CAST(TO_CHAR(NOW(), 'YYYYMMDD') AS INTEGER)"),
+            ("toYYYYMMDDhhmmss", "toYYYYMMDDhhmmss(now())", "CAST(TO_CHAR(NOW(), 'YYYYMMDDHH24MISS') AS BIGINT)"),
+            # Date truncation (toStartOf* tested separately in test_to_start_of_*)
+            ("toMonday", "toMonday(now())", "CAST(DATE_TRUNC('week', NOW()) AS DATE)"),
+            (
+                "toLastDayOfMonth",
+                "toLastDayOfMonth(now())",
+                "CAST((DATE_TRUNC('month', NOW()) + INTERVAL '1 month' - INTERVAL '1 day') AS DATE)",
+            ),
+            (
+                "toLastDayOfWeek",
+                "toLastDayOfWeek(now())",
+                "CAST((DATE_TRUNC('week', NOW()) + INTERVAL '6 day') AS DATE)",
+            ),
+            # Date generators
+            ("today", "today()", "CURRENT_DATE"),
+            ("yesterday", "yesterday()", "(CURRENT_DATE - INTERVAL '1 day')"),
+            # Intervals
+            ("toIntervalSecond", "toIntervalSecond(60)", "(60 * INTERVAL '1 second')"),
+            ("toIntervalMinute", "toIntervalMinute(30)", "(30 * INTERVAL '1 minute')"),
+            ("toIntervalHour", "toIntervalHour(3)", "(3 * INTERVAL '1 hour')"),
+            ("toIntervalDay", "toIntervalDay(7)", "(7 * INTERVAL '1 day')"),
+            ("toIntervalWeek", "toIntervalWeek(2)", "(2 * INTERVAL '1 week')"),
+            ("toIntervalMonth", "toIntervalMonth(6)", "(6 * INTERVAL '1 month')"),
+            ("toIntervalQuarter", "toIntervalQuarter(1)", "(1 * INTERVAL '3 month')"),
+            ("toIntervalYear", "toIntervalYear(1)", "(1 * INTERVAL '1 year')"),
+            # Date arithmetic
+            ("addDays", "addDays(now(), 7)", "(NOW() + 7 * INTERVAL '1 day')"),
+            ("addHours", "addHours(now(), 3)", "(NOW() + 3 * INTERVAL '1 hour')"),
+            ("addMonths", "addMonths(now(), 1)", "(NOW() + 1 * INTERVAL '1 month')"),
+            ("addYears", "addYears(now(), 2)", "(NOW() + 2 * INTERVAL '1 year')"),
+            ("subtractDays", "subtractDays(now(), 7)", "(NOW() - 7 * INTERVAL '1 day')"),
+            ("subtractMonths", "subtractMonths(now(), 3)", "(NOW() - 3 * INTERVAL '1 month')"),
+            (
+                "dateDiff",
+                "dateDiff('day', now(), now())",
+                "DATE_PART('day', CAST(NOW() AS TIMESTAMP) - CAST(NOW() AS TIMESTAMP))",
+            ),
+            # Conditional
+            ("if", "if(1, 'yes', 'no')", "CASE WHEN 1 THEN 'yes' ELSE 'no' END"),
+            ("multiIf", "multiIf(1, 'a', 0, 'b', 'c')", "CASE WHEN 1 THEN 'a' WHEN 0 THEN 'b' ELSE 'c' END"),
+            # Null/empty
+            ("empty", "empty('test')", "('test' IS NULL OR 'test' = '')"),
+            ("notEmpty", "notEmpty('test')", "('test' IS NOT NULL AND 'test' != '')"),
+            ("isNull", "isNull(1)", "(1 IS NULL)"),
+            ("isNotNull", "isNotNull(1)", "(1 IS NOT NULL)"),
+            ("assumeNotNull", "assumeNotNull(1)", "1"),
+            ("toNullable", "toNullable(1)", "1"),
+            # JSON
+            ("JSONExtractInt", "JSONExtractInt('{}', 'key')", "CAST(json_extract_path_text('{}', 'key') AS INTEGER)"),
+            (
+                "JSONExtractFloat",
+                "JSONExtractFloat('{}', 'key')",
+                "CAST(json_extract_path_text('{}', 'key') AS DOUBLE PRECISION)",
+            ),
+            ("JSONExtractBool", "JSONExtractBool('{}', 'key')", "CAST(json_extract_path_text('{}', 'key') AS BOOLEAN)"),
+            (
+                "JSONExtractUInt",
+                "JSONExtractUInt('{}', 'key')",
+                "CAST(json_extract_path_text('{}', 'key') AS INTEGER)",
+            ),
+            # String
+            ("match", "match('hello', 'h.*o')", "('hello' ~ 'h.*o')"),
+            ("splitByString", "splitByString(',', 'a,b,c')", "STRING_TO_ARRAY('a,b,c', ',')"),
+            ("splitByChar", "splitByChar(',', 'a,b,c')", "STRING_TO_ARRAY('a,b,c', ',')"),
+            ("endsWith", "endsWith('hello', 'lo')", "(RIGHT('hello', LENGTH('lo')) = 'lo')"),
+            ("replaceOne", "replaceOne('abc', 'a', 'z')", "REGEXP_REPLACE('abc', 'a', 'z')"),
+            ("replaceRegexpOne", "replaceRegexpOne('abc', 'a+', 'z')", "REGEXP_REPLACE('abc', 'a+', 'z')"),
+            # Math
+            ("e", "e()", "exp(1)"),
+            ("log2", "log2(8)", "log(2, 8)"),
+            # Aggregation
+            ("uniq", "uniq(1)", "COUNT(DISTINCT 1)"),
+            ("uniqExact", "uniqExact(1)", "COUNT(DISTINCT 1)"),
+            # Case-insensitive function lookup
+            ("now_uppercase", "NOW()", "NOW()"),
+            ("count_uppercase", "COUNT(event)", "count(events.event)"),
+            ("if_uppercase", "IF(1, 2, 3)", "CASE WHEN 1 THEN 2 ELSE 3 END"),
+        ]
+    )
+    def test_clickhouse_functions_translate_to_postgres(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("countIf_1arg", "countIf(1)", "count(*) FILTER (WHERE 1)"),
+            ("countIf_2arg", "countIf(event, 1)", "count(events.event) FILTER (WHERE 1)"),
+            ("sumIf", "sumIf(1, 1)", "sum(1) FILTER (WHERE 1)"),
+            ("avgIf", "avgIf(1, 1)", "avg(1) FILTER (WHERE 1)"),
+            ("minIf", "minIf(1, 1)", "min(1) FILTER (WHERE 1)"),
+            ("maxIf", "maxIf(1, 1)", "max(1) FILTER (WHERE 1)"),
+            ("anyIf", "anyIf(1, 1)", "MIN(1) FILTER (WHERE 1)"),
+            ("uniqIf", "uniqIf(1, 1)", "COUNT(DISTINCT 1) FILTER (WHERE 1)"),
+            ("uniqExactIf", "uniqExactIf(1, 1)", "COUNT(DISTINCT 1) FILTER (WHERE 1)"),
+            ("groupArrayIf", "groupArrayIf(1, 1)", "ARRAY_AGG(1) FILTER (WHERE 1)"),
+        ]
+    )
+    def test_if_combinator_functions(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("argMax", "argMax(1, 2)"),
+            ("argMin", "argMin(1, 2)"),
+            ("range", "range(1, 10)"),
+        ]
+    )
+    def test_unmapped_clickhouse_functions_raise_error(self, _name: str, expr: str):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr(expr)
+        self.assertIn("not supported in the Postgres dialect", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            ("count", "count()"),
+            ("sum", "sum(1)"),
+            ("abs", "abs(1)"),
+            ("lower", "lower('x')"),
+            ("coalesce", "coalesce(1, 2)"),
+            ("row_number", "row_number()"),
+            ("greatest", "greatest(1, 2)"),
+        ]
+    )
+    def test_standard_sql_functions_pass_through(self, _name: str, expr: str):
+        result = self._expr(expr)
+        self.assertIsNotNone(result)

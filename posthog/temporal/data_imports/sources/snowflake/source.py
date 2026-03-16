@@ -162,10 +162,12 @@ class SnowflakeSource(SimpleSource[SnowflakeSourceConfig]):
             "authentication failed": "Snowflake authentication failed. Please check your username, password, and account details.",
         }
 
-    def get_schemas(self, config: SnowflakeSourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
+    def get_schemas(
+        self, config: SnowflakeSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
         schemas = []
 
-        db_schemas = get_snowflake_schemas(config)
+        db_schemas = get_snowflake_schemas(config, names=names)
 
         for table_name, columns in db_schemas.items():
             incremental_field_tuples = filter_snowflake_incremental_fields(columns)

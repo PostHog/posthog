@@ -22,34 +22,32 @@ import (
 func TestStreamEventsHandler_AuthValidation(t *testing.T) {
 	logger := echo.New().Logger
 	subChan := make(chan events.Subscription, 10)
-	filter := &events.Filter{
-		UnSubChan: make(chan events.Subscription, 10),
-	}
-	handler := StreamEventsHandler(logger, subChan, filter)
+	unSubChan := make(chan events.Subscription, 10)
+	handler := StreamEventsHandler(logger, subChan, unSubChan)
 
 	tests := []struct {
 		name           string
+		description    string
 		setupHeader    func(*http.Request)
 		expectedStatus int
 		expectedError  string
-		description    string
 	}{
 		{
-			name: "Missing authorization header returns unauthorized",
+			name:        "Missing authorization header returns unauthorized",
+			description: "When auth header is missing, handler should return 401 with 'wrong token'",
 			setupHeader: func(req *http.Request) {
 			},
 			expectedStatus: http.StatusUnauthorized,
 			expectedError:  "wrong token",
-			description:    "When auth header is missing, GetAuthClaims returns error and handler should return 401",
 		},
 		{
-			name: "Invalid auth header returns unauthorized",
+			name:        "Invalid auth header returns unauthorized",
+			description: "When auth header is invalid (not Bearer format), handler should return 401 with 'wrong token'",
 			setupHeader: func(req *http.Request) {
 				req.Header.Set("Authorization", "InvalidToken")
 			},
 			expectedStatus: http.StatusUnauthorized,
 			expectedError:  "wrong token",
-			description:    "When auth header is invalid, GetAuthClaims returns error and handler should return 401",
 		},
 	}
 
@@ -80,46 +78,44 @@ func TestStreamEventsHandler_TokenAndTeamIDValidation(t *testing.T) {
 
 	logger := echo.New().Logger
 	subChan := make(chan events.Subscription, 10)
-	filter := &events.Filter{
-		UnSubChan: make(chan events.Subscription, 10),
-	}
-	handler := StreamEventsHandler(logger, subChan, filter)
+	unSubChan := make(chan events.Subscription, 10)
+	handler := StreamEventsHandler(logger, subChan, unSubChan)
 
 	tests := []struct {
 		name         string
+		description  string
 		claims       jwt.MapClaims
 		expectError  bool
 		errorMessage string
-		description  string
 	}{
 		{
-			name: "Empty api_token should return unauthorized",
+			name:        "Empty api_token should return unauthorized",
+			description: "New validation: empty token in JWT claims should be rejected with 401",
 			claims: jwt.MapClaims{
 				"team_id":   123,
 				"api_token": "",
 			},
 			expectError:  true,
 			errorMessage: "wrong token",
-			description:  "New validation: empty token should be rejected even with valid JWT",
 		},
 		{
-			name: "Team ID 0 should return unauthorized",
+			name:        "Team ID 0 should return unauthorized",
+			description: "New validation: teamID=0 in JWT claims should be rejected with 401",
 			claims: jwt.MapClaims{
 				"team_id":   0,
 				"api_token": "valid-token",
 			},
 			expectError:  true,
 			errorMessage: "wrong token",
-			description:  "New validation: teamID=0 should be rejected even with valid JWT",
 		},
 		{
-			name: "HappyPath",
+			name:        "Valid token and team ID succeeds",
+			description: "New validation: teamID=7 and non-empty token should pass validation",
 			claims: jwt.MapClaims{
 				"team_id":   7,
 				"api_token": "valid-token",
 			},
 			expectError: false,
-			description: "New validation: teamID=7 should be accepted even with valid JWT",
 		},
 	}
 

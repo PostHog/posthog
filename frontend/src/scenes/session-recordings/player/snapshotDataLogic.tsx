@@ -4,10 +4,12 @@ import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path,
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
+import { keyForSource } from '@posthog/replay-shared'
+import { SnapshotStore, SourceLoadingState } from '@posthog/replay-shared'
+
 import api, { RecordingDeletedError } from 'lib/api'
 import 'lib/dayjs'
 import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot-processing/process-all-snapshots'
-import { keyForSource } from 'scenes/session-recordings/player/snapshot-processing/source-key'
 import { windowIdRegistryLogic } from 'scenes/session-recordings/player/windowIdRegistryLogic'
 
 import {
@@ -20,8 +22,6 @@ import {
 } from '~/types'
 
 import { LoadingScheduler } from './snapshot-store/LoadingScheduler'
-import { SnapshotStore } from './snapshot-store/SnapshotStore'
-import { SourceLoadingState } from './snapshot-store/types'
 import type { snapshotDataLogicType } from './snapshotDataLogicType'
 
 const DEFAULT_V2_POLLING_INTERVAL_MS: number = 10000

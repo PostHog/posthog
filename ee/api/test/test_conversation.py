@@ -408,8 +408,11 @@ class TestConversation(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    def test_cancel_idle_conversation_noop(self):
-        """Test that canceling an idle conversation is a no-op."""
+    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
+    def test_cancel_idle_conversation_still_cleans_up(self, mock_cancel):
+        """Test that canceling an idle conversation still attempts cleanup,
+        because queued workflows may be running even when status is IDLE
+        (during the transition between main and queued workflows)."""
         conversation = Conversation.objects.create(
             user=self.user,
             team=self.team,
@@ -423,9 +426,7 @@ class TestConversation(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        conversation.refresh_from_db()
-        # Status should remain idle
-        self.assertEqual(conversation.status, Conversation.Status.IDLE)
+        mock_cancel.assert_called_once()
 
     def test_cancel_nonexistent_conversation(self):
         """Test canceling a conversation that doesn't exist."""

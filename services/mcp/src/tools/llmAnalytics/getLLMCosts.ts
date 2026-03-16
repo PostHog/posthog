@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { LLM_COSTS_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { LLMAnalyticsGetCostsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -39,13 +40,21 @@ export const getLLMCostsHandler: ToolBase<typeof schema, unknown>['handler'] = a
     if (!costsResult.success) {
         throw new Error(`Failed to get LLM costs: ${costsResult.error.message}`)
     }
-    return costsResult.data.results
+    return {
+        results: costsResult.data.results,
+        _posthogUrl: `${context.api.getProjectBaseUrl(String(projectId))}/llm-observability`,
+    }
 }
 
 const tool = (): ToolBase<typeof schema> => ({
     name: 'get-llm-total-costs-for-project',
     schema,
     handler: getLLMCostsHandler,
+    _meta: {
+        ui: {
+            resourceUri: LLM_COSTS_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool
