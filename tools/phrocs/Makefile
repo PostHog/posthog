@@ -15,19 +15,15 @@ build: deps
 	$(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/$(BINARY_NAME) .
 
 build-linux-amd64:
-	mkdir -p $(DIST_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-linux-amd64 .
 
 build-linux-arm64:
-	mkdir -p $(DIST_DIR)
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-linux-arm64 .
 
 build-darwin-amd64:
-	mkdir -p $(DIST_DIR)
 	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-darwin-amd64 .
 
 build-darwin-arm64:
-	mkdir -p $(DIST_DIR)
 	CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 $(GOBUILD) $(LDFLAGS) -o $(DIST_DIR)/$(BINARY_NAME)-darwin-arm64 .
 
 build-all: deps build-linux-amd64 build-linux-arm64 build-darwin-amd64 build-darwin-arm64
