@@ -108,8 +108,6 @@ export interface InsightCardProps extends Resizeable {
     onEnterEditModeFromEdge?: () => void
     /** Called when the user mousedowns on the card (drag handle) in view mode to enter edit mode. */
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
-    /** When true, visually hide the insight viz and show a skeleton instead (used for zoomed layout editing). */
-    skeletonizeContent?: boolean
 }
 
 function InsightCardInternal(
@@ -151,7 +149,6 @@ function InsightCardInternal(
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
-        skeletonizeContent,
         ...divProps
     }: InsightCardProps,
     ref: React.Ref<HTMLDivElement>
