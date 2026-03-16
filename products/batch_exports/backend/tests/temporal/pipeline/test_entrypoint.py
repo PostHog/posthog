@@ -119,7 +119,9 @@ class DummyExportWorkflow(PostHogWorkflow):
         """Workflow implementation to test the batch export entrypoint."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(

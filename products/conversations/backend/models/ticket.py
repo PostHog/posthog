@@ -4,7 +4,7 @@ from django.db import models, transaction
 
 from posthog.models.utils import UUIDTModel
 
-from .constants import Channel, Priority, Status
+from .constants import Channel, ChannelDetail, Priority, Status
 
 if TYPE_CHECKING:
     from posthog.models import Person
@@ -40,6 +40,7 @@ class Ticket(UUIDTModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     ticket_number = models.PositiveIntegerField()
     channel_source = models.CharField(max_length=20, choices=Channel.choices, default=Channel.WIDGET)
+    channel_detail = models.CharField(max_length=30, choices=ChannelDetail.choices, null=True, blank=True)
     widget_session_id = models.CharField(max_length=64, db_index=True)  # Random UUID for access control
     distinct_id = models.CharField(max_length=400)  # PostHog distinct_id for Person linking only
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.NEW)
