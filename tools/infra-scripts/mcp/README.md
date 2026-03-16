@@ -42,7 +42,7 @@ Add the following to your shell config file (`~/.zshrc`, `~/.bashrc`, or equival
 
 ```bash
 # PostHog infra scripts (grafana-region, grafana-token, etc.)
-export PATH="$HOME/dev/posthog/posthog/infra-scripts/mcp:$PATH"
+export PATH="$HOME/dev/posthog/posthog/tools/infra-scripts/mcp:$PATH"
 ```
 
 Adjust the path if your PostHog repo is in a different location. Then reload your shell:
@@ -69,7 +69,7 @@ Add to your Claude Code MCP configuration (`~/.claude/settings.json` or project'
 {
   "mcpServers": {
     "grafana": {
-      "command": "/Users/YOUR_USERNAME/dev/posthog/posthog/infra-scripts/mcp/mcp-grafana-wrapper.sh",
+      "command": "/Users/YOUR_USERNAME/dev/posthog/posthog/tools/infra-scripts/mcp/mcp-grafana-wrapper.sh",
       "args": []
     }
   }
@@ -84,7 +84,7 @@ Add to your MCP settings:
 {
   "mcpServers": {
     "grafana": {
-      "command": "/Users/YOUR_USERNAME/dev/posthog/posthog/infra-scripts/mcp/mcp-grafana-wrapper.sh",
+      "command": "/Users/YOUR_USERNAME/dev/posthog/posthog/tools/infra-scripts/mcp/mcp-grafana-wrapper.sh",
       "args": []
     }
   }
