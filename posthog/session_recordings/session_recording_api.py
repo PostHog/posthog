@@ -482,11 +482,25 @@ SNAPSHOTS_TIER_CACHE_TTL_SECONDS = 12 * 60 * 60
 
 SNAPSHOT_DEFAULT_TIER = "free"
 
-SNAPSHOT_RATES: dict[str, dict[str, str]] = {
-    "free": {"snapshots_burst": "60/minute", "snapshots_sustained": "300/hour"},
-    "paid": {"snapshots_burst": "90/minute", "snapshots_sustained": "500/hour"},
-    "enterprise": {"snapshots_burst": "120/minute", "snapshots_sustained": "600/hour"},
-}
+
+def _snapshot_rates() -> dict[str, dict[str, str]]:
+    return {
+        "free": {
+            "snapshots_burst": settings.SNAPSHOT_RATE_FREE_BURST,
+            "snapshots_sustained": settings.SNAPSHOT_RATE_FREE_SUSTAINED,
+        },
+        "paid": {
+            "snapshots_burst": settings.SNAPSHOT_RATE_PAID_BURST,
+            "snapshots_sustained": settings.SNAPSHOT_RATE_PAID_SUSTAINED,
+        },
+        "enterprise": {
+            "snapshots_burst": settings.SNAPSHOT_RATE_ENTERPRISE_BURST,
+            "snapshots_sustained": settings.SNAPSHOT_RATE_ENTERPRISE_SUSTAINED,
+        },
+    }
+
+
+SNAPSHOT_RATES = _snapshot_rates()
 
 _ENTERPRISE_FEATURE_KEYS = {AvailableFeature.SAML, AvailableFeature.SCIM}
 
@@ -495,7 +509,7 @@ def _org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
     if not features:
         return "free"
     feature_keys = {f.get("key") for f in features if isinstance(f, dict)}
-    if feature_keys & _ENTERPRISE_FEATURE_KEYS:
+    if feature_keys.intersection(_ENTERPRISE_FEATURE_KEYS):
         return "enterprise"
     return "paid"
 
@@ -518,7 +532,8 @@ class _TierAwareSnapshotThrottle(PersonalApiKeyRateThrottle):
         # scope is str | None in DRF's base class, but subclasses always set it
         if self.scope is None:
             raise ValueError("_TierAwareSnapshotThrottle subclasses must set scope")
-        rates_for_tier = SNAPSHOT_RATES.get(tier) or SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]
+        rates = _snapshot_rates()
+        rates_for_tier = rates.get(tier) or rates[SNAPSHOT_DEFAULT_TIER]
         self.rate = rates_for_tier[self.scope]
         self.num_requests, self.duration = self.parse_rate(self.rate)
 

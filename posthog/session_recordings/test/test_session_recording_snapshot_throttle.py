@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.core.cache import cache
+from django.test import override_settings
 
 from parameterized import parameterized
 
@@ -12,6 +13,7 @@ from posthog.session_recordings.session_recording_api import (
     SNAPSHOTS_TIER_CACHE_TTL_SECONDS,
     SnapshotsBurstRateThrottle,
     _org_tier_from_features,
+    _snapshot_rates,
     get_cached_org_tier,
 )
 
@@ -189,3 +191,21 @@ class TestTierAwareSnapshotThrottle(BaseTest):
 
         expected_rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_burst"]
         assert throttle.rate == expected_rate
+
+    @override_settings(SNAPSHOT_RATE_PAID_BURST="200/minute")
+    @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier", return_value="paid")
+    def test_rate_limits_are_configurable_via_django_settings(self, _mock_tier) -> None:
+        throttle = SnapshotsBurstRateThrottle()
+        view = type("FakeView", (), {"team_id": 1})()
+
+        throttle.allow_request(request=_fake_personal_api_key_request(), view=view)
+
+        assert throttle.rate == "200/minute"
+
+
+class TestSnapshotRatesFromSettings(BaseTest):
+    @override_settings(SNAPSHOT_RATE_FREE_BURST="999/minute")
+    def test_snapshot_rates_reads_from_settings(self) -> None:
+        rates = _snapshot_rates()
+
+        assert rates["free"]["snapshots_burst"] == "999/minute"
