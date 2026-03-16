@@ -50,27 +50,50 @@ ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
 
 # ---------------------------------------------------------------------------
-# Service catalog — single "analytics" service that provisions a PostHog
-# project. All products (analytics, replay, flags, etc.) are included; paid
-# component services deferred to V2 once Stripe Projects supports SPT.
+# Service catalog — free "analytics" parent service that provisions a PostHog
+# project, plus a single consolidated "pay_as_you_go" paid add-on that covers
+# all products. Users provision "analytics" to get started for free; selecting
+# "pay_as_you_go" triggers SPT collection for usage-based billing.
 # ---------------------------------------------------------------------------
 
 POSTHOG_SERVICE_ID = "analytics"
+PAY_AS_YOU_GO_SERVICE_ID = "pay_as_you_go"
 
 POSTHOG_PARENT_SERVICE: dict[str, Any] = {
     "id": POSTHOG_SERVICE_ID,
     "description": "PostHog — product analytics, session replay, feature flags, A/B testing, surveys, and more. "
-    "Includes a generous free tier for every product. Upgrade to paid plans in-app as you grow.",
+    "Includes a generous free tier for every product.",
     "categories": ["analytics", "feature_flags", "ai"],
     "pricing": {"type": "free"},
 }
 
+PAY_AS_YOU_GO_SERVICE: dict[str, Any] = {
+    "id": PAY_AS_YOU_GO_SERVICE_ID,
+    "description": "Pay-as-you-go plan — unlock higher usage limits across all PostHog products. "
+    "Usage-based pricing with no minimum commitment.",
+    "categories": ["analytics", "feature_flags", "ai"],
+    "pricing": {
+        "type": "component",
+        "component": {
+            "options": [
+                {
+                    "parent_service_ids": [POSTHOG_SERVICE_ID],
+                    "type": "paid",
+                    "paid": {
+                        "type": "custom",
+                    },
+                }
+            ]
+        },
+    },
+}
+
 
 def _get_services() -> list[dict[str, Any]]:
-    return [POSTHOG_PARENT_SERVICE]
+    return [POSTHOG_PARENT_SERVICE, PAY_AS_YOU_GO_SERVICE]
 
 
-VALID_SERVICE_IDS: set[str] = {POSTHOG_SERVICE_ID}
+VALID_SERVICE_IDS: set[str] = {POSTHOG_SERVICE_ID, PAY_AS_YOU_GO_SERVICE_ID}
 
 
 # ---------------------------------------------------------------------------
