@@ -115,7 +115,7 @@ test.describe('Workflows', () => {
 
     test.describe('tab navigation', () => {
         test('can navigate between all top-level tabs', async ({ page }) => {
-            await page.waitForSelector('[data-attr="workflows-scene"]', { timeout: 10000 })
+            await page.waitForSelector('[data-attr="new-workflow"]', { timeout: 10000 })
             await page.waitForSelector('[data-attr="workflows-table"][data-loading="false"]', { timeout: 10000 })
 
             // Navigate to Library tab
