@@ -1,4 +1,4 @@
-use axum::async_trait;
+use async_trait::async_trait;
 use moka::future::Cache;
 use std::collections::HashMap;
 use std::sync::Arc;
