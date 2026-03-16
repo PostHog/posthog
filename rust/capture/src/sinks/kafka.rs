@@ -880,6 +880,7 @@ mod tests {
         const CLIENT_INGESTION_WARNING_TOPIC: &str = "client_ingestion_warning";
         const REPLAY_OVERFLOW_TOPIC: &str = "replay_overflow";
         const ERROR_TRACKING_TOPIC: &str = "error_tracking_events";
+        const TRACES_TOPIC: &str = "tracing_ingestion";
 
         fn create_test_topics() -> KafkaTopicConfig {
             KafkaTopicConfig {
@@ -892,6 +893,7 @@ mod tests {
                 replay_overflow_topic: REPLAY_OVERFLOW_TOPIC.to_string(),
                 dlq_topic: DLQ_TOPIC.to_string(),
                 error_tracking_topic: ERROR_TRACKING_TOPIC.to_string(),
+                traces_topic: TRACES_TOPIC.to_string(),
             }
         }
 
