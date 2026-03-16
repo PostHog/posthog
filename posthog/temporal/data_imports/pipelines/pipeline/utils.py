@@ -218,49 +218,41 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
 
         incoming_column = incoming_table.column(delta_field.name)
 
-        if pa.types.is_decimal(delta_field.type) and pa.types.is_decimal(incoming_column.type):
+        if (
+            pa.types.is_decimal(delta_field.type)
+            and pa.types.is_decimal(incoming_column.type)
+            and incoming_column.type != delta_field.type
+        ):
             delta_dec = cast(pa.Decimal128Type | pa.Decimal256Type, delta_field.type)
             incoming_dec = cast(pa.Decimal128Type | pa.Decimal256Type, incoming_column.type)
-            # Prefer existing Delta decimal when values fit (connector can over-widen to precision 38).
-            if (
-                incoming_column.type != delta_field.type
-                and delta_dec.scale == incoming_dec.scale
-                and delta_dec.precision <= incoming_dec.precision
-            ):
+            field_index = incoming_table.schema.get_field_index(delta_field.name)
+
+            # Build candidate types in preference order: exact delta → minimal merged decimal128 → decimal256.
+            candidates: list[pa.DataType] = []
+
+            if delta_dec.scale == incoming_dec.scale and delta_dec.precision <= incoming_dec.precision:
+                candidates.append(delta_field.type)
+
+            delta_int = delta_dec.precision - delta_dec.scale
+            incoming_int = incoming_dec.precision - incoming_dec.scale
+            max_int = max(delta_int, incoming_int)
+            if max_int <= 38:
+                merged_scale = min(max(delta_dec.scale, incoming_dec.scale), 38 - max_int)
+                candidates.append(pa.decimal128(max_int + merged_scale, merged_scale))
+
+            candidates.append(pa.decimal256(76, incoming_dec.scale))
+
+            for target in candidates:
+                if target == incoming_column.type:
+                    break
                 try:
-                    incoming_column = incoming_column.cast(delta_field.type).combine_chunks()  # type: ignore[assignment]
-                    incoming_table = incoming_table.set_column(
-                        incoming_table.schema.get_field_index(delta_field.name), delta_field.name, incoming_column
+                    target_schema = incoming_table.schema.set(
+                        field_index, incoming_table.schema.field(field_index).with_type(target)
                     )
+                    incoming_table = incoming_table.cast(target_schema)
+                    break
                 except pa.ArrowInvalid:
-                    pass
-
-            incoming_column = incoming_table.column(delta_field.name)
-            incoming_dec = cast(pa.Decimal128Type | pa.Decimal256Type, incoming_column.type)
-            delta_int_digits = delta_dec.precision - delta_dec.scale
-            incoming_int_digits = incoming_dec.precision - incoming_dec.scale
-            max_int_digits = max(delta_int_digits, incoming_int_digits)
-
-            # Keep the minimal decimal128 that can represent both sides when possible.
-            if max_int_digits <= 38:
-                merged_scale = min(max(delta_dec.scale, incoming_dec.scale), 38 - max_int_digits)
-                merged_precision = max_int_digits + merged_scale
-                merged_type = pa.decimal128(merged_precision, merged_scale)
-
-                if merged_type != incoming_column.type:
-                    field_index = incoming_table.schema.get_field_index(delta_field.name)
-                    merged_schema = incoming_table.schema.set(
-                        field_index, incoming_table.schema.field(field_index).with_type(merged_type)
-                    )
-                    try:
-                        incoming_table = incoming_table.cast(merged_schema)
-                    except pa.ArrowInvalid:
-                        # Rescale would lose data: keep incoming scale and widen to decimal256.
-                        fallback_type = pa.decimal256(76, incoming_dec.scale)
-                        fallback_schema = incoming_table.schema.set(
-                            field_index, incoming_table.schema.field(field_index).with_type(fallback_type)
-                        )
-                        incoming_table = incoming_table.cast(fallback_schema)
+                    continue
 
             incoming_column = incoming_table.column(delta_field.name)
 
