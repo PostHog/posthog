@@ -95,7 +95,9 @@ class ExperimentSavedMetricService:
 
         for attr, value in update_data.items():
             setattr(saved_metric, attr, value)
-        saved_metric.save()
+
+        if update_data:
+            saved_metric.save()
 
         return saved_metric
 

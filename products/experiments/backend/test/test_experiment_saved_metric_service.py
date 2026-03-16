@@ -89,6 +89,21 @@ class TestExperimentSavedMetricService(APIBaseTest):
         assert updated.name == "Updated saved metric"
         assert updated.description == "Updated description"
 
+    def test_update_saved_metric_skips_save_for_empty_update(self) -> None:
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            created_by=self.user,
+            name="Original saved metric",
+            description="Original description",
+            query=self._valid_trends_query(),
+        )
+
+        with patch("posthog.models.experiment.ExperimentSavedMetric.save") as save_mock:
+            updated = self._service().update_saved_metric(saved_metric, {})
+
+        assert updated == saved_metric
+        save_mock.assert_not_called()
+
     def test_update_saved_metric_validates_query_before_mutation(self) -> None:
         saved_metric = ExperimentSavedMetric.objects.create(
             team=self.team,
