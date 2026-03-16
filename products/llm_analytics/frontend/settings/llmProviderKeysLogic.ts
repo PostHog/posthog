@@ -369,13 +369,6 @@ export const llmProviderKeysLogic = kea<llmProviderKeysLogicType>([
             (s) => [s.evaluationConfig],
             (evaluationConfig: EvaluationConfig | null) => evaluationConfig?.trial_evals_remaining ?? 0,
         ],
-        isTrialLimitReached: [
-            (s) => [s.evaluationConfig, s.providerKeys],
-            (evaluationConfig: EvaluationConfig | null, providerKeys: LLMProviderKey[]) =>
-                evaluationConfig !== null &&
-                !providerKeys.some((key) => key.state === 'ok') &&
-                evaluationConfig.trial_evals_remaining <= 0,
-        ],
     }),
 
     listeners(({ actions, values }) => ({
