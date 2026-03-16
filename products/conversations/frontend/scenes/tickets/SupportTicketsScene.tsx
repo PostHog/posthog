@@ -262,7 +262,7 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
             }
             columns={
                 embedded
-                    ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => col.key !== 'customer')
+                    ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => 'key' in col && col.key !== 'customer')
                     : SUPPORT_TICKETS_TABLE_COLUMNS
             }
         />
