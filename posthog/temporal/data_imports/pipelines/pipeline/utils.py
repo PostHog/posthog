@@ -216,14 +216,16 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
             )
             incoming_table = incoming_table.append_column(delta_field, new_column_data)
 
-        incoming_column = incoming_table.column(delta_field.name)
+        incoming_column: pa.Array[Any] | pa.ChunkedArray[Any] = incoming_table.column(delta_field.name)
 
         if pa.types.is_decimal(delta_field.type) and pa.types.is_decimal(incoming_column.type):
+            delta_dec = cast(pa.Decimal128Type | pa.Decimal256Type, delta_field.type)
+            incoming_dec = cast(pa.Decimal128Type | pa.Decimal256Type, incoming_column.type)
             # Prefer existing Delta decimal when values fit (connector can over-widen to precision 38).
             if (
                 incoming_column.type != delta_field.type
-                and delta_field.type.scale == incoming_column.type.scale
-                and delta_field.type.precision <= incoming_column.type.precision
+                and delta_dec.scale == incoming_dec.scale
+                and delta_dec.precision <= incoming_dec.precision
             ):
                 try:
                     incoming_column = incoming_column.cast(delta_field.type).combine_chunks()
@@ -234,13 +236,13 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
                     pass
 
             incoming_column = incoming_table.column(delta_field.name)
-            delta_int_digits = delta_field.type.precision - delta_field.type.scale
-            incoming_int_digits = incoming_column.type.precision - incoming_column.type.scale
+            delta_int_digits = delta_dec.precision - delta_dec.scale
+            incoming_int_digits = incoming_dec.precision - incoming_dec.scale
             max_int_digits = max(delta_int_digits, incoming_int_digits)
 
             # Keep the minimal decimal128 that can represent both sides when possible.
             if max_int_digits <= 38:
-                merged_scale = min(max(delta_field.type.scale, incoming_column.type.scale), 38 - max_int_digits)
+                merged_scale = min(max(delta_dec.scale, incoming_dec.scale), 38 - max_int_digits)
                 merged_precision = max_int_digits + merged_scale
                 merged_type = pa.decimal128(merged_precision, merged_scale)
 
@@ -253,7 +255,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
                         incoming_table = incoming_table.cast(merged_schema)
                     except pa.ArrowInvalid:
                         # Rescale would lose data: keep incoming scale and widen to decimal256.
-                        fallback_type = pa.decimal256(76, incoming_column.type.scale)
+                        fallback_type = pa.decimal256(76, incoming_dec.scale)
                         fallback_schema = incoming_table.schema.set(
                             field_index, incoming_table.schema.field(field_index).with_type(fallback_type)
                         )
