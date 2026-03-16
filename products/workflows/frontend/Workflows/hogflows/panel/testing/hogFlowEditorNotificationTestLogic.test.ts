@@ -39,7 +39,7 @@ describe('hogFlowEditorNotificationTestLogic', () => {
                     actions: [],
                     edges: [],
                 },
-                '/api/environments/@current/messaging_categories': [],
+                '/api/environments/@current/messaging_categories': { results: [] },
             },
         })
 

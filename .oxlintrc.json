@@ -249,7 +249,7 @@
             }
         },
         {
-            "files": ["services/mcp/src/ui-apps/**/*.ts"],
+            "files": ["services/mcp/src/ui-apps/**/*.{ts,tsx}"],
             "rules": {
                 "no-console": [
                     "error",
@@ -271,6 +271,16 @@
                 "react/forbid-elements": "off",
                 "react/forbid-dom-props": "off",
                 "no-restricted-imports": "off"
+            }
+        },
+        {
+            "files": [
+                "common/mosaic/**/*.{ts,tsx}",
+                "services/mcp/src/ui-apps/**/*.{ts,tsx}",
+                "products/**/frontend/mcp-apps/**/*.{ts,tsx}"
+            ],
+            "rules": {
+                "react/forbid-elements": "off"
             }
         }
     ]

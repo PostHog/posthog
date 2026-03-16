@@ -36,6 +36,7 @@ fn test_config(test_name: &str) -> GlobalRateLimiterConfig {
         custom_keys: HashMap::new(),
         global_read_timeout: Duration::from_millis(500),
         global_write_timeout: Duration::from_millis(500),
+        metrics_scope: "integration_test".to_string(),
     }
 }
 

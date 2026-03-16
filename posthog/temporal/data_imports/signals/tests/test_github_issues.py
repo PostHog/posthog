@@ -59,6 +59,35 @@ class TestGithubIssueEmitter:
         assert result.extra["html_url"] == "https://github.com/acme/analytics/issues/87"
         assert result.extra["number"] == 87
 
+    def test_labels_parsed_from_json_string(self, github_issue_record):
+        result = github_issue_emitter(team_id=1, record=github_issue_record)
+
+        assert result is not None
+        assert result.extra["labels"] == ["bug", "frontend"]
+
+    @pytest.mark.parametrize("raw_labels", ["not-json", ""])
+    def test_raises_on_malformed_labels_json(self, github_issue_record, raw_labels):
+        github_issue_record["labels"] = raw_labels
+        with pytest.raises(ValueError, match="not valid JSON"):
+            github_issue_emitter(team_id=1, record=github_issue_record)
+
+    def test_raises_on_non_array_labels_json(self, github_issue_record):
+        github_issue_record["labels"] = '{"not": "an array"}'
+        with pytest.raises(ValueError, match="not a JSON array"):
+            github_issue_emitter(team_id=1, record=github_issue_record)
+
+    def test_raises_on_unexpected_labels_type(self, github_issue_record):
+        github_issue_record["labels"] = 42
+        with pytest.raises(ValueError, match="unexpected type"):
+            github_issue_emitter(team_id=1, record=github_issue_record)
+
+    def test_labels_defaults_to_empty_when_none(self, github_issue_record):
+        github_issue_record["labels"] = None
+        result = github_issue_emitter(team_id=1, record=github_issue_record)
+
+        assert result is not None
+        assert result.extra["labels"] == []
+
 
 class TestGithubIssuesConfig:
     def test_partition_field(self):

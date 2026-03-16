@@ -5,7 +5,7 @@ import pytest
 from freezegun.api import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, snapshot_clickhouse_queries
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 from django.db import IntegrityError
@@ -1582,6 +1582,60 @@ class GroupsTypesViewSetTestCase(APIBaseTest):
         self.assertIsNone(cache.get(cache_key))
         self.assertIsNone(cache.get(stale_cache_key))
 
+    def test_update_metadata_non_admin_cannot_modify_protected_fields(self):
+        from posthog.constants import AvailableFeature
+        from posthog.models.organization import OrganizationMembership
+
+        from ee.models.rbac.access_control import AccessControl
+
+        group_type = GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+        # Grant member-level (not admin) project access so the request reaches the serializer
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+        )
+
+        response = self.client.patch(
+            self.url + "/update_metadata",
+            [{"group_type_index": group_type.group_type_index, "name_singular": "Org", "name_plural": "Orgs"}],
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        group_type.refresh_from_db()
+        self.assertIsNone(group_type.name_singular)
+        self.assertIsNone(group_type.name_plural)
+
+    def test_update_metadata_admin_can_modify_protected_fields(self):
+        from posthog.models.organization import OrganizationMembership
+
+        group_type = GroupTypeMapping.objects.create(
+            team=self.team, project=self.project, group_type="organization", group_type_index=0
+        )
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(
+            self.url + "/update_metadata",
+            [{"group_type_index": group_type.group_type_index, "name_singular": "Org", "name_plural": "Orgs"}],
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        group_type.refresh_from_db()
+        self.assertEqual(group_type.name_singular, "Org")
+        self.assertEqual(group_type.name_plural, "Orgs")
+
 
 class GroupUsageMetricViewSetTestCase(APIBaseTest):
     def setUp(self):
@@ -1770,6 +1824,48 @@ class GroupUsageMetricViewSetTestCase(APIBaseTest):
 
         self.assertTrue(GroupUsageMetric.objects.filter(id=other_metric.id).exists())
 
+    def test_non_admin_cannot_update_metric(self):
+        from posthog.constants import AvailableFeature
+        from posthog.models.organization import OrganizationMembership
+
+        from ee.models.rbac.access_control import AccessControl
+
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS, "name": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.save()
+        # Grant member-level (not admin) project access so the request reaches the serializer
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="member",
+        )
+
+        response = self.client.patch(url, {"name": "Should not update"})
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        metric.refresh_from_db()
+        self.assertEqual(metric.name, "Events")
+
+    def test_admin_can_update_metric(self):
+        from posthog.models.organization import OrganizationMembership
+
+        metric = self._create_metric()
+        url = f"{self.url}/{metric.id}"
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+
+        response = self.client.patch(url, {"name": "Updated by admin"})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        metric.refresh_from_db()
+        self.assertEqual(metric.name, "Updated by admin")
+
 
 class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
@@ -1931,3 +2027,76 @@ class GroupPropertyDefinitionsTestCase(ClickhouseTestMixin, APIBaseTest):
             team=self.team, name="test_prop", type=PropertyDefinition.Type.GROUP, group_type_index=1
         )
         self.assertEqual(prop_def.group_type_index, 1)
+
+
+class TestGetGroupTypeMappingOr404PersonhogRouting(ClickhouseTestMixin, APIBaseTest):
+    """Tests for personhog routing in GroupsViewSet.get_group_type_mapping_or_404."""
+
+    def setUp(self):
+        super().setUp()
+        self.group_type_mapping = create_group_type_mapping_without_created_at(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type_index=0,
+            group_type="organization",
+        )
+        create_group(
+            team_id=self.team.pk,
+            group_type_index=0,
+            group_key="org:1",
+            properties={"name": "Test Org"},
+        )
+
+    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
+    @patch("posthog.personhog_client.converters.fetch_group_type_mapping_result")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_personhog_success_returns_result(self, mock_capture, mock_fetch, mock_gate):
+        from posthog.personhog_client.converters import GroupTypeMappingResult
+
+        mock_fetch.return_value = GroupTypeMappingResult(group_type="organization", group_type_index=0)
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_capture.return_value = mock_resp
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_type_index=0&group_key=org:1",
+            {"$unset": "name"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_fetch.assert_called_once()
+
+    @patch("posthog.personhog_client.gate.use_personhog", return_value=True)
+    @patch("posthog.personhog_client.converters.fetch_group_type_mapping_result")
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_personhog_failure_falls_back_to_orm(self, mock_capture, mock_fetch, mock_gate):
+        mock_fetch.side_effect = RuntimeError("grpc timeout")
+
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_capture.return_value = mock_resp
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_type_index=0&group_key=org:1",
+            {"$unset": "name"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @patch("posthog.personhog_client.gate.use_personhog", return_value=False)
+    @mock.patch("ee.clickhouse.views.groups.capture_internal")
+    def test_gate_off_uses_orm(self, mock_capture, mock_gate):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status = MagicMock()
+        mock_capture.return_value = mock_resp
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/groups/delete_property?group_type_index=0&group_key=org:1",
+            {"$unset": "name"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)

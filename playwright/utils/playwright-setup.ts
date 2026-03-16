@@ -48,6 +48,11 @@ export interface PlaywrightSetupEvent {
     properties?: Record<string, any>
 }
 
+export interface PlaywrightSetupPerson {
+    distinct_ids: string[]
+    properties?: Record<string, any>
+}
+
 export interface PlaywrightWorkspaceSetupData {
     organization_name?: string
     use_current_time?: boolean
@@ -57,6 +62,7 @@ export interface PlaywrightWorkspaceSetupData {
     insights?: PlaywrightSetupInsight[]
     dashboards?: PlaywrightSetupDashboard[]
     events?: PlaywrightSetupEvent[]
+    persons?: PlaywrightSetupPerson[]
 }
 
 export interface PlaywrightSetupCreatedVariable {
@@ -152,10 +158,7 @@ export class PlaywrightSetup {
                         continue
                     }
                     if (throwOnError) {
-                        console.error(
-                            `[PlaywrightSetup] Setup failed - Status: ${response.status()}, Result:`,
-                            result
-                        )
+                        console.error(`[PlaywrightSetup] Setup failed - Status: ${response.status()}, Result:`, result)
                         throw new NonRetryableError(
                             `Playwright setup failed for '${setupType}': ${result.error || 'Unknown error'}`
                         )
@@ -186,9 +189,7 @@ export class PlaywrightSetup {
                 )
 
                 if (throwOnError) {
-                    throw new Error(
-                        `Failed to call setup endpoint after ${maxRetries} attempts: ${lastError.message}`
-                    )
+                    throw new Error(`Failed to call setup endpoint after ${maxRetries} attempts: ${lastError.message}`)
                 }
 
                 return {

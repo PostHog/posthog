@@ -184,6 +184,8 @@ export interface AlertApi {
     snoozed_until?: string | null
     /** @nullable */
     skip_weekend?: boolean | null
+    /** @nullable */
+    readonly last_value: number | null
 }
 
 export interface PaginatedAlertListApi {
@@ -222,6 +224,8 @@ export interface PatchedAlertApi {
     snoozed_until?: string | null
     /** @nullable */
     skip_weekend?: boolean | null
+    /** @nullable */
+    readonly last_value?: number | null
 }
 
 export type AlertsListParams = {

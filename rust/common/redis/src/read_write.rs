@@ -468,10 +468,9 @@ impl Client for ReadWriteClient {
 
     async fn batch_set_nx_ex(
         &self,
-        items: Vec<(String, String)>,
-        ttl_seconds: usize,
+        items: Vec<(String, String, usize)>,
     ) -> Result<Vec<bool>, CustomRedisError> {
-        self.writer.batch_set_nx_ex(items, ttl_seconds).await
+        self.writer.batch_set_nx_ex(items).await
     }
 
     async fn batch_del(&self, keys: Vec<String>) -> Result<(), CustomRedisError> {

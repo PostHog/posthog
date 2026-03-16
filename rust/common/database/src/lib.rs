@@ -1,5 +1,9 @@
 use std::{sync::Arc, time::Duration};
 
+/// Metric name for the counter incremented each time a new physical database connection
+/// is established. Labeled with `pool` when `PoolConfig::pool_name` is set.
+pub const DB_CONNECTION_CREATED_COUNTER: &str = "db_connection_created_total";
+
 use anyhow::Result;
 use async_trait::async_trait;
 use sqlx::{
@@ -49,6 +53,10 @@ pub struct PoolConfig {
     /// PostgreSQL statement_timeout to set on each connection (in milliseconds)
     /// Set to None to use the database default
     pub statement_timeout_ms: Option<u64>,
+    /// Optional pool name used to label the `db_connection_created_total` counter.
+    /// When set, each new connection triggers a counter increment labeled with this name,
+    /// enabling visibility into connection churn per pool.
+    pub pool_name: Option<String>,
 }
 
 impl Default for PoolConfig {
@@ -62,6 +70,7 @@ impl Default for PoolConfig {
             idle_timeout: Some(Duration::from_secs(300)), // Close idle connections after 5 minutes
             test_before_acquire: true,                    // Test connection health before use
             statement_timeout_ms: None,                   // Use database default
+            pool_name: None,
         }
     }
 }
@@ -116,15 +125,25 @@ pub fn get_pool_with_config(url: &str, config: PoolConfig) -> Result<PgPool, sql
         options = options.idle_timeout(idle_timeout);
     }
 
-    // If statement_timeout is configured, set it via after_connect hook
-    if let Some(timeout_ms) = config.statement_timeout_ms {
+    let pool_name = config.pool_name;
+    let statement_timeout_ms = config.statement_timeout_ms;
+
+    if pool_name.is_some() || statement_timeout_ms.is_some() {
         options = options.after_connect(move |conn, _meta| {
+            let pool_name = pool_name.clone();
             Box::pin(async move {
-                // Note: SET statement_timeout does not support parameterized queries ($1),
-                // so we use format!(). This is safe because timeout_ms is typed as u64.
-                sqlx::query(&format!("SET statement_timeout = {timeout_ms}"))
-                    .execute(&mut *conn)
-                    .await?;
+                if let Some(timeout_ms) = statement_timeout_ms {
+                    // Note: SET statement_timeout does not support parameterized queries ($1),
+                    // so we use format!(). This is safe because timeout_ms is typed as u64.
+                    sqlx::query(&format!("SET statement_timeout = {timeout_ms}"))
+                        .execute(&mut *conn)
+                        .await?;
+                }
+
+                if let Some(name) = pool_name {
+                    metrics::counter!(DB_CONNECTION_CREATED_COUNTER, "pool" => name).increment(1);
+                }
+
                 Ok(())
             })
         });

@@ -105,6 +105,38 @@ export interface TraceSummary {
     timestamp: string
 }
 
+// Clustering job configuration
+export interface ClusteringJob {
+    id: number
+    name: string
+    analysis_level: ClusteringLevel
+    event_filters: Record<string, unknown>[]
+    enabled: boolean
+    created_at: string
+    updated_at: string
+}
+
+/**
+ * Extract job_id from a clustering run ID.
+ * Run ID format: <team_id>_<level>_<YYYYMMDD>_<HHMMSS>[_<job_id>][_<label>]
+ * Job IDs are UUIDs (e.g. 019cb7f3-a126-7809-bffc-7f13bffe1325).
+ * We match the UUID pattern in the suffix to avoid capturing a trailing run_label.
+ */
+const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i
+
+export function getJobIdFromRunId(runId: string): string | null {
+    const parts = runId.split('_')
+    // The first 4 parts are always: teamId, level, YYYYMMDD, HHMMSS
+    if (parts.length >= 5) {
+        const suffix = parts.slice(4).join('_')
+        const match = UUID_PATTERN.exec(suffix)
+        if (match) {
+            return match[0]
+        }
+    }
+    return null
+}
+
 // Aggregated metrics for a cluster (averages across all items in the cluster)
 export interface ClusterMetrics {
     avgCost: number | null // Average cost in USD

@@ -19,10 +19,11 @@ export function FunnelStepsPicker(): JSX.Element | null {
 
     const filterSteps = series || []
     const numberOfSeries = series?.length || 0
-    const fromRange = isFunnelWithEnoughSteps ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice(0, -1) : [0]
-    const toRange = isFunnelWithEnoughSteps
-        ? Array.from(Array(Math.max(numberOfSeries)).keys()).slice((funnelsFilter?.funnelFromStep ?? 0) + 1)
-        : [1]
+    const allSteps = Array.from(Array(numberOfSeries).keys())
+    const defaultToStep = Math.max(numberOfSeries - 1, 1)
+    const maxFromStep = Math.max(Math.min(funnelsFilter?.funnelToStep ?? defaultToStep, numberOfSeries - 1), 1)
+    const fromRange = isFunnelWithEnoughSteps ? allSteps.slice(0, maxFromStep) : [0]
+    const toRange = isFunnelWithEnoughSteps ? allSteps.slice((funnelsFilter?.funnelFromStep ?? 0) + 1) : [1]
 
     const optionsForRange = (range: number[]): LemonSelectOptions<number> => {
         return range

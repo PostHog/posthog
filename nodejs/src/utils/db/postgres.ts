@@ -1,5 +1,6 @@
 // Postgres
-import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow } from 'pg'
+import { DateTime } from 'luxon'
+import { Client, Pool, PoolClient, QueryConfig, QueryResult, QueryResultRow, types as pgTypes } from 'pg'
 
 import { withSpan } from '~/common/tracing/tracing-utils'
 
@@ -9,6 +10,27 @@ import { createPostgresPool } from '../utils'
 import { DependencyUnavailableError } from './error'
 import { postgresErrorCounter } from './metrics'
 import { timeoutGuard } from './utils'
+
+// By default node-postgres returns dates as JS Date objects using the local timezone.
+// We need UTC ISO strings instead. This must be called before creating any Pool.
+// Idempotent — safe to call multiple times (e.g. from both hub.ts and PostgresRouter).
+let typeParsersInstalled = false
+export function installPostgresTypeParsers(): void {
+    if (typeParsersInstalled) {
+        return
+    }
+    typeParsersInstalled = true
+
+    pgTypes.setTypeParser(1083 /* types.TypeId.TIME */, (timeStr) =>
+        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+    )
+    pgTypes.setTypeParser(1114 /* types.TypeId.TIMESTAMP */, (timeStr) =>
+        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+    )
+    pgTypes.setTypeParser(1184 /* types.TypeId.TIMESTAMPTZ */, (timeStr) =>
+        timeStr ? DateTime.fromSQL(timeStr, { zone: 'utc' }).toISO() : null
+    )
+}
 
 const POSTGRES_UNAVAILABLE_ERROR_MESSAGES = [
     'connection to server at',
@@ -47,6 +69,8 @@ export class PostgresRouter {
     private pools: Map<PostgresUse, Pool>
 
     constructor(serverConfig: PluginsServerConfig) {
+        installPostgresTypeParsers()
+
         const app_name = serverConfig.PLUGIN_SERVER_MODE ?? 'unknown'
         logger.info('🤔', `Connecting to common Postgresql...`)
         const commonClient = createPostgresPool(

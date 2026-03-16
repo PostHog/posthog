@@ -1,11 +1,4 @@
-import {
-    buildSentimentBarTooltip,
-    buildTagTooltip,
-    capitalize,
-    computeExtremes,
-    flattenGenerationMessages,
-    formatScore,
-} from './sentimentUtils'
+import { buildSentimentBarTooltip, buildTagTooltip, capitalize, computeExtremes, formatScore } from './sentimentUtils'
 
 describe('sentimentUtils', () => {
     describe('capitalize', () => {
@@ -94,52 +87,6 @@ describe('sentimentUtils', () => {
             ['extremes below threshold are hidden', 'neutral', 60, 0.03, 0.04, 'Neutral: 60%'],
         ] as const)('%s', (_name, label, widthPercent, maxPos, maxNeg, expected) => {
             expect(buildSentimentBarTooltip(label, widthPercent, maxPos, maxNeg)).toBe(expected)
-        })
-    })
-
-    describe('flattenGenerationMessages', () => {
-        it('returns undefined for undefined input', () => {
-            expect(flattenGenerationMessages(undefined)).toBeUndefined()
-        })
-
-        it('returns undefined for empty generations', () => {
-            expect(flattenGenerationMessages({})).toBeUndefined()
-        })
-
-        it('returns undefined when all generations have no messages', () => {
-            expect(flattenGenerationMessages({ gen1: {}, gen2: { messages: {} } })).toBeUndefined()
-        })
-
-        it('flattens messages from multiple generations', () => {
-            const result = flattenGenerationMessages({
-                gen1: {
-                    messages: {
-                        0: { label: 'positive', scores: { positive: 0.9 } },
-                        1: { label: 'neutral', scores: { neutral: 0.7 } },
-                    },
-                },
-                gen2: {
-                    messages: {
-                        0: { label: 'negative', scores: { negative: 0.8 } },
-                    },
-                },
-            })
-            expect(result).toEqual({
-                'gen1:0': { label: 'positive', scores: { positive: 0.9 } },
-                'gen1:1': { label: 'neutral', scores: { neutral: 0.7 } },
-                'gen2:0': { label: 'negative', scores: { negative: 0.8 } },
-            })
-        })
-
-        it('handles single generation', () => {
-            const result = flattenGenerationMessages({
-                abc: {
-                    messages: {
-                        0: { label: 'positive' },
-                    },
-                },
-            })
-            expect(result).toEqual({ 'abc:0': { label: 'positive' } })
         })
     })
 })

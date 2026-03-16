@@ -77,6 +77,7 @@ class SessionViewSet(
     @action(methods=["GET"], detail=False)
     def property_definitions(self, request: request.Request, **kwargs) -> response.Response:
         search = request.GET.get("search")
+        is_numerical = request.GET.get("is_numerical")
 
         # unlike e.g. event properties, there's a very limited number of session properties,
         # so we can just return them all
@@ -88,6 +89,11 @@ class SessionViewSet(
             results = get_lazy_session_table_properties_v2(search)
         else:
             results = get_lazy_session_table_properties_v1(search)
+
+        if is_numerical is not None:
+            want_numerical = is_numerical.lower() == "true"
+            results = [r for r in results if r.get("is_numerical") == want_numerical]
+
         return response.Response(
             {
                 "count": len(results),

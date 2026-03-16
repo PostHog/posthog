@@ -8,8 +8,8 @@ import { capitalizeFirstLetter } from 'lib/utils'
 
 import { AnyPropertyFilter } from '~/types'
 
-import { logsSceneLogic } from '../../../logsSceneLogic'
 import { LogsFiltersHistoryEntry } from '../../../types'
+import { logsFilterHistoryLogic } from './logsFilterHistoryLogic'
 
 const formatDateRange = (dateRange: LogsFiltersHistoryEntry['filters']['dateRange']): string => {
     const from = dateRange.date_from || 'any'
@@ -102,8 +102,8 @@ const HistoryEntryButton = ({
 }
 
 export const FilterHistoryDropdown = (): JSX.Element | null => {
-    const { filterHistory, hasFilterHistory } = useValues(logsSceneLogic)
-    const { restoreFiltersFromHistory, clearFilterHistory } = useActions(logsSceneLogic)
+    const { filterHistory, hasFilterHistory } = useValues(logsFilterHistoryLogic)
+    const { restoreFiltersFromHistory, clearFilterHistory } = useActions(logsFilterHistoryLogic)
 
     if (!hasFilterHistory) {
         return null

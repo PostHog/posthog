@@ -1,4 +1,4 @@
-import { CollapsiblePrimitive } from 'lib/ui/CollapsiblePrimitive/CollapsiblePrimitive'
+import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 
 import { ErrorTrackingStackFrame, ErrorTrackingStackFrameRecord } from '../types'
 import { CollapsibleFrameContent } from './CollapsibleFrameContent'
@@ -20,9 +20,9 @@ export function CollapsibleFrame({
     onExpandedChange,
 }: CollapsibleFrameProps): JSX.Element {
     return (
-        <CollapsiblePrimitive open={expanded} onOpenChange={onExpandedChange}>
+        <Collapsible variant="container" open={expanded} onOpenChange={onExpandedChange}>
             <CollapsibleFrameHeader frame={frame} expanded={expanded} record={record} recordLoading={recordLoading} />
             <CollapsibleFrameContent frame={frame} record={record} />
-        </CollapsiblePrimitive>
+        </Collapsible>
     )
 }

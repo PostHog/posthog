@@ -209,7 +209,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     },
     [Scene.ExperimentsSharedMetric]: {
         projectBased: true,
-        name: 'Shared metric',
+        name: '',
         defaultDocsPath: '/docs/experiments/creating-an-experiment',
         activityScope: ActivityScope.EXPERIMENT,
     },
@@ -410,6 +410,7 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.ProjectHomepage]: {
         projectBased: true,
         name: 'Homepage',
+        layout: 'app-raw-no-header',
     },
     [Scene.PropertyDefinitionEdit]: {
         projectBased: true,
@@ -538,11 +539,6 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
     [Scene.Signup]: { onlyUnauthenticated: true },
     [Scene.Site]: { projectBased: true, hideProjectNotice: true, layout: 'app-raw' },
     [Scene.StartupProgram]: { name: 'PostHog for Startups', organizationBased: true, layout: 'app-container' },
-    [Scene.SurveyTemplates]: {
-        projectBased: true,
-        name: 'New survey',
-        defaultDocsPath: '/docs/surveys/creating-surveys',
-    },
     [Scene.SurveyWizard]: {
         projectBased: true,
         name: 'Create survey',
@@ -691,7 +687,6 @@ export const redirects: Record<
     '/data-management': urls.eventDefinitions(),
     '/data-management/database': urls.sources(),
     '/data-pipelines': urls.sources(),
-    '/data-warehouse': urls.dataWarehouse(),
     '/data-warehouse/sources/:id': ({ id }) => urls.dataWarehouseSource(id, 'schemas'),
     '/data-warehouse/sources/:id/:tab': ({ id, tab }) =>
         urls.dataWarehouseSource(id, tab as DataWarehouseSourceSceneTab),
@@ -854,7 +849,6 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.experiment(':id')]: [Scene.Experiment, 'experiment'],
     [urls.experiment(':id', ':formMode')]: [Scene.Experiment, 'experiment'],
     [urls.surveys()]: [Scene.Surveys, 'surveys'],
-    [urls.surveyTemplates()]: [Scene.SurveyTemplates, 'surveyTemplates'],
     [urls.surveyWizard(':id')]: [Scene.SurveyWizard, 'surveyWizard'],
     [urls.surveyFormBuilder(':id')]: [Scene.SurveyFormBuilder, 'surveyFormBuilder'],
     [urls.survey(':id')]: [Scene.Survey, 'survey'],
@@ -951,7 +945,7 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
-    [urls.dataWarehouse()]: [Scene.DataWarehouse, 'dataWarehouse'],
+    [urls.dataOps()]: [Scene.DataOps, 'dataOps'],
     [urls.dataWarehouseSourceNew()]: [Scene.DataWarehouseSourceNew, 'dataWarehouseSourceNew'],
     [urls.dataWarehouseSource(':id', ':tab' as any)]: [Scene.DataWarehouseSource, 'dataWarehouseSource'],
     [urls.batchExportNew(':service')]: [Scene.BatchExportNew, 'batchExportNew'],

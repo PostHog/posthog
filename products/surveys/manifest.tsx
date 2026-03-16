@@ -11,7 +11,6 @@ export const manifest: ProductManifest = {
         surveys: (tab?: SurveysTabs): string => `/surveys${tab ? `?tab=${tab}` : ''}`,
         /** @param id A UUID or 'new'. ':id' for routing. */
         survey: (id: string): string => `/surveys/${id}`,
-        surveyTemplates: (): string => '/survey_templates',
         surveyFormBuilder: (id: string = 'new'): string => `/surveys/form/${id}`,
         surveyWizard: (id: string = 'new', template?: string): string =>
             `/surveys/guided/${id}${template ? `?template=${encodeURIComponent(template)}` : ''}`,

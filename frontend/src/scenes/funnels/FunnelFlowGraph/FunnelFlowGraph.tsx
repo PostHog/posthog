@@ -9,43 +9,82 @@ import {
     NodeTypes,
     ReactFlow,
     ReactFlowProvider,
+    useReactFlow,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { isInsightVizNode } from '~/queries/utils'
 
-import { FunnelFlowEdge } from './FunnelFlowEdge'
+import { JOURNEY_BUILDER_INSIGHT_PROPS } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'
+
+import { BuilderPathFlowNode } from './BuilderPathFlowNode'
+import { BuilderStepNode } from './BuilderStepNode'
+import { JourneyFlowEdge, ProfileFlowEdge } from './FunnelFlowEdge'
 import { funnelFlowGraphLogic } from './funnelFlowGraphLogic'
-import { FunnelFlowNode } from './FunnelFlowNode'
-
-const NODE_TYPES = {
-    mandatory: FunnelFlowNode,
-    optional: FunnelFlowNode,
-} as NodeTypes
+import { JourneyFlowNode, ProfileFlowNode } from './FunnelFlowNode'
+import { PathFlowEdge } from './PathFlowEdge'
+import { PathFlowNode } from './PathFlowNode'
 
 const EDGE_TYPES = {
-    funnelFlow: FunnelFlowEdge,
+    journey: JourneyFlowEdge,
+    profile: ProfileFlowEdge,
+    pathFlow: PathFlowEdge,
 } as EdgeTypes
 
-const FIT_VIEW_OPTIONS = {
-    padding: 0.2,
-    maxZoom: 1,
-}
+const NODE_TYPES = {
+    journey: JourneyFlowNode,
+    journeyCreate: BuilderStepNode,
+    profile: ProfileFlowNode,
+    pathNode: PathFlowNode,
+    builderPathNode: BuilderPathFlowNode,
+} as NodeTypes
+
+const PROFILE_GRAPH_HEIGHT = 140
 
 function FunnelFlowGraphContent(): JSX.Element {
+    const containerRef = useRef<HTMLDivElement>(null)
+    const { fitView: fitViewImperative } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
     const { insightProps } = useValues(insightLogic)
-    const { laidOutNodes, edges } = useValues(funnelFlowGraphLogic(insightProps))
+    // Property filters are only set when in person/group profile, so we can use that as a proxy
+    const isProfileMode =
+        isInsightVizNode(insightProps.query) &&
+        Array.isArray(insightProps.query.source?.properties) &&
+        insightProps.query.source.properties.length > 0
+    const isBuilderMode = insightProps.dashboardItemId === JOURNEY_BUILDER_INSIGHT_PROPS.dashboardItemId
+    const mode = isProfileMode ? 'profile' : isBuilderMode ? 'builder' : undefined
+    const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, mode }))
+    const layoutCountRef = useRef(0)
+
+    useEffect(() => {
+        if (laidOutNodes.length === 0) {
+            return
+        }
+        layoutCountRef.current++
+        if (layoutCountRef.current <= 1) {
+            return
+        }
+        const rafId = requestAnimationFrame(() => {
+            fitViewImperative({ ...fitViewOptions, duration: 200 })
+        })
+        return () => cancelAnimationFrame(rafId)
+    }, [laidOutNodes, fitViewImperative, fitViewOptions])
 
     const closeOpenPopovers = useCallback(() => {
         document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
     }, [])
 
     return (
-        <div className="relative w-full" style={{ height: 'var(--insight-viz-min-height)' }}>
+        <div
+            ref={containerRef}
+            className="relative w-full"
+            style={{ height: isProfileMode ? PROFILE_GRAPH_HEIGHT : 'var(--insight-viz-min-height)' }}
+        >
+            {!isProfileMode && <style>{'.react-flow__edgelabel-renderer { z-index: 5; }'}</style>}
             <ReactFlow
                 nodes={laidOutNodes}
                 edges={edges}
@@ -54,7 +93,7 @@ function FunnelFlowGraphContent(): JSX.Element {
                 nodesDraggable={false}
                 nodesConnectable={false}
                 fitView
-                fitViewOptions={FIT_VIEW_OPTIONS}
+                fitViewOptions={fitViewOptions}
                 colorMode={isDarkModeOn ? 'dark' : 'light'}
                 proOptions={{ hideAttribution: true }}
                 elevateNodesOnSelect={false}
@@ -63,16 +102,20 @@ function FunnelFlowGraphContent(): JSX.Element {
                 onPaneClick={closeOpenPopovers}
                 onNodeClick={closeOpenPopovers}
             >
-                <Background gap={36} variant={BackgroundVariant.Dots} />
-                <Controls showInteractive={false} fitViewOptions={FIT_VIEW_OPTIONS} />
-                {laidOutNodes.length > 4 && (
-                    <MiniMap
-                        zoomable
-                        pannable
-                        nodeStrokeWidth={3}
-                        nodeColor="var(--border)"
-                        nodeStrokeColor="var(--border)"
-                    />
+                {!isProfileMode && (
+                    <>
+                        <Background gap={36} variant={BackgroundVariant.Dots} />
+                        <Controls showInteractive={false} fitViewOptions={fitViewOptions} />
+                        {laidOutNodes.length > 4 && (
+                            <MiniMap
+                                zoomable
+                                pannable
+                                nodeStrokeWidth={3}
+                                nodeColor="var(--border)"
+                                nodeStrokeColor="var(--border)"
+                            />
+                        )}
+                    </>
                 )}
             </ReactFlow>
         </div>

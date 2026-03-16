@@ -218,6 +218,7 @@ export function LemonInputSelect<T = string>({
     const popoverFocusRef = useRef<boolean>(false)
     const inputRef = useRef<HTMLInputElement>(null)
     const [selectedIndex, setSelectedIndex] = useState(0)
+    const [frozenOptions, setFrozenOptions] = useState<LemonInputSelectOption<T>[] | null>(null)
     const values = value ? value.slice() : []
     if (itemBeingEditedIndex !== null) {
         // If we're editing an item, we don't want it to be in the values list - it's ephemeral in that state
@@ -370,12 +371,23 @@ export function LemonInputSelect<T = string>({
         optionMaps,
     ])
 
-    // Reset the selected index when the visible options change
+    const displayOptions = frozenOptions ?? visibleOptions
+
+    // Reset the selected index when the displayed options change
     useEffect(() => {
         setSelectedIndex(0)
-    }, [visibleOptions.map((option) => option.key).join(':::')])
+    }, [displayOptions.map((option) => option.key).join(':::')])
+
+    useEffect(() => {
+        if (!showPopover) {
+            setFrozenOptions(null)
+        }
+    }, [showPopover])
 
     const setInputValue = (newValue: string): void => {
+        if (newValue) {
+            setFrozenOptions(null)
+        }
         // Apply input transformation if provided
         if (inputTransform) {
             newValue = inputTransform(newValue)
@@ -426,15 +438,16 @@ export function LemonInputSelect<T = string>({
     }
 
     const _addItem = (item: string, atIndex?: number | null, currentValues: T[] = values): void => {
-        if (mode === 'single') {
-            setInputValue('')
-        }
-        // Convert string key back to typed value
         const actualTypedValue = getTypedValue(item)
         if (mode === 'single') {
+            setInputValue('')
             onChange?.([actualTypedValue])
             return
         }
+        if (mode === 'multiple' && inputValue) {
+            setFrozenOptions(visibleOptions.filter((o) => !o.__isInput))
+        }
+        setInputValue('')
         const newValues = currentValues.slice()
         if (!newValues.includes(actualTypedValue)) {
             if (atIndex != undefined) {
@@ -534,10 +547,10 @@ export function LemonInputSelect<T = string>({
     const _onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>): void => {
         if (e.key === 'Enter') {
             e.preventDefault()
-            const itemToAdd = visibleOptions[selectedIndex]?.key
+            const itemToAdd = displayOptions[selectedIndex]?.key
 
             if (itemToAdd) {
-                _onActionItem(visibleOptions[selectedIndex]?.key, null)
+                _onActionItem(displayOptions[selectedIndex]?.key, null)
             }
             e.currentTarget.blur()
         } else if (e.key === 'Backspace') {
@@ -557,7 +570,7 @@ export function LemonInputSelect<T = string>({
             }
         } else if (e.key === 'ArrowDown') {
             e.preventDefault()
-            setSelectedIndex(Math.min(selectedIndex + 1, visibleOptions.length - 1))
+            setSelectedIndex(Math.min(selectedIndex + 1, displayOptions.length - 1))
         } else if (e.key === 'ArrowUp') {
             e.preventDefault()
             setSelectedIndex(Math.max(selectedIndex - 1, 0))
@@ -744,16 +757,16 @@ export function LemonInputSelect<T = string>({
     }, [displayMode, mode, inputValue, loading, values.length, options.length])
 
     const virtualizedListHeight = useMemo(() => {
-        if (visibleOptions.length <= 1) {
+        if (displayOptions.length <= 1) {
             return VIRTUALIZED_SELECT_OPTION_HEIGHT
         }
-        const height = visibleOptions.length * VIRTUALIZED_SELECT_OPTION_HEIGHT
+        const height = displayOptions.length * VIRTUALIZED_SELECT_OPTION_HEIGHT
 
         if (height > VIRTUALIZED_MAX_DROPDOWN_HEIGHT) {
             return VIRTUALIZED_MAX_DROPDOWN_HEIGHT
         }
         return height
-    }, [visibleOptions])
+    }, [displayOptions])
 
     const wasLimitReached = values.length >= limit
 
@@ -808,7 +821,7 @@ export function LemonInputSelect<T = string>({
             className={popoverClassName}
             placement="bottom-start"
             fallbackPlacements={['bottom-end', 'top-start', 'top-end']}
-            loadingBar={loading && visibleOptions.length > 0}
+            loadingBar={loading && displayOptions.length > 0}
             overlay={
                 <div className="deprecated-space-y-px overflow-y-auto">
                     {title && <h5 className="mx-2 my-1">{title}</h5>}
@@ -873,7 +886,7 @@ export function LemonInputSelect<T = string>({
                         </div>
                     )}
 
-                    {visibleOptions.length > 0 ? (
+                    {displayOptions.length > 0 ? (
                         virtualized ? (
                             <div>
                                 <AutoSizer
@@ -881,12 +894,12 @@ export function LemonInputSelect<T = string>({
                                         width ? (
                                             <List<VirtualizedOptionRowProps<T>>
                                                 style={{ width, height: virtualizedListHeight }}
-                                                rowCount={visibleOptions.length}
+                                                rowCount={displayOptions.length}
                                                 overscanCount={100}
                                                 rowHeight={VIRTUALIZED_SELECT_OPTION_HEIGHT}
                                                 rowComponent={VirtualizedOptionRow}
                                                 rowProps={{
-                                                    visibleOptions,
+                                                    visibleOptions: displayOptions,
                                                     selectedIndex,
                                                     stringKeys,
                                                     wasLimitReached,
@@ -907,7 +920,7 @@ export function LemonInputSelect<T = string>({
                                 />
                             </div>
                         ) : (
-                            visibleOptions.map((option, index) => {
+                            displayOptions.map((option, index) => {
                                 const isFocused = index === selectedIndex
                                 const isSelected = stringKeys.includes(option.key)
                                 const isDisabled = wasLimitReached && !isSelected

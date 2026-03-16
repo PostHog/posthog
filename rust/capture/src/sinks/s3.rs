@@ -341,6 +341,7 @@ mod tests {
                 force_overflow: false,
                 skip_person_processing: false,
                 redirect_to_dlq: false,
+                redirect_to_topic: None,
             },
         }
     }

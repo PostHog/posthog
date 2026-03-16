@@ -36,7 +36,7 @@ import {
     McpUiToolInputNotificationSchema,
     McpUiToolResultNotificationSchema,
     useApp,
-    useHostStyleVariables,
+    useHostStyles,
 } from '@modelcontextprotocol/ext-apps/react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
@@ -61,6 +61,13 @@ export interface UseToolResultOptions {
     appVersion?: string
 }
 
+export interface ContainerDimensions {
+    height?: number
+    maxHeight?: number
+    width?: number
+    maxWidth?: number
+}
+
 export interface UseToolResultReturn<T> {
     /** The parsed tool result data, or null if not yet received */
     data: T | null
@@ -74,6 +81,10 @@ export interface UseToolResultReturn<T> {
     openLink: (url: string) => void
     /** Capture a custom analytics event */
     capture: typeof capture
+    /** Container dimensions from the host, updated on context changes */
+    containerDimensions: ContainerDimensions | null
+    /** Re-read container dimensions from the host context */
+    refreshContainerDimensions: () => void
 }
 
 /**
@@ -86,6 +97,29 @@ function parseToolResultContent<T>(structuredContent: unknown): T | null {
     }
 
     return null
+}
+
+function extractContainerDimensions(ctx: Record<string, unknown> | undefined | null): ContainerDimensions | null {
+    const dims = ctx?.containerDimensions as Record<string, unknown> | undefined
+    if (!dims) {
+        return null
+    }
+
+    // Need this because TS doesn't want us to set keys with `undefined`
+    const result: ContainerDimensions = {}
+    if (typeof dims.height === 'number') {
+        result.height = dims.height
+    }
+    if (typeof dims.maxHeight === 'number') {
+        result.maxHeight = dims.maxHeight
+    }
+    if (typeof dims.width === 'number') {
+        result.width = dims.width
+    }
+    if (typeof dims.maxWidth === 'number') {
+        result.maxWidth = dims.maxWidth
+    }
+    return result
 }
 
 function log(...args: any[]): void {
@@ -104,6 +138,7 @@ export function useToolResult<T = unknown>({
 }: UseToolResultOptions): UseToolResultReturn<T> {
     const [data, setData] = useState<T | null>(null)
     const [parseError, setParseError] = useState<Error | null>(null)
+    const [containerDimensions, setContainerDimensions] = useState<ContainerDimensions | null>(null)
     const hasLoggedConnection = useRef(false)
 
     // Initialize PostHog on first render
@@ -151,9 +186,11 @@ export function useToolResult<T = unknown>({
                 const params = notification.params as typeof notification.params & { theme?: string }
                 captureHostContextChanged({
                     hasStyles: !!notification.params.styles,
-                    hasFonts: false, // fonts not available in current SDK schema
+                    hasFonts: !!notification.params.styles?.css?.fonts,
                     theme: params.theme,
                 })
+
+                setContainerDimensions(extractContainerDimensions(params as unknown as Record<string, unknown>))
             })
 
             // Register tool result handler
@@ -189,8 +226,8 @@ export function useToolResult<T = unknown>({
         },
     })
 
-    // Apply host styles
-    useHostStyleVariables(app)
+    // Apply host styles (CSS variables, theme, and fonts)
+    useHostStyles(app, app?.getHostContext())
 
     // Track connection state and errors
     useEffect(() => {
@@ -212,6 +249,7 @@ export function useToolResult<T = unknown>({
                 hasFonts: !!hostContextExtended?.fonts,
                 availableDisplayModes: hostContext?.availableDisplayModes,
             })
+            setContainerDimensions(extractContainerDimensions(hostContext as unknown as Record<string, unknown>))
             hasLoggedConnection.current = true
         }
     }, [isConnected, app])
@@ -229,6 +267,15 @@ export function useToolResult<T = unknown>({
         [app]
     )
 
+    // Re-read container dimensions from the current host context
+    const refreshContainerDimensions = useCallback(() => {
+        if (!app) {
+            return
+        }
+        const ctx = app.getHostContext()
+        setContainerDimensions(extractContainerDimensions(ctx as unknown as Record<string, unknown>))
+    }, [app])
+
     // Combine connection and parse errors
     const error = connectionError || parseError
 
@@ -239,5 +286,7 @@ export function useToolResult<T = unknown>({
         app,
         openLink,
         capture,
+        containerDimensions,
+        refreshContainerDimensions,
     }
 }

@@ -18,6 +18,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.message_utils import extract_text_from_messages
 from posthog.temporal.llm_analytics.metrics import (
+    increment_emit_event_outcome,
     increment_errors,
     increment_key_type,
     increment_provider_model,
@@ -693,7 +694,12 @@ async def emit_evaluation_event_activity(inputs: EmitEvaluationEventInputs) -> N
         )
         resp.raise_for_status()
 
-    await database_sync_to_async(_emit, thread_sensitive=False)()
+    try:
+        await database_sync_to_async(_emit, thread_sensitive=False)()
+        increment_emit_event_outcome("success")
+    except Exception:
+        increment_emit_event_outcome("failed")
+        raise
 
 
 @dataclass
@@ -803,6 +809,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                             "skip_reason": error_type,
                             "message": e.cause.message,
                             "evaluation_id": evaluation["id"],
+                            "evaluation_type": evaluation_type,
                         }
 
                     # Update key state for API-related errors
@@ -830,17 +837,21 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                 )
 
         # Activity 4: Emit evaluation event
-        await temporalio.workflow.execute_activity(
-            emit_evaluation_event_activity,
-            EmitEvaluationEventInputs(
-                evaluation=evaluation,
-                event_data=inputs.event_data,
-                result=result,
-                start_time=start_time,
-            ),
-            schedule_to_close_timeout=timedelta(seconds=30),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        try:
+            await temporalio.workflow.execute_activity(
+                emit_evaluation_event_activity,
+                EmitEvaluationEventInputs(
+                    evaluation=evaluation,
+                    event_data=inputs.event_data,
+                    result=result,
+                    start_time=start_time,
+                ),
+                schedule_to_close_timeout=timedelta(seconds=30),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        except Exception:
+            increment_errors("emit_evaluation_event_failed")
+            raise
 
         # Activity 5: Emit internal telemetry (fire-and-forget)
         await temporalio.workflow.execute_activity(
@@ -914,5 +925,6 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             "verdict": result["verdict"],
             "reasoning": result["reasoning"],
             "evaluation_id": evaluation["id"],
+            "evaluation_type": evaluation_type,
             "is_byok": result.get("is_byok", False),
         }

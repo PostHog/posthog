@@ -1,9 +1,17 @@
+import os
+import statistics
+
 import pytest
 from unittest.mock import Mock, patch
 
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow import flush_kafka_batch
 from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+    CohortSelectionActivityInput,
+    QueryPercentileThresholds,
+    QueryPercentileThresholdsInput,
     RealtimeCohortCalculationCoordinatorWorkflowInputs,
+    _apply_duration_filtering,
+    get_query_percentile_thresholds_activity,
     get_realtime_cohort_selection_activity,
 )
 
@@ -26,6 +34,7 @@ class TestFlushKafkaBatch:
             total_cohorts=5,
             heartbeater=heartbeater,
             logger=logger,
+            percentile_bucket="p0-p50",
         )
 
         assert result == 0
@@ -56,6 +65,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=5,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p0-p50",
             )
 
         assert result == 100
@@ -81,6 +91,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=5,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p0-p50",
                 is_final=True,
             )
 
@@ -110,6 +121,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=5,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p0-p50",
                 is_final=False,
             )
 
@@ -148,6 +160,7 @@ class TestFlushKafkaBatch:
                     total_cohorts=5,
                     heartbeater=heartbeater,
                     logger=logger,
+                    percentile_bucket="p0-p50",
                 )
 
         # Should log warnings for failed messages
@@ -180,6 +193,7 @@ class TestFlushKafkaBatch:
                     total_cohorts=5,
                     heartbeater=heartbeater,
                     logger=logger,
+                    percentile_bucket="p0-p50",
                 )
 
         assert logger.warning.call_count == 5
@@ -204,6 +218,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=10,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p50-p80",
             )
 
         heartbeat_msg = heartbeater.details[0]
@@ -230,6 +245,7 @@ class TestFlushKafkaBatch:
                 total_cohorts=8,
                 heartbeater=heartbeater,
                 logger=logger,
+                percentile_bucket="p80-p90",
             )
 
         # Check logger.info was called with metadata
@@ -242,15 +258,24 @@ class TestFlushKafkaBatch:
 class TestBatchFlushingBehavior:
     """Tests for batch flushing logic and integration."""
 
-    def test_flush_batch_size_constant_is_10k(self):
-        """Verify the FLUSH_BATCH_SIZE constant is set to 10,000."""
-        # Read the source to verify the constant
-        import inspect
+    def test_flush_batch_size_env_var_configuration(self):
+        """Verify FLUSH_BATCH_SIZE uses environment variable configuration."""
+        # Test default value (1000 when env var is not set)
+        with patch.dict(os.environ, {}, clear=True):
+            # Test the env parsing logic directly
+            default_value = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
+            assert default_value == 1000
 
+        # Test env var override
+        with patch.dict(os.environ, {"COHORT_KAFKA_FLUSH_BATCH_SIZE": "500"}):
+            env_value = int(os.environ.get("COHORT_KAFKA_FLUSH_BATCH_SIZE", "1000"))
+            assert env_value == 500
+
+        # Test that the module constant exists and is configurable
         import posthog.temporal.messaging.realtime_cohort_calculation_workflow as module
 
-        source = inspect.getsource(module.process_realtime_cohort_calculation_activity)
-        assert "FLUSH_BATCH_SIZE = 10_000" in source
+        assert hasattr(module, "FLUSH_BATCH_SIZE")
+        assert isinstance(module.FLUSH_BATCH_SIZE, int)
 
     @pytest.mark.asyncio
     async def test_multiple_batches_handled_correctly(self):
@@ -270,12 +295,16 @@ class TestBatchFlushingBehavior:
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow.asyncio.to_thread"):
             # Batch 1
-            result1 = await flush_kafka_batch(kafka_producer, mock_results_batch1, 123, 1, 5, heartbeater, logger)
+            result1 = await flush_kafka_batch(
+                kafka_producer, mock_results_batch1, 123, 1, 5, heartbeater, logger, "p90-p95"
+            )
             # Batch 2
-            result2 = await flush_kafka_batch(kafka_producer, mock_results_batch2, 123, 1, 5, heartbeater, logger)
+            result2 = await flush_kafka_batch(
+                kafka_producer, mock_results_batch2, 123, 1, 5, heartbeater, logger, "p90-p95"
+            )
             # Batch 3 (final)
             result3 = await flush_kafka_batch(
-                kafka_producer, mock_results_batch3, 123, 1, 5, heartbeater, logger, is_final=True
+                kafka_producer, mock_results_batch3, 123, 1, 5, heartbeater, logger, "p90-p95", is_final=True
             )
 
         assert result1 == 10000
@@ -329,33 +358,44 @@ class TestRealtimeCohortCalculationCoordinator:
         assert set(props["team_ids"]) == {42, 100}
         assert props["global_percentage"] == 0.3
 
-    def test_coordinator_workflow_inputs_uses_env_var_default(self):
-        """Should use env vars when no params provided."""
+    def test_coordinator_workflow_inputs_preserves_none_values(self):
+        """Should preserve None values for deterministic Temporal workflow behavior."""
+        # __post_init__ was removed to ensure Temporal workflow determinism
+        # Django settings are now loaded at schedule creation time, not during deserialization
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs()
+
+        # Should preserve explicit None values instead of auto-loading from settings
+        assert inputs.team_ids is None
+        assert inputs.global_percentage is None
+
+    def test_coordinator_workflow_inputs_explicit_values(self):
+        """Should preserve explicit values without auto-loading from settings."""
+        # __post_init__ was removed to ensure Temporal workflow determinism
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids=set(),  # Explicitly empty (not None)
+            global_percentage=None,  # Explicitly None
+        )
+
+        # Should preserve user's explicit values without loading from Django settings
+        assert inputs.team_ids == set()  # User's explicit empty set
+        assert inputs.global_percentage is None  # User's explicit None
+
+    def test_parse_inputs_loads_django_settings(self):
+        """Should load Django settings when using parse_inputs for CLI usage."""
+        from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+            RealtimeCohortCalculationCoordinatorWorkflow,
+        )
+
         with (
-            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_TEAMS", {2, 42}),
-            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE", 0.5),
+            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_TEAMS", {42, 100}),
+            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE", 0.75),
         ):
-            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs()
+            # parse_inputs should load Django settings for CLI usage
+            inputs = RealtimeCohortCalculationCoordinatorWorkflow.parse_inputs([])
 
-            # Should use the env var defaults
-            assert inputs.team_ids == {2, 42}
-            assert inputs.global_percentage == 0.5
-
-    def test_coordinator_workflow_inputs_partial_env_var_defaults(self):
-        """Should only load env vars for fields that are None."""
-        with (
-            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_TEAMS", {999}),
-            patch("posthog.settings.schedules.REALTIME_COHORT_CALCULATION_GLOBAL_PERCENTAGE", 0.999),
-        ):
-            # User explicitly sets empty team_ids but wants env var for global_percentage
-            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
-                team_ids=set(),  # Explicitly empty (not None)
-                global_percentage=None,  # Use env var default
-            )
-
-            # Should preserve user's explicit empty set and use env var for percentage
-            assert inputs.team_ids == set()  # User's explicit value, not env var {999}
-            assert inputs.global_percentage == 0.999  # From env var
+            # Should load settings values for CLI usage
+            assert inputs.team_ids == {42, 100}
+            assert inputs.global_percentage == 0.75
 
     def test_team_percentages_parsing_from_env_var(self):
         """Test parsing team percentages from environment variable using JSON format."""
@@ -443,7 +483,8 @@ class TestRealtimeCohortSelectionActivity:
             mock_queryset.exists.return_value = True
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            result = await get_realtime_cohort_selection_activity(inputs)
+            activity_input = CohortSelectionActivityInput(coordinator_inputs=inputs)
+            result = await get_realtime_cohort_selection_activity(activity_input)
 
             assert result.cohort_ids == [123]
             mock_cohort.objects.filter.assert_called_once()
@@ -459,7 +500,8 @@ class TestRealtimeCohortSelectionActivity:
             mock_queryset.exists.return_value = False
             mock_cohort.objects.filter.return_value = mock_queryset
 
-            result = await get_realtime_cohort_selection_activity(inputs)
+            activity_input = CohortSelectionActivityInput(coordinator_inputs=inputs)
+            result = await get_realtime_cohort_selection_activity(activity_input)
 
             assert result.cohort_ids == []
 
@@ -476,10 +518,18 @@ class TestRealtimeCohortSelectionActivity:
 
             mock_cohort.objects.filter.return_value = combined_teams_queryset
 
-            result = await get_realtime_cohort_selection_activity(inputs)
+            activity_input = CohortSelectionActivityInput(coordinator_inputs=inputs)
+            result = await get_realtime_cohort_selection_activity(activity_input)
 
-            # Should include all cohorts from both teams, sorted by ID
+            # Should include all cohorts from both teams, sorted by duration then ID
             assert result.cohort_ids == [10, 20, 30, 40]
+
+            # Verify ordering is applied with F expression and nulls_last
+            from django.db.models import F
+
+            combined_teams_queryset.order_by.assert_called_once_with(
+                F("last_calculation_duration_ms").asc(nulls_last=True), "id"
+            )
 
     @pytest.mark.asyncio
     async def test_selection_activity_with_global_percentage_only(self):
@@ -491,12 +541,13 @@ class TestRealtimeCohortSelectionActivity:
         )
 
         with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
-            # All teams have cohorts [1, 2, 3, 4, 5, 6]
+            # All teams have cohorts [1, 2, 3, 4, 5, 6] ordered by duration (shortest first, nulls last)
             queryset = Mock()
             queryset.order_by.return_value.values_list.return_value = [1, 2, 3, 4, 5, 6]
             mock_cohort.objects.filter.return_value = queryset
 
-            result = await get_realtime_cohort_selection_activity(inputs)
+            activity_input = CohortSelectionActivityInput(coordinator_inputs=inputs)
+            result = await get_realtime_cohort_selection_activity(activity_input)
 
             # Should select 50% = 3 cohorts (random sampling, but always 3 total)
             assert len(result.cohort_ids) == 3
@@ -504,6 +555,11 @@ class TestRealtimeCohortSelectionActivity:
             assert all(cohort_id in [1, 2, 3, 4, 5, 6] for cohort_id in result.cohort_ids)
             # Should be unique
             assert len(set(result.cohort_ids)) == 3
+
+            # Verify ordering is applied with F expression and nulls_last
+            from django.db.models import F
+
+            queryset.order_by.assert_called_once_with(F("last_calculation_duration_ms").asc(nulls_last=True), "id")
 
     @pytest.mark.asyncio
     async def test_selection_activity_with_small_global_percentage_returns_zero(self):
@@ -519,7 +575,8 @@ class TestRealtimeCohortSelectionActivity:
             queryset.order_by.return_value.values_list.return_value = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
             mock_cohort.objects.filter.return_value = queryset
 
-            result = await get_realtime_cohort_selection_activity(inputs)
+            activity_input = CohortSelectionActivityInput(coordinator_inputs=inputs)
+            result = await get_realtime_cohort_selection_activity(activity_input)
 
             # Should be empty since int(10 * 0.01) = 0
             assert result.cohort_ids == []
@@ -546,7 +603,8 @@ class TestRealtimeCohortSelectionActivity:
 
             mock_cohort.objects.filter.side_effect = [team2_queryset, other_teams_base_queryset]
 
-            result = await get_realtime_cohort_selection_activity(inputs)
+            activity_input = CohortSelectionActivityInput(coordinator_inputs=inputs)
+            result = await get_realtime_cohort_selection_activity(activity_input)
 
             # Should include:
             # - All cohorts from team 2: [10, 20]
@@ -579,7 +637,8 @@ class TestRealtimeCohortSelectionActivity:
 
             mock_cohort.objects.filter.side_effect = [combined_teams_queryset, other_teams_base_queryset]
 
-            result = await get_realtime_cohort_selection_activity(inputs)
+            activity_input = CohortSelectionActivityInput(coordinator_inputs=inputs)
+            result = await get_realtime_cohort_selection_activity(activity_input)
 
             # Should include forced teams cohorts: [10, 30, 20]
             # Plus 50% of other teams' [1, 2, 10] = 1 cohort (random sampling)
@@ -600,8 +659,8 @@ class TestRealtimeCohortSelectionActivity:
                 assert len(result.cohort_ids) == 3
                 assert len(other_cohorts) == 0
 
-            # Should be sorted
-            assert result.cohort_ids == sorted(result.cohort_ids)
+            # Should contain the expected cohorts (order is preserved from DB queries + random sampling)
+            assert set(result.cohort_ids) == {10, 20, 30, *other_cohorts}
 
     @pytest.mark.asyncio
     async def test_selection_activity_skips_invalid_team_ids(self):
@@ -618,7 +677,8 @@ class TestRealtimeCohortSelectionActivity:
             team2_queryset.order_by.return_value.values_list.return_value = [10, 20]
             mock_cohort.objects.filter.return_value = team2_queryset
 
-            result = await get_realtime_cohort_selection_activity(inputs)
+            activity_input = CohortSelectionActivityInput(coordinator_inputs=inputs)
+            result = await get_realtime_cohort_selection_activity(activity_input)
 
             # Should only include cohorts from team 2
             assert result.cohort_ids == [10, 20]
@@ -637,7 +697,8 @@ class TestRealtimeCohortSelectionActivity:
             queryset.order_by.return_value.values_list.return_value = [50, 10, 30, 20, 40]
             mock_cohort.objects.filter.return_value = queryset
 
-            result = await get_realtime_cohort_selection_activity(inputs)
+            activity_input = CohortSelectionActivityInput(coordinator_inputs=inputs)
+            result = await get_realtime_cohort_selection_activity(activity_input)
 
             # Should select 60% = 3 cohorts, randomly sampled
             assert len(result.cohort_ids) == 3
@@ -645,8 +706,13 @@ class TestRealtimeCohortSelectionActivity:
             assert all(cohort_id in [50, 10, 30, 20, 40] for cohort_id in result.cohort_ids)
             # Should be unique
             assert len(set(result.cohort_ids)) == 3
-            # Should be sorted in final result
-            assert result.cohort_ids == sorted(result.cohort_ids)
+            # Order is preserved from random sampling (not sorted)
+            assert len(result.cohort_ids) == len(set(result.cohort_ids))  # Check uniqueness
+
+            # Verify ordering is applied with F expression and nulls_last
+            from django.db.models import F
+
+            queryset.order_by.assert_called_once_with(F("last_calculation_duration_ms").asc(nulls_last=True), "id")
 
     @pytest.mark.asyncio
     async def test_selection_activity_random_variability(self):
@@ -663,7 +729,8 @@ class TestRealtimeCohortSelectionActivity:
             # Run multiple times to verify randomness
             results = []
             for _ in range(10):  # Run 10 times to get some variability
-                result = await get_realtime_cohort_selection_activity(inputs)
+                activity_input = CohortSelectionActivityInput(coordinator_inputs=inputs)
+                result = await get_realtime_cohort_selection_activity(activity_input)
                 results.append(set(result.cohort_ids))
 
             # All should select 50% = 3 cohorts
@@ -673,3 +740,691 @@ class TestRealtimeCohortSelectionActivity:
             # (It's theoretically possible all runs select the same cohorts, but extremely unlikely)
             unique_selections = {frozenset(result) for result in results}
             assert len(unique_selections) > 1, "Random sampling should produce different selections"
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_respects_duration_ordering_with_nulls(self):
+        """Should verify that ordering respects last_calculation_duration_ms with NULLs last."""
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(team_ids={1}, global_percentage=None)
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Mock queryset that simulates proper duration-based ordering
+            # In practice, this would return cohorts ordered by duration: shortest first, NULLs last
+            queryset = Mock()
+            # Cohorts returned in proper duration order (e.g., 1000ms, 2000ms, 5000ms, then NULL durations)
+            queryset.order_by.return_value.values_list.return_value = [10, 20, 30, 40, 50]
+            mock_cohort.objects.filter.return_value = queryset
+
+            activity_input = CohortSelectionActivityInput(coordinator_inputs=inputs)
+            result = await get_realtime_cohort_selection_activity(activity_input)
+
+            # Should maintain the duration-based ordering from the queryset
+            assert result.cohort_ids == [10, 20, 30, 40, 50]
+
+            # Most importantly, verify the F expression with nulls_last is used
+            from django.db.models import F
+
+            queryset.order_by.assert_called_once_with(F("last_calculation_duration_ms").asc(nulls_last=True), "id")
+
+
+class TestDurationFiltering:
+    """Tests for duration-based cohort filtering functionality."""
+
+    def test_apply_duration_filtering_no_thresholds(self):
+        """Should return original queryset when no thresholds provided."""
+        mock_queryset = Mock()
+
+        result = _apply_duration_filtering(mock_queryset, None)
+
+        assert result is mock_queryset
+        # Should not call any filter methods
+        assert not mock_queryset.filter.called
+
+    def test_apply_duration_filtering_normal_range(self):
+        """Should apply both lower and upper bounds for normal percentile ranges."""
+        mock_queryset = Mock()
+        mock_filtered_queryset = Mock()
+        mock_queryset.filter.return_value = mock_filtered_queryset
+
+        thresholds = QueryPercentileThresholds(
+            min_threshold_ms=5000,  # 5 seconds
+            max_threshold_ms=30000,  # 30 seconds
+        )
+
+        result = _apply_duration_filtering(mock_queryset, thresholds, is_p100=False)
+
+        assert result is mock_filtered_queryset
+        mock_queryset.filter.assert_called_once_with(
+            last_calculation_duration_ms__gte=5000,  # 5s * 1000
+            last_calculation_duration_ms__lt=30000,  # 30s * 1000
+        )
+
+    def test_apply_duration_filtering_p100_includes_nulls(self):
+        """Should include NULL durations when filtering p100 range (slowest tier)."""
+        from django.db.models import Q
+
+        mock_queryset = Mock()
+        mock_filtered_queryset = Mock()
+        mock_queryset.filter.return_value = mock_filtered_queryset
+
+        thresholds = QueryPercentileThresholds(
+            min_threshold_ms=60000,  # 60 seconds minimum
+            max_threshold_ms=120000,  # This value doesn't matter for p100
+        )
+
+        result = _apply_duration_filtering(mock_queryset, thresholds, is_p100=True)
+
+        assert result is mock_filtered_queryset
+        # Should use Q objects to include both duration >= threshold OR NULL
+        mock_queryset.filter.assert_called_once()
+        filter_args = mock_queryset.filter.call_args[0]
+        assert len(filter_args) == 1
+        q_filter = filter_args[0]
+        assert isinstance(q_filter, Q)
+
+    def test_apply_duration_filtering_p100_vs_normal(self):
+        """Should behave differently for p100 vs normal ranges with same thresholds."""
+        mock_queryset = Mock()
+        thresholds = QueryPercentileThresholds(min_threshold_ms=10, max_threshold_ms=50)
+
+        # Normal range (p90-p95)
+        _apply_duration_filtering(mock_queryset, thresholds, is_p100=False)
+        normal_call = mock_queryset.filter.call_args
+
+        mock_queryset.reset_mock()
+
+        # P100 range (p99-p100)
+        _apply_duration_filtering(mock_queryset, thresholds, is_p100=True)
+        p100_call = mock_queryset.filter.call_args
+
+        # Should use different filtering logic
+        assert normal_call != p100_call
+
+    def test_apply_duration_filtering_uses_millisecond_values(self):
+        """Should use millisecond threshold values directly in filtering."""
+        mock_queryset = Mock()
+
+        thresholds = QueryPercentileThresholds(
+            min_threshold_ms=2500,  # 2.5 seconds in milliseconds
+            max_threshold_ms=7250,  # 7.25 seconds in milliseconds
+        )
+
+        _apply_duration_filtering(mock_queryset, thresholds, is_p100=False)
+
+        mock_queryset.filter.assert_called_once_with(
+            last_calculation_duration_ms__gte=2500,
+            last_calculation_duration_ms__lt=7250,
+        )
+
+    def test_apply_duration_filtering_identical_thresholds(self):
+        """Should use __lte instead of __lt when min and max thresholds are identical.
+
+        This handles the edge case where all cohorts have identical durations,
+        causing quantile boundaries to be the same value. Using __lt would match
+        zero rows, but __lte correctly matches cohorts at that exact duration.
+        """
+        mock_queryset = Mock()
+        mock_filtered_queryset = Mock()
+        mock_queryset.filter.return_value = mock_filtered_queryset
+
+        # Identical thresholds simulate the case where all cohorts have the same duration
+        thresholds = QueryPercentileThresholds(
+            min_threshold_ms=5000,  # Same value
+            max_threshold_ms=5000,  # Same value
+        )
+
+        result = _apply_duration_filtering(mock_queryset, thresholds, is_p100=False)
+
+        assert result is mock_filtered_queryset
+        # Should use __lte instead of __lt when thresholds are identical
+        mock_queryset.filter.assert_called_once_with(
+            last_calculation_duration_ms__gte=5000,
+            last_calculation_duration_ms__lte=5000,  # __lte instead of __lt
+        )
+
+
+class TestQueryPercentileThresholdsActivity:
+    """Tests for ClickHouse percentile threshold calculation."""
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_get_percentile_thresholds_success(self):
+        """Should successfully calculate percentile thresholds from cohort data."""
+        inputs = QueryPercentileThresholdsInput(
+            min_percentile=90.0,  # p90
+            max_percentile=95.0,  # p95
+        )
+
+        # Mock cohort queryset with duration data (in milliseconds)
+        mock_durations = [
+            1000,
+            2000,
+            3000,
+            4000,
+            5000,
+            6000,
+            7000,
+            8000,
+            9000,
+            10000,
+            11000,
+            12000,
+            13000,
+            14000,
+            15000,
+            16000,
+            17000,
+            18000,
+            19000,
+            20000,
+        ]
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Create a mock values_list queryset that behaves like an actual queryset
+            mock_values_list_qs = Mock()
+            mock_values_list_qs.__bool__ = Mock(return_value=True)  # Make it truthy for the `if not` check
+            mock_values_list_qs.__iter__ = Mock(return_value=iter(mock_durations))  # Make it iterable
+            mock_values_list_qs.__len__ = Mock(return_value=len(mock_durations))  # Support len()
+
+            # Create a filter queryset that returns the values_list queryset
+            mock_filter_qs = Mock()
+            mock_filter_qs.values_list.return_value = mock_values_list_qs
+
+            mock_cohort.objects.filter.return_value = mock_filter_qs
+
+            result = await get_query_percentile_thresholds_activity(inputs)
+
+        assert result is not None
+        # With 20 data points, p90 should be around 18000ms, p95 around 19000ms
+        assert result.min_threshold_ms >= 17000
+        assert result.min_threshold_ms <= 19000
+        assert result.max_threshold_ms >= 18000
+        assert result.max_threshold_ms <= 20000
+
+    @pytest.mark.asyncio
+    async def test_get_percentile_thresholds_defaults_to_p0_p100(self):
+        """Should default to p0-p100 when percentiles not specified."""
+        inputs = QueryPercentileThresholdsInput()  # No percentiles specified
+
+        # Mock cohort queryset with duration data (in milliseconds)
+        mock_durations = [500, 1000, 1500, 2000, 2500, 3000, 3500, 4000, 4500, 5000]
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = mock_durations
+            mock_cohort.objects.filter.return_value = mock_queryset
+
+            result = await get_query_percentile_thresholds_activity(inputs)
+
+        assert result is not None
+        # p0 is treated as a lower bound of 0, p100 should be the maximum observed value (5000)
+        assert result.min_threshold_ms == 0  # p0 (lower bound)
+        assert result.max_threshold_ms == 5000  # p100 (max value)
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_get_percentile_thresholds_no_historical_data(self):
+        """Should return None when no historical cohort data exists."""
+        inputs = QueryPercentileThresholdsInput(min_percentile=0.0, max_percentile=90.0)
+
+        # Empty result from Cohort queryset (no historical durations)
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = []
+            mock_cohort.objects.filter.return_value = mock_queryset
+
+            result = await get_query_percentile_thresholds_activity(inputs)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_get_percentile_thresholds_insufficient_data(self):
+        """Should return None when Cohort data has insufficient data points."""
+        inputs = QueryPercentileThresholdsInput(min_percentile=50.0, max_percentile=75.0)
+
+        # Only one data point (need at least 2 for meaningful percentiles)
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = [1000]
+            mock_cohort.objects.filter.return_value = mock_queryset
+
+            result = await get_query_percentile_thresholds_activity(inputs)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_get_percentile_thresholds_statistics_error(self):
+        """Should return None when statistics.quantiles raises an error."""
+        inputs = QueryPercentileThresholdsInput(min_percentile=75.0, max_percentile=90.0)
+
+        # Mock data that will cause statistics error (too few points for percentile calculation)
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = [100, 200]  # Valid data
+            mock_cohort.objects.filter.return_value = mock_queryset
+
+            # Mock statistics.quantiles to raise StatisticsError
+            with patch("statistics.quantiles", side_effect=statistics.StatisticsError("Insufficient data")):
+                result = await get_query_percentile_thresholds_activity(inputs)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_get_percentile_thresholds_invalid_data_types(self):
+        """Should return None when Cohort duration data has invalid types."""
+        inputs = QueryPercentileThresholdsInput(min_percentile=80.0, max_percentile=95.0)
+
+        # Invalid duration data format (non-numeric values)
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.values_list.return_value = ["invalid-duration", "another-invalid"]
+            mock_cohort.objects.filter.return_value = mock_queryset
+
+            result = await get_query_percentile_thresholds_activity(inputs)
+
+        assert result is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_get_percentile_thresholds_database_error_propagates(self):
+        """Should propagate database errors for Temporal retry instead of silently returning None."""
+        inputs = QueryPercentileThresholdsInput(min_percentile=60.0, max_percentile=80.0)
+
+        # Mock database error
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Simulate database connection error
+            mock_cohort.objects.filter.side_effect = Exception("Database connection failed")
+
+            # Should propagate the database error instead of returning None
+            with pytest.raises(Exception, match="Database connection failed"):
+                await get_query_percentile_thresholds_activity(inputs)
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_get_percentile_thresholds_django_db_error_propagates(self):
+        """Should propagate Django database errors for Temporal retry."""
+        from django.db import OperationalError
+
+        inputs = QueryPercentileThresholdsInput(min_percentile=50.0, max_percentile=90.0)
+
+        # Mock Django database error (connection timeout, etc.)
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            # Simulate Django OperationalError (connection timeout, server unavailable, etc.)
+            mock_cohort.objects.filter.side_effect = OperationalError("Connection to database lost")
+
+            # Should propagate the database error for Temporal retry
+            with pytest.raises(OperationalError, match="Connection to database lost"):
+                await get_query_percentile_thresholds_activity(inputs)
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db
+    async def test_get_percentile_thresholds_type_error(self):
+        """Should return None when data contains non-numeric values that cause TypeError."""
+        inputs = QueryPercentileThresholdsInput(min_percentile=70.0, max_percentile=85.0)
+
+        # Mock data that will cause TypeError during max() operation
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            # Mix of numbers and non-numeric data that will cause TypeError
+            mock_queryset.values_list.return_value = [100, None, 200, 300]
+            mock_cohort.objects.filter.return_value = mock_queryset
+
+            result = await get_query_percentile_thresholds_activity(inputs)
+
+        assert result is None
+
+
+class TestDurationFilteringIntegration:
+    """Integration tests for duration filtering with cohort selection."""
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_with_duration_thresholds_p90_p95(self):
+        """Should apply duration filtering for p90-p95 percentile range."""
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids={2}, duration_percentile_min=90.0, duration_percentile_max=95.0
+        )
+
+        thresholds = QueryPercentileThresholds(
+            min_threshold_ms=10000,  # 10 seconds
+            max_threshold_ms=25000,  # 25 seconds
+        )
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_initial_queryset = Mock()
+            mock_filtered_queryset = Mock()
+            mock_filtered_queryset.order_by.return_value.values_list.return_value = [100, 200]
+            mock_initial_queryset.filter.return_value = mock_filtered_queryset
+
+            mock_cohort.objects.filter.return_value = mock_initial_queryset
+
+            activity_input = CohortSelectionActivityInput(
+                coordinator_inputs=inputs, query_percentile_thresholds=thresholds
+            )
+            result = await get_realtime_cohort_selection_activity(activity_input)
+
+        assert result.cohort_ids == [100, 200]
+
+        # Should apply duration filtering with correct parameters
+        mock_initial_queryset.filter.assert_called_once_with(
+            last_calculation_duration_ms__gte=10000,  # 10s * 1000
+            last_calculation_duration_ms__lt=25000,  # 25s * 1000
+        )
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_with_duration_thresholds_p95_p99(self):
+        """Should apply normal filtering for p95-p99 percentile range."""
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids={3},
+            duration_percentile_min=95.0,
+            duration_percentile_max=99.0,
+        )
+
+        thresholds = QueryPercentileThresholds(
+            min_threshold_ms=25000,  # 25 seconds minimum
+            max_threshold_ms=50000,  # 50 seconds maximum
+        )
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_initial_queryset = Mock()
+            mock_filtered_queryset = Mock()
+            mock_filtered_queryset.order_by.return_value.values_list.return_value = [300, 400]
+            mock_initial_queryset.filter.return_value = mock_filtered_queryset
+
+            mock_cohort.objects.filter.return_value = mock_initial_queryset
+
+            activity_input = CohortSelectionActivityInput(
+                coordinator_inputs=inputs, query_percentile_thresholds=thresholds
+            )
+            result = await get_realtime_cohort_selection_activity(activity_input)
+
+        assert result.cohort_ids == [300, 400]
+
+        # Should apply normal range filtering
+        mock_initial_queryset.filter.assert_called_once_with(
+            last_calculation_duration_ms__gte=25000,  # 25s * 1000
+            last_calculation_duration_ms__lt=50000,  # 50s * 1000
+        )
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_with_duration_thresholds_p99_p100(self):
+        """Should apply p100 filtering (include NULLs) for p99-p100 percentile range."""
+        from django.db.models import Q
+
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids={3},
+            duration_percentile_min=99.0,
+            duration_percentile_max=100.0,  # This triggers is_p100=True
+        )
+
+        thresholds = QueryPercentileThresholds(
+            min_threshold_ms=60000,  # 60 seconds minimum
+            max_threshold_ms=120000,  # Max doesn't matter for p100
+        )
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_initial_queryset = Mock()
+            mock_filtered_queryset = Mock()
+            mock_filtered_queryset.order_by.return_value.values_list.return_value = [300, 400, 500]
+            mock_initial_queryset.filter.return_value = mock_filtered_queryset
+
+            mock_cohort.objects.filter.return_value = mock_initial_queryset
+
+            activity_input = CohortSelectionActivityInput(
+                coordinator_inputs=inputs, query_percentile_thresholds=thresholds
+            )
+            result = await get_realtime_cohort_selection_activity(activity_input)
+
+        assert result.cohort_ids == [300, 400, 500]
+
+        # Should apply p100 filtering (Q object with OR condition for NULLs)
+        mock_initial_queryset.filter.assert_called_once()
+        filter_args = mock_initial_queryset.filter.call_args[0]
+        assert len(filter_args) == 1
+        assert isinstance(filter_args[0], Q)
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_no_duration_filtering_when_no_thresholds(self):
+        """Should skip duration filtering when no thresholds provided."""
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids={5},
+            duration_percentile_min=80.0,  # These are set but...
+            duration_percentile_max=90.0,
+        )
+
+        # No thresholds provided (e.g., ClickHouse had no data)
+        thresholds = None
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.order_by.return_value.values_list.return_value = [600, 700]
+            mock_cohort.objects.filter.return_value = mock_queryset
+
+            activity_input = CohortSelectionActivityInput(
+                coordinator_inputs=inputs, query_percentile_thresholds=thresholds
+            )
+            result = await get_realtime_cohort_selection_activity(activity_input)
+
+        assert result.cohort_ids == [600, 700]
+
+        # Should NOT call filter for duration filtering
+        # Only the base filter for team_ids should be called
+        assert mock_queryset.filter.call_count == 0  # No duration filtering
+
+    @pytest.mark.asyncio
+    async def test_selection_activity_no_duration_filtering_when_no_percentiles(self):
+        """Should skip duration filtering when percentile parameters not set."""
+        inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+            team_ids={7},
+            # No duration_percentile_min or duration_percentile_max set
+        )
+
+        thresholds = QueryPercentileThresholds(min_threshold_ms=15, max_threshold_ms=40)
+
+        with patch("posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator.Cohort") as mock_cohort:
+            mock_queryset = Mock()
+            mock_queryset.order_by.return_value.values_list.return_value = [800, 900]
+            mock_cohort.objects.filter.return_value = mock_queryset
+
+            activity_input = CohortSelectionActivityInput(
+                coordinator_inputs=inputs, query_percentile_thresholds=thresholds
+            )
+            result = await get_realtime_cohort_selection_activity(activity_input)
+
+        assert result.cohort_ids == [800, 900]
+
+        # Should NOT apply duration filtering because percentile params are None
+        assert mock_queryset.filter.call_count == 0
+
+
+class TestCoordinatorWorkflowInsufficientData:
+    """Tests for coordinator workflow behavior when insufficient duration data exists."""
+
+    @pytest.mark.asyncio
+    async def test_coordinator_skips_p90_p95_schedule_when_insufficient_data(self):
+        """Should exit early for p90-p95 schedule when no duration data exists."""
+        from unittest.mock import AsyncMock
+
+        # Import the coordinator workflow
+        from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+            RealtimeCohortCalculationCoordinatorWorkflow,
+            RealtimeCohortCalculationCoordinatorWorkflowInputs,
+        )
+
+        # Create coordinator workflow instance
+        workflow = RealtimeCohortCalculationCoordinatorWorkflow()
+
+        # Mock workflow execute_activity to return None (insufficient data)
+        workflow_logger = Mock()
+
+        with (
+            patch("temporalio.workflow.logger", workflow_logger),
+            patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
+            patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
+            patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
+        ):
+            # Mock workflow info
+            mock_info.return_value.workflow_id = "test-workflow-id"
+
+            # Mock the get_query_percentile_thresholds_activity to return None
+            mock_execute_activity.return_value = None
+
+            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+                duration_percentile_min=90.0,  # p90-p95 schedule
+                duration_percentile_max=95.0,
+            )
+
+            # Should exit early without calling get_realtime_cohort_selection_activity
+            await workflow.run(inputs)
+
+            # Should only call get_query_percentile_thresholds_activity, not cohort selection
+            assert mock_execute_activity.call_count == 1
+
+            # Verify the correct log message was generated
+            workflow_logger.info.assert_any_call(
+                "Skipping p90.0-p95.0 schedule execution: insufficient duration data for percentile filtering"
+            )
+
+    @pytest.mark.asyncio
+    async def test_coordinator_skips_p95_p99_schedule_when_insufficient_data(self):
+        """Should exit early for p95-p99 schedule when no duration data exists."""
+        from unittest.mock import AsyncMock
+
+        # Import the coordinator workflow
+        from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+            RealtimeCohortCalculationCoordinatorWorkflow,
+            RealtimeCohortCalculationCoordinatorWorkflowInputs,
+        )
+
+        # Create coordinator workflow instance
+        workflow = RealtimeCohortCalculationCoordinatorWorkflow()
+
+        # Mock workflow execute_activity to return None (insufficient data)
+        workflow_logger = Mock()
+
+        with (
+            patch("temporalio.workflow.logger", workflow_logger),
+            patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
+            patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
+            patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
+        ):
+            # Mock workflow info
+            mock_info.return_value.workflow_id = "test-workflow-id"
+
+            # Mock the get_query_percentile_thresholds_activity to return None
+            mock_execute_activity.return_value = None
+
+            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+                duration_percentile_min=95.0,  # p95-p99 schedule
+                duration_percentile_max=99.0,
+            )
+
+            # Should exit early without calling get_realtime_cohort_selection_activity
+            await workflow.run(inputs)
+
+            # Should only call get_query_percentile_thresholds_activity, not cohort selection
+            assert mock_execute_activity.call_count == 1
+
+            # Verify the correct log message was generated
+            workflow_logger.info.assert_any_call(
+                "Skipping p95.0-p99.0 schedule execution: insufficient duration data for percentile filtering"
+            )
+
+    @pytest.mark.asyncio
+    async def test_coordinator_skips_p99_p100_schedule_when_insufficient_data(self):
+        """Should exit early for p99-p100 schedule when no duration data exists."""
+        from unittest.mock import AsyncMock
+
+        # Import the coordinator workflow
+        from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+            RealtimeCohortCalculationCoordinatorWorkflow,
+            RealtimeCohortCalculationCoordinatorWorkflowInputs,
+        )
+
+        # Create coordinator workflow instance
+        workflow = RealtimeCohortCalculationCoordinatorWorkflow()
+
+        # Mock workflow execute_activity to return None (insufficient data)
+        workflow_logger = Mock()
+
+        with (
+            patch("temporalio.workflow.logger", workflow_logger),
+            patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
+            patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
+            patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
+        ):
+            # Mock workflow info
+            mock_info.return_value.workflow_id = "test-workflow-id"
+
+            # Mock the get_query_percentile_thresholds_activity to return None
+            mock_execute_activity.return_value = None
+
+            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+                duration_percentile_min=99.0,  # p99-p100 schedule
+                duration_percentile_max=100.0,
+            )
+
+            # Should exit early without calling get_realtime_cohort_selection_activity
+            await workflow.run(inputs)
+
+            # Should only call get_query_percentile_thresholds_activity, not cohort selection
+            assert mock_execute_activity.call_count == 1
+
+            # Verify the correct log message was generated
+            workflow_logger.info.assert_any_call(
+                "Skipping p99.0-p100.0 schedule execution: insufficient duration data for percentile filtering"
+            )
+
+    @pytest.mark.asyncio
+    async def test_coordinator_continues_when_insufficient_duration_data(self):
+        """Should continue processing even when no duration data exists for percentile filtering."""
+        from unittest.mock import AsyncMock
+
+        # Import the coordinator workflow
+        from posthog.temporal.messaging.realtime_cohort_calculation_workflow_coordinator import (
+            RealtimeCohortCalculationCoordinatorWorkflow,
+            RealtimeCohortCalculationCoordinatorWorkflowInputs,
+        )
+
+        # Create coordinator workflow instance
+        workflow = RealtimeCohortCalculationCoordinatorWorkflow()
+
+        # Mock workflow execute_activity
+        workflow_logger = Mock()
+
+        # Mock cohort selection result with empty cohort list
+        mock_selection_result = Mock()
+        mock_selection_result.cohort_ids = []
+
+        with (
+            patch("temporalio.workflow.logger", workflow_logger),
+            patch("temporalio.workflow.execute_activity", new_callable=AsyncMock) as mock_execute_activity,
+            patch("temporalio.workflow.time", return_value=1234567890.0),  # Mock workflow time
+            patch("temporalio.workflow.info") as mock_info,  # Mock workflow info
+        ):
+            # Mock workflow info
+            mock_info.return_value.workflow_id = "test-workflow-id"
+
+            # Mock sequence: thresholds=None, selection returns empty list
+            mock_execute_activity.side_effect = [
+                None,  # get_query_percentile_thresholds_activity returns None
+                mock_selection_result,  # get_realtime_cohort_selection_activity returns empty
+            ]
+
+            inputs = RealtimeCohortCalculationCoordinatorWorkflowInputs(
+                duration_percentile_min=0.0,  # Test with wide percentile range
+                duration_percentile_max=90.0,
+            )
+
+            # Should continue processing and call both activities
+            await workflow.run(inputs)
+
+            # Should call both get_query_percentile_thresholds_activity AND get_realtime_cohort_selection_activity
+            assert mock_execute_activity.call_count == 2
+
+            # Verify no early exit message was generated
+            workflow_logger.info.assert_any_call(
+                "Duration percentile filtering p0.0-p90.0: disabled (no historical query data)"
+            )

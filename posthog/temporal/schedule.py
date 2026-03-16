@@ -31,6 +31,7 @@ from posthog.temporal.experiments.schedule import (
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
 )
+from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
 from posthog.temporal.llm_analytics.trace_clustering.schedule import (
     create_generation_clustering_coordinator_schedule,
@@ -40,7 +41,7 @@ from posthog.temporal.llm_analytics.trace_summarization.schedule import (
     create_batch_generation_summarization_schedule,
     create_batch_trace_summarization_schedule,
 )
-from posthog.temporal.messaging.schedule import create_realtime_cohort_calculation_schedule
+from posthog.temporal.messaging.schedule import create_all_realtime_cohort_calculation_schedules
 from posthog.temporal.product_analytics.upgrade_queries_workflow import UpgradeQueriesWorkflowInputs
 from posthog.temporal.quota_limiting.run_quota_limiting import RunQuotaLimitingInputs
 from posthog.temporal.salesforce_enrichment.usage_workflow import UsageEnrichmentInputs
@@ -363,8 +364,9 @@ schedules = [
     create_purge_deleted_recording_metadata_schedule,
     create_experiment_regular_metrics_schedules,
     create_experiment_saved_metrics_schedules,
-    create_realtime_cohort_calculation_schedule,
+    create_all_realtime_cohort_calculation_schedules,
     create_ingestion_acceptance_test_schedule,
+    create_health_check_schedules,
 ]
 
 if settings.EE_AVAILABLE:

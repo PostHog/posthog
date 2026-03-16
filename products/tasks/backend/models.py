@@ -23,6 +23,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
 from posthog.storage import object_storage
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 
@@ -45,6 +46,7 @@ class Task(DeletedMetaFields, models.Model):
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
+    title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
 
@@ -125,6 +127,7 @@ class Task(DeletedMetaFields, models.Model):
         environment: Optional["TaskRun.Environment"] = None,
         mode: str = "background",
         extra_state: dict | None = None,
+        branch: str | None = None,
     ) -> "TaskRun":
         state: dict = {"mode": mode}
         if extra_state:
@@ -135,6 +138,7 @@ class Task(DeletedMetaFields, models.Model):
             status=TaskRun.Status.QUEUED,
             environment=environment or TaskRun.Environment.CLOUD,
             state=state,
+            branch=branch,
         )
 
     def soft_delete(self):
@@ -159,6 +163,8 @@ class Task(DeletedMetaFields, models.Model):
         slack_thread_context: Optional["SlackThreadContext"] = None,
         slack_thread_url: str | None = None,
         start_workflow: bool = True,
+        posthog_mcp_scopes: PosthogMcpScopes = "full",
+        branch: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
@@ -187,7 +193,7 @@ class Task(DeletedMetaFields, models.Model):
             if slack_thread_context:
                 extra_state["interaction_origin"] = "slack"
 
-        task_run = task.create_run(mode=mode, extra_state=extra_state)
+        task_run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
 
         if start_workflow:
             execute_task_processing_workflow(
@@ -197,6 +203,7 @@ class Task(DeletedMetaFields, models.Model):
                 user_id=user_id,
                 create_pr=create_pr,
                 slack_thread_context=slack_thread_context,
+                posthog_mcp_scopes=posthog_mcp_scopes,
             )
 
         return task

@@ -24,7 +24,8 @@ fn create_test_person() -> Person {
         created_at: 0,
         version: 1,
         is_identified: true,
-        is_user_id: false,
+        is_user_id: None,
+        last_seen_at: None,
     }
 }
 

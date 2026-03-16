@@ -6,7 +6,7 @@ import type { Context, ToolBase } from '@/tools/types'
 const schema = SurveyDeleteSchema
 type Params = z.infer<typeof schema>
 
-export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context: Context, params: Params) => {
+export const deleteHandler: ToolBase<typeof schema, unknown>['handler'] = async (context: Context, params: Params) => {
     const { surveyId } = params
     const projectId = await context.stateManager.getProjectId()
 

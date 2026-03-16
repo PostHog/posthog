@@ -24,6 +24,7 @@ from posthog.schema import FunnelLayout, NodeKind
 
 from posthog.api.insight_variable import map_stale_to_latest
 from posthog.caching.calculate_results import calculate_for_query_based_insight
+from posthog.event_usage import AnalyticsProps, EventSource
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import InsightVariable
@@ -51,7 +52,20 @@ TMP_DIR = "/tmp"  # NOTE: Externalise this to ENV var
 # See https://github.com/SeleniumHQ/selenium/issues/14660.
 HEIGHT_OFFSET = 85
 MAX_WIDTH_PIXELS = 4000  # Max width for wide content like funnels with many steps
+MAX_HEIGHT_PIXELS = 5000  # Prevents Chrome from consuming excessive memory on very tall pages
 CONTENT_PADDING = 80  # Padding for card borders
+
+MEASURE_CONTENT_HEIGHT_JS = """
+    const element = document.querySelector('.InsightCard__viz') ||
+                  document.querySelector('.ExportedInsight__content') ||
+                  document.querySelector('.replayer-wrapper') ||
+                  document.querySelector('.heatmap-exporter');
+    if (element) {
+        const rect = element.getBoundingClientRect();
+        return Math.max(rect.height, document.body.scrollHeight);
+    }
+    return document.body.scrollHeight;
+"""
 
 ScreenWidth = Literal[800, 1920, 1400, 4000]
 CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
@@ -271,29 +285,17 @@ def _screenshot_asset(
                     pass
                 capture_exception(e)
 
-        # Get the height of the visualization container specifically
-        height = driver.execute_script(
-            """
-            const element = document.querySelector('.InsightCard__viz') ||
-                          document.querySelector('.ExportedInsight__content') ||
-                          document.querySelector('.replayer-wrapper') ||
-                          document.querySelector('.heatmap-exporter');
-            if (element) {
-                const rect = element.getBoundingClientRect();
-                return Math.max(rect.height, document.body.scrollHeight);
-            }
-            return document.body.scrollHeight;
-        """
-        )
+        height = int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS))
 
-        if max_height_pixels and height > max_height_pixels:
+        effective_max = min(max_height_pixels, MAX_HEIGHT_PIXELS) if max_height_pixels else MAX_HEIGHT_PIXELS
+        if height > effective_max:
             logger.warning(
                 "screenshot_height_capped",
                 original_height=height,
-                capped_height=max_height_pixels,
+                capped_height=effective_max,
                 url=url_to_render,
             )
-            height = max_height_pixels
+            height = effective_max
 
         # Calculate width for replay players and non-funnel tables
         # Funnels are handled separately with fit-content measurement below
@@ -354,29 +356,16 @@ def _screenshot_asset(
         # Allow a moment for any dynamic resizing
         driver.execute_script("return new Promise(resolve => setTimeout(resolve, 500))")
 
-        # Get the final height after any dynamic adjustments
-        final_height = driver.execute_script(
-            """
-            const element = document.querySelector('.InsightCard__viz') ||
-                          document.querySelector('.ExportedInsight__content') ||
-                          document.querySelector('.replayer-wrapper') ||
-                          document.querySelector('.heatmap-exporter');
-            if (element) {
-                const rect = element.getBoundingClientRect();
-                return Math.max(rect.height, document.body.scrollHeight);
-            }
-            return document.body.scrollHeight;
-        """
-        )
+        final_height = int(driver.execute_script(MEASURE_CONTENT_HEIGHT_JS))
 
-        if max_height_pixels and final_height > max_height_pixels:
+        if final_height > effective_max:
             logger.warning(
                 "screenshot_final_height_capped",
                 original_final_height=final_height,
-                capped_height=max_height_pixels,
+                capped_height=effective_max,
                 url=url_to_render,
             )
-            final_height = max_height_pixels
+            final_height = effective_max
 
         # Set final window size
         driver.set_window_size(width, final_height + HEIGHT_OFFSET)
@@ -400,7 +389,9 @@ def _screenshot_asset(
             driver.quit()
 
 
-def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None) -> None:
+def export_image(
+    exported_asset: ExportedAsset, max_height_pixels: Optional[int] = None, source: Optional[EventSource] = None
+) -> None:
     with posthoganalytics.new_context():
         posthoganalytics.tag("team_id", exported_asset.team_id if exported_asset else "unknown")
         posthoganalytics.tag("asset_id", exported_asset.id if exported_asset else "unknown")
@@ -408,6 +399,7 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
         try:
             # Track cache keys for insights so we can pass them to Chrome for guaranteed cache hits
             insight_cache_keys: dict[int, str] = {}
+            export_analytics_props: AnalyticsProps = {"source": source or EventSource.EXPORT}
 
             if exported_asset.insight:
                 logger.info(
@@ -439,6 +431,7 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                         user=None,
                         variables_override=dashboard_variables,
                         tile_filters_override=tile_filters_override,
+                        analytics_props=export_analytics_props,
                     )
                     if result.cache_key:
                         insight_cache_keys[exported_asset.insight.id] = result.cache_key
@@ -471,6 +464,7 @@ def export_image(exported_asset: ExportedAsset, max_height_pixels: Optional[int]
                             user=None,
                             variables_override=dashboard_variables,
                             tile_filters_override=tile.filters_overrides,
+                            analytics_props=export_analytics_props,
                         )
                         if result.cache_key:
                             insight_cache_keys[insight.id] = result.cache_key

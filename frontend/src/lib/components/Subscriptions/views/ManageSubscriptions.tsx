@@ -21,6 +21,8 @@ interface SubscriptionListItemProps {
 }
 
 export function SubscriptionListItem({ subscription, onClick, onDelete }: SubscriptionListItemProps): JSX.Element {
+    const selectedInsightsCount = subscription.dashboard_export_insights?.length
+
     return (
         <LemonButton
             type="secondary"
@@ -51,7 +53,12 @@ export function SubscriptionListItem({ subscription, onClick, onDelete }: Subscr
             <div className="flex justify-between flex-auto items-center p-2">
                 <div>
                     <div className="text-link font-medium">{subscription.title}</div>
-                    <div className="text-sm text-text-3000">{capitalizeFirstLetter(subscription.summary)}</div>
+                    <div className="text-sm text-text-3000">
+                        {capitalizeFirstLetter(subscription.summary)}
+                        {selectedInsightsCount
+                            ? ` · ${pluralize(selectedInsightsCount, 'insight', 'insights', true)}`
+                            : null}
+                    </div>
                 </div>
                 {subscription.target_type === 'email' ? (
                     <ProfileBubbles

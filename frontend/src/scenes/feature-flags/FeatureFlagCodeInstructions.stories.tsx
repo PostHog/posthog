@@ -42,6 +42,7 @@ const REGULAR_FEATURE_FLAG: FeatureFlagType = {
     last_modified_by: null,
     evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
     evaluation_tags: [],
+    evaluation_contexts: [],
     bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
 }
 

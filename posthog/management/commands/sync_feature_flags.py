@@ -61,14 +61,20 @@ class Command(BaseCommand):
 
         first_user = cast(User, User.objects.first())
         for team in Team.objects.all():
-            existing_flags = FeatureFlag.objects.filter(team=team).values_list("key", flat=True)
-            deleted_flags = FeatureFlag.objects.filter(team=team, deleted=True).values_list("key", flat=True)
+            existing_flags = set(
+                FeatureFlag.objects_including_soft_deleted.filter(team=team).values_list("key", flat=True)
+            )
+            deleted_flags = set(
+                FeatureFlag.objects_including_soft_deleted.filter(team=team, deleted=True).values_list("key", flat=True)
+            )
             for flag in flags.keys():
                 flag_type = flags[flag]
                 is_enabled = flag not in INACTIVE_FLAGS
 
                 if flag in deleted_flags:
-                    ff = FeatureFlag.objects.filter(team=team, key=flag)[0]
+                    ff = FeatureFlag.objects_including_soft_deleted.filter(team=team, key=flag).first()
+                    if not ff:
+                        continue
                     ff.deleted = False
                     ff.active = is_enabled
                     ff.save()
@@ -110,3 +116,5 @@ class Command(BaseCommand):
                     print(
                         f"Created feature flag '{flag} for team {team.id} {' - ' + team.name if team.name else ''}{f' (multivariate: {", ".join(flag_type)})' if isinstance(flag_type, list) else ''}"
                     )
+
+        print("Feature flag sync complete.")

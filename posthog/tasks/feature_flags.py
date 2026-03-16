@@ -217,7 +217,7 @@ def compute_feature_flag_metrics(self: PushGatewayTask) -> None:
         registry=self.metrics_registry,
     )
 
-    base_qs = FeatureFlag.objects.filter(deleted=False, active=True)
+    base_qs = FeatureFlag.objects.filter(active=True)
 
     # Top 5 by flag count (secondary sort by team_id for deterministic ordering on ties)
     top_by_count = list(

@@ -2,15 +2,17 @@ use rdkafka::ClientConfig;
 
 /// Kafka consumer configuration builder with sensible defaults for PostHog services.
 ///
-/// Two entry points provide appropriate defaults for each consumer type:
+/// Three entry points provide appropriate defaults for each consumer type:
 /// - `for_batch_consumer`: Group-based consumer with full consumer-group settings
 ///   (auto commit/store disabled, session/heartbeat/max.poll defaults).
+/// - `for_assigner_consumer`: Consumer driven by kafka-assigner with manual `assign()`.
+///   Uses `group.id` for offset storage but no group-coordination settings.
 /// - `for_watermark_consumer`: Assign-only consumer with minimal connection settings
 ///   (no group-coordination defaults). `group.id` is still required by rdkafka but
 ///   the consumer will not join a consumer group.
 ///
-/// All `with_*` methods are available on both; callers simply don't call group-only
-/// methods (session, heartbeat, max_poll, sticky, offset_reset) for watermark consumers.
+/// All `with_*` methods are available on all types; callers simply don't call group-only
+/// methods (session, heartbeat, max_poll, sticky, offset_reset) for non-group consumers.
 pub struct ConsumerConfigBuilder {
     config: ClientConfig,
 }
@@ -50,6 +52,25 @@ impl ConsumerConfigBuilder {
         config
             .set("bootstrap.servers", bootstrap_servers)
             .set("group.id", group_id)
+            .set("socket.timeout.ms", "10000");
+
+        Self { config }
+    }
+
+    /// Create a config builder for an **assigner-driven consumer** that uses manual
+    /// partition assignment via `assign()` instead of consumer-group rebalancing.
+    ///
+    /// Sets bootstrap.servers, group.id (needed for offset commits via `commit()`/`committed()`),
+    /// auto.offset.store=false, auto.commit=false, and socket.timeout.ms.
+    /// No session/heartbeat/max.poll — the kafka-assigner manages partition ownership externally.
+    pub fn for_assigner_consumer(bootstrap_servers: &str, group_id: &str) -> Self {
+        let mut config = ClientConfig::new();
+
+        config
+            .set("bootstrap.servers", bootstrap_servers)
+            .set("group.id", group_id)
+            .set("enable.auto.offset.store", "false")
+            .set("enable.auto.commit", "false")
             .set("socket.timeout.ms", "10000");
 
         Self { config }

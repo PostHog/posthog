@@ -131,6 +131,8 @@ test.describe('Dashboards', () => {
             await dashboard.openFirstTileMenu()
             await dashboard.selectTileMenuOption('Remove from dashboard')
 
+            await page.getByRole('contentinfo').getByRole('button', { name: 'Remove from dashboard' }).click()
+
             await expect(dashboard.insightCards.first().getByText(newTileName)).not.toBeVisible()
         })
     })
@@ -227,6 +229,10 @@ test.describe('Dashboards', () => {
             await dashboard.openFirstTileMenu()
             await dashboard.selectTileMenuOption('Edit')
             await expect(page).toHaveURL(/edit/)
+            // Wait for the insight to fully load before interacting with the
+            // side panel — InsightPanelDangerZone only renders the delete
+            // button once the insight data is available in the store.
+            await expect(insight.saveButton).toContainText('No changes')
         })
 
         await test.step('open the info panel and click delete', async () => {

@@ -224,17 +224,17 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 round(
                     sumIf(toFloat(properties.$ai_input_cost_usd),
                           event IN ('$ai_generation', '$ai_embedding')
-                    ), 4
+                    ), 10
                 ) AS input_cost,
                 round(
                     sumIf(toFloat(properties.$ai_output_cost_usd),
                           event IN ('$ai_generation', '$ai_embedding')
-                    ), 4
+                    ), 10
                 ) AS output_cost,
                 round(
                     sumIf(toFloat(properties.$ai_total_cost_usd),
                           event IN ('$ai_generation', '$ai_embedding')
-                    ), 4
+                    ), 10
                 ) AS total_cost,
                 arrayDistinct(
                     arraySort(x -> x.3,
@@ -385,14 +385,13 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "created_at": created_at.isoformat(),
             "events": generations,
         }
-        try:
-            trace_dict["input_state_parsed"] = orjson.loads(trace_dict["input_state"])
-        except (TypeError, orjson.JSONDecodeError):
-            pass
-        try:
-            trace_dict["output_state_parsed"] = orjson.loads(trace_dict["output_state"])
-        except (TypeError, orjson.JSONDecodeError):
-            pass
+        for raw_key, parsed_key in [("input_state", "input_state_parsed"), ("output_state", "output_state_parsed")]:
+            raw = trace_dict.get(raw_key)
+            if raw is not None:
+                try:
+                    trace_dict[parsed_key] = orjson.loads(raw)
+                except (TypeError, orjson.JSONDecodeError):
+                    trace_dict[parsed_key] = raw
         # Remap keys from snake case to camel case
         trace = LLMTrace.model_validate(
             {TRACE_FIELDS_MAPPING[key]: value for key, value in trace_dict.items() if key in TRACE_FIELDS_MAPPING}

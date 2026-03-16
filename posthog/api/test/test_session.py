@@ -156,6 +156,38 @@ class TestSessionsAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         assert len(response.json()["results"]) == 0
 
+    def test_numerical_session_properties(self):
+        response = self.client.get(f"/api/projects/{self.team.pk}/sessions/property_definitions/?is_numerical=true")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        for entry in results:
+            self.assertTrue(entry["is_numerical"], f"Expected {entry['name']} to be numerical")
+        actual_properties = {entry["name"] for entry in results}
+        expected_numerical = {
+            "$autocapture_count",
+            "$pageview_count",
+            "$screen_count",
+            "$session_duration",
+            "$vitals_lcp",
+        }
+        self.assertEqual(actual_properties, expected_numerical)
+
+    def test_non_numerical_session_properties(self):
+        response = self.client.get(f"/api/projects/{self.team.pk}/sessions/property_definitions/?is_numerical=false")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        for entry in results:
+            self.assertFalse(entry["is_numerical"], f"Expected {entry['name']} to not be numerical")
+        numerical_properties = {
+            "$autocapture_count",
+            "$pageview_count",
+            "$screen_count",
+            "$session_duration",
+            "$vitals_lcp",
+        }
+        actual_properties = {entry["name"] for entry in results}
+        self.assertTrue(actual_properties.isdisjoint(numerical_properties))
+
     def test_search_missing_session_property_values(self):
         response = self.client.get(
             f"/api/projects/{self.team.pk}/sessions/values/?key=$entry_utm_source&value=doesnotexist"

@@ -12,6 +12,7 @@ import { BehavioralFilterKey } from 'scenes/cohorts/CohortFilters/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { toPaginatedResponse } from '~/mocks/handlers'
 import { useMocks } from '~/mocks/jest'
 import { cohortsModel } from '~/models/cohortsModel'
 import { ActorsQuery, DataTableNode, NodeKind } from '~/queries/schema/schema-general'
@@ -59,15 +60,15 @@ describe('cohortEditLogic', () => {
     beforeEach(async () => {
         useMocks({
             get: {
-                '/api/projects/:team/cohorts': [mockCohort],
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/': toPaginatedResponse([mockCohort]),
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
             post: {
-                '/api/projects/:team/cohorts': mockCohort,
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
             patch: {
-                '/api/projects/:team/cohorts/:id': mockCohort,
+                '/api/projects/:team_id/cohorts/:id/': mockCohort,
             },
         })
         initKeaTests()

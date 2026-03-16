@@ -45,6 +45,7 @@ const DEFAULT_TEAM: Team = {
     name: 'Test Team',
     anonymize_ips: false,
     api_token: 'test-token',
+    secret_api_token: null,
     slack_incoming_webhook: null,
     session_recording_opt_in: false,
     heatmaps_opt_in: null,
@@ -56,6 +57,7 @@ const DEFAULT_TEAM: Team = {
     cookieless_server_hash_mode: null,
     available_features: [],
     drop_events_older_than_seconds: null,
+    extra_settings: { person_last_seen_at_enabled: true },
 }
 
 class EventBuilder {
@@ -210,7 +212,8 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
             userId,
             userUuid,
             team.organization_id,
-            organizationMembershipId
+            organizationMembershipId,
+            { extra_settings: { person_last_seen_at_enabled: true } }
         )
 
         const fetchedTeam = await hub.teamManager.getTeam(team.id)
@@ -220,7 +223,11 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
         team = fetchedTeam
         currentToken = team.api_token
 
-        ingester = new IngestionConsumer(hub, { ...hub, hogTransformer: createHogTransformerService(hub, hub) })
+        ingester = new IngestionConsumer(hub, {
+            ...hub,
+            kafkaMetricsProducer: hub.kafkaProducer,
+            hogTransformer: createHogTransformerService(hub, hub),
+        })
         ingester['kafkaConsumer'] = {
             connect: jest.fn(),
             disconnect: jest.fn(),
@@ -672,6 +679,72 @@ describe.each(FLAG_COMBINATIONS)('Person Updates E2E ($#)', (config) => {
                 const person = await hub.personRepository.fetchPerson(team.id, identifiedDistinctId)
                 expect(person).toBeDefined()
                 expect(person!.is_identified).toBe(true)
+            })
+        })
+    })
+
+    describe(`${configName} - person_last_seen_at_enabled disabled`, () => {
+        beforeEach(async () => {
+            const disabledTeamId = Math.floor((Date.now() % 1000000000) + Math.random() * 1000000)
+            const disabledUserId = disabledTeamId
+            const disabledUserUuid = new UUIDT().toString()
+            const disabledOrgId = new UUIDT().toString()
+            const disabledOrgMembershipId = new UUIDT().toString()
+
+            await createUserTeamAndOrganization(
+                hub.postgres,
+                disabledTeamId,
+                disabledUserId,
+                disabledUserUuid,
+                disabledOrgId,
+                disabledOrgMembershipId
+            )
+
+            const fetchedTeam = await hub.teamManager.getTeam(disabledTeamId)
+            if (!fetchedTeam) {
+                throw new Error(`Failed to fetch team ${disabledTeamId} from database`)
+            }
+            team = fetchedTeam
+            currentToken = team.api_token
+        })
+
+        it('should not update last_seen_at when person_last_seen_at_enabled is not set', async () => {
+            const distinctId = new UUIDT().toString()
+            const baseTime = DateTime.now().startOf('hour')
+            const firstTimestamp = baseTime.toMillis()
+            const secondTimestamp = baseTime.plus({ hours: 2 }).toMillis()
+
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId)
+                        .withEvent('$identify')
+                        .withProperties({ $set: { initial: true } })
+                        .withTimestamp(firstTimestamp)
+                        .build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            let initialLastSeenAt: number | undefined
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                initialLastSeenAt = person!.last_seen_at?.toMillis()
+            })
+
+            await ingester.handleKafkaBatch(
+                createKafkaMessages([
+                    new EventBuilder(team, distinctId).withEvent('pageview').withTimestamp(secondTimestamp).build(),
+                ])
+            )
+
+            await waitForKafkaMessages(hub)
+
+            await waitForExpect(async () => {
+                const person = await hub.personRepository.fetchPerson(team.id, distinctId)
+                expect(person).toBeDefined()
+                expect(person!.last_seen_at?.toMillis()).toBe(initialLastSeenAt)
             })
         })
     })

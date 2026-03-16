@@ -7,9 +7,7 @@ import {
     FlutterInstallation,
     FramerInstallation,
     GoogleTagManagerInstallation,
-    HTMLSnippetInstallation,
     IOSInstallation,
-    JSWebInstallation,
     MobileFinalSteps,
     NextJSInstallation,
     NuxtInstallation,
@@ -23,6 +21,7 @@ import {
     WebFinalSteps,
     WebflowInstallation,
     WordpressInstallation,
+    WebInstallation,
 } from '@posthog/shared-onboarding/web-analytics'
 
 import { SDKInstructionsMap, SDKKey } from '~/types'
@@ -39,12 +38,8 @@ const MOBILE_SNIPPETS = {
 }
 
 // JS Web SDKs
-const WebAnalyticsJSWebInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: JSWebInstallation,
-    snippets: WEB_SNIPPETS,
-})
-const WebAnalyticsHTMLSnippetInstructionsWrapper = withOnboardingDocsWrapper({
-    Installation: HTMLSnippetInstallation,
+const WebAnalyticsWebInstructionsWrapper = withOnboardingDocsWrapper({
+    Installation: WebInstallation,
     snippets: WEB_SNIPPETS,
 })
 
@@ -135,8 +130,7 @@ const WebAnalyticsRNInstructionsWrapper = withOnboardingDocsWrapper({
 })
 
 export const WebAnalyticsSDKInstructions: SDKInstructionsMap = {
-    [SDKKey.JS_WEB]: WebAnalyticsJSWebInstructionsWrapper,
-    [SDKKey.HTML_SNIPPET]: WebAnalyticsHTMLSnippetInstructionsWrapper,
+    [SDKKey.JS_WEB]: WebAnalyticsWebInstructionsWrapper,
     [SDKKey.ANGULAR]: WebAnalyticsAngularInstructionsWrapper,
     [SDKKey.ASTRO]: WebAnalyticsAstroInstructionsWrapper,
     [SDKKey.BUBBLE]: WebAnalyticsBubbleInstructionsWrapper,

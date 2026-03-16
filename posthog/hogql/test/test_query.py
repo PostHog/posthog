@@ -22,7 +22,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.errors import QueryError
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import (
@@ -39,6 +39,9 @@ from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT, uuid7
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+
+from products.data_warehouse.backend.models import ExternalDataSource
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestQuery(ClickhouseTestMixin, APIBaseTest):
@@ -232,6 +235,48 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
             self.assertEqual(response.results[0][0], "random event")
             self.assertEqual(response.results[0][2], "bla")
             self.assertEqual(response.results[0][3], UUID("00000000-0000-4000-8000-000000000000"))
+
+    def test_execute_hogql_query_rejects_non_direct_connection_id(self):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+            prefix="stripe",
+        )
+        with self.assertRaises(ExposedHogQLError) as error:
+            execute_hogql_query(
+                "select 1",
+                team=self.team,
+                connection_id=str(selected_source.id),
+            )
+
+        self.assertEqual(str(error.exception), "Invalid connectionId for this team")
+
+    @patch("posthog.hogql.query.sync_execute")
+    def test_execute_hogql_query_rejects_non_direct_connection_before_clickhouse(self, mock_sync_execute):
+        selected_source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+
+        with self.assertRaises(ExposedHogQLError) as error:
+            execute_hogql_query(
+                "select 1",
+                team=self.team,
+                connection_id=str(selected_source.id),
+            )
+
+        self.assertEqual(str(error.exception), "Invalid connectionId for this team")
+        mock_sync_execute.assert_not_called()
 
     @pytest.mark.usefixtures("unittest_snapshot")
     def test_query_joins_pdi_persons(self):
@@ -1193,7 +1238,7 @@ class TestQuery(ClickhouseTestMixin, APIBaseTest):
                 f"FROM events "
                 f"WHERE and(equals(events.team_id, {self.team.pk}), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, %(hogql_val_46)s), ''), 'null'), '^\"|\"$', ''), %(hogql_val_47)s), 0)) "
                 f"LIMIT 100 "
-                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, format_csv_allow_double_quotes=0, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
+                f"SETTINGS readonly=2, max_execution_time=60, allow_experimental_object_type=1, max_ast_elements=4000000, max_expanded_ast_elements=4000000, max_bytes_before_external_group_by=0, transform_null_in=1, optimize_min_equality_disjunction_chain_length=4294967295, allow_experimental_join_condition=1, use_hive_partitioning=0",
                 response.clickhouse,
             )
             self.assertEqual(response.results[0], tuple(random_uuid for x in alternatives))

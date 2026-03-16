@@ -12,6 +12,7 @@ from products.conversations.backend.cache import (
     get_messages_cache_key,
     get_tickets_cache_key,
     get_unread_count_cache_key,
+    invalidate_messages_cache,
     invalidate_tickets_cache,
     invalidate_unread_count_cache,
     set_cached_messages,
@@ -85,6 +86,22 @@ class TestMessagesCacheOperations(TestCase):
 
         # Should not raise
         set_cached_messages(team_id=1, ticket_id="abc", response_data={})
+
+    @patch("products.conversations.backend.cache.cache")
+    def test_invalidate_messages_cache_deletes_key(self, mock_cache):
+        invalidate_messages_cache(team_id=1, ticket_id="abc-123")
+
+        mock_cache.delete.assert_called_once()
+        call_key = mock_cache.delete.call_args[0][0]
+        assert "messages" in call_key
+        assert "abc-123" in call_key
+
+    @patch("products.conversations.backend.cache.cache")
+    def test_invalidate_messages_cache_swallows_exception(self, mock_cache):
+        mock_cache.delete.side_effect = Exception("Redis error")
+
+        # Should not raise
+        invalidate_messages_cache(team_id=1, ticket_id="abc")
 
 
 class TestTicketsCacheOperations(TestCase):

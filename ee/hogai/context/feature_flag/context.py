@@ -31,9 +31,9 @@ class FeatureFlagContext:
         """Fetch the feature flag from the database."""
         try:
             if self._flag_id is not None:
-                return await FeatureFlag.objects.aget(id=self._flag_id, team=self._team, deleted=False)
+                return await FeatureFlag.objects.aget(id=self._flag_id, team=self._team)
             elif self._flag_key is not None:
-                return await FeatureFlag.objects.aget(key=self._flag_key, team=self._team, deleted=False)
+                return await FeatureFlag.objects.aget(key=self._flag_key, team=self._team)
             return None
         except FeatureFlag.DoesNotExist:
             return None

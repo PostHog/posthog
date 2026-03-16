@@ -1,13 +1,21 @@
 import posthog from 'posthog-js'
 
+import { ReplayTelemetry } from '@posthog/replay-shared'
+import {
+    ProcessingCache,
+    ViewportResolution,
+    clearThrottle,
+    keyForSource,
+    processAllSnapshots,
+} from '@posthog/replay-shared'
 import { EventType } from '@posthog/rrweb-types'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource, SnapshotSourceType } from '~/types'
 
-import { ViewportResolution } from './patch-meta-event'
-import { ProcessingCache, processAllSnapshots } from './process-all-snapshots'
-import { keyForSource } from './source-key'
-import { clearThrottle } from './throttle-capturing'
+const posthogTelemetry: ReplayTelemetry = {
+    capture: (event, properties) => posthog.capture(event, properties),
+    captureException: (error, properties) => posthog.captureException(error, properties),
+}
 
 describe('processAllSnapshots - inline meta patching', () => {
     const DEFAULT_VIEWPORT: ViewportResolution = {
@@ -181,7 +189,8 @@ describe('processAllSnapshots - inline meta patching', () => {
             snapshotsBySource,
             processingCache,
             mockViewportForTimestampNoData,
-            '12345'
+            '12345',
+            posthogTelemetry
         )
 
         expect(posthog.captureException).toHaveBeenCalledWith(
@@ -213,7 +222,8 @@ describe('processAllSnapshots - inline meta patching', () => {
             createSnapshotsBySource(source, snapshots),
             { snapshots: {} },
             mockViewportForTimestampNoData,
-            '12345'
+            '12345',
+            posthogTelemetry
         )
         expect(posthog.captureException).toHaveBeenCalledTimes(1)
         await processAllSnapshots(
@@ -221,7 +231,8 @@ describe('processAllSnapshots - inline meta patching', () => {
             createSnapshotsBySource(source, snapshots),
             { snapshots: {} },
             mockViewportForTimestampNoData,
-            '12345'
+            '12345',
+            posthogTelemetry
         )
         expect(posthog.captureException).toHaveBeenCalledTimes(1)
         await processAllSnapshots(
@@ -229,7 +240,8 @@ describe('processAllSnapshots - inline meta patching', () => {
             createSnapshotsBySource(source, snapshots),
             { snapshots: {} },
             mockViewportForTimestampNoData,
-            '54321'
+            '54321',
+            posthogTelemetry
         )
         expect(posthog.captureException).toHaveBeenCalledTimes(2)
     })

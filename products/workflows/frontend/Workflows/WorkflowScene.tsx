@@ -35,13 +35,18 @@ export const scene: SceneExport<WorkflowSceneLogicProps> = {
 }
 
 export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
-    const sceneLogic = workflowSceneLogic(props)
+    const workflowSceneProps: WorkflowSceneLogicProps = {
+        id: props.id || 'new',
+        tab: props.tab || 'workflow',
+        tabId: props.tabId || 'default',
+    }
+    const sceneLogic = workflowSceneLogic(workflowSceneProps)
     const { currentTab } = useValues(sceneLogic)
     const { searchParams } = useValues(router)
     const templateId = searchParams.templateId as string | undefined
     const editTemplateId = searchParams.editTemplateId as string | undefined
 
-    const batchJobsLogic = batchWorkflowJobsLogic({ id: props.id })
+    const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })
     const { futureJobs } = useValues(batchJobsLogic)
 
     const logic = workflowLogic({ id: props.id, tabId: props.tabId, templateId, editTemplateId })
@@ -63,7 +68,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         {
             label: 'Workflow',
             key: 'workflow',
-            content: <Workflow {...props} />,
+            content: <Workflow {...workflowSceneProps} />,
         },
 
         {
@@ -80,7 +85,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
                 </div>
             ),
             key: 'logs',
-            content: <WorkflowLogs id={props.id!} />,
+            content: <WorkflowLogs id={workflowSceneProps.id!} />,
         },
         {
             label: 'Metrics',
@@ -89,7 +94,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              * If we're rendering tabs, props.id is guaranteed to be
              * defined and not "new" (see return statement below)
              */
-            content: <WorkflowMetrics id={props.id!} />,
+            content: <WorkflowMetrics id={workflowSceneProps.id!} />,
         },
         {
             label: 'History',
@@ -98,12 +103,12 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
              * If we're rendering tabs, props.id is guaranteed to be
              * defined and not "new" (see return statement below)
              */
-            content: <ActivityLog id={props.id!} scope={ActivityScope.HOG_FLOW} />,
+            content: <ActivityLog id={workflowSceneProps.id!} scope={ActivityScope.HOG_FLOW} />,
         },
     ]
 
     return (
-        <SceneContent className="h-full flex flex-col grow">
+        <SceneContent className="h-full flex flex-col grow" data-attr="workflow-scene">
             <BindLogic logic={workflowLogic} props={{ id: props.id, tabId: props.tabId, templateId, editTemplateId }}>
                 <WorkflowSceneHeader {...props} />
                 {/* Only show Logs and Metrics tabs if the workflow has already been created */}

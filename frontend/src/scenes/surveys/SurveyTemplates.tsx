@@ -1,31 +1,10 @@
-import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import { useState } from 'react'
+import { LemonTag } from '@posthog/lemon-ui'
 
-import { LemonTag, Link } from '@posthog/lemon-ui'
-
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
-
-import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
 import { Survey, SurveyAppearance } from '~/types'
 
 import { AbsoluteCornerBadge } from './components/AbsoluteCornerBadge'
-import {
-    QuickSurveyFromTemplate,
-    SurveyTemplate,
-    SurveyTemplateType,
-    defaultSurveyAppearance,
-    defaultSurveyTemplates as templates,
-} from './constants'
-import { QuickSurveyModal } from './QuickSurveyModal'
+import { SurveyTemplate, SurveyTemplateType, defaultSurveyAppearance } from './constants'
 import { SurveyAppearancePreview } from './SurveyAppearancePreview'
-
-export const scene: SceneExport = {
-    component: SurveyTemplates,
-}
 
 interface TemplateCardProps {
     template: SurveyTemplate
@@ -33,6 +12,7 @@ interface TemplateCardProps {
     reportSurveyTemplateClicked: (templateType: SurveyTemplateType) => void
     surveyAppearance: SurveyAppearance
     handleTemplateClick: (template: SurveyTemplate) => void
+    hideTag?: boolean
 }
 
 export function FeaturedTemplateCard({
@@ -78,7 +58,13 @@ export function FeaturedTemplateCard({
     )
 }
 
-export function TemplateCard({ template, idx, handleTemplateClick, surveyAppearance }: TemplateCardProps): JSX.Element {
+export function TemplateCard({
+    template,
+    idx,
+    handleTemplateClick,
+    surveyAppearance,
+    hideTag,
+}: TemplateCardProps): JSX.Element {
     return (
         <button
             className="relative flex flex-col bg-bg-light border border-border rounded-lg hover:border-primary-3000-hover focus:border-primary-3000-hover focus:outline-none transition-colors text-left h-full group p-4 cursor-pointer overflow-hidden"
@@ -92,9 +78,11 @@ export function TemplateCard({ template, idx, handleTemplateClick, surveyAppeara
                     <h3 className="text-sm font-semibold text-default line-clamp-2 flex-1 mb-0">
                         {template.templateType}
                     </h3>
-                    <LemonTag type={template.tagType || 'default'} size="small" className="ml-2 flex-shrink-0">
-                        {template.category || 'General'}
-                    </LemonTag>
+                    {!hideTag && (
+                        <LemonTag type={template.tagType || 'default'} size="small" className="ml-2 flex-shrink-0">
+                            {template.category || 'General'}
+                        </LemonTag>
+                    )}
                 </div>
                 <p className="text-sm text-secondary leading-relaxed line-clamp-3">{template.description}</p>
             </div>
@@ -122,67 +110,5 @@ export function TemplateCard({ template, idx, handleTemplateClick, surveyAppeara
                 </div>
             </div>
         </button>
-    )
-}
-
-export function SurveyTemplates(): JSX.Element {
-    const { reportSurveyTemplateClicked } = useActions(eventUsageLogic)
-    const { currentTeam } = useValues(teamLogic)
-    const surveyAppearance = {
-        ...currentTeam?.survey_config?.appearance,
-    }
-
-    const [quickModalOpen, setQuickModalOpen] = useState<boolean>(false)
-    const [quickSurveyContext, setQuickSurveyContext] = useState<QuickSurveyFromTemplate | undefined>(undefined)
-
-    return (
-        <>
-            <div className="mb-2 -ml-[var(--button-padding-x-lg)]">
-                <SceneBreadcrumbBackButton
-                    forceBackTo={{
-                        key: Scene.Surveys,
-                        name: 'Surveys',
-                        path: urls.surveys(),
-                    }}
-                />
-            </div>
-            <div className="space-y-4">
-                <p className="text-center text-base">
-                    Choose a template based on your goal, or{' '}
-                    <Link to={urls.survey('new')} className="text-primary-3000" data-attr="new-blank-survey">
-                        start from scratch with a blank survey
-                    </Link>
-                    .
-                </p>
-
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-                    {templates.map((template, idx) => (
-                        <TemplateCard
-                            key={idx}
-                            template={template}
-                            idx={idx}
-                            reportSurveyTemplateClicked={reportSurveyTemplateClicked}
-                            surveyAppearance={surveyAppearance}
-                            handleTemplateClick={(template) => {
-                                if (template.quickSurvey) {
-                                    setQuickSurveyContext(template.quickSurvey)
-                                    setQuickModalOpen(true)
-                                } else {
-                                    router.actions.push(urls.surveyWizard('new', template.templateType))
-                                }
-                                reportSurveyTemplateClicked(template.templateType)
-                            }}
-                        />
-                    ))}
-                </div>
-            </div>
-            <QuickSurveyModal
-                context={quickSurveyContext?.context}
-                isOpen={!!quickModalOpen}
-                onCancel={() => setQuickModalOpen(false)}
-                modalTitle={quickSurveyContext?.modalTitle}
-                info={quickSurveyContext?.info}
-            />
-        </>
     )
 }

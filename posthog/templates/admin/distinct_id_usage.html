@@ -25,7 +25,29 @@
     .restriction-cell a { margin-left: 4px; }
     .restriction-cell form { display: inline; }
     .restriction-cell button { font-size: 11px; padding: 1px 5px; cursor: pointer; margin-left: 4px; }
+    .copyable { cursor: pointer; }
+    .copyable:hover { text-decoration: underline; }
+    .copy-feedback {
+        font-size: 11px; color: var(--success-fg, #28a745);
+        margin-left: 4px; opacity: 0; transition: opacity 0.2s;
+    }
+    .copy-feedback.visible { opacity: 1; }
 </style>
+<script>
+document.addEventListener('click', function(e) {
+    var el = e.target.closest('.copyable');
+    if (!el) return;
+    var text = el.getAttribute('data-copy');
+    if (!text) return;
+    navigator.clipboard.writeText(text).then(function() {
+        var fb = el.querySelector('.copy-feedback');
+        if (fb) {
+            fb.classList.add('visible');
+            setTimeout(function() { fb.classList.remove('visible'); }, 1000);
+        }
+    });
+});
+</script>
 {% endblock %}
 
 {% if not is_popup %}
@@ -98,8 +120,8 @@
         {% for row in high_usage_rows %}
             <tr>
                 <td>{{ row.team_id }}</td>
-                <td class="token-cell"><span title="{{ row.token }}">{{ row.token|truncatechars:16 }}</span></td>
-                <td class="distinct-id-cell" title="{{ row.distinct_id }}">{{ row.distinct_id|truncatechars:40 }}</td>
+                <td class="token-cell copyable" data-copy="{{ row.token }}" title="Click to copy: {{ row.token }}">{{ row.token|truncatechars:16 }}<span class="copy-feedback">Copied</span></td>
+                <td class="distinct-id-cell copyable" data-copy="{{ row.distinct_id }}" title="Click to copy: {{ row.distinct_id }}">{{ row.distinct_id|truncatechars:40 }}<span class="copy-feedback">Copied</span></td>
                 <td class="restriction-cell">
                     {% if row.restriction_status == "covered" %}
                         <span class="status-applied">&#10003; Applied</span> ({{ row.restriction_type }}) <a href="{{ row.restriction_edit_url }}">Edit</a>
@@ -181,7 +203,7 @@
         {% for row in high_cardinality_rows %}
             <tr>
                 <td>{{ row.team_id }}</td>
-                <td class="token-cell"><span title="{{ row.token }}">{{ row.token|truncatechars:16 }}</span></td>
+                <td class="token-cell copyable" data-copy="{{ row.token }}" title="Click to copy: {{ row.token }}">{{ row.token|truncatechars:16 }}<span class="copy-feedback">Copied</span></td>
                 <td class="restriction-cell">
                     {% if row.restriction_status == "exists" %}
                         {{ row.restriction_type }}{% if row.restriction_count > 1 %} (+{{ row.restriction_count|add:"-1" }}){% endif %} <a href="{{ row.restriction_edit_url }}">Edit</a>
@@ -199,11 +221,11 @@
     </table>
 </div>
 
-<!-- Burst events -->
+<!-- Burst events by distinct ID -->
 <div class="module" style="margin-top: 20px;">
     <table style="width: 100%;">
-        <caption>Burst events <span class="count-badge">{{ burst_rows|length }}</span></caption>
-        {% if burst_rows %}
+        <caption>Burst events by distinct ID <span class="count-badge">{{ burst_distinct_id_rows|length }}</span></caption>
+        {% if burst_distinct_id_rows %}
         <thead>
             <tr>
                 <th scope="col">Team ID</th>
@@ -216,11 +238,11 @@
             </tr>
         </thead>
         <tbody>
-        {% for row in burst_rows %}
+        {% for row in burst_distinct_id_rows %}
             <tr>
                 <td>{{ row.team_id }}</td>
-                <td class="token-cell"><span title="{{ row.token }}">{{ row.token|truncatechars:16 }}</span></td>
-                <td class="distinct-id-cell" title="{{ row.distinct_id }}">{{ row.distinct_id|truncatechars:40 }}</td>
+                <td class="token-cell copyable" data-copy="{{ row.token }}" title="Click to copy: {{ row.token }}">{{ row.token|truncatechars:16 }}<span class="copy-feedback">Copied</span></td>
+                <td class="distinct-id-cell copyable" data-copy="{{ row.distinct_id }}" title="Click to copy: {{ row.distinct_id }}">{{ row.distinct_id|truncatechars:40 }}<span class="copy-feedback">Copied</span></td>
                 <td class="restriction-cell">
                     {% if row.restriction_status == "covered" %}
                         <span class="status-applied">&#10003; Applied</span> ({{ row.restriction_type }}) <a href="{{ row.restriction_edit_url }}">Edit</a>
@@ -279,7 +301,44 @@
         {% endfor %}
         </tbody>
         {% else %}
-        <tbody><tr><td colspan="7"><em>No burst events found with current thresholds.</em></td></tr></tbody>
+        <tbody><tr><td colspan="7"><em>No burst events by distinct ID found with current thresholds.</em></td></tr></tbody>
+        {% endif %}
+    </table>
+</div>
+
+<!-- Burst events by team -->
+<div class="module" style="margin-top: 20px;">
+    <table style="width: 100%;">
+        <caption>Burst events by team <span class="count-badge">{{ burst_team_rows|length }}</span></caption>
+        {% if burst_team_rows %}
+        <thead>
+            <tr>
+                <th scope="col">Team ID</th>
+                <th scope="col">Token</th>
+                <th scope="col">Restrictions</th>
+                <th scope="col">Minute</th>
+                <th scope="col">Events/min</th>
+            </tr>
+        </thead>
+        <tbody>
+        {% for row in burst_team_rows %}
+            <tr>
+                <td>{{ row.team_id }}</td>
+                <td class="token-cell copyable" data-copy="{{ row.token }}" title="Click to copy: {{ row.token }}">{{ row.token|truncatechars:16 }}<span class="copy-feedback">Copied</span></td>
+                <td class="restriction-cell">
+                    {% if row.restriction_status == "exists" %}
+                        {{ row.restriction_type }}{% if row.restriction_count > 1 %} (+{{ row.restriction_count|add:"-1" }}){% endif %} <a href="{{ row.restriction_edit_url }}">Edit</a>
+                    {% else %}
+                        &mdash;
+                    {% endif %}
+                </td>
+                <td>{{ row.minute }}</td>
+                <td>{{ row.event_count }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+        {% else %}
+        <tbody><tr><td colspan="5"><em>No burst events by team found with current thresholds.</em></td></tr></tbody>
         {% endif %}
     </table>
 </div>

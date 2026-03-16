@@ -27,7 +27,6 @@ interface SessionInfo {
 export function VercelConnect(): JSX.Element {
     const { searchParams } = useValues(router)
     const sessionKey = searchParams.session
-    const nextUrl = searchParams.next
 
     const [loading, setLoading] = useState(true)
     const [linking, setLinking] = useState(false)
@@ -96,6 +95,11 @@ export function VercelConnect(): JSX.Element {
                 setLinkedOrgName(data.organization_name)
                 setSuccess(true)
                 setLinking(false)
+
+                const returnUrl = data.next_url
+                if (returnUrl) {
+                    window.location.href = returnUrl
+                }
             })
             .catch((err) => {
                 setError(err.message || 'Failed to link organization')
@@ -103,7 +107,7 @@ export function VercelConnect(): JSX.Element {
             })
     }
 
-    const redirectUrl = nextUrl || sessionInfo?.next_url
+    const redirectUrl = sessionInfo?.next_url
 
     if (loading) {
         return (

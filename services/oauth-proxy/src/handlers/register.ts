@@ -16,16 +16,32 @@ export async function handleRegister(request: Request, kv: KVNamespace): Promise
     const headers = new Headers(request.headers)
     headers.delete('host')
 
+    // Add proxy callback URL to redirect_uris so regional servers accept it
+    // during the callback interception flow
+    const proxyCallbackUrl = `${new URL(request.url).protocol}//${new URL(request.url).host}/oauth/callback/`
+    let originalRedirectUris: string[] | undefined
+    let registrationBody = body
+    try {
+        const json = JSON.parse(body) as Record<string, unknown>
+        if (Array.isArray(json.redirect_uris)) {
+            originalRedirectUris = json.redirect_uris as string[]
+            json.redirect_uris = [...originalRedirectUris, proxyCallbackUrl]
+            registrationBody = JSON.stringify(json)
+        }
+    } catch {
+        // Not JSON — forward as-is
+    }
+
     const [usResponse, euResponse] = await Promise.all([
         fetch(`${POSTHOG_US_BASE_URL}/oauth/register/`, {
             method: 'POST',
             headers,
-            body,
+            body: registrationBody,
         }),
         fetch(`${POSTHOG_EU_BASE_URL}/oauth/register/`, {
             method: 'POST',
             headers: new Headers(headers),
-            body,
+            body: registrationBody,
         }),
     ])
 
@@ -46,6 +62,7 @@ export async function handleRegister(request: Request, kv: KVNamespace): Promise
     const mapping: ClientMapping = {
         us_client_id: usData.client_id as string,
         eu_client_id: euData.client_id as string,
+        redirect_uris: originalRedirectUris,
         created_at: Date.now(),
     }
 

@@ -7,12 +7,23 @@ import pytz
 import structlog
 from dateutil.relativedelta import MO, relativedelta
 
-from posthog.schema import AlertCalculationInterval, ChartDisplayType, NodeKind
+from posthog.schema import (
+    AlertCalculationInterval,
+    AlertCondition,
+    AlertConditionType,
+    ChartDisplayType,
+    InsightThreshold,
+    InsightThresholdType,
+    NodeKind,
+    TrendsAlertConfig,
+    TrendsQuery,
+)
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.models import AlertConfiguration
+from posthog.utils import get_from_dict_or_attr
 
 logger = structlog.get_logger(__name__)
 
@@ -32,6 +43,80 @@ NON_TIME_SERIES_DISPLAY_TYPES = {
     ChartDisplayType.ACTIONS_TABLE,
     ChartDisplayType.WORLD_MAP,
 }
+
+
+def is_non_time_series_trend(query: TrendsQuery) -> bool:
+    display = query.trendsFilter.display if query.trendsFilter else None
+    return display in NON_TIME_SERIES_DISPLAY_TYPES
+
+
+def validate_alert_config(
+    query: dict,
+    condition: dict | None,
+    config: dict | None,
+    threshold_config: dict | None = None,
+) -> None:
+    """Validate alert configuration dicts. Raises ValueError on failure."""
+    try:
+        parsed_condition = AlertCondition.model_validate(condition)
+    except Exception:
+        raise ValueError(f"Alert has invalid condition: {condition}")
+
+    if not config or not isinstance(config, dict) or config.get("type") != "TrendsAlertConfig":
+        raise ValueError(f"Unsupported alert config type: {config}")
+    try:
+        parsed_config = TrendsAlertConfig.model_validate(config)
+    except Exception:
+        raise ValueError(f"Alert has invalid TrendsAlertConfig: {config}")
+
+    kind = get_from_dict_or_attr(query, "kind")
+    if kind in WRAPPER_NODE_KINDS:
+        query = get_from_dict_or_attr(query, "source")
+        kind = get_from_dict_or_attr(query, "kind")
+
+    if kind != NodeKind.TRENDS_QUERY:
+        raise ValueError(f"Alert's insight query kind '{kind}' is not supported (only TrendsQuery)")
+
+    try:
+        trends_query = TrendsQuery.model_validate(query)
+    except Exception as e:
+        raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
+
+    if parsed_condition.type in (
+        AlertConditionType.RELATIVE_INCREASE,
+        AlertConditionType.RELATIVE_DECREASE,
+    ) and is_non_time_series_trend(trends_query):
+        raise ValueError(
+            f"Relative alert condition '{parsed_condition.type}' is not compatible with non time series trends"
+        )
+
+    formula_nodes = trends_query.trendsFilter.formulaNodes if trends_query.trendsFilter else None
+    result_count = len(formula_nodes) if formula_nodes else len(trends_query.series)
+    if parsed_config.series_index >= result_count:
+        raise ValueError(f"series_index {parsed_config.series_index} is out of range (query has {result_count} series)")
+
+    if threshold_config is not None:
+        try:
+            threshold = InsightThreshold.model_validate(threshold_config)
+        except Exception:
+            raise ValueError(f"Alert has invalid threshold configuration: {threshold_config}")
+
+        if (
+            parsed_condition.type == AlertConditionType.ABSOLUTE_VALUE
+            and threshold.type != InsightThresholdType.ABSOLUTE
+        ):
+            raise ValueError(
+                "Absolute value alerts require an absolute threshold, but a percentage threshold was configured"
+            )
+
+        if parsed_config.check_ongoing_interval and parsed_condition.type in (
+            AlertConditionType.ABSOLUTE_VALUE,
+            AlertConditionType.RELATIVE_INCREASE,
+        ):
+            if not threshold.bounds or threshold.bounds.upper is None:
+                raise ValueError(
+                    f"check_ongoing_interval is only supported for alert condition {parsed_condition.type} when upper threshold is specified"
+                )
 
 
 def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> int:
@@ -213,3 +298,28 @@ def send_notifications_for_errors(alert: AlertConfiguration, error: dict) -> Non
     #     message.add_recipient(email=target)
 
     # message.send()
+
+
+def send_notifications_for_disabled(alert: AlertConfiguration, reason: str, targets: list[str]) -> None:
+    logger.info("Sending alert disabled notification", alert_id=alert.id, reason=reason)
+
+    subject = f"PostHog alert {alert.name} has been disabled"
+    campaign_key = f"alert-disabled-notification-{alert.id}-{timezone.now().timestamp()}"
+    insight_url = f"/project/{alert.team.pk}/insights/{alert.insight.short_id}"
+    alert_url = f"{insight_url}?alert_id={alert.id}"
+    message = EmailMessage(
+        campaign_key=campaign_key,
+        subject=subject,
+        template_name="alert_disabled",
+        template_context={
+            "alert_url": alert_url,
+            "alert_name": alert.name,
+            "insight_url": insight_url,
+            "insight_name": alert.insight.name,
+            "alert_error": reason,
+        },
+    )
+    for target in targets:
+        message.add_recipient(email=target)
+
+    message.send()

@@ -1,7 +1,5 @@
 import { useActions, useValues } from 'kea'
 
-import { useRestrictedArea } from 'lib/components/RestrictedArea'
-import { EitherMembershipLevel, OrganizationMembershipLevel } from 'lib/constants'
 import { LemonSelect, LemonSelectOption } from 'lib/lemon-ui/LemonSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -11,17 +9,15 @@ export function TeamSettingSelect<T extends string | number>({
     field,
     options,
     defaultValue,
-    minimumAccessLevel = OrganizationMembershipLevel.Member,
+    disabledReason,
 }: {
     field: keyof TeamType
     options: LemonSelectOption<T>[]
     defaultValue: T
-    minimumAccessLevel?: EitherMembershipLevel
+    disabledReason?: string | null
 }): JSX.Element {
     const { currentTeam, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
-
-    const restrictionReason = useRestrictedArea({ minimumAccessLevel })
 
     const currentValue = currentTeam?.[field] != null ? (currentTeam[field] as T) : defaultValue
 
@@ -37,7 +33,7 @@ export function TeamSettingSelect<T extends string | number>({
             value={currentValue}
             onChange={handleChange}
             options={options}
-            disabledReason={restrictionReason || (currentTeamLoading ? 'Loading...' : undefined)}
+            disabledReason={currentTeamLoading ? 'Loading...' : disabledReason}
         />
     )
 }

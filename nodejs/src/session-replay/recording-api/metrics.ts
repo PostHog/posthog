@@ -3,8 +3,8 @@ import { Counter, Histogram } from 'prom-client'
 export class RecordingApiMetrics {
     private static readonly getBlockDuration = new Histogram({
         name: 'recording_api_get_block_duration_seconds',
-        help: 'Time taken to serve a getBlock request (S3 fetch + decrypt)',
-        labelNames: ['result', 'session_state'],
+        help: 'Time taken to serve a getBlock request (S3 fetch + decrypt + optional decompress)',
+        labelNames: ['result', 'session_state', 'decompress'],
         buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
     })
 
@@ -15,8 +15,15 @@ export class RecordingApiMetrics {
         buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
     })
 
-    public static observeGetBlock(result: string, seconds: number, sessionState: string): void {
-        this.getBlockDuration.labels({ result, session_state: sessionState }).observe(seconds)
+    public static observeGetBlock(
+        result: string,
+        seconds: number,
+        sessionState: string,
+        decompress: boolean = false
+    ): void {
+        this.getBlockDuration
+            .labels({ result, session_state: sessionState, decompress: String(decompress) })
+            .observe(seconds)
     }
 
     private static readonly recordingsDeleted = new Counter({

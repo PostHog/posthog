@@ -54,7 +54,7 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
             name="Alert with relative threshold",
             insight=insight["id"],
             threshold={"configuration": {"type": "percentage", "bounds": {"lower": 10, "upper": 90}}},
-            condition={"type": "relative_previous_period"},
+            condition={"type": "relative_increase"},
         )
 
         log1 = ActivityLog.objects.filter(
@@ -67,7 +67,7 @@ class TestAlertActivityLogging(ActivityLogTestHelper):
         alert2 = self.create_alert_configuration(
             name="Alert with series index",
             insight=insight["id"],
-            config={"type": "TrendsAlertConfig", "series_index": 1},
+            config={"type": "TrendsAlertConfig", "series_index": 0},
         )
 
         log2 = ActivityLog.objects.filter(

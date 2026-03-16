@@ -21,7 +21,7 @@ import { urls } from 'scenes/urls'
 
 import { toolbarLogic } from '~/toolbar/bar/toolbarLogic'
 import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
-import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
+import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
 import { TOOLBAR_ID, elementToActionStep, getRectForElement, joinWithUiHost } from '~/toolbar/utils'
 import { captureAndUploadElementScreenshot } from '~/toolbar/utils/screenshot'
@@ -461,6 +461,7 @@ export const productToursLogic = kea<productToursLogicType>([
             const inferenceData = inferSelector(element)?.selector
             const screenshot = await captureAndUploadElementScreenshot(element).catch((e) => {
                 console.warn('[Product Tours] Failed to capture element screenshot:', e)
+                captureToolbarException(e, 'product_tour_screenshot')
                 return null
             })
 
@@ -623,6 +624,7 @@ export const productToursLogic = kea<productToursLogicType>([
                     actions.selectTour(null)
                 }
             } catch (e: any) {
+                captureToolbarException(e, 'product_tour_save')
                 lemonToast.error(e.detail || 'Failed to save tour')
             }
         },
@@ -840,7 +842,7 @@ export const productToursLogic = kea<productToursLogicType>([
 
             document.addEventListener('mouseover', cache.onMouseOver, true)
             document.addEventListener('click', cache.onClick, true)
-            document.addEventListener('scroll', cache.onScroll, true)
+            document.addEventListener('scroll', cache.onScroll, { capture: true, passive: true })
             window.addEventListener('resize', cache.onResize)
             window.addEventListener('keydown', cache.onKeyDown)
 
@@ -866,7 +868,7 @@ export const productToursLogic = kea<productToursLogicType>([
                 document.removeEventListener('click', cache.onClick, true)
             }
             if (cache.onScroll) {
-                document.removeEventListener('scroll', cache.onScroll, true)
+                document.removeEventListener('scroll', cache.onScroll, { capture: true })
             }
             if (cache.onResize) {
                 window.removeEventListener('resize', cache.onResize)

@@ -55,29 +55,22 @@ export function Annotations(): JSX.Element {
         {
             title: 'Annotation',
             key: 'annotation',
-            width: '30%',
             render: function RenderAnnotation(_, annotation: AnnotationType): JSX.Element {
-                let renderedContent = <>{annotation.content ?? ''}</>
-                if ((annotation.content || '').trim().length > 30) {
-                    renderedContent = (
-                        <Tooltip
-                            title={
-                                <TextContent
-                                    text={annotation.content ?? ''}
-                                    data-attr="annotation-scene-comment-title-rendered-content"
-                                />
-                            }
-                        >
-                            {(annotation.content ?? '').slice(0, 27) + '...'}
-                        </Tooltip>
-                    )
-                }
                 return (
-                    <div className="font-semibold">
-                        <Link subtle to={urls.annotation(annotation.id)}>
-                            {renderedContent}
-                        </Link>
-                    </div>
+                    <Tooltip
+                        title={
+                            <TextContent
+                                text={annotation.content ?? ''}
+                                data-attr="annotation-scene-comment-title-rendered-content"
+                            />
+                        }
+                    >
+                        <div className="font-semibold line-clamp-2">
+                            <Link subtle to={urls.annotation(annotation.id)}>
+                                {annotation.content ?? ''}
+                            </Link>
+                        </div>
+                    </Tooltip>
                 )
             },
         },

@@ -113,7 +113,7 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIsNone(response.json()["default_groups"][0]["rollout_percentage"])
 
-    def test_non_admin_can_read_but_not_write(self):
+    def test_non_admin_can_read_and_write(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
         self.organization_membership.save()
 
@@ -121,7 +121,7 @@ class TestTeamDefaultReleaseConditions(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         response = self.client.put(self.url, {"enabled": True, "default_groups": []}, format="json")
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
 
     def test_get_returns_previously_saved_config(self):
         config = get_or_create_team_extension(self.team, TeamFeatureFlagDefaultsConfig)

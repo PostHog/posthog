@@ -21,6 +21,7 @@ export function Activity(): JSX.Element {
         <CompactList
             title="Activity"
             viewAllURL={urls.savedInsights(SavedInsightsTabs.History)}
+            viewAllDataAttr="insights-home-tab-activity-view-all"
             loading={activityLoading}
             emptyMessage={{
                 title: 'No activity yet',

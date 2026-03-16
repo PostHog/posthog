@@ -1,7 +1,6 @@
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
@@ -9,7 +8,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ExperimentForm } from './ExperimentForm'
 import { createExperimentLogic } from './ExperimentForm/createExperimentLogic'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
 import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
@@ -63,15 +61,9 @@ function ExperimentCreateMode({ tabId }: { tabId: string }): JSX.Element {
     const logic = createExperimentLogic({ tabId })
     useMountedLogic(logic)
 
-    const showWizard = useFeatureFlag('EXPERIMENTS_WIZARD_CREATION_FORM', 'test')
-
-    if (showWizard) {
-        return (
-            <BindLogic logic={experimentWizardLogic} props={{ tabId }}>
-                <ExperimentWizard />
-            </BindLogic>
-        )
-    }
-
-    return <ExperimentForm tabId={tabId} />
+    return (
+        <BindLogic logic={experimentWizardLogic} props={{ tabId }}>
+            <ExperimentWizard />
+        </BindLogic>
+    )
 }

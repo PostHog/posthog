@@ -427,6 +427,7 @@ function processDemoResults(questions: SurveyQuestion[], rawResults: SurveyRawRe
                 type: question.type,
                 data,
                 totalResponses: total,
+                noResponseCount: 0,
             } as ChoiceQuestionProcessedResponses | OpenQuestionProcessedResponses
         }
     })

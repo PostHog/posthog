@@ -51,7 +51,7 @@ class TestRunIngestionAcceptanceTestsTimeout:
         with pytest.raises(asyncio.TimeoutError):
             await run_ingestion_acceptance_tests()
 
-        mock_send_timeout.assert_called_once_with(config)
+        mock_send_timeout.assert_called_once_with(config, running_tests=[])
         mock_send_slack.assert_not_called()
 
     @patch("posthog.temporal.ingestion_acceptance_test.activities.send_slack_timeout_notification")

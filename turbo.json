@@ -12,7 +12,8 @@
             ],
             "outputs": [],
             "cache": true,
-            "env": ["DATABASE_URL", "REDIS_URL", "CLICKHOUSE_HOST", "TEST"]
+            "env": ["DATABASE_URL", "REDIS_URL", "CLICKHOUSE_HOST", "TEST"],
+            "passThroughEnv": ["PYTEST_ADDOPTS"]
         },
         "backend:lint": {
             "inputs": ["backend/**/*.py", "!backend/**/__pycache__/**"],
@@ -45,7 +46,7 @@
             "dependsOn": ["^build"],
             "inputs": ["src", "tests", "Cargo.toml", "!**/*.pyc"],
             "env": ["RUST_VERSION", "SHARD_INDEX", "SHARD_COUNT"],
-            "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS"]
+            "passThroughEnv": ["RUSTUP_HOME", "CARGO_HOME", "DATABASE_URL", "REDIS_URL", "NODE_OPTIONS", "PERSONS_DATABASE_URL", "PERSONS_READONLY_DATABASE_URL"]
         },
         "start": {
             "dependsOn": ["^build"],

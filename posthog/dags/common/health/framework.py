@@ -5,6 +5,7 @@ import dagster
 
 from posthog.dags.common.common import JobOwners, check_for_concurrent_runs
 from posthog.dags.common.health.detectors import HealthDetector, resolve_execution_policy
+from posthog.dags.common.health.observability import push_health_check_metrics
 from posthog.dags.common.health.processing import _process_batch_detection
 from posthog.dags.common.health.types import BatchResult, HealthCheckDefinition, HealthCheckThresholdExceeded
 from posthog.dags.common.ops import get_all_team_ids_op
@@ -59,10 +60,6 @@ def _to_aggregate_dagster_metadata(totals: BatchResult, teams_per_second: float)
     }
 
 
-def _get_teams_per_second(result: BatchResult) -> float:
-    return result.batch_size / result.total_duration if result.total_duration > 0 else 0
-
-
 def _create_check_batch_op(name: str, kind: str, detector: HealthDetector) -> dagster.OpDefinition:
     @dagster.op(name=f"{name}_check_batch", retry_policy=_default_retry_policy)
     def check_batch_op(context: dagster.OpExecutionContext, team_ids: list[int]) -> BatchResult:
@@ -76,9 +73,7 @@ def _create_check_batch_op(name: str, kind: str, detector: HealthDetector) -> da
                     dry_run = bool(config.get("dry_run", False))
         result = _process_batch_detection(team_ids, kind, detector.detect_fn, context, dry_run=dry_run)
 
-        teams_per_second = _get_teams_per_second(result)
-
-        context.add_output_metadata(_to_batch_dagster_metadata(result, teams_per_second))
+        context.add_output_metadata(_to_batch_dagster_metadata(result, result.teams_per_second))
 
         return result
 
@@ -95,28 +90,27 @@ def _aggregate_results(
     for r in results:
         totals += r
 
-    teams_per_second = _get_teams_per_second(totals)
-
     context.log.info(
         f"Health check '{kind}' completed: {totals.batch_size:,} teams in {totals.total_duration:.0f}s "
-        f"({teams_per_second:.0f} teams/sec)\n"
+        f"({totals.teams_per_second:.0f} teams/sec)\n"
         f"  Issues: {totals.issues_upserted:,} upserted, {totals.issues_resolved:,} resolved\n"
         f"  Teams: {totals.teams_with_issues:,} with issues, {totals.teams_healthy:,} healthy, "
         f"{totals.teams_skipped:,} skipped, {totals.teams_failed:,} failed"
     )
 
-    context.add_output_metadata(_to_aggregate_dagster_metadata(totals, teams_per_second))
+    context.add_output_metadata(_to_aggregate_dagster_metadata(totals, totals.teams_per_second))
 
-    if totals.batch_size > 0:
-        not_processed = totals.teams_skipped + totals.teams_failed
-        not_processed_rate = not_processed / totals.batch_size
+    not_processed = totals.teams_skipped + totals.teams_failed
+    threshold_exceeded = totals.batch_size > 0 and totals.not_processed_rate > not_processed_threshold
 
-        if not_processed_rate > not_processed_threshold:
-            raise HealthCheckThresholdExceeded(
-                f"Health check '{kind}': {not_processed:,}/{totals.batch_size:,} teams not processed "
-                f"({not_processed_rate:.1%}), exceeds threshold {not_processed_threshold:.1%} "
-                f"(skipped={totals.teams_skipped:,}, failed={totals.teams_failed:,})"
-            )
+    push_health_check_metrics(kind, totals, success=not threshold_exceeded)
+
+    if threshold_exceeded:
+        raise HealthCheckThresholdExceeded(
+            f"Health check '{kind}': {not_processed:,}/{totals.batch_size:,} teams not processed "
+            f"({totals.not_processed_rate:.1%}), exceeds threshold {not_processed_threshold:.1%} "
+            f"(skipped={totals.teams_skipped:,}, failed={totals.teams_failed:,})"
+        )
 
 
 def _create_aggregate_op(

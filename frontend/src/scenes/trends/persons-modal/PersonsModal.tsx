@@ -29,7 +29,7 @@ import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { capitalizeFirstLetter, isGroupType, midEllipsis, pluralize } from 'lib/utils'
+import { capitalizeFirstLetter, isGroupType, isSessionType, midEllipsis, pluralize } from 'lib/utils'
 import { InsightErrorState, InsightValidationError } from 'scenes/insights/EmptyStates'
 import { isOtherBreakdown } from 'scenes/insights/utils'
 import { GroupActorDisplay, groupDisplayId } from 'scenes/persons/GroupActorDisplay'
@@ -44,6 +44,7 @@ import { ActorType, ExporterFormat, PropertiesTimelineFilterType, PropertyDefini
 import { cleanedInsightActorsQueryOptions } from './persons-modal-utils'
 import { PersonModalLogicProps, personsModalLogic } from './personsModalLogic'
 import { SaveCohortModal } from './SaveCohortModal'
+import { SessionActorDisplay } from './SessionActorDisplay'
 
 export interface PersonsModalProps extends PersonModalLogicProps, Pick<LemonModalProps, 'inline'> {
     onAfterClose?: () => void
@@ -101,6 +102,10 @@ export function PersonsModal({
     const { startExport } = useActions(exportsLogic)
 
     const totalActorsCount = missingActorsCount + actors.length
+    type ActorsQuery = NonNullable<typeof query>
+
+    const asLemonSelectValue = (value: unknown): string | number | boolean | null =>
+        typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? value : null
 
     const getTitle = useCallback(() => {
         if (typeof title === 'function') {
@@ -115,6 +120,7 @@ export function PersonsModal({
     }, [title, actorLabel.plural])
 
     const hasGroups = actors.some((actor) => isGroupType(actor))
+    const hasSessions = actors.some((actor) => isSessionType(actor))
 
     return (
         <>
@@ -135,10 +141,15 @@ export function PersonsModal({
                     {actorsResponse && !!missingActorsCount && !hasGroups && (
                         <MissingPersonsAlert actorLabel={actorLabel} missingActorsCount={missingActorsCount} />
                     )}
+
                     <LemonInput
                         type="search"
                         placeholder={
-                            hasGroups ? 'Search for groups by name or ID' : 'Search for persons by email, name, or ID'
+                            hasGroups
+                                ? 'Search for groups by name or ID'
+                                : hasSessions
+                                  ? 'Search for sessions by person email or name'
+                                  : 'Search for persons by email, name, or ID'
                         }
                         fullWidth
                         value={searchTerm}
@@ -171,12 +182,15 @@ export function PersonsModal({
                                           <LemonSelect
                                               fullWidth
                                               className="mb-2"
-                                              value={query?.breakdown?.[index] ?? null}
+                                              value={Array.isArray(query.breakdown) ? query.breakdown[index] : null}
                                               onChange={(v) => {
+                                                  if (!v) {
+                                                      return
+                                                  }
                                                   const breakdown = Array.isArray(query.breakdown)
                                                       ? [...query.breakdown]
                                                       : []
-                                                  breakdown[index] = v
+                                                  breakdown[index] = v.toString()
                                                   updateActorsQuery({ breakdown })
                                               }}
                                               options={values}
@@ -188,7 +202,7 @@ export function PersonsModal({
                                           <LemonSelect
                                               fullWidth
                                               className="mb-2"
-                                              value={query?.[key] ?? null}
+                                              value={asLemonSelectValue(query[key as keyof ActorsQuery])}
                                               onChange={(v) => updateActorsQuery({ [key]: v })}
                                               options={options}
                                           />
@@ -240,8 +254,13 @@ export function PersonsModal({
                                     <ActorRow
                                         key={actor.id}
                                         actor={actor}
+                                        // created_at is null for actors without a PostgreSQL Person record
+                                        // (personless mode, merged, or deleted persons) — skip the
+                                        // timeline which would 404, and show static properties instead.
                                         propertiesTimelineFilter={
-                                            actor.type == 'person' && currentTeam?.person_on_events_querying_enabled
+                                            actor.type == 'person' &&
+                                            actor.created_at &&
+                                            currentTeam?.person_on_events_querying_enabled
                                                 ? propertiesTimelineFilterFromUrl
                                                 : undefined
                                         }
@@ -296,7 +315,7 @@ export function PersonsModal({
                                     Download CSV
                                 </LemonButton>
                             )}
-                            {actors.length > 0 && !isGroupType(actors[0]) && (
+                            {actors.length > 0 && !isGroupType(actors[0]) && !hasSessions && (
                                 <LemonButton
                                     onClick={() => setIsCohortModalOpen(true)}
                                     type="secondary"
@@ -355,7 +374,12 @@ interface ActorRowProps {
 export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JSX.Element {
     const [expanded, setExpanded] = useState(false)
     const [tab, setTab] = useState('properties')
-    const name = isGroupType(actor) ? groupDisplayId(actor.group_key, actor.properties) : asDisplay(actor)
+    const isSession = isSessionType(actor)
+    const name = isGroupType(actor)
+        ? groupDisplayId(actor.group_key, actor.properties)
+        : isSession && actor.person
+          ? asDisplay(actor.person)
+          : asDisplay(actor)
 
     const onOpenRecordingClick = (): void => {
         if (!actor.matched_recordings) {
@@ -381,13 +405,15 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                     data-attr={`persons-modal-expand-${actor.id}`}
                 />
 
-                <ProfilePicture name={name} size="md" />
+                {!isSession && <ProfilePicture name={name} size="md" />}
 
                 <div className="flex-1 overflow-hidden">
                     {isGroupType(actor) ? (
                         <div className="font-bold">
                             <GroupActorDisplay actor={actor} />
                         </div>
+                    ) : isSession ? (
+                        <SessionActorDisplay actor={actor} />
                     ) : (
                         <>
                             <div className="font-bold flex items-start">
@@ -407,7 +433,16 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                     )}
                 </div>
 
-                {matchedRecordings.length > 1 ? (
+                {isSession ? (
+                    <ViewRecordingButton
+                        sessionId={actor.id}
+                        checkIfViewed={true}
+                        type="secondary"
+                        size="small"
+                        openPlayerIn={RecordingPlayerType.Modal}
+                        hasRecording={true}
+                    />
+                ) : matchedRecordings.length > 1 ? (
                     <div className="shrink-0">
                         <LemonButton
                             onClick={onOpenRecordingClick}
@@ -454,46 +489,63 @@ export function ActorRow({ actor, propertiesTimelineFilter }: ActorRowProps): JS
                                     <PropertiesTimeline actor={actor} filter={propertiesTimelineFilter} />
                                 ) : (
                                     <PropertiesTable
-                                        type={actor.type /* "person" or "group" */ as PropertyDefinitionType}
+                                        type={actor.type as PropertyDefinitionType}
                                         properties={actor.properties}
                                     />
                                 ),
                             },
-                            {
-                                key: 'recordings',
-                                label: 'Recordings',
-                                content: (
-                                    <div className="p-2 deprecated-space-y-2 font-medium mt-1">
-                                        <div className="flex justify-between items-center px-2">
-                                            <span>{pluralize(matchedRecordings.length, 'matched recording')}</span>
-                                        </div>
-                                        <ul className="deprecated-space-y-px">
-                                            {matchedRecordings?.length
-                                                ? matchedRecordings.map((recording, i) => (
-                                                      <React.Fragment key={i}>
-                                                          <LemonDivider className="my-0" />
-                                                          <li>
-                                                              <ViewRecordingButton
-                                                                  sessionId={recording.session_id}
-                                                                  matchingEvents={[
-                                                                      {
-                                                                          events: recording.events,
-                                                                          session_id: recording.session_id,
-                                                                      },
-                                                                  ]}
-                                                                  label={`View recording ${i + 1}`}
-                                                                  checkIfViewed={true}
-                                                                  openPlayerIn={RecordingPlayerType.Modal}
-                                                                  fullWidth={true}
-                                                              />
-                                                          </li>
-                                                      </React.Fragment>
-                                                  ))
-                                                : null}
-                                        </ul>
-                                    </div>
-                                ),
-                            },
+                            ...(isSession && actor.person
+                                ? [
+                                      {
+                                          key: 'person',
+                                          label: 'Person',
+                                          content: (
+                                              <PropertiesTable
+                                                  type={PropertyDefinitionType.Person}
+                                                  properties={actor.person.properties}
+                                              />
+                                          ),
+                                      },
+                                  ]
+                                : [
+                                      {
+                                          key: 'recordings',
+                                          label: 'Recordings',
+                                          content: (
+                                              <div className="p-2 deprecated-space-y-2 font-medium mt-1">
+                                                  <div className="flex justify-between items-center px-2">
+                                                      <span>
+                                                          {pluralize(matchedRecordings.length, 'matched recording')}
+                                                      </span>
+                                                  </div>
+                                                  <ul className="deprecated-space-y-px">
+                                                      {matchedRecordings?.length
+                                                          ? matchedRecordings.map((recording, i) => (
+                                                                <React.Fragment key={i}>
+                                                                    <LemonDivider className="my-0" />
+                                                                    <li>
+                                                                        <ViewRecordingButton
+                                                                            sessionId={recording.session_id}
+                                                                            matchingEvents={[
+                                                                                {
+                                                                                    events: recording.events,
+                                                                                    session_id: recording.session_id,
+                                                                                },
+                                                                            ]}
+                                                                            label={`View recording ${i + 1}`}
+                                                                            checkIfViewed={true}
+                                                                            openPlayerIn={RecordingPlayerType.Modal}
+                                                                            fullWidth={true}
+                                                                        />
+                                                                    </li>
+                                                                </React.Fragment>
+                                                            ))
+                                                          : null}
+                                                  </ul>
+                                              </div>
+                                          ),
+                                      },
+                                  ]),
                         ]}
                     />
                 </div>

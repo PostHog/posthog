@@ -26,6 +26,7 @@ from posthog.tasks.feature_flags import (
 )
 from posthog.tasks.hypercache_verification import (
     verify_and_fix_flag_definitions_cache_task,
+    verify_and_fix_flag_definitions_without_cohorts_cache_task,
     verify_and_fix_flags_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
@@ -81,6 +82,7 @@ TWENTY_FOUR_HOURS = 24 * 60 * 60
 # Organizations with delayed data ingestion that need delayed usage report re-runs
 # This is a temporary solution until we switch event usage queries from timestamp to created_at
 DELAYED_ORGS_EU: list[str] = [
+    "018beddd-5eb1-0000-7953-5a5b982e80bf",
     "01975ab3-7ec5-0000-9751-a89cbc971419",
 ]
 DELAYED_ORGS_US: list[str] = []
@@ -231,8 +233,6 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="flag definitions cache expiry tracking cleanup",
     )
 
-    # HyperCache verification - split into separate tasks for independent time budgets
-    # Tasks have 1-hour time limits, so expiry must match
     # Team metadata cache verification - hourly at minute 20
     add_periodic_task_with_expiry(
         sender,
@@ -252,12 +252,22 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=30 * 60,
     )
 
-    # Flag definitions cache verification - hourly at minute 50
+    # Verify flag definitions cache without cohorts - hourly at minute 10
+    # Minute 10 reduces the likelihood of overlapping with team_metadata verification at minute 20 and helps spread load.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="*", minute="10"),
+        verify_and_fix_flag_definitions_without_cohorts_cache_task.s(),
+        name="verify and fix flag definitions cache (without cohorts)",
+        expires_seconds=60 * 60,
+    )
+
+    # Flag definitions cache verification (with cohorts) - hourly at minute 50
     add_periodic_task_with_expiry(
         sender,
         crontab(hour="*", minute="50"),
         verify_and_fix_flag_definitions_cache_task.s(),
-        name="verify and fix flag definitions cache",
+        name="verify and fix flag definitions cache (with cohorts)",
         expires_seconds=60 * 60,
     )
 
@@ -524,6 +534,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             crontab(hour="0", minute=str(randrange(0, 40))),
             delete_expired_exported_assets.s(),
             name="delete expired exported assets",
+        )
+
+        from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
+
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="0"),
+            cleanup_old_scim_request_logs.s(),
+            name="clean up old SCIM request logs",
         )
 
     # Check integrations to refresh every minute

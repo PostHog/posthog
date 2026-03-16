@@ -1,6 +1,6 @@
 import pytest
 
-from posthog.temporal.data_imports.signals.linear_issues import EXTRA_FIELDS, linear_issue_emitter
+from posthog.temporal.data_imports.signals.linear_issues import linear_issue_emitter
 
 
 class TestLinearIssueEmitter:
@@ -38,6 +38,58 @@ class TestLinearIssueEmitter:
         result = linear_issue_emitter(team_id=1, record=linear_issue_record)
 
         assert result is not None
-        assert set(result.extra.keys()) <= set(EXTRA_FIELDS)
         assert "description" not in result.extra
         assert "title" not in result.extra
+
+    def test_labels_parsed_from_json_string(self, linear_issue_record):
+        result = linear_issue_emitter(team_id=1, record=linear_issue_record)
+
+        assert result is not None
+        assert result.extra["labels"] == ["bug"]
+
+    def test_state_extracted_from_json_string(self, linear_issue_record):
+        result = linear_issue_emitter(team_id=1, record=linear_issue_record)
+
+        assert result is not None
+        assert result.extra["state_name"] == "In Progress"
+        assert result.extra["state_type"] == "started"
+        assert "state" not in result.extra
+
+    def test_team_name_extracted_from_json_string(self, linear_issue_record):
+        result = linear_issue_emitter(team_id=1, record=linear_issue_record)
+
+        assert result is not None
+        assert result.extra["team_name"] == "Engineering"
+        assert "team" not in result.extra
+
+    @pytest.mark.parametrize("raw_labels", ["not-json", ""])
+    def test_raises_on_malformed_labels_json(self, linear_issue_record, raw_labels):
+        linear_issue_record["labels"] = raw_labels
+        with pytest.raises(ValueError, match="not valid JSON"):
+            linear_issue_emitter(team_id=1, record=linear_issue_record)
+
+    def test_raises_on_unexpected_labels_shape(self, linear_issue_record):
+        linear_issue_record["labels"] = '"just a string"'
+        with pytest.raises(ValueError, match="unexpected shape"):
+            linear_issue_emitter(team_id=1, record=linear_issue_record)
+
+    def test_labels_defaults_to_empty_when_none(self, linear_issue_record):
+        linear_issue_record["labels"] = None
+        result = linear_issue_emitter(team_id=1, record=linear_issue_record)
+
+        assert result is not None
+        assert result.extra["labels"] == []
+
+    @pytest.mark.parametrize("raw_state", ["not-json", ""])
+    def test_raises_on_malformed_state_json(self, linear_issue_record, raw_state):
+        linear_issue_record["state"] = raw_state
+        with pytest.raises(ValueError, match="not valid JSON"):
+            linear_issue_emitter(team_id=1, record=linear_issue_record)
+
+    def test_state_defaults_to_none_when_null(self, linear_issue_record):
+        linear_issue_record["state"] = None
+        result = linear_issue_emitter(team_id=1, record=linear_issue_record)
+
+        assert result is not None
+        assert result.extra["state_name"] is None
+        assert result.extra["state_type"] is None
