@@ -111,5 +111,22 @@ describe('DataTable utils', () => {
                 source: { kind: NodeKind.PersonsNode },
             })
         ).toEqual(defaultDataTablePersonColumns)
+
+        // "columns" takes precedence over "source.select"
+        expect(
+            getColumnsForQuery({
+                kind: NodeKind.DataTableNode,
+                columns: ['*', 'event', 'timestamp'],
+                source: { kind: NodeKind.EventsQuery, select: ['*', 'event'] },
+            })
+        ).toEqual(['*', 'event', 'timestamp'])
+
+        // without "columns", falls through to "source.select"
+        expect(
+            getColumnsForQuery({
+                kind: NodeKind.DataTableNode,
+                source: { kind: NodeKind.EventsQuery, select: ['*', 'event'] },
+            })
+        ).toEqual(['*', 'event'])
     })
 })

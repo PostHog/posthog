@@ -989,23 +989,16 @@ export const sceneLogic = kea<sceneLogicType>([
 
             const activeTabIndex = values.tabs.findIndex((tab) => tab.active)
             if (activeTabIndex !== -1) {
-                const newTabs = values.tabs.map((tab, i) => {
-                    if (i === activeTabIndex) {
-                        // Save the current URL under the current sceneId when the pathname changes
-                        // (navigating to a different scene). Hash-only changes (e.g., updating query
-                        // params within the same scene) should not trigger a save.
-                        const sceneUrls = { ...tab.sceneUrls }
-                        if (tab.sceneId && tab.pathname !== pathname) {
-                            sceneUrls[tab.sceneId] = {
-                                pathname: tab.pathname,
-                                search: tab.search,
-                                hash: tab.hash,
+                const newTabs = values.tabs.map((tab, i) =>
+                    i === activeTabIndex
+                        ? { ...tab, active: true, pathname, search, hash }
+                        : tab.active
+                          ? {
+                                ...tab,
+                                active: false,
                             }
-                        }
-                        return { ...tab, active: true, pathname, search, hash, sceneUrls }
-                    }
-                    return tab.active ? { ...tab, active: false } : tab
-                })
+                          : tab
+                )
                 actions.setTabs(newTabs)
             } else {
                 actions.setTabs([
@@ -1033,21 +1026,16 @@ export const sceneLogic = kea<sceneLogicType>([
             const activeTabIndex = values.tabs.findIndex((tab) => tab.active)
             if (activeTabIndex !== -1) {
                 actions.setTabs(
-                    values.tabs.map((tab, i) => {
-                        if (i === activeTabIndex) {
-                            // Save the current URL under the current sceneId when the pathname changes
-                            const sceneUrls = { ...tab.sceneUrls }
-                            if (tab.sceneId && tab.pathname !== pathname) {
-                                sceneUrls[tab.sceneId] = {
-                                    pathname: tab.pathname,
-                                    search: tab.search,
-                                    hash: tab.hash,
+                    values.tabs.map((tab, i) =>
+                        i === activeTabIndex
+                            ? { ...tab, active: true, pathname, search, hash }
+                            : tab.active
+                              ? {
+                                    ...tab,
+                                    active: false,
                                 }
-                            }
-                            return { ...tab, active: true, pathname, search, hash, sceneUrls }
-                        }
-                        return tab.active ? { ...tab, active: false } : tab
-                    })
+                              : tab
+                    )
                 )
             } else {
                 actions.setTabs([
@@ -1118,20 +1106,6 @@ export const sceneLogic = kea<sceneLogicType>([
                 const builtLogicProps = { tabId, ...exportedScene?.paramsToProps?.(params) }
                 const builtLogic = exportedScene?.logic(builtLogicProps)
                 cache.mountedTabLogic[tabId] = builtLogic.mount()
-            }
-
-            // Restore saved scene URL if returning to a scene within the same tab
-            if (tabId === lastTabId && sceneId !== lastSceneId) {
-                const activeTab = values.tabs.find((tab) => tab.id === tabId)
-                const savedUrl = activeTab?.sceneUrls?.[sceneId]
-                if (
-                    savedUrl &&
-                    (savedUrl.pathname !== activeTab.pathname ||
-                        savedUrl.search !== activeTab.search ||
-                        savedUrl.hash !== activeTab.hash)
-                ) {
-                    router.actions.replace(savedUrl.pathname, savedUrl.search, savedUrl.hash)
-                }
             }
 
             const trackingKey = tabId || '__default__'

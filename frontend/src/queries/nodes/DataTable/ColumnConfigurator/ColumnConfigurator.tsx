@@ -71,8 +71,10 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                         orderBy = undefined
                     }
                 }
+                // Strip stale `columns` from queryWithDefaults — source.select is the source of truth
+                const { columns: _discardColumns, ...queryWithoutColumns } = query
                 setQuery?.({
-                    ...query,
+                    ...queryWithoutColumns,
                     source: {
                         ...query.source,
                         orderBy,
@@ -80,8 +82,9 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                     },
                 })
             } else if (isActorsQuery(query.source) || isGroupsQuery(query.source)) {
+                const { columns: _discardColumns, ...queryWithoutColumns } = query
                 setQuery?.({
-                    ...query,
+                    ...queryWithoutColumns,
                     source: {
                         ...query.source,
                         select: allColumns,
