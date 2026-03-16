@@ -119,7 +119,7 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
 )
-from posthog.hogql.database.utils import get_join_field_chain
+from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
@@ -1301,15 +1301,8 @@ class Database(BaseModel):
 
                                 override_source_table_key = f"person.{join.source_table_key}"
 
-                                # If the source_table_key is a ast.Call node, then we want to inject in `person` on the chain of the inner `ast.Field` node
-                                source_table_key_node = parse_expr(join.source_table_key)
-                                if isinstance(source_table_key_node, ast.Call) and isinstance(
-                                    source_table_key_node.args[0], ast.Field
-                                ):
-                                    source_table_key_node.args[0].chain = [
-                                        "person",
-                                        *source_table_key_node.args[0].chain,
-                                    ]
+                                source_table_key_node = qualify_join_key_expr(join.source_table_key, "person")
+                                if source_table_key_node is not None:
                                     override_source_table_key = source_table_key_node.to_hogql()
 
                                 events_table.fields[join.field_name] = LazyJoin(

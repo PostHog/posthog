@@ -1,6 +1,9 @@
 import time
 import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
 from uuid import UUID
 
 from django.conf import settings
@@ -107,6 +110,7 @@ def process_query_task(
     query_tags: dict,
     is_query_service: bool,
     limit_context: Optional[LimitContext] = None,
+    analytics_props: Optional["AnalyticsProps"] = None,
 ) -> None:
     """
     Kick off query
@@ -128,6 +132,7 @@ def process_query_task(
         query_json=query_json,
         limit_context=limit_context,
         is_query_service=is_query_service,
+        analytics_props=analytics_props,
     )
 
 

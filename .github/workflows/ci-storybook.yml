@@ -147,7 +147,7 @@ jobs:
 
                     # Trusted bots that are allowed to run in update mode
                     # Add bot usernames here to allow snapshot auto-updates on their PRs
-                    TRUSTED_BOTS=("mendral-app[bot]")
+                    TRUSTED_BOTS=("mendral-app[bot]" "cursor[bot]")
 
                     IS_TRUSTED=false
                     for bot in "${TRUSTED_BOTS[@]}"; do

@@ -31,6 +31,8 @@ from posthog.temporal.common.schedule import (
 )
 from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY, POSTHOG_ORG_ID_KEY, POSTHOG_TEAM_ID_KEY
 
+from products.data_modeling.backend.models.node import Node
+
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -87,13 +89,14 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
 
 
 def get_saved_query_search_attributes(saved_query: "DataWarehouseSavedQuery") -> TypedSearchAttributes:
-    return TypedSearchAttributes(
-        search_attributes=[
-            SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=saved_query.team_id),
-            SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=str(saved_query.team.organization_id)),
-            SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=f"posthog_{saved_query.team_id}"),
-        ]
-    )
+    dag_id = Node.objects.filter(saved_query=saved_query).values_list("dag_id", flat=True).first()
+    search_attributes: list[SearchAttributePair] = [
+        SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=saved_query.team_id),
+        SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=str(saved_query.team.organization_id)),
+    ]
+    if dag_id:
+        search_attributes.append(SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=str(dag_id)))
+    return TypedSearchAttributes(search_attributes=search_attributes)
 
 
 def sync_saved_query_workflow(

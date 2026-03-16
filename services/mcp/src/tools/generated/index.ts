@@ -1,6 +1,6 @@
+// AUTO-GENERATED — do not edit
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
 
-// AUTO-GENERATED — do not edit
 import { GENERATED_TOOLS as actions } from './actions'
 import { GENERATED_TOOLS as activity_logs } from './activity_logs'
 import { GENERATED_TOOLS as annotations } from './annotations'
@@ -11,6 +11,7 @@ import { GENERATED_TOOLS as dashboards } from './dashboards'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
 import { GENERATED_TOOLS as prompts } from './prompts'
+import { GENERATED_TOOLS as proxyRecords } from './proxy-records'
 import { GENERATED_TOOLS as workflows } from './workflows'
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
@@ -24,5 +25,6 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...error_tracking,
     ...feature_flags,
     ...prompts,
+    ...proxyRecords,
     ...workflows,
 }

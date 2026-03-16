@@ -197,27 +197,13 @@ jobs:
 
             - name: Setup main repo and dependencies
               env:
-                  COMPOSE_FILES: -f ../docker-compose.dev.yml -f ../docker-compose.profiles.yml --profile etcd
+                  COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
+                  COMPOSE_PROFILES: etcd
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
               run: |
-                  docker compose $COMPOSE_FILES down
-
-                  # Retry docker compose up with exponential backoff to handle transient registry errors
-                  for i in 1 2 3; do
-                    if docker compose $COMPOSE_FILES up -d; then
-                      echo "Docker compose up succeeded"
-                      break
-                    else
-                      if [ $i -lt 3 ]; then
-                        echo "Docker compose up failed (attempt $i/3), retrying in $((i * 10)) seconds..."
-                        sleep $((i * 10))
-                      else
-                        echo "Docker compose up failed after 3 attempts"
-                        exit 1
-                      fi
-                    fi
-                  done
-
-                  COMPOSE_FILE=../docker-compose.dev.yml ../bin/wait-for-docker
+                  ../bin/ci-wait-for-docker launch --down
+                  ../bin/ci-wait-for-docker wait
 
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 

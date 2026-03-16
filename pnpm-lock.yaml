@@ -3152,7 +3152,11 @@ importers:
         specifier: ^27.5.1
         version: 27.5.1(ts-node@10.9.1(@swc/core@1.15.18)(@types/node@22.18.8)(typescript@5.5.4))
 
-  tools/openapi-codegen: {}
+  tools/openapi-codegen:
+    devDependencies:
+      vitest:
+        specifier: ^3.0.0
+        version: 3.2.4(@types/node@22.18.8)(happy-dom@20.0.11)(jiti@2.6.1)(jsdom@20.0.3)(less@4.2.2)(lightningcss@1.31.1)(sass-embedded@1.70.0)(terser@5.46.0)(tsx@4.20.5)(yaml@2.8.2)
 
 packages:
 

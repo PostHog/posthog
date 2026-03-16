@@ -139,6 +139,12 @@ LOADING_V2_LTS_COUNTER = Counter(
     "session_snapshots_loading_v2_lts_counter", "Count of times we loaded a v2 recording from the lts path"
 )
 
+SESSION_RECORDING_THROTTLED = Counter(
+    "session_recording_api_throttled_total",
+    "Throttled responses from the session recording API",
+    labelnames=["location", "is_personal_api_key"],
+)
+
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
 
@@ -473,7 +479,7 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
 
 class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_burst"
-    rate = "120/minute"
+    rate = "90/minute"
 
 
 class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
@@ -544,6 +550,7 @@ class SessionRecordingViewSet(
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY)
         user_distinct_id = cast(User, request.user).distinct_id
+        is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
 
         try:
             with tracer.start_as_current_span("list_recordings", kind=trace.SpanKind.SERVER):
@@ -552,7 +559,7 @@ class SessionRecordingViewSet(
                     trace.get_current_span().set_attribute("distinct_id", user_distinct_id or "unknown")
                     trace.get_current_span().set_attribute(
                         "is_personal_api_key",
-                        isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication),
+                        is_personal_api_key,
                     )
                 except Exception as e:
                     # if this fails, we don't want to fail the request
@@ -589,12 +596,18 @@ class SessionRecordingViewSet(
 
                     return response
         except CHQueryErrorTooManySimultaneousQueries:
+            SESSION_RECORDING_THROTTLED.labels(
+                location="too_many_simultaneous_queries", is_personal_api_key=str(is_personal_api_key).lower()
+            ).inc()
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
         except (ServerException, Exception) as e:
             if isinstance(e, exceptions.ValidationError):
                 raise
 
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
+                SESSION_RECORDING_THROTTLED.labels(
+                    location="query_timeout_exceeded", is_personal_api_key=str(is_personal_api_key).lower()
+                ).inc()
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
@@ -763,7 +776,7 @@ class SessionRecordingViewSet(
             exc.status_code = 500
             raise exc
 
-        return Response({"success": True}, status=204)
+        return Response(status=204)
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False, url_path="bulk_delete")

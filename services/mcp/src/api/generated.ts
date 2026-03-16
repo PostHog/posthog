@@ -5810,6 +5810,24 @@ export namespace Schemas {
     }
 
     /**
+     * * `slack_channel_message` - Channel message
+    * `slack_bot_mention` - Bot mention
+    * `slack_emoji_reaction` - Emoji reaction
+    * `widget_embedded` - Widget
+    * `widget_api` - API
+     */
+    export type ChannelDetailEnum = typeof ChannelDetailEnum[keyof typeof ChannelDetailEnum];
+
+
+    export const ChannelDetailEnum = {
+      SlackChannelMessage: 'slack_channel_message',
+      SlackBotMention: 'slack_bot_mention',
+      SlackEmojiReaction: 'slack_emoji_reaction',
+      WidgetEmbedded: 'widget_embedded',
+      WidgetApi: 'widget_api',
+    } as const;
+
+    /**
      * * `widget` - Widget
     * `email` - Email
     * `slack` - Slack
@@ -7949,7 +7967,7 @@ export namespace Schemas {
 
     export const IntegrationKind = {
       Slack: 'slack',
-      SlackTwig: 'slack-twig',
+      SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
       Hubspot: 'hubspot',
       GooglePubsub: 'google-pubsub',
@@ -9578,6 +9596,15 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export type MarketingAnalyticsDrillDownLevel = typeof MarketingAnalyticsDrillDownLevel[keyof typeof MarketingAnalyticsDrillDownLevel];
+
+
+    export const MarketingAnalyticsDrillDownLevel = {
+      Channel: 'channel',
+      Source: 'source',
+      Campaign: 'campaign',
+    } as const;
+
     export interface IntegrationFilter {
       /**
        * Selected integration source IDs to filter by (e.g., table IDs or source map IDs)
@@ -9656,6 +9683,8 @@ export namespace Schemas {
       doPathCleaning?: boolean | null;
       /** Draft conversion goal that can be set in the UI without saving */
       draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
+      /** Drill-down hierarchy level: channel, source, or campaign (default) */
+      drillDownLevel?: MarketingAnalyticsDrillDownLevel | null;
       /**
        * Filter test accounts
        * @nullable
@@ -9761,6 +9790,8 @@ export namespace Schemas {
       doPathCleaning?: boolean | null;
       /** Draft conversion goal that can be set in the UI without saving */
       draftConversionGoal?: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | null;
+      /** Drill-down hierarchy level: channel, source, or campaign (default) */
+      drillDownLevel?: MarketingAnalyticsDrillDownLevel | null;
       /** @nullable */
       filterTestAccounts?: boolean | null;
       /** @nullable */
@@ -11505,8 +11536,7 @@ export namespace Schemas {
       readonly id: string;
       readonly source_id: string;
       readonly target_id: string;
-      /** @nullable */
-      dag_fk?: string | null;
+      dag: string;
       properties?: unknown;
       readonly created_at: string;
       /** @nullable */
@@ -12187,6 +12217,10 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key: number;
+      disabled_data?: unknown | null;
+      sampling_rate?: number;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface ErrorTrackingSymbolSet {
@@ -15758,7 +15792,7 @@ export namespace Schemas {
 
     /**
      * * `slack` - Slack
-    * `slack-twig` - Slack Twig
+    * `slack-posthog-code` - Slack Posthog Code
     * `salesforce` - Salesforce
     * `hubspot` - Hubspot
     * `google-pubsub` - Google Pubsub
@@ -15785,12 +15819,12 @@ export namespace Schemas {
     * `jira` - Jira
     * `pinterest-ads` - Pinterest Ads
      */
-    export type Kind439Enum = typeof Kind439Enum[keyof typeof Kind439Enum];
+    export type KindBfbEnum = typeof KindBfbEnum[keyof typeof KindBfbEnum];
 
 
-    export const Kind439Enum = {
+    export const KindBfbEnum = {
       Slack: 'slack',
-      SlackTwig: 'slack-twig',
+      SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
       Hubspot: 'hubspot',
       GooglePubsub: 'google-pubsub',
@@ -15823,7 +15857,7 @@ export namespace Schemas {
      */
     export interface Integration {
       readonly id: number;
-      kind: Kind439Enum;
+      kind: KindBfbEnum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -16532,7 +16566,6 @@ export namespace Schemas {
 
     /**
      * * `posthog` - posthog
-    * `twig` - twig
     * `posthog-code` - posthog-code
      */
     export type InstallSourceEnum = typeof InstallSourceEnum[keyof typeof InstallSourceEnum];
@@ -16540,7 +16573,6 @@ export namespace Schemas {
 
     export const InstallSourceEnum = {
       Posthog: 'posthog',
-      Twig: 'twig',
       PosthogCode: 'posthog-code',
     } as const;
 
@@ -16554,7 +16586,7 @@ export namespace Schemas {
       description?: string;
       oauth_provider_kind?: string;
       install_source?: InstallSourceEnum;
-      twig_callback_url?: string;
+      posthog_code_callback_url?: string;
     }
 
     export interface InterestingNote {
@@ -17061,8 +17093,7 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name: string;
       type?: NodeTypeEnum;
-      /** @nullable */
-      dag_fk?: string | null;
+      dag: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -18329,51 +18360,6 @@ export namespace Schemas {
       results: ProjectBackwardCompatBasic[];
     }
 
-    /**
-     * * `waiting` - Waiting
-    * `issuing` - Issuing
-    * `valid` - Valid
-    * `warning` - Warning
-    * `erroring` - Erroring
-    * `deleting` - Deleting
-    * `timed_out` - Timed Out
-     */
-    export type ProxyRecordStatusEnum = typeof ProxyRecordStatusEnum[keyof typeof ProxyRecordStatusEnum];
-
-
-    export const ProxyRecordStatusEnum = {
-      Waiting: 'waiting',
-      Issuing: 'issuing',
-      Valid: 'valid',
-      Warning: 'warning',
-      Erroring: 'erroring',
-      Deleting: 'deleting',
-      TimedOut: 'timed_out',
-    } as const;
-
-    export interface ProxyRecord {
-      readonly id: string;
-      /** @maxLength 64 */
-      domain: string;
-      readonly target_cname: string;
-      readonly status: ProxyRecordStatusEnum;
-      /** @nullable */
-      readonly message: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-      /** @nullable */
-      readonly created_by: number | null;
-    }
-
-    export interface PaginatedProxyRecordList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: ProxyRecord[];
-    }
-
     export interface QueryTabState {
       readonly id: string;
       /** 
@@ -19441,6 +19427,7 @@ export namespace Schemas {
       readonly id: string;
       readonly ticket_number: number;
       readonly channel_source: ChannelSourceEnum;
+      readonly channel_detail: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id: string;
       status?: TicketStatusEnum;
       priority?: PriorityEnum | BlankEnum | NullEnum | null;
@@ -20478,8 +20465,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_id?: string;
       readonly target_id?: string;
-      /** @nullable */
-      dag_fk?: string | null;
+      dag?: string;
       properties?: unknown;
       readonly created_at?: string;
       /** @nullable */
@@ -20653,6 +20639,10 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key?: number;
+      disabled_data?: unknown | null;
+      sampling_rate?: number;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedErrorTrackingSymbolSet {
@@ -21237,7 +21227,7 @@ export namespace Schemas {
      */
     export interface PatchedIntegration {
       readonly id?: number;
-      kind?: Kind439Enum;
+      kind?: KindBfbEnum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -21415,8 +21405,7 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name?: string;
       type?: NodeTypeEnum;
-      /** @nullable */
-      dag_fk?: string | null;
+      dag?: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -21811,20 +21800,6 @@ export namespace Schemas {
       readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnum[];
     }
 
-    export interface PatchedProxyRecord {
-      readonly id?: string;
-      /** @maxLength 64 */
-      domain?: string;
-      readonly target_cname?: string;
-      readonly status?: ProxyRecordStatusEnum;
-      /** @nullable */
-      readonly message?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
-      /** @nullable */
-      readonly created_by?: number | null;
-    }
-
     export interface PatchedQueryTabState {
       readonly id?: string;
       /** 
@@ -21991,7 +21966,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: Kind439Enum;
+      readonly kind: KindBfbEnum;
       readonly display_name: string;
     }
 
@@ -22643,6 +22618,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly ticket_number?: number;
       readonly channel_source?: ChannelSourceEnum;
+      readonly channel_detail?: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id?: string;
       status?: TicketStatusEnum;
       priority?: PriorityEnum | BlankEnum | NullEnum | null;
@@ -23235,6 +23211,64 @@ export namespace Schemas {
        * @nullable
        */
       version?: number | null;
+    }
+
+    /**
+     * * `waiting` - Waiting
+    * `issuing` - Issuing
+    * `valid` - Valid
+    * `warning` - Warning
+    * `erroring` - Erroring
+    * `deleting` - Deleting
+    * `timed_out` - Timed Out
+     */
+    export type ProxyRecordStatusEnum = typeof ProxyRecordStatusEnum[keyof typeof ProxyRecordStatusEnum];
+
+
+    export const ProxyRecordStatusEnum = {
+      Waiting: 'waiting',
+      Issuing: 'issuing',
+      Valid: 'valid',
+      Warning: 'warning',
+      Erroring: 'erroring',
+      Deleting: 'deleting',
+      TimedOut: 'timed_out',
+    } as const;
+
+    export interface ProxyRecord {
+      /** Unique identifier for the proxy record. */
+      readonly id: string;
+      /** The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control. */
+      domain: string;
+      /** The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value. */
+      readonly target_cname: string;
+      /** Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).
+
+    * `waiting` - Waiting
+    * `issuing` - Issuing
+    * `valid` - Valid
+    * `warning` - Warning
+    * `erroring` - Erroring
+    * `deleting` - Deleting
+    * `timed_out` - Timed Out */
+      readonly status: ProxyRecordStatusEnum;
+      /**
+       * Human-readable status message with details about errors or warnings, if any.
+       * @nullable
+       */
+      readonly message: string | null;
+      /** When this proxy record was created. */
+      readonly created_at: string;
+      /** When this proxy record was last updated. */
+      readonly updated_at: string;
+      /** ID of the user who created this proxy record. */
+      readonly created_by: number;
+    }
+
+    export interface ProxyRecordListResponse {
+      results: ProxyRecord[];
+      /** Maximum number of proxy records allowed for this organization's current plan. */
+      max_proxy_records: number;
     }
 
     /**
@@ -28784,13 +28818,12 @@ export namespace Schemas {
     export type McpServerInstallationsAuthorizeRetrieveParams = {
     /**
      * * `posthog` - posthog
-    * `twig` - twig
     * `posthog-code` - posthog-code
      * @minLength 1
      */
     install_source?: McpServerInstallationsAuthorizeRetrieveInstallSource;
+    posthog_code_callback_url?: string;
     server_id: string;
-    twig_callback_url?: string;
     };
 
     export type McpServerInstallationsAuthorizeRetrieveInstallSource = typeof McpServerInstallationsAuthorizeRetrieveInstallSource[keyof typeof McpServerInstallationsAuthorizeRetrieveInstallSource];
@@ -28798,7 +28831,6 @@ export namespace Schemas {
 
     export const McpServerInstallationsAuthorizeRetrieveInstallSource = {
       Posthog: 'posthog',
-      Twig: 'twig',
       PosthogCode: 'posthog-code',
     } as const;
 
@@ -28989,17 +29021,6 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
-    };
-
-    export type ProxyRecordsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type RolesListParams = {
