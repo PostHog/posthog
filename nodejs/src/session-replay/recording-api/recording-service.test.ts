@@ -400,7 +400,7 @@ describe('RecordingService', () => {
                         log_comment: expect.stringContaining('"team_id":1'),
                         max_execution_time: 30,
                         max_threads: 45,
-                        max_bytes_to_read: '5000000000000',
+                        max_bytes_to_read: '10000000000',
                     }),
                 })
             )
