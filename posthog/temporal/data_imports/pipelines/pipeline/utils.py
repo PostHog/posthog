@@ -216,7 +216,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
             )
             incoming_table = incoming_table.append_column(delta_field, new_column_data)
 
-        incoming_column: pa.Array[Any] | pa.ChunkedArray[Any] = incoming_table.column(delta_field.name)
+        incoming_column = incoming_table.column(delta_field.name)
 
         if pa.types.is_decimal(delta_field.type) and pa.types.is_decimal(incoming_column.type):
             delta_dec = cast(pa.Decimal128Type | pa.Decimal256Type, delta_field.type)
@@ -228,7 +228,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
                 and delta_dec.precision <= incoming_dec.precision
             ):
                 try:
-                    incoming_column = incoming_column.cast(delta_field.type).combine_chunks()
+                    incoming_column = incoming_column.cast(delta_field.type).combine_chunks()  # type: ignore[assignment]
                     incoming_table = incoming_table.set_column(
                         incoming_table.schema.get_field_index(delta_field.name), delta_field.name, incoming_column
                     )
