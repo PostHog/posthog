@@ -13,7 +13,6 @@ This guide explains how to create isolated PostHog development environments usin
 - Quick switching between features, bug fixes, and PR reviews
 - Standard `hogli start` command works in each worktree
 
-> [!IMPORTANT]
 > **Important:** Only one PostHog instance (`hogli start`) can run at a time since they all use the same ports. The workflow focuses on quickly stopping one instance and starting another.
 
 ## Prerequisites
@@ -23,7 +22,6 @@ This guide explains how to create isolated PostHog development environments usin
 3. **GitHub CLI** (for PR checkout): `brew install gh`
 4. **jq** (for PR JSON parsing): `brew install jq`
 5. **direnv** (recommended): `brew install direnv`
-6. **`phw` shell function**: Provided by the repo at `bin/phw` -- sourced into your shell during [one-time setup](#1-one-time-setup) below
 
 ## Configuration
 
