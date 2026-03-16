@@ -230,31 +230,26 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
-        saveEarlyAccessFeatureFailure: ({ error }) => {
-            // kea-loaders types error as string, but at runtime it's the API error object.
-            // Use typeof guards to handle both cases safely.
-            if (typeof error === 'object' && error !== null) {
-                const err = error as Record<string, unknown>
-                // DRF returns field-level errors as { field_name: ["error message"] }
-                if (err.data && typeof err.data === 'object' && !err.detail) {
-                    const fieldErrors = Object.entries(err.data as Record<string, unknown>)
-                        .map(([field, messages]) => {
-                            const fieldName = identifierToHuman(field)
-                            const message = Array.isArray(messages) ? messages.join(', ') : String(messages)
-                            return `${fieldName}: ${message}`
-                        })
-                        .join('\n')
-                    if (fieldErrors) {
-                        lemonToast.error(fieldErrors)
-                        return
-                    }
+        saveEarlyAccessFeatureFailure: ({ error: rawError }) => {
+            // kea-loaders types error as string, but at runtime it's an ApiError object.
+            // The exceptions_hog handler formats validation errors as:
+            //   error.data = { detail: "...", attr: "name", type: "validation_error", code: "blank" }
+            //   error.detail = "..." (copied from data.detail by ApiError constructor)
+            if (typeof rawError === 'object' && rawError !== null) {
+                const error = rawError as Record<string, unknown>
+                const data = error.data as Record<string, unknown> | undefined
+                const attr = data?.attr
+                const detail = (error.detail as string) ?? (data?.detail as string)
+                if (attr && detail) {
+                    lemonToast.error(`${identifierToHuman(String(attr))}: ${detail}`)
+                    return
                 }
-                if (typeof err.detail === 'string') {
-                    lemonToast.error(err.detail)
+                if (detail) {
+                    lemonToast.error(detail)
                     return
                 }
             }
-            lemonToast.error(typeof error === 'string' ? error : 'Could not save early access feature.')
+            lemonToast.error(typeof rawError === 'string' ? rawError : 'Could not save early access feature.')
         },
         saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }) => {
             lemonToast.success('Early access feature saved')
