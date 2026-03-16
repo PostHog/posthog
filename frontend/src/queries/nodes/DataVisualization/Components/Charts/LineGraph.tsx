@@ -455,7 +455,7 @@ export const LineGraph = ({
                                             stackedSeriesTotalAtIndex,
                                         }
                                     })
-                                    .sort((a, b) => (b.rawData ?? 0) - (a.rawData ?? 0))
+                                    .sort((a, b) => b.rawData! - a.rawData!)
 
                                 let totalLabel: string | null = null
                                 const tooltipTotalData = ySeriesData.filter(
