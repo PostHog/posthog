@@ -78,9 +78,9 @@ RUN mkdir -p /scripts && \
     npm init -y && \
     CACHE_BUST=${COMMIT_HASH} npm install @posthog/agent@latest
 
-# Install pre-built PostHog skills into the plugin directory.
-# The dist-skills/ directory is populated by the CD workflow's build_skills job.
-COPY products/tasks/backend/sandbox/images/dist-skills/ /tmp/skills/
+# Install pre-built skills (PostHog + context-mill) into the plugin directory.
+# The dist/skills/ directory is populated by the CD workflow's build_skills job.
+COPY products/posthog_ai/dist/skills/ /tmp/skills/
 COPY products/tasks/backend/sandbox/images/install-skills.sh /tmp/install-skills.sh
 RUN chmod +x /tmp/install-skills.sh && \
     /tmp/install-skills.sh /tmp/skills && \

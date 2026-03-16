@@ -114,6 +114,28 @@ jobs:
                   DEBUG: 1
               run: ./bin/hogli build:skills
 
+            - name: Download context-mill skills
+              run: |
+                  CONTEXT_MILL_ZIP_URL="https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip"
+                  TARGET_DIR="products/posthog_ai/dist/skills"
+                  tmp_dir=$(mktemp -d)
+                  trap 'rm -rf "$tmp_dir"' EXIT
+                  echo "Downloading context-mill skills from ${CONTEXT_MILL_ZIP_URL}..."
+                  curl -fsSL --retry 2 --retry-delay 3 -o "$tmp_dir/cm.zip" "$CONTEXT_MILL_ZIP_URL"
+                  unzip -q -o "$tmp_dir/cm.zip" -d "$tmp_dir/outer"
+                  mkdir -p "$TARGET_DIR"
+                  count=0
+                  while read -r inner_zip; do
+                      skill_name="$(basename "$inner_zip" .zip)"
+                      skill_name="${skill_name#omnibus-}"
+                      skill_dir="$TARGET_DIR/$skill_name"
+                      mkdir -p "$skill_dir"
+                      unzip -q -o "$inner_zip" -d "$skill_dir"
+                      find "$skill_dir" -name 'SKILL.md' -type f -exec sed -i 's/^\(name: *\)omnibus-/\1/' {} +
+                      count=$((count + 1))
+                  done < <(find "$tmp_dir/outer" -name 'omnibus-*.zip' -type f)
+                  echo "Installed ${count} context-mill skills into ${TARGET_DIR}"
+
             - name: Upload built skills
               uses: actions/upload-artifact@v4
               with:
@@ -146,7 +168,7 @@ jobs:
               uses: actions/download-artifact@v4
               with:
                   name: built-skills
-                  path: products/tasks/backend/sandbox/images/dist-skills/
+                  path: products/posthog_ai/dist/skills/
 
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
