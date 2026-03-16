@@ -10,6 +10,8 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
+from parameterized import parameterized
+
 from posthog.schema import (
     ActionsNode,
     BreakdownFilter,
@@ -2164,6 +2166,56 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
 
         assert not hasattr(query_runner.query, "breakdownFilter")
+
+    @parameterized.expand(
+        [
+            (
+                "week_interval_mid_week",
+                IntervalType.WEEK,
+                "2020-01-14",
+                "2020-01-19",
+            ),
+            (
+                "month_interval_mid_month",
+                IntervalType.MONTH,
+                "2020-01-14",
+                "2020-01-19",
+            ),
+        ]
+    )
+    @freeze_time("2020-01-20T00:00:00Z")
+    def test_lifecycle_interval_boundary_filtering(self, _name, interval, date_from, date_to):
+        self._create_test_events()
+
+        response = self._run_lifecycle_query(date_from, date_to, interval)
+
+        statuses = [r["status"] for r in response.results]
+        assert statuses == ["new", "returning", "resurrecting", "dormant"]
+
+        by_status = {r["status"]: r for r in response.results}
+
+        if interval == IntervalType.WEEK:
+            # Week interval with date_from=Jan 14 rounds to week start (Jan 12, Sunday-based).
+            # Two week buckets: [Jan 12, Jan 19]
+            # Test data: p1 (Jan 11,12,13,15,17,19), p2 (Jan 9,12), p3 (Jan 12), p4 (Jan 15)
+            #
+            # Week of Jan 12: p1 returning (had Jan 11 in prior week), p2 returning (had Jan 9),
+            #   p3 new, p4 new → new=2, returning=2
+            # Week of Jan 19: p1 returning, dormant=p2,p3,p4 (3 go dormant) → returning=1, dormant=-3
+            assert by_status["new"]["data"] == [2.0, 0.0]
+            assert by_status["returning"]["data"] == [2.0, 1.0]
+            assert by_status["resurrecting"]["data"] == [0.0, 0.0]
+            assert by_status["dormant"]["data"] == [0.0, -3.0]
+            assert by_status["new"]["days"] == ["2020-01-12", "2020-01-19"]
+        elif interval == IntervalType.MONTH:
+            # Month interval with date_from=Jan 14 rounds to Jan 1.
+            # Single month bucket: [Jan 1]
+            # All 4 persons are new in this month (no prior month data)
+            assert by_status["new"]["data"] == [4.0]
+            assert by_status["returning"]["data"] == [0.0]
+            assert by_status["resurrecting"]["data"] == [0.0]
+            assert by_status["dormant"]["data"] == [0.0]
+            assert by_status["new"]["days"] == ["2020-01-01"]
 
 
 def assertLifecycleResults(results, expected):

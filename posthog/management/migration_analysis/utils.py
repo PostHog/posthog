@@ -233,8 +233,15 @@ def _extract_model_name_from_table(table_name: str, app_label: Optional[str] = N
         if parts[: len(app_parts)] == app_parts:
             model_parts = parts[len(app_parts) :]
         else:
-            # Fallback: assume single-word app
-            model_parts = parts[1:]
+            # Handle custom db_table with "posthog_" prefix and joined app label
+            # e.g., posthog_datamodelingnode (app=data_modeling) -> node
+            joined_prefix = "posthog_" + app_label.replace("_", "")
+            if table_name.startswith(joined_prefix):
+                remainder = table_name[len(joined_prefix) :]
+                model_parts = remainder.split("_") if remainder else []
+            else:
+                # Fallback: assume single-word app
+                model_parts = parts[1:]
     else:
         # Skip first part (assumed to be app label like 'posthog')
         model_parts = parts[1:]

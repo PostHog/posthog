@@ -132,6 +132,7 @@ class ExternalTicketView(APIView):
                 "status": ticket.status,
                 "priority": ticket.priority,
                 "channel_source": ticket.channel_source,
+                "channel_detail": ticket.channel_detail,
                 "distinct_id": ticket.distinct_id,
                 "created_at": ticket.created_at.isoformat(),
                 "updated_at": ticket.updated_at.isoformat(),

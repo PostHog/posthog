@@ -473,7 +473,7 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
 
 class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_burst"
-    rate = "120/minute"
+    rate = "90/minute"
 
 
 class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
@@ -763,7 +763,7 @@ class SessionRecordingViewSet(
             exc.status_code = 500
             raise exc
 
-        return Response({"success": True}, status=204)
+        return Response(status=204)
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False, url_path="bulk_delete")
