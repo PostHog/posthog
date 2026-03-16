@@ -191,8 +191,11 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                                     EarlyAccessFeatureStage.GeneralAvailability
 
                                                 if (isPromotingToGA) {
-                                                    showGAPromotionConfirmation(() =>
-                                                        submitEarlyAccessFeatureRequest(earlyAccessFeature)
+                                                    showGAPromotionConfirmation((rolloutToAll: boolean) =>
+                                                        submitEarlyAccessFeatureRequest({
+                                                            ...earlyAccessFeature,
+                                                            ...(rolloutToAll ? { rollout_to_all: true } : {}),
+                                                        })
                                                     )
                                                 } else {
                                                     submitEarlyAccessFeatureRequest(earlyAccessFeature)
@@ -274,10 +277,11 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                 const isPromotingToGA = value === EarlyAccessFeatureStage.GeneralAvailability
 
                                 if (isPromotingToGA) {
-                                    showGAPromotionConfirmation(() =>
+                                    showGAPromotionConfirmation((rolloutToAll: boolean) =>
                                         saveEarlyAccessFeature({
                                             ...earlyAccessFeature,
                                             stage: value as EarlyAccessFeatureStage,
+                                            ...(rolloutToAll ? { rollout_to_all: true } : {}),
                                         })
                                     )
                                 } else {

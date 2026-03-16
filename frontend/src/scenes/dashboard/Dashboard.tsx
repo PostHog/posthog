@@ -1,10 +1,9 @@
 import './Dashboard.scss'
 
-import clsx from 'clsx'
 import { BindLogic, useActions, useMountedLogic, useValues } from 'kea'
 
-import { IconEllipsis, IconThumbsDown, IconThumbsUp } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu } from '@posthog/lemon-ui'
+import { IconThumbsDown, IconThumbsUp } from '@posthog/icons'
+import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
@@ -12,14 +11,12 @@ import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { cn } from 'lib/utils/css-classes'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
-import { DashboardEditBar } from 'scenes/dashboard/DashboardEditBar'
+import { DashboardFilterBar } from 'scenes/dashboard/DashboardFilters'
 import { DashboardItems } from 'scenes/dashboard/DashboardItems'
 import { DashboardLogicProps, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
-import { DashboardReloadAction, LastRefreshText } from 'scenes/dashboard/DashboardReloadAction'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 import { InsightErrorState } from 'scenes/insights/EmptyStates'
 import { SceneExport } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
@@ -31,6 +28,7 @@ import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsi
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
+import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
@@ -78,7 +76,6 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         dashboardMode,
         dashboardFailedToLoad,
         accessDeniedToDashboard,
-        hasVariables,
         refreshAnalysisResult,
         analysisRating,
         showApplyFiltersBanner,
@@ -86,6 +83,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         cancellingPreview,
         hasUrlFilters,
     } = useValues(dashboardLogic)
+    const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
     const {
         reportDashboardViewed,
@@ -94,6 +92,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         setAnalysisRating,
         applyFilters,
         setDashboardMode,
+        setLayoutZoom,
     } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
@@ -197,67 +196,17 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                         </LemonBanner>
                     )}
 
-                    <SceneStickyBar showBorderBottom={false}>
-                        <div className="flex flex-col md:flex-row gap-2 justify-between">
-                            {![
-                                DashboardPlacement.Public,
-                                DashboardPlacement.Export,
-                                DashboardPlacement.FeatureFlag,
-                                DashboardPlacement.Group,
-                                DashboardPlacement.DataOps,
+                    <SceneStickyBar showBorderBottom={false} className="flex">
+                        <DashboardFilterBar backTo={backTo} />
+                        {dashboardMode === DashboardMode.Edit &&
+                            canEditDashboard &&
+                            [
+                                DashboardPlacement.Dashboard,
+                                DashboardPlacement.ProjectHomepage,
                                 DashboardPlacement.Builtin,
-                            ].includes(placement) &&
-                                dashboard && <DashboardEditBar />}
-                            {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
-                                <div
-                                    className={clsx(
-                                        'flex shrink-0 deprecated-space-x-4 dashoard-items-actions ml-auto',
-                                        {
-                                            'mt-7': hasVariables,
-                                        }
-                                    )}
-                                >
-                                    <div
-                                        className={`left-item ${
-                                            placement === DashboardPlacement.Public ? 'text-right' : ''
-                                        }`}
-                                    >
-                                        {[DashboardPlacement.Public].includes(placement) ? (
-                                            <LastRefreshText />
-                                        ) : !(dashboardMode === DashboardMode.Edit) ? (
-                                            <DashboardReloadAction />
-                                        ) : null}
-                                    </div>
-                                    {[
-                                        DashboardPlacement.FeatureFlag,
-                                        DashboardPlacement.Group,
-                                        DashboardPlacement.DataOps,
-                                    ].includes(placement) &&
-                                        dashboard?.id && (
-                                            <LemonMenu
-                                                items={[
-                                                    {
-                                                        label:
-                                                            placement === DashboardPlacement.Group
-                                                                ? 'Edit dashboard template'
-                                                                : 'Edit dashboard',
-                                                        to: backTo
-                                                            ? `${urls.dashboard(dashboard.id)}?backUrl=${encodeURIComponent(backTo.url)}&backName=${encodeURIComponent(backTo.name)}`
-                                                            : urls.dashboard(dashboard.id),
-                                                    },
-                                                ]}
-                                                placement="bottom-end"
-                                                fallbackPlacements={['bottom-start', 'bottom']}
-                                            >
-                                                <LemonButton
-                                                    size="small"
-                                                    icon={<IconEllipsis className="text-secondary" />}
-                                                />
-                                            </LemonMenu>
-                                        )}
-                                </div>
+                            ].includes(placement) && (
+                                <DashboardZoomControl layoutZoom={layoutZoom} setLayoutZoom={setLayoutZoom} />
                             )}
-                        </div>
                     </SceneStickyBar>
 
                     <DashboardItems />
