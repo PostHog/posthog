@@ -135,6 +135,54 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         assert {r.name for r in results} == expected_names
 
+    def test_event_property_values_is_column_none_behaves_like_false(self):
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
+        flush_persons_and_events()
+
+        results_default = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser"))
+        results_none = self._run(
+            PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser", is_column=None)
+        )
+        assert [r.name for r in results_default] == [r.name for r in results_none]
+
+    def test_event_property_values_empty_event_names_list_is_ignored(self):
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
+        _create_event(event="$click", distinct_id="u2", team=self.team, properties={"browser": "Firefox"})
+        flush_persons_and_events()
+
+        results = self._run(
+            PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser", event_names=[])
+        )
+        assert {r.name for r in results} == {"Chrome", "Firefox"}
+
+    def test_event_property_values_json_array_property_is_flattened(self):
+        _create_event(
+            event="$pageview",
+            distinct_id="u1",
+            team=self.team,
+            properties={"tags": '["python", "django"]'},
+        )
+        flush_persons_and_events()
+
+        results = self._run(PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="tags"))
+        assert {r.name for r in results} == {"python", "django"}
+
+    @parameterized.expand(
+        [
+            ("percent_wildcard", "%", set()),
+            ("underscore_wildcard", "Chr_me", set()),
+        ]
+    )
+    def test_event_property_values_search_escapes_ilike_wildcards(self, _name, search_value, expected_names):
+        _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
+        _create_event(event="$pageview", distinct_id="u2", team=self.team, properties={"browser": "Firefox"})
+        flush_persons_and_events()
+
+        results = self._run(
+            PropertyValuesQuery(property_type=PropertyType.EVENT, property_key="browser", search_value=search_value)
+        )
+        assert {r.name for r in results} == expected_names
+
     def test_result_is_cached_on_second_call(self):
         _create_event(event="$pageview", distinct_id="u1", team=self.team, properties={"browser": "Chrome"})
         flush_persons_and_events()

@@ -8,6 +8,8 @@ and scraped by the Prometheus endpoint on the worker pod.
 import typing
 import datetime as dt
 
+from django.conf import settings
+
 from temporalio import activity, workflow
 from temporalio.worker import (
     ActivityInboundInterceptor,
@@ -128,6 +130,16 @@ def record_inference_time_ms(duration_ms: float) -> None:
     ).record(dt.timedelta(milliseconds=duration_ms))
 
 
+def record_generations_classified(count: int) -> None:
+    if not activity.in_activity() and not workflow.in_workflow():
+        return
+    meter = get_metric_meter()
+    meter.create_counter(
+        "llma_sentiment_generations_classified",
+        "Individual generations classified for sentiment",
+    ).add(count)
+
+
 def increment_errors(error_type: str) -> None:
     if not activity.in_activity() and not workflow.in_workflow():
         return
@@ -145,6 +157,8 @@ def increment_errors(error_type: str) -> None:
 
 class SentimentMetricsInterceptor(Interceptor):
     """Interceptor to emit Prometheus metrics for sentiment workflows."""
+
+    task_queue = settings.LLMA_SENTIMENT_TASK_QUEUE
 
     def intercept_activity(self, next: ActivityInboundInterceptor) -> ActivityInboundInterceptor:
         return _SentimentActivityInterceptor(super().intercept_activity(next))

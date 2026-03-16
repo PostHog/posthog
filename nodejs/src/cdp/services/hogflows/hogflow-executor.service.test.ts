@@ -197,6 +197,7 @@ describe('Hogflow Executor', () => {
 
             expect(result).toEqual({
                 capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
                 invocation: {
                     state: {
                         actionStepCount: 1,
@@ -239,7 +240,7 @@ describe('Hogflow Executor', () => {
                 finished: true,
                 logs: [
                     {
-                        level: 'debug',
+                        level: 'info',
                         message:
                             'Starting workflow execution at trigger for [Person:person_id|John Doe] on [Event:uuid|test|2026-01-30T20:20:20.200Z]',
                         timestamp: expect.any(DateTime),
@@ -284,7 +285,14 @@ describe('Hogflow Executor', () => {
                     {
                         team_id: hogFlow.team_id,
                         app_source_id: hogFlow.id,
-                        instance_id: expect.any(String),
+                        metric_kind: 'other',
+                        metric_name: 'fetch',
+                        count: 1,
+                    },
+                    {
+                        team_id: hogFlow.team_id,
+                        app_source_id: hogFlow.id,
+                        instance_id: 'function_id_1',
                         metric_kind: 'fetch',
                         metric_name: 'billable_invocation',
                         count: 1,
@@ -389,7 +397,9 @@ describe('Hogflow Executor', () => {
 
                 expect(result.finished).toEqual(true)
                 expect(mockFetch).toHaveBeenCalledTimes(1)
-                expect(result.metrics.find((x) => x.instance_id === 'function_id_1')).toMatchObject({
+                expect(
+                    result.metrics.find((x) => x.instance_id === 'function_id_1' && x.metric_name === 'succeeded')
+                ).toMatchObject({
                     count: 1,
                     instance_id: 'function_id_1',
                     metric_kind: 'success',
@@ -550,8 +560,9 @@ describe('Hogflow Executor', () => {
                 // Step 1: run first action (function_id_1)
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'fetch',
                     'billable_invocation',
                     'succeeded',
                     'succeeded',
@@ -568,8 +579,9 @@ describe('Hogflow Executor', () => {
                 // Step 2: run again, should NOT exit early due to exit_only_at_end
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
-                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual([
+                    'fetch',
                     'billable_invocation',
                     'succeeded',
                     'succeeded',
@@ -579,41 +591,66 @@ describe('Hogflow Executor', () => {
             it('should exit early if exit condition is exit_on_conversion', async () => {
                 hogFlow.exit_condition = 'exit_on_conversion'
                 hogFlow.conversion = {
-                    window_minutes: 10,
-                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                    filters: [
+                        {
+                            key: '$browser',
+                            type: 'person',
+                            value: ['Chrome'],
+                            operator: 'exact',
+                        },
+                    ],
+                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+                    window_minutes: null,
                 }
 
-                // Simulate a non-conversion event
-                const invocation = createExampleHogFlowInvocation(hogFlow, {
-                    event: {
-                        ...createHogExecutionGlobals().event,
-                        event: '$not-a-pageview',
-                        properties: { name: 'John Doe', $current_url: 'https://posthog.com', conversion: true },
+                // Person does not match conversion filters yet
+                const invocation = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$pageview',
+                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                        },
                     },
-                })
+                    {
+                        properties: {
+                            $browser: 'Firefox',
+                        },
+                    }
+                )
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'fetch',
                     'billable_invocation',
                     'succeeded',
                     'succeeded',
                 ])
 
-                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
-                    event: {
-                        ...createHogExecutionGlobals().event,
-                        event: '$pageview',
-                        properties: { name: 'John Doe', $current_url: 'https://posthog.com', conversion: true },
+                const invocation2 = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$pageview',
+                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                        },
                     },
-                })
+                    {
+                        properties: {
+                            $browser: 'Chrome',
+                        },
+                    }
+                )
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
-                      "Workflow exited early due to exit condition: exit_on_conversion (Person matches conversion filters)",
+                      "Workflow exited early due to exit condition: exit_on_conversion ([Person:person_id|John Doe] matches conversion filters)",
                     ]
                 `)
             })
@@ -636,6 +673,7 @@ describe('Hogflow Executor', () => {
                 const result1 = await executor.execute(invocation1)
                 expect(result1.finished).toBe(true)
                 expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'fetch',
                     'billable_invocation',
                     'succeeded',
                     'succeeded',
@@ -654,55 +692,80 @@ describe('Hogflow Executor', () => {
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
-                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched (Person no longer matches trigger filters)",
+                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched ([Person:person_id|John Doe] no longer matches trigger filters)",
                     ]
                 `)
             })
 
             it('should exit early if exit condition is exit_on_trigger_not_matched_or_conversion', async () => {
-                // Setup: exit if person no longer matches trigger filters or conversion event is seen
+                // Setup: exit if person no longer matches trigger filters or person matches conversion filters
                 hogFlow.exit_condition = 'exit_on_trigger_not_matched_or_conversion'
                 hogFlow.trigger = {
                     type: 'event',
                     filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {},
                 }
                 hogFlow.conversion = {
-                    window_minutes: 10,
-                    filters: HOG_FILTERS_EXAMPLES.pageview_or_autocapture_filter.filters,
+                    filters: [
+                        {
+                            key: '$browser',
+                            type: 'person',
+                            value: ['Chrome'],
+                            operator: 'exact',
+                        },
+                    ],
+                    bytecode: ['_H', 1, 32, 'Chrome', 32, '$browser', 32, 'properties', 32, 'person', 1, 3, 11],
+                    window_minutes: null,
                 }
 
-                // Simulate person data changing so they no longer match the trigger filter
-                const invocation = createExampleHogFlowInvocation(hogFlow, {
-                    event: {
-                        ...createHogExecutionGlobals().event,
-                        event: '$not-a-pageview',
-                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                // Person does not match conversion filters yet
+                const invocation = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$not-a-pageview',
+                            properties: { $current_url: 'https://posthog.com' },
+                        },
                     },
-                })
+                    {
+                        properties: {
+                            $browser: 'Firefox',
+                        },
+                    }
+                )
 
                 const result1 = await executor.execute(invocation)
                 expect(result1.finished).toBe(true)
-                // Metrics: 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
+                // Metrics: 'fetch' from function_id_1, 'billable_invocation' from function_id_1, 'succeeded' from function_id_1, 'succeeded' from exit action
                 expect(result1.metrics.map((m) => m.metric_name)).toEqual([
+                    'fetch',
                     'billable_invocation',
                     'succeeded',
                     'succeeded',
                 ])
 
-                const invocation2 = createExampleHogFlowInvocation(hogFlow, {
-                    event: {
-                        ...createHogExecutionGlobals().event,
-                        event: '$pageview',
-                        properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                const invocation2 = createExampleHogFlowInvocation(
+                    hogFlow,
+                    {
+                        event: {
+                            ...createHogExecutionGlobals().event,
+                            event: '$not-a-pageview',
+                            properties: { name: 'John Doe', $current_url: 'https://posthog.com' },
+                        },
                     },
-                })
+                    {
+                        properties: {
+                            $browser: 'Chrome',
+                        },
+                    }
+                )
 
                 const result2 = await executor.execute(invocation2)
                 expect(result2.finished).toBe(true)
                 expect(result2.metrics.map((m) => m.metric_name)).toEqual(['early_exit'])
                 expect(result2.logs.map((log) => log.message)).toMatchInlineSnapshot(`
                     [
-                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion (Person matches conversion filters)",
+                      "Workflow exited early due to exit condition: exit_on_trigger_not_matched_or_conversion ([Person:person_id|John Doe] matches conversion filters)",
                     ]
                 `)
             })

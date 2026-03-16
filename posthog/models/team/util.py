@@ -4,10 +4,11 @@ from typing import Any
 
 import structlog
 
-from posthog.batch_exports.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
 from posthog.cache_utils import cache_for
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
+
+from products.batch_exports.backend.service import BatchExportServiceScheduleNotFound, batch_export_delete_schedule
 
 logger = structlog.get_logger(__name__)
 
@@ -16,6 +17,7 @@ actions_that_require_current_team = [
     "delete_secret_token_backup",
     "reset_token",
     "generate_conversations_public_token",
+    "default_release_conditions",
 ]
 
 

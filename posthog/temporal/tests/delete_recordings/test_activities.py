@@ -52,7 +52,7 @@ async def test_delete_recordings_parses_response(response_json, expected_deleted
 
     with (
         patch("posthog.temporal.delete_recordings.activities.settings") as mock_settings,
-        patch("posthog.temporal.delete_recordings.activities.httpx.AsyncClient") as mock_client_cls,
+        patch("posthog.temporal.delete_recordings.activities.internal_httpx_async_client") as mock_client_cls,
     ):
         mock_settings.RECORDING_API_URL = "http://recording-api:8000"
         mock_settings.INTERNAL_API_SECRET = "test-secret"
@@ -81,7 +81,7 @@ async def test_delete_recordings_url_construction():
 
     with (
         patch("posthog.temporal.delete_recordings.activities.settings") as mock_settings,
-        patch("posthog.temporal.delete_recordings.activities.httpx.AsyncClient") as mock_client_cls,
+        patch("posthog.temporal.delete_recordings.activities.internal_httpx_async_client") as mock_client_cls,
     ):
         mock_settings.RECORDING_API_URL = "http://recording-api:8000"
         mock_settings.INTERNAL_API_SECRET = "test-secret"
@@ -92,11 +92,11 @@ async def test_delete_recordings_url_construction():
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        await delete_recordings(DeleteRecordingsInput(team_id=456, session_ids=["s1"]))
+        await delete_recordings(DeleteRecordingsInput(team_id=456, session_ids=["s1"], deleted_by="test@posthog.com"))
 
     mock_client.post.assert_called_once_with(
         "http://recording-api:8000/api/projects/456/recordings/delete",
-        json={"session_ids": ["s1"], "deleted_by": ""},
+        json={"session_ids": ["s1"], "deleted_by": "test@posthog.com"},
     )
 
 
@@ -110,7 +110,7 @@ async def test_delete_recordings_sends_auth_header():
 
     with (
         patch("posthog.temporal.delete_recordings.activities.settings") as mock_settings,
-        patch("posthog.temporal.delete_recordings.activities.httpx.AsyncClient") as mock_client_cls,
+        patch("posthog.temporal.delete_recordings.activities.internal_httpx_async_client") as mock_client_cls,
     ):
         mock_settings.RECORDING_API_URL = "http://recording-api:8000"
         mock_settings.INTERNAL_API_SECRET = "my-secret-key"
@@ -121,7 +121,7 @@ async def test_delete_recordings_sends_auth_header():
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"]))
+        await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
 
     mock_client_cls.assert_called_once_with(
         timeout=60.0,
@@ -139,7 +139,7 @@ async def test_delete_recordings_no_auth_header_when_secret_empty():
 
     with (
         patch("posthog.temporal.delete_recordings.activities.settings") as mock_settings,
-        patch("posthog.temporal.delete_recordings.activities.httpx.AsyncClient") as mock_client_cls,
+        patch("posthog.temporal.delete_recordings.activities.internal_httpx_async_client") as mock_client_cls,
     ):
         mock_settings.RECORDING_API_URL = "http://recording-api:8000"
         mock_settings.INTERNAL_API_SECRET = ""
@@ -150,7 +150,7 @@ async def test_delete_recordings_no_auth_header_when_secret_empty():
         mock_client.__aexit__ = AsyncMock(return_value=False)
         mock_client_cls.return_value = mock_client
 
-        await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"]))
+        await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
 
     mock_client_cls.assert_called_once_with(timeout=60.0, headers={})
 
@@ -161,7 +161,7 @@ async def test_delete_recordings_raises_when_no_recording_api_url():
         mock_settings.RECORDING_API_URL = ""
 
         with pytest.raises(RuntimeError, match="RECORDING_API_URL is not configured"):
-            await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"]))
+            await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
 
 
 @pytest.mark.asyncio
@@ -170,7 +170,7 @@ async def test_delete_recordings_raises_on_http_error():
 
     with (
         patch("posthog.temporal.delete_recordings.activities.settings") as mock_settings,
-        patch("posthog.temporal.delete_recordings.activities.httpx.AsyncClient") as mock_client_cls,
+        patch("posthog.temporal.delete_recordings.activities.internal_httpx_async_client") as mock_client_cls,
     ):
         mock_settings.RECORDING_API_URL = "http://recording-api:8000"
         mock_settings.INTERNAL_API_SECRET = ""
@@ -182,7 +182,7 @@ async def test_delete_recordings_raises_on_http_error():
         mock_client_cls.return_value = mock_client
 
         with pytest.raises(httpx.HTTPStatusError):
-            await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"]))
+            await delete_recordings(DeleteRecordingsInput(team_id=1, session_ids=["s1"], deleted_by="test@posthog.com"))
 
 
 @pytest.mark.asyncio

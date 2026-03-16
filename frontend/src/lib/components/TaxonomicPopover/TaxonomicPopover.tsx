@@ -53,12 +53,13 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
 
 /** Like TaxonomicPopover, but convenient when you know you will only use string values */
 export function TaxonomicStringPopover(props: TaxonomicPopoverProps<string>): JSX.Element {
+    const value = props.value != null ? String(props.value) : undefined
     return (
         <TaxonomicPopover
             {...props}
-            value={String(props.value)}
+            value={value}
             onChange={(value, groupType, item) => props.onChange?.(String(value), groupType, item)}
-            renderValue={(value) => props.renderValue?.(String(value)) ?? <>{String(props.value)}</>}
+            renderValue={(v) => props.renderValue?.(String(v)) ?? <>{value}</>}
         />
     )
 }

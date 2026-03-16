@@ -1,3 +1,4 @@
+from datetime import timedelta
 from typing import Optional
 
 from posthog.hogql import ast
@@ -36,7 +37,26 @@ class WebAnalyticsPreAggregatedQueryBuilder:
             if hasattr(prop, "key") and prop.key not in self.supported_props_filters:
                 return False
 
+        if self._is_recent_relative_date_range():
+            return False
+
         return True
+
+    def _is_recent_relative_date_range(self) -> bool:
+        """Returns True if the query covers a short relative date range (6 hours or less ending at 'now').
+
+        Pre-aggregated tables are updated periodically and may not contain the most recent data,
+        so we fall back to raw event tables for recent time windows.
+        """
+        date_range = getattr(self.runner.query, "dateRange", None)
+
+        # Only applies when date_to is not explicitly set (meaning the query ends at "now")
+        if date_range and date_range.date_to:
+            return False
+
+        date_from = self.runner.query_date_range.date_from()
+        date_to = self.runner.query_date_range.date_to()
+        return (date_to - date_from) <= timedelta(hours=6)
 
     def _get_channel_type_expr(self) -> ast.Expr:
         def _wrap_with_null_if_empty(expr: ast.Expr) -> ast.Expr:

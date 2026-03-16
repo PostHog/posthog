@@ -31,12 +31,16 @@ const BROWSER_LOGOS: Record<string, { src: string; alt: string }> = {
     'samsung internet': { src: samsungInternetSvg, alt: 'Samsung Internet' },
 }
 
-export const getBrowserLogo = (browserName: string | undefined): React.ComponentType<BrowserLogoProps> => {
-    const logo = BROWSER_LOGOS[browserName?.toLowerCase() ?? '']
-
-    if (!logo) {
-        return ({ className }: BrowserLogoProps) => <IconWeb className={className} />
-    }
-
-    return ({ className }: BrowserLogoProps) => <img src={logo.src} alt={logo.alt} className={className} />
+const BrowserLogoCache = new Map<string, React.ComponentType<BrowserLogoProps>>()
+for (const [key, logo] of Object.entries(BROWSER_LOGOS)) {
+    const Component = ({ className }: BrowserLogoProps): JSX.Element => (
+        <img src={logo.src} alt={logo.alt} className={className} />
+    )
+    Component.displayName = `BrowserLogo_${logo.alt}`
+    BrowserLogoCache.set(key, Component)
 }
+
+const FallbackBrowserLogo = ({ className }: BrowserLogoProps): JSX.Element => <IconWeb className={className} />
+
+export const getBrowserLogo = (browserName: string | undefined): React.ComponentType<BrowserLogoProps> =>
+    BrowserLogoCache.get(browserName?.toLowerCase() ?? '') ?? FallbackBrowserLogo

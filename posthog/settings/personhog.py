@@ -1,0 +1,15 @@
+from posthog.settings.utils import get_from_env, str_to_bool
+
+PERSONHOG_ADDR = get_from_env("PERSONHOG_ADDR", "")
+PERSONHOG_ENABLED = get_from_env("PERSONHOG_ENABLED", False, type_cast=str_to_bool)
+PERSONHOG_TIMEOUT_MS = get_from_env("PERSONHOG_TIMEOUT_MS", 5000, type_cast=int)
+PERSONHOG_ROLLOUT_PERCENTAGE = get_from_env("PERSONHOG_ROLLOUT_PERCENTAGE", 0, type_cast=int)
+
+# gRPC channel options
+PERSONHOG_KEEPALIVE_TIME_MS = get_from_env("PERSONHOG_KEEPALIVE_TIME_MS", 30_000, type_cast=int)
+PERSONHOG_KEEPALIVE_TIMEOUT_MS = get_from_env("PERSONHOG_KEEPALIVE_TIMEOUT_MS", 5_000, type_cast=int)
+PERSONHOG_KEEPALIVE_WITHOUT_CALLS = get_from_env("PERSONHOG_KEEPALIVE_WITHOUT_CALLS", True, type_cast=str_to_bool)
+PERSONHOG_MAX_RECONNECT_BACKOFF_MS = get_from_env("PERSONHOG_MAX_RECONNECT_BACKOFF_MS", 5_000, type_cast=int)
+PERSONHOG_INITIAL_RECONNECT_BACKOFF_MS = get_from_env("PERSONHOG_INITIAL_RECONNECT_BACKOFF_MS", 1_000, type_cast=int)
+PERSONHOG_MAX_SEND_MESSAGE_LENGTH = get_from_env("PERSONHOG_MAX_SEND_MESSAGE_LENGTH", 4 * 1024 * 1024, type_cast=int)
+PERSONHOG_MAX_RECV_MESSAGE_LENGTH = get_from_env("PERSONHOG_MAX_RECV_MESSAGE_LENGTH", 128 * 1024 * 1024, type_cast=int)

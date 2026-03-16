@@ -1,12 +1,15 @@
 import json
 import uuid
 from datetime import datetime
-from enum import StrEnum
-from typing import Any, Literal, Optional, cast
+from typing import Any, Optional, cast
 
-from pydantic import BaseModel
-
-from posthog.schema import GenericCachedQueryResponse, HogQLQueryModifiers, QueryStatus, QueryTiming
+from posthog.schema import (
+    CachedPropertyValuesQueryResponse,
+    PropertyType,
+    PropertyValueItem,
+    PropertyValuesQuery,
+    PropertyValuesQueryResponse,
+)
 
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
@@ -17,40 +20,6 @@ from posthog.caching.utils import (
 )
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.utils import convert_property_value, flatten, relative_date_parse
-
-
-class PropertyType(StrEnum):
-    EVENT = "event"
-    PERSON = "person"
-
-
-class PropertyValuesQuery(BaseModel):
-    kind: Literal["PropertyValuesQuery"] = "PropertyValuesQuery"
-    property_type: PropertyType
-    property_key: str
-    search_value: Optional[str] = None
-    event_names: Optional[list[str]] = None
-    is_column: bool = False
-
-
-class PropertyValueItem(BaseModel):
-    name: Any
-    count: Optional[int] = None
-
-
-class PropertyValuesQueryResponse(BaseModel):
-    results: list[PropertyValueItem]
-    timings: Optional[list[QueryTiming]] = None
-    hogql: Optional[str] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
-    query_status: Optional[QueryStatus] = None
-
-
-class CachedPropertyValuesQueryResponse(GenericCachedQueryResponse):
-    results: list[PropertyValueItem]
-    timings: Optional[list[QueryTiming]] = None
-    hogql: Optional[str] = None
-    modifiers: Optional[HogQLQueryModifiers] = None
 
 
 class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse]):
@@ -69,6 +38,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     def to_query(self) -> ast.SelectQuery:
         if self.query.property_type == PropertyType.EVENT:
             return self._event_query()
+        # Person queries use raw SQL for speed (4s vs 30s) — move here when HogQL persons table gets faster
         raise NotImplementedError("Person property values use raw SQL via _calculate_person()")
 
     def _calculate(self) -> PropertyValuesQueryResponse:
@@ -114,7 +84,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         chain: list[str | int] = [key] if self.query.is_column else ["properties", key]
 
         date_from = relative_date_parse("-7d", self.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
-        date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
+        date_to = timezone.now().astimezone(self.team.timezone_info).strftime("%Y-%m-%d 23:59:59")
 
         conditions: list[ast.Expr] = [
             ast.CompareOperation(
@@ -146,11 +116,12 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             conditions.append(ast.Or(exprs=event_conditions) if len(event_conditions) > 1 else event_conditions[0])
 
         if self.query.search_value:
+            escaped = self.query.search_value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
                     left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                    right=ast.Constant(value=f"%{self.query.search_value}%"),
+                    right=ast.Constant(value=f"%{escaped}%"),
                 )
             )
 
@@ -175,16 +146,19 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         )
 
     def _format_event_results(self, rows: list) -> list[PropertyValueItem]:
-        values = []
+        values: list[Any] = []
         for row in rows:
             raw = row[0]
             if isinstance(raw, float | int | bool | uuid.UUID):
                 values.append(raw)
             else:
+                # ClickHouse strips outer quotes from string values but leaves inner \" escapes,
+                # so '["a","b"]' comes back as [\"a\",\"b\"] — unescape before parsing.
+                cleaned = raw.replace('\\"', '"') if isinstance(raw, str) else raw
                 try:
-                    values.append(json.loads(raw))
+                    values.append(json.loads(cleaned))
                 except (json.JSONDecodeError, TypeError):
-                    values.append(raw)
+                    values.append(cleaned)
         return [PropertyValueItem(name=convert_property_value(v)) for v in flatten(values)]
 
     def _format_person_results(self, rows: list) -> list[PropertyValueItem]:

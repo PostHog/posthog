@@ -233,7 +233,7 @@ function InternalDataTableVisualization(props: DataTableVisualizationProps): JSX
         const _yData = seriesBreakdownData.xData.data.length ? seriesBreakdownData.seriesData : yData
         component = (
             <LineGraph
-                className="p-2"
+                className="p-3"
                 xData={_xData}
                 yData={_yData}
                 visualizationType={effectiveVisualizationType}

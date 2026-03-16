@@ -3,6 +3,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DEFAULT_QUERY } from 'scenes/notebooks/Nodes/NotebookNodeQuery'
 import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 
@@ -15,30 +16,32 @@ export const DEFAULT_PERSON_PROFILE_SIDEBAR: JSONContent[] = [
     { type: NotebookNodeType.Person, attrs: { title: 'Info' } },
     // FIXME: Map bg image is broken
     // { type: NotebookNodeType.Map, attrs: { title: 'Map' } },
-    { type: NotebookNodeType.PersonProperties, attrs: { title: 'Properties' } },
     { type: NotebookNodeType.RelatedGroups, attrs: { title: 'Related groups' } },
+    { type: NotebookNodeType.PersonProperties, attrs: { title: 'Properties' } },
 ]
 
 export const DEFAULT_PERSON_PROFILE_CONTENT: JSONContent[] = [
     { type: NotebookNodeType.UsageMetrics, index: 0, attrs: { title: 'Usage metrics' } },
-    { type: NotebookNodeType.PersonFeed, index: 1, attrs: { title: 'Session feed' } },
-    { type: NotebookNodeType.LLMTrace, index: 2, attrs: { title: 'LLM traces' } },
-    { type: NotebookNodeType.ZendeskTickets, index: 3, attrs: { title: 'Zendesk tickets' } },
-    { type: NotebookNodeType.Issues, index: 4, attrs: { title: 'Issues' } },
+    { type: NotebookNodeType.CustomerJourney, index: 1, attrs: { title: 'Customer journey' } },
+    { type: NotebookNodeType.PersonFeed, index: 2, attrs: { title: 'Session feed' } },
+    { type: NotebookNodeType.LLMTrace, index: 3, attrs: { title: 'LLM traces' } },
+    { type: NotebookNodeType.ZendeskTickets, index: 4, attrs: { title: 'Zendesk tickets' } },
+    { type: NotebookNodeType.Issues, index: 5, attrs: { title: 'Issues' } },
 ]
 
 export const DEFAULT_GROUP_PROFILE_SIDEBAR: JSONContent[] = [
     { type: NotebookNodeType.Group, attrs: { title: 'Info' } },
-    { type: NotebookNodeType.GroupProperties, attrs: { title: 'Properties' } },
     { type: NotebookNodeType.RelatedGroups, attrs: { title: 'Related people', type: 'person' } },
+    { type: NotebookNodeType.GroupProperties, attrs: { title: 'Properties' } },
 ]
 
 export const DEFAULT_GROUP_PROFILE_CONTENT: JSONContent[] = [
     { type: NotebookNodeType.UsageMetrics, index: 0, attrs: { title: 'Usage metrics' } },
-    { type: NotebookNodeType.Query, index: 1, attrs: { title: 'Events' } },
-    { type: NotebookNodeType.LLMTrace, index: 2, attrs: { title: 'LLM traces' } },
-    { type: NotebookNodeType.ZendeskTickets, index: 3, attrs: { title: 'Zendesk tickets' } },
-    { type: NotebookNodeType.Issues, index: 4, attrs: { title: 'Issues' } },
+    { type: NotebookNodeType.CustomerJourney, index: 1, attrs: { title: 'Customer journey' } },
+    { type: NotebookNodeType.Query, index: 2, attrs: { title: 'Events' } },
+    { type: NotebookNodeType.LLMTrace, index: 3, attrs: { title: 'LLM traces' } },
+    { type: NotebookNodeType.ZendeskTickets, index: 4, attrs: { title: 'Zendesk tickets' } },
+    { type: NotebookNodeType.Issues, index: 5, attrs: { title: 'Issues' } },
 ]
 
 export type CustomerProfileAttrs = {
@@ -135,14 +138,17 @@ export const customerProfileLogic = kea<customerProfileLogicType>([
             (s) => [
                 s.scopedSidebarContent,
                 s.scopedAddAttrFunction,
+                s.featureFlags,
                 (_, props) => props.scope,
                 (_, props) => props.attrs,
             ],
-            (scopedSidebarContent, scopedAddAttrFunction, scope, attrs) => {
-                const scopedDefaultContent =
+            (scopedSidebarContent, scopedAddAttrFunction, featureFlags, scope, attrs) => {
+                const isJourneysEnabled = !!featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS]
+                const scopedDefaultContent = (
                     scope === CustomerProfileScope.PERSON
                         ? DEFAULT_PERSON_PROFILE_CONTENT
                         : DEFAULT_GROUP_PROFILE_CONTENT
+                ).filter((node) => node.type !== NotebookNodeType.CustomerJourney || isJourneysEnabled)
 
                 const sidebar = scopedSidebarContent.map((node) => scopedAddAttrFunction({ attrs, node }))
                 return scopedDefaultContent.map((node, index) => {
@@ -274,6 +280,7 @@ export function addPersonAttrsToNode({ attrs, node, children = [] }: AddAttrsToN
     switch (node.type) {
         case NotebookNodeType.UsageMetrics:
         case NotebookNodeType.LLMTrace:
+        case NotebookNodeType.CustomerJourney:
         case NotebookNodeType.ZendeskTickets:
         case NotebookNodeType.Issues:
             return {
@@ -323,6 +330,7 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
     switch (node.type) {
         case NotebookNodeType.UsageMetrics:
         case NotebookNodeType.LLMTrace:
+        case NotebookNodeType.CustomerJourney:
         case NotebookNodeType.Issues:
             return {
                 ...node,
@@ -359,6 +367,22 @@ export function addGroupAttrsToNode({ attrs, node, children = [] }: AddAttrsToNo
                     nodeId,
                 },
             }
+        case NotebookNodeType.Query:
+            return {
+                ...node,
+                attrs: {
+                    ...node.attrs,
+                    query: {
+                        ...DEFAULT_QUERY,
+                        contextKey: 'group-profile-events',
+                        showTableViews: true,
+                        embedded: true,
+                    },
+                },
+                nodeId,
+                children,
+            }
+
         default:
             return {
                 ...node,

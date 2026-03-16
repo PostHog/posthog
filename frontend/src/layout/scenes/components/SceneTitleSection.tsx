@@ -4,7 +4,15 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 import { useDebouncedCallback } from 'use-debounce'
 
-import { IconBrackets, IconPencil, IconSidePanel, IconSparkles, IconWrench } from '@posthog/icons'
+import {
+    IconBrackets,
+    IconCollapse,
+    IconExpand,
+    IconPencil,
+    IconSidePanel,
+    IconSparkles,
+    IconWrench,
+} from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { RenderKeybind } from 'lib/components/AppShortcuts/AppShortcutMenu'
@@ -27,7 +35,6 @@ import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 import { ProductIconWrapper, iconForType } from '../../panel-layout/ProjectTree/defaultTree'
 import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
-import { SceneDivider } from './SceneDivider'
 
 export function SceneTitlePanelButton({
     maxToolProps,
@@ -201,6 +208,8 @@ type SceneMainTitleProps = {
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    /** Max character length for the description field */
+    descriptionMaxLength?: number
 }
 
 export function SceneTitleSection({
@@ -223,12 +232,16 @@ export function SceneTitleSection({
     onGenerateName,
     isGeneratingName,
     maxToolProps,
+    descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
+    const { showDescription } = useValues(sceneLayoutLogic)
+    const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const willShowBreadcrumbs = forceBackTo || breadcrumbs.length > 2
     const [isScrolled, setIsScrolled] = useState(false)
     const effectiveDescription = description
+    const hasDescription = effectiveDescription != null && (effectiveDescription || canEdit)
 
     // Always include ProductSetupButton alongside other actions
     // Product auto-selection is handled by SceneContent via globalSetupLogic
@@ -270,15 +283,14 @@ export function SceneTitleSection({
 
     return (
         <>
-            {/* Description is not sticky, therefor, if there is description, we render a line after scroll  */}
-            {effectiveDescription != null && (
-                // When this element touches top of the scene, we set the sticky bar to be sticky
+            {!noBorder && (
+                // When this element scrolls out of view, the IntersectionObserver sets isScrolled=true to show the border
                 <div data-sticky-sentinel className="h-px w-px pointer-events-none absolute -top-4" aria-hidden />
             )}
 
             <div
                 className={cn(
-                    'bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300',
+                    'group/scene-title-section bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300',
                     noPadding ? '' : '-mx-4 px-4 -mt-4',
                     noBorder ? '' : 'border-b border-transparent transition-border',
                     isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
@@ -323,6 +335,29 @@ export function SceneTitleSection({
                                     saveOnBlur={saveOnBlur}
                                     onGenerateName={onGenerateName}
                                     isGeneratingName={isGeneratingName}
+                                    suffix={
+                                        hasDescription ? (
+                                            <ButtonPrimitive
+                                                className={cn(
+                                                    'size-[var(--button-height-sm)] shrink-0',
+                                                    isScrolled
+                                                        ? 'animate-fade-out-subtle pointer-events-none'
+                                                        : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
+                                                )}
+                                                onClick={toggleShowDescription}
+                                                tooltip={showDescription ? 'Hide description' : 'Show description'}
+                                                tooltipPlacement="bottom"
+                                                iconOnly
+                                                data-attr={
+                                                    showDescription
+                                                        ? 'toggle-description-button-collapse'
+                                                        : 'toggle-description-button-expand'
+                                                }
+                                            >
+                                                {showDescription || forceEdit ? <IconCollapse /> : <IconExpand />}
+                                            </ButtonPrimitive>
+                                        ) : undefined
+                                    }
                                 />
                             </>
                         )}
@@ -331,7 +366,7 @@ export function SceneTitleSection({
                         <div
                             className={cn(
                                 'flex gap-1.5 justify-end items-end @2xl/main-content:items-start ml-4 @max-2xl:order-first',
-                                'gap-1 self-end'
+                                'gap-1 self-start @max-2xl:self-end'
                             )}
                         >
                             {effectiveActions}
@@ -339,10 +374,10 @@ export function SceneTitleSection({
                         </div>
                     )}
                 </div>
-                {effectiveDescription == null && !noBorder && <SceneDivider />}
+                {/* Border is handled by the outer container's border-b */}
             </div>
-            {effectiveDescription != null && (effectiveDescription || canEdit) && (
-                <div className="[&_svg]:size-6">
+            {hasDescription && (showDescription || forceEdit) && (
+                <div className="[&_svg]:size-6 -mt-4">
                     <SceneDescription
                         description={effectiveDescription}
                         markdown={markdown}
@@ -352,8 +387,8 @@ export function SceneTitleSection({
                         forceEdit={forceEdit}
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
+                        maxLength={descriptionMaxLength}
                     />
-                    {!noBorder && <SceneDivider />}
                 </div>
             )}
         </>
@@ -370,9 +405,10 @@ type SceneNameProps = {
     saveOnBlur?: boolean
     onGenerateName?: () => void
     isGeneratingName?: boolean
+    suffix?: React.ReactNode
 }
 
-function SceneName({
+export function SceneName({
     name: initialName,
     isLoading = false,
     onChange,
@@ -382,19 +418,20 @@ function SceneName({
     saveOnBlur = false,
     onGenerateName,
     isGeneratingName = false,
+    suffix,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
+    const [prevInitialName, setPrevInitialName] = useState(initialName)
+    if (initialName !== prevInitialName) {
+        setPrevInitialName(initialName)
+        setName(initialName)
+    }
+
     const [isEditing, setIsEditing] = useState(forceEdit)
     const containerRef = useRef<HTMLDivElement>(null)
 
     const textClasses =
-        'text-xl font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
-
-    useEffect(() => {
-        if (!isLoading) {
-            setName(initialName)
-        }
-    }, [initialName, isLoading])
+        'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
@@ -405,24 +442,19 @@ function SceneName({
     }, [isLoading, forceEdit])
 
     const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const debouncedOnChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const handleBlur = (e: React.FocusEvent): void => {
-        // Check if focus is moving to an element within our container (like the generate button)
         const relatedTarget = e.relatedTarget as HTMLElement | null
         if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
             return
         }
-        if (saveOnBlur && name !== initialName) {
+        if (saveOnBlur && !forceEdit && name !== initialName) {
             debouncedOnBlurSave(name || '')
         }
         if (!forceEdit) {
@@ -443,8 +475,9 @@ function SceneName({
                             value={name || ''}
                             onChange={(e) => {
                                 setName(e.target.value)
-                                if (!saveOnBlur || forceEdit) {
-                                    // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
+                                if (forceEdit) {
+                                    onChange?.(e.target.value)
+                                } else if (!saveOnBlur) {
                                     debouncedOnChange(e.target.value)
                                 }
                             }}
@@ -496,10 +529,9 @@ function SceneName({
                         <ButtonPrimitive
                             className={cn(
                                 buttonPrimitiveVariants({ size: 'fit', className: textClasses }),
-                                'flex text-left [&_.LemonIcon]:size-4 pl-[var(--button-padding-x-sm)] focus-visible:z-50'
+                                'flex text-left [&_.LemonIcon]:size-4 focus-visible:z-50'
                             )}
                             onClick={() => setIsEditing(true)}
-                            fullWidth
                             truncate
                         >
                             <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
@@ -509,8 +541,12 @@ function SceneName({
                 )}
             </>
         ) : (
-            <h1 className={cn(buttonPrimitiveVariants({ size: 'base', inert: true, className: `${textClasses}` }))}>
-                <span className="min-w-fit">{name || <span className="text-tertiary">Unnamed</span>}</span>
+            <h1
+                className={cn(
+                    buttonPrimitiveVariants({ size: 'base', inert: true, className: `${textClasses} min-w-0 truncate` })
+                )}
+            >
+                <span className="truncate">{name || <span className="text-tertiary">Unnamed</span>}</span>
             </h1>
         )
 
@@ -522,7 +558,18 @@ function SceneName({
         )
     }
 
-    return <div className={cn('scene-name flex-1', !isEditing && onChange && canEdit && 'truncate ')}>{Element}</div>
+    return (
+        <div
+            data-attr="scene-name"
+            className={cn(
+                'scene-name flex items-center flex-1 max-w-full',
+                !isEditing && onChange && canEdit && 'truncate'
+            )}
+        >
+            {Element}
+            {!isEditing && suffix}
+        </div>
+    )
 }
 
 type SceneDescriptionProps = {
@@ -534,6 +581,7 @@ type SceneDescriptionProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    maxLength?: number
 }
 
 function SceneDescription({
@@ -545,19 +593,20 @@ function SceneDescription({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
+    maxLength,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
+    const [prevInitialDescription, setPrevInitialDescription] = useState(initialDescription)
+    if (initialDescription !== prevInitialDescription) {
+        setPrevInitialDescription(initialDescription)
+        setDescription(initialDescription)
+    }
+
     const [isEditing, setIsEditing] = useState(forceEdit)
 
     const textClasses = 'text-sm my-0 select-auto'
 
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
-
-    useEffect(() => {
-        if (!isLoading) {
-            setDescription(initialDescription)
-        }
-    }, [initialDescription, isLoading])
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
@@ -568,19 +617,15 @@ function SceneDescription({
     }, [isLoading, forceEdit])
 
     const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const handleBlur = (): void => {
-        if (saveOnBlur && description !== initialDescription) {
+        if (saveOnBlur && !forceEdit && description !== initialDescription) {
             debouncedOnBlurSaveDescription(description || '')
         }
         if (!forceEdit) {
@@ -596,10 +641,12 @@ function SceneDescription({
                         variant="default"
                         name="description"
                         value={description || ''}
+                        maxLength={maxLength}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (!saveOnBlur || forceEdit) {
-                                // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
+                            if (forceEdit) {
+                                onChange?.(e.target.value)
+                            } else if (!saveOnBlur) {
                                 debouncedOnDescriptionChange(e.target.value)
                             }
                         }}
@@ -621,14 +668,13 @@ function SceneDescription({
                 ) : (
                     <Tooltip
                         title={canEdit && !forceEdit ? 'Edit description' : undefined}
-                        placement="top-start"
+                        placement="bottom"
                         arrowOffset={10}
                     >
                         <ButtonPrimitive
                             onClick={() => setIsEditing(true)}
                             className="flex text-start px-[var(--button-padding-x-sm)] py-[var(--button-padding-y-base)] [&_.LemonIcon]:size-4 focus-visible:z-50"
                             autoHeight
-                            fullWidth
                             size="base"
                         >
                             <LemonMarkdown lowKeyHeadings>
@@ -675,8 +721,8 @@ function SceneDescription({
     }
 
     return (
-        <div className="scene-description -mt-4 relative focus-within:z-50">
-            <div className="-mx-[var(--button-padding-x-sm)] pb-2 flex items-center gap-0">{Element}</div>
+        <div className="scene-description relative focus-within:z-50">
+            <div className="-mx-[var(--button-padding-x-sm)] flex items-center gap-0">{Element}</div>
         </div>
     )
 }

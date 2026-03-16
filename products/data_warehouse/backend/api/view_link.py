@@ -1,10 +1,9 @@
-from typing import Optional
+from typing import Optional, cast
 
 from clickhouse_driver.errors import ServerException
 from rest_framework import filters, response, serializers, status, viewsets
 
 from posthog.hogql import ast
-from posthog.hogql.ast import Call, Field
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import LazyJoin
@@ -18,6 +17,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.errors import look_up_clickhouse_error_code_meta
 from posthog.exceptions_capture import capture_exception
+from posthog.models.user import User
 
 from products.data_warehouse.backend.models import DataWarehouseJoin
 
@@ -68,11 +68,11 @@ class ViewLinkValidationMixin:
             raise serializers.ValidationError({"non_field_errors": [f"Invalid table: {table_name}"]})
 
         try:
-            node = parse_expr(join_key)
+            parse_expr(join_key)
         except SyntaxError as e:
             raise serializers.ValidationError({"non_field_errors": [str(e)]})
 
-        if not isinstance(node, Field) and not (isinstance(node, Call) and isinstance(node.args[0], Field)):
+        if get_join_field_chain(join_key) is None:
             raise serializers.ValidationError({"non_field_errors": [f"Join key {join_key} must be a table field"]})
 
         return
@@ -173,7 +173,8 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
-        context["database"] = Database.create_for(team_id=self.team_id)
+        user = cast(User, self.request.user)
+        context["database"] = Database.create_for(team_id=self.team_id, user=user)
         return context
 
     def safely_get_queryset(self, queryset):
@@ -229,10 +230,11 @@ class ViewLinkViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         try:
+            user = cast(User, self.request.user)
             query_response = execute_hogql_query(
                 query=validation_query,
                 team=self.team,
-                context=HogQLContext(database=database),
+                context=HogQLContext(database=database, user=user),
             )
             response_data["hogql"] = query_response.hogql
             response_data["results"] = query_response.results

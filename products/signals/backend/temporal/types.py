@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Optional
 
 
@@ -24,12 +25,31 @@ class SignalCandidate:
 
 
 @dataclass
+class ReportContext:
+    """Lightweight context about a report for group-aware matching."""
+
+    report_id: str
+    title: str
+    signal_count: int
+
+
+@dataclass
+class SpecificityMetadata:
+    """Result of the PR-specificity verification gate."""
+
+    pr_title: str
+    specific_enough: bool
+    reason: str
+
+
+@dataclass
 class MatchedMetadata:
     """Metadata when a signal was matched to an existing report via a parent signal."""
 
     parent_signal_id: str
     match_query: str
     reason: str
+    specificity: Optional[SpecificityMetadata] = None
 
 
 @dataclass
@@ -38,6 +58,7 @@ class NoMatchMetadata:
 
     reason: str
     rejected_signal_ids: list[str] = field(default_factory=list)
+    specificity_rejection: Optional[SpecificityMetadata] = None
 
 
 MatchMetadata = MatchedMetadata | NoMatchMetadata
@@ -68,8 +89,57 @@ class TeamSignalGroupingInput:
 
 
 @dataclass
+class BufferSignalsInput:
+    """Inputs for the buffer signals workflow."""
+
+    team_id: int
+    # Signals that arrived between the last drain and continue_as_new.
+    # Small in practice (only a few signals can sneak in during two activity calls),
+    # but must be carried over to avoid dropping them.
+    pending_signals: list["EmitSignalInputs"] = field(default_factory=list)
+
+
+@dataclass
+class TeamSignalGroupingV2Input:
+    """Inputs for the v2 grouping workflow."""
+
+    team_id: int
+    pending_batch_keys: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ReadSignalsFromS3Input:
+    """Activity input: read a batch of signals from S3."""
+
+    object_key: str
+
+
+@dataclass
+class ReadSignalsFromS3Output:
+    """Activity output: the deserialized signals."""
+
+    signals: list["EmitSignalInputs"]
+
+
+@dataclass
 class SignalReportSummaryWorkflowInputs:
     """Inputs for the signal report summary workflow."""
+
+    team_id: int
+    report_id: str
+
+
+@dataclass
+class SignalReportReingestionWorkflowInputs:
+    """Inputs for the signal report reingestion workflow."""
+
+    team_id: int
+    report_id: str
+
+
+@dataclass
+class SignalReportDeletionWorkflowInputs:
+    """Inputs for the signal report deletion workflow."""
 
     team_id: int
     report_id: str
@@ -96,7 +166,7 @@ class SignalData:
     source_type: str
     source_id: str
     weight: float
-    timestamp: str
+    timestamp: datetime
     extra: dict = field(default_factory=dict)
 
 
@@ -108,7 +178,7 @@ def render_signal_to_text(
     lines = [f"Signal {index}:" if index is not None else "Signal:"]
     lines.append(f"- Source: {signal.source_product} / {signal.source_type}")
     lines.append(f"- Weight: {signal.weight}")
-    lines.append(f"- Timestamp: {signal.timestamp}")
+    lines.append(f"- Timestamp: {signal.timestamp.isoformat()}")
     lines.append(f"- Description: {signal.content}")
     return "\n".join(lines)
 

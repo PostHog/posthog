@@ -8,7 +8,14 @@ import { FeatureFlagType, PropertyFilterType, PropertyOperator } from '~/types'
 import { FeatureFlagFilters } from '~/types'
 
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
-import { NEW_FLAG, featureFlagLogic, hasMultipleVariantsActive, hasZeroRollout } from './featureFlagLogic'
+import {
+    NEW_FLAG,
+    featureFlagLogic,
+    hasMultipleVariantsActive,
+    hasZeroRollout,
+    slugifyFeatureFlagKey,
+    validateFeatureFlagKey,
+} from './featureFlagLogic'
 
 const MOCK_FEATURE_FLAG = {
     ...NEW_FLAG,
@@ -521,5 +528,70 @@ describe('hasMultipleVariantsActive', () => {
         },
     ])('returns $expected when $desc', ({ filters, expected }) => {
         expect(hasMultipleVariantsActive(filters)).toBe(expected)
+    })
+})
+
+describe('slugifyFeatureFlagKey', () => {
+    it.each([
+        { input: 'my-flag', expected: 'my-flag', desc: 'valid kebab-case key passes through' },
+        { input: 'camelCase', expected: 'camelCase', desc: 'preserves case by default' },
+        { input: 'under_score', expected: 'under_score', desc: 'underscores pass through' },
+        { input: 'UPPER', expected: 'UPPER', desc: 'uppercase preserved' },
+        { input: 'foo bar', expected: 'foo-bar', desc: 'spaces become hyphens' },
+        { input: 'foo  bar', expected: 'foo-bar', desc: 'multiple spaces collapse to single hyphen' },
+        { input: 'foo.bar', expected: 'foobar', desc: 'dots are stripped' },
+        { input: 'foo,bar', expected: 'foobar', desc: 'commas are stripped' },
+        { input: 'foo?bar=baz', expected: 'foobarbaz', desc: 'query string chars are stripped' },
+        { input: 'foo/bar', expected: 'foobar', desc: 'slashes are stripped' },
+        { input: 'héllo', expected: 'hello', desc: 'accented characters are normalized' },
+        { input: '  leading', expected: 'leading', desc: 'leading whitespace is trimmed' },
+        { input: 'trailing ', expected: 'trailing-', desc: 'trailing whitespace kept (for typing)' },
+        { input: 'a--b', expected: 'a-b', desc: 'consecutive hyphens collapsed' },
+    ])('returns "$expected" when $desc', ({ input, expected }) => {
+        expect(slugifyFeatureFlagKey(input)).toBe(expected)
+    })
+
+    it.each([
+        { input: 'My Flag Name', expected: 'my-flag-name', desc: 'lowercases and converts spaces' },
+        { input: '  padded  ', expected: 'padded', desc: 'trims both ends' },
+        { input: 'UPPER CASE', expected: 'upper-case', desc: 'lowercases uppercase' },
+    ])('with fromTitleInput=true returns "$expected" when $desc', ({ input, expected }) => {
+        expect(slugifyFeatureFlagKey(input, { fromTitleInput: true })).toBe(expected)
+    })
+})
+
+describe('validateFeatureFlagKey', () => {
+    it.each([
+        { key: 'my-flag', desc: 'kebab-case' },
+        { key: 'camelCase', desc: 'camelCase' },
+        { key: 'under_score', desc: 'underscores' },
+        { key: '123', desc: 'numeric' },
+        { key: 'MIX-ed_123', desc: 'mixed valid chars' },
+        { key: 'a', desc: 'single character' },
+    ])('accepts valid key: $desc', ({ key }) => {
+        expect(validateFeatureFlagKey(key)).toBeUndefined()
+    })
+
+    it.each([
+        { key: 'foo bar', error: 'Only letters', desc: 'spaces' },
+        { key: 'foo.bar', error: 'Only letters', desc: 'dots' },
+        { key: 'foo,bar', error: 'Only letters', desc: 'commas' },
+        { key: 'foo?bar', error: 'Only letters', desc: 'question marks' },
+        { key: 'foo/bar', error: 'Only letters', desc: 'slashes' },
+        { key: 'foo\\bar', error: 'Only letters', desc: 'backslashes' },
+    ])('rejects key with $desc', ({ key, error }) => {
+        expect(validateFeatureFlagKey(key)).toContain(error)
+    })
+
+    it('rejects empty key', () => {
+        expect(validateFeatureFlagKey('')).toBe('Please set a key')
+    })
+
+    it('rejects key exceeding 400 characters', () => {
+        expect(validateFeatureFlagKey('a'.repeat(401))).toContain('400 characters')
+    })
+
+    it('accepts key at exactly 400 characters', () => {
+        expect(validateFeatureFlagKey('a'.repeat(400))).toBeUndefined()
     })
 })

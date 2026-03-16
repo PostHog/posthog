@@ -115,7 +115,7 @@ jobs:
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ matrix.clickhouse-server-image }}
                   docker compose -f docker-compose.dev.yml down
-                  docker compose -f docker-compose.dev.yml up -d
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
 
             - name: Wait for Docker services
               run: bin/wait-for-docker
@@ -158,8 +158,7 @@ jobs:
                   save-if: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install sqlx-cli
-              run: |
-                  cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+              uses: ./.github/actions/setup-sqlx-cli
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: sudo echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts

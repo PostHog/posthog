@@ -58,13 +58,15 @@ jobs:
 
             - name: Cleanup GitHub deployments and environments
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  INPUT_PR_NUMBER: ${{ inputs.pr_number }}
               with:
                   script: |
                       const fs = require('fs');
 
                       // Collect PR numbers to clean up from either input or stale cleanup output
                       let prsToClean = [];
-                      const inputPr = '${{ inputs.pr_number }}';
+                      const inputPr = process.env.INPUT_PR_NUMBER || '';
 
                       if (inputPr) {
                           prsToClean = [inputPr];

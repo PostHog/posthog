@@ -7,6 +7,7 @@ edition = "2021"
 workspace = true
 
 [dependencies]
+common-liveness = { path = "../liveness" }
 axum = { workspace = true }
 metrics = { workspace = true }
 thiserror = { workspace = true }

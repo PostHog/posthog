@@ -18,6 +18,7 @@ from products.tasks.backend.models import SandboxSnapshot
 from products.tasks.backend.services.sandbox import Sandbox, SandboxConfig, SandboxStatus, SandboxTemplate
 from products.tasks.backend.temporal.process_task.activities import (
     cleanup_sandbox,
+    forward_pending_user_message,
     get_sandbox_for_repository,
     get_task_processing_context,
     read_sandbox_logs,
@@ -63,6 +64,7 @@ class TestProcessTaskWorkflow:
                 task_queue=settings.TASKS_TASK_QUEUE,
                 workflows=[ProcessTaskWorkflow],
                 activities=[
+                    forward_pending_user_message,
                     get_task_processing_context,
                     get_sandbox_for_repository,
                     start_agent_server,
@@ -176,6 +178,7 @@ class TestProcessTaskWorkflow:
                 task_queue=settings.TASKS_TASK_QUEUE,
                 workflows=[ProcessTaskWorkflow],
                 activities=[
+                    forward_pending_user_message,
                     get_task_processing_context,
                     get_sandbox_for_repository,
                     start_agent_server,

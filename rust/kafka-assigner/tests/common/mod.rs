@@ -5,6 +5,9 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use rdkafka::admin::{AdminClient, AdminOptions, NewTopic, TopicReplication};
+use rdkafka::client::DefaultClientContext;
+use rdkafka::config::ClientConfig;
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::TcpListenerStream;
@@ -13,6 +16,7 @@ use tonic::transport::Server;
 
 use assignment_coordination::store::{EtcdStore, StoreConfig};
 use kafka_assigner::assigner::{Assigner, AssignerConfig};
+use kafka_assigner::config::Config;
 use kafka_assigner::consumer_registry::ConsumerRegistry;
 use kafka_assigner::error::Result;
 use kafka_assigner::grpc::relay::run_relay;
@@ -26,6 +30,7 @@ use kafka_assigner_proto::kafka_assigner::v1::kafka_assigner_client::KafkaAssign
 use kafka_assigner_proto::kafka_assigner::v1::kafka_assigner_server::KafkaAssignerServer;
 
 pub const ETCD_ENDPOINT: &str = "http://localhost:2379";
+pub const KAFKA_BROKERS: &str = "localhost:9092";
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 pub const NUM_PARTITIONS: u32 = 8;
@@ -174,7 +179,32 @@ pub async fn drive_handoffs_to_completion(store: &KafkaAssignerStore) {
     .await;
 }
 
-// ── Config helpers ──────────────────────────────────────────────
+// ── Kafka helpers ───────────────────────────────────────────────
+
+pub async fn create_kafka_topic(topic: &str, num_partitions: i32) {
+    let admin_client: AdminClient<DefaultClientContext> = ClientConfig::new()
+        .set("bootstrap.servers", KAFKA_BROKERS)
+        .create()
+        .expect("failed to create Kafka admin client");
+
+    let new_topic = NewTopic::new(topic, num_partitions, TopicReplication::Fixed(1));
+    let opts = AdminOptions::new().operation_timeout(Some(Duration::from_secs(5)));
+
+    let results = admin_client
+        .create_topics(&[new_topic], &opts)
+        .await
+        .expect("failed to create topic");
+
+    for result in results {
+        match result {
+            Ok(_) => {}
+            Err((_, rdkafka::types::RDKafkaErrorCode::TopicAlreadyExists)) => {}
+            Err((topic_name, err)) => {
+                panic!("failed to create topic {topic_name}: {err:?}");
+            }
+        }
+    }
+}
 
 pub async fn set_topic_config(store: &KafkaAssignerStore, topic: &str, partition_count: u32) {
     store
@@ -200,7 +230,13 @@ pub async fn start_grpc_server(
     cancel: CancellationToken,
 ) -> GrpcTestServer {
     let registry = Arc::new(ConsumerRegistry::new());
-    let service = KafkaAssignerService::new(Arc::clone(&store), Arc::clone(&registry));
+    let mut config = Config::init_with_defaults().expect("default config should parse");
+    // Use short lease TTL in tests so crash recovery doesn't take 30s.
+    // Keepalive must be shorter than TTL to avoid expiring healthy consumers.
+    config.consumer_lease_ttl_secs = 5;
+    config.consumer_keepalive_interval_secs = 1;
+    let service =
+        KafkaAssignerService::from_config(Arc::clone(&store), Arc::clone(&registry), &config);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

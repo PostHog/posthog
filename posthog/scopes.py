@@ -74,6 +74,7 @@ APIScopeObject = Literal[
     "uploaded_media",
     "user",
     "user_interview_DO_NOT_USE",  # This is a super alpha product, so only exposing here for internal personal API key access
+    "visual_review",
     "warehouse_table",
     "warehouse_view",
     "web_analytics",

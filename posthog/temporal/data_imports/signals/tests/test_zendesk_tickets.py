@@ -61,6 +61,44 @@ class TestZendeskTicketEmitter:
         assert result.extra["created_at"] == "2025-01-15 10:30:00-05:00"
         assert result.extra["url"] == "https://testcorp.zendesk.com/api/v2/tickets/42.json"
 
+    def test_tags_parsed_from_json_string(self, zendesk_ticket_record):
+        result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
+
+        assert result is not None
+        assert result.extra["tags"] == ["ack_email_sent", "escalated", "medium"]
+
+    @pytest.mark.parametrize("raw_tags", ["not-json", ""])
+    def test_raises_on_malformed_tags_json(self, zendesk_ticket_record, raw_tags):
+        zendesk_ticket_record["tags"] = raw_tags
+        with pytest.raises(ValueError, match="not valid JSON"):
+            zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
+
+    def test_raises_on_non_array_tags_json(self, zendesk_ticket_record):
+        zendesk_ticket_record["tags"] = '{"not": "an array"}'
+        with pytest.raises(ValueError, match="not a JSON array"):
+            zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
+
+    def test_raises_on_unexpected_tags_type(self, zendesk_ticket_record):
+        zendesk_ticket_record["tags"] = 42
+        with pytest.raises(ValueError, match="unexpected type"):
+            zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
+
+    def test_tags_defaults_to_empty_when_none(self, zendesk_ticket_record):
+        zendesk_ticket_record["tags"] = None
+        result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
+
+        assert result is not None
+        assert result.extra["tags"] == []
+
+    def test_nullable_fields_pass_through(self, zendesk_ticket_record):
+        zendesk_ticket_record["type"] = None
+        zendesk_ticket_record["priority"] = None
+        result = zendesk_ticket_emitter(team_id=1, record=zendesk_ticket_record)
+
+        assert result is not None
+        assert result.extra["type"] is None
+        assert result.extra["priority"] is None
+
 
 class TestZendeskTicketsConfig:
     def test_partition_field(self):

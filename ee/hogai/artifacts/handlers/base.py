@@ -27,6 +27,7 @@ class EnrichmentContext:
 
     team: Team
     state_messages: Sequence[AssistantMessageUnion] | None = None
+    artifact_id: str | None = None
 
 
 class ArtifactHandler(ABC, Generic[T_Stored, T_Enriched]):

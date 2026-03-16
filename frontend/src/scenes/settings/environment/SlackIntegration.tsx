@@ -5,6 +5,8 @@ import { LemonButton, Link } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
 import { urls } from 'scenes/urls'
@@ -34,16 +36,10 @@ const getSlackAppManifest = (): any => ({
         scopes: {
             bot: [
                 'app_mentions:read',
-                'assistant:write',
                 'channels:history',
-                'channels:join',
                 'channels:read',
                 'chat:write',
-                'chat:write.public',
-                'commands',
                 'groups:history',
-                'im:history',
-                'im:write',
                 'links:read',
                 'links:write',
                 'reactions:read',
@@ -69,6 +65,14 @@ export function SlackIntegration(): JSX.Element {
     const { slackIntegrations, slackAvailable } = useValues(integrationsLogic)
     const [showSlackInstructions, setShowSlackInstructions] = useState(false)
     const { user } = useValues(userLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
+    if (restrictedReason) {
+        return <p>{restrictedReason}</p>
+    }
 
     return (
         <div>

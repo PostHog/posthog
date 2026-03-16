@@ -16,6 +16,7 @@ import {
 import { EventSelect } from 'lib/components/EventSelect/EventSelect'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { toSentenceCase } from 'lib/utils'
 import { AddEventButton } from 'scenes/surveys/AddEventButton'
 import { SurveyMatchTypeLabels } from 'scenes/surveys/constants'
 import {
@@ -28,6 +29,7 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import {
     ActionType,
     AnyPropertyFilter,
+    EffectiveProductTourType,
     ProductTourDisplayConditions,
     ProductTourDisplayFrequency,
     PropertyDefinitionType,
@@ -40,6 +42,13 @@ import { productTourLogic } from '../productTourLogic'
 import { getDefaultDisplayFrequency, getDisplayFrequencyOptions, isAnnouncement } from '../productToursLogic'
 
 type TourTriggerType = 'immediate' | 'event' | 'action'
+
+const ALL_TOUR_TYPES: EffectiveProductTourType[] = ['tour', 'announcement', 'banner']
+
+const TOUR_TYPE_OPTIONS = ALL_TOUR_TYPES.map((type) => ({
+    key: type,
+    label: toSentenceCase(type),
+}))
 
 /**
  * this should probably be re-used from surveys!!
@@ -265,8 +274,8 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
 
     return (
         <div className="space-y-4">
-            <div>
-                <h5 className="font-semibold mb-2">Where to show</h5>
+            <div className="flex flex-col gap-3">
+                <h5 className="font-semibold mb-0">Where to show</h5>
                 <div className="flex gap-2 items-center">
                     <span className="text-sm whitespace-nowrap">URL</span>
                     <LemonSelect
@@ -327,6 +336,33 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
                 {conditions.urlMatchType === SurveyMatchType.Exact && (
                     <span className="text-xs text-muted">Trailing slashes are stripped when matching exact URLs.</span>
                 )}
+                <div className="flex gap-2 items-center">
+                    <span className="text-sm whitespace-nowrap">Device types</span>
+                    <LemonInputSelect
+                        mode="multiple"
+                        value={conditions.deviceTypes || []}
+                        onChange={(values) => {
+                            onChange({ ...conditions, deviceTypes: values })
+                        }}
+                        options={[
+                            {
+                                key: 'Desktop',
+                                label: 'Desktop',
+                            },
+                            {
+                                key: 'Tablet',
+                                label: 'Tablet',
+                            },
+                            {
+                                key: 'Mobile',
+                                label: 'Mobile',
+                            },
+                        ]}
+                        placeholder="Select devices..."
+                        disablePrompting
+                        size="small"
+                    />
+                </div>
             </div>
 
             <div>
@@ -398,6 +434,66 @@ export function AutoShowSection({ id }: { id: string }): JSX.Element | null {
                         className="w-12"
                     />
                     <span className="text-sm">seconds before showing the {entityKeyword}</span>
+                </div>
+
+                <div className="mt-4">
+                    <div className="flex flex-row gap-2 items-center">
+                        <LemonCheckbox
+                            checked={!!conditions.seenTourWaitPeriod}
+                            onChange={(checked) => {
+                                onChange({
+                                    ...conditions,
+                                    seenTourWaitPeriod: checked ? { days: 7, types: [...ALL_TOUR_TYPES] } : undefined,
+                                })
+                            }}
+                        />
+                        <span className="text-sm">Don't show to users who recently saw another...</span>
+                    </div>
+                    {conditions.seenTourWaitPeriod && (
+                        <div className="ml-7 mt-2 flex flex-row gap-2 items-center">
+                            <div className="w-80 max-w-80">
+                                <LemonInputSelect
+                                    mode="multiple"
+                                    value={conditions.seenTourWaitPeriod.types || []}
+                                    onChange={(values) => {
+                                        onChange({
+                                            ...conditions,
+                                            seenTourWaitPeriod: {
+                                                ...conditions.seenTourWaitPeriod!,
+                                                types: values as EffectiveProductTourType[],
+                                            },
+                                        })
+                                    }}
+                                    options={TOUR_TYPE_OPTIONS}
+                                    placeholder="Select types..."
+                                    disablePrompting
+                                    size="small"
+                                />
+                            </div>
+                            <span className="text-sm whitespace-nowrap">in the last</span>
+                            <LemonInput
+                                type="number"
+                                size="small"
+                                min={1}
+                                max={365}
+                                value={conditions.seenTourWaitPeriod.days ?? NaN}
+                                onChange={(newValue) => {
+                                    if (!conditions.seenTourWaitPeriod) {
+                                        return
+                                    }
+                                    onChange({
+                                        ...conditions,
+                                        seenTourWaitPeriod: {
+                                            ...conditions.seenTourWaitPeriod,
+                                            days: newValue as number,
+                                        },
+                                    })
+                                }}
+                                className="w-12"
+                            />
+                            <span className="text-sm">days</span>
+                        </div>
+                    )}
                 </div>
             </div>
 

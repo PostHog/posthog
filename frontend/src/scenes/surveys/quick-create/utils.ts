@@ -1,7 +1,5 @@
-import { SurveyQuestionType } from 'posthog-js'
-
 import { EventsNode } from '~/queries/schema/schema-general'
-import { SurveyMatchType } from '~/types'
+import { SurveyMatchType, SurveyQuestionType } from '~/types'
 
 import { SURVEY_CREATED_SOURCE, defaultSurveyAppearance } from '../constants'
 import { toSurveyEvent } from '../utils/opportunityDetection'

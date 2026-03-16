@@ -14,13 +14,16 @@ import { createEmitEventStep } from '../event-processing/emit-event-step'
 import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-options'
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
 import { createHogTransformEventStep } from '../event-processing/hog-transform-event-step'
+import { EVENTS_OUTPUT, EventOutput, IngestionOutputs } from '../event-processing/ingestion-outputs'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createNormalizeProcessPersonFlagStep } from '../event-processing/normalize-process-person-flag-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
+import { createProcessGroupsStep } from '../event-processing/process-groups-step'
 import { createProcessPersonlessStep } from '../event-processing/process-personless-step'
 import { createProcessPersonsStep } from '../event-processing/process-persons-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
-import { TopHogWrapper, count, timer } from '../pipelines/extensions/tophog'
+import { TopHogWrapper, sum, sumOk, sumResult, timer } from '../pipelines/extensions/tophog'
+import { isDropResult } from '../pipelines/results'
 
 export interface EventSubpipelineInput {
     message: Message
@@ -31,9 +34,9 @@ export interface EventSubpipelineInput {
 
 export interface EventSubpipelineConfig {
     options: EventPipelineRunnerOptions & {
-        CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
         CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: string
     }
+    outputs: IngestionOutputs<EventOutput>
     teamManager: TeamManager
     groupTypeManager: GroupTypeManager
     hogTransformer: HogTransformerService
@@ -50,6 +53,7 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
 ): PipelineBuilder<TInput, void, TContext> {
     const {
         options,
+        outputs,
         teamManager,
         groupTypeManager,
         hogTransformer,
@@ -62,7 +66,36 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
 
     return builder
         .pipe(createNormalizeProcessPersonFlagStep())
-        .pipe(createHogTransformEventStep(hogTransformer))
+        .pipe(
+            topHog(createHogTransformEventStep(hogTransformer), [
+                sumOk(
+                    'transformations_run',
+                    (output) => ({ team_id: String(output.team.id) }),
+                    (output) => output.transformationsRun
+                ),
+                sumOk(
+                    'transformations_run_per_partition',
+                    (output, input) => ({
+                        team_id: String(output.team.id),
+                        partition: String(input.message.partition),
+                    }),
+                    (output) => output.transformationsRun
+                ),
+                sumResult(
+                    'events_dropped_by_transformation',
+                    (_result, input) => ({ team_id: String(input.team.id) }),
+                    (result) => (isDropResult(result) ? 1 : 0)
+                ),
+                sumResult(
+                    'events_dropped_by_transformation_per_partition',
+                    (_result, input) => ({
+                        team_id: String(input.team.id),
+                        partition: String(input.message.partition),
+                    }),
+                    (result) => (isDropResult(result) ? 1 : 0)
+                ),
+            ])
+        )
         .pipe(createNormalizeEventStep())
         .pipe(createProcessPersonlessStep(personsStore))
         .pipe(
@@ -73,27 +106,44 @@ export function createEventSubpipeline<TInput extends EventSubpipelineInput, TCo
                 })),
             ])
         )
-        .pipe(createPrepareEventStep(teamManager, groupTypeManager, groupStore, options))
+        .pipe(createPrepareEventStep())
+        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
         .pipe(
             createExtractHeatmapDataStep({
                 kafkaProducer,
                 CLICKHOUSE_HEATMAPS_KAFKA_TOPIC: options.CLICKHOUSE_HEATMAPS_KAFKA_TOPIC,
             })
         )
-        .pipe(createCreateEventStep())
+        .pipe(createCreateEventStep(EVENTS_OUTPUT))
         .pipe(
             topHog(
                 createEmitEventStep({
-                    kafkaProducer,
-                    clickhouseJsonEventsTopic: options.CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC,
+                    outputs,
                     groupId,
                 }),
                 [
-                    count('emitted_events', (input) => ({ team_id: String(input.eventToEmit.team_id) })),
-                    count('emitted_events_per_distinct_id', (input) => ({
-                        team_id: String(input.eventToEmit.team_id),
-                        distinct_id: input.eventToEmit.distinct_id,
-                    })),
+                    sum(
+                        'emitted_events',
+                        (input) => ({ team_id: String(input.teamId) }),
+                        (input) => input.eventsToEmit.length
+                    ),
+                    sum(
+                        'emitted_events_per_distinct_id',
+                        (input) => ({
+                            team_id: String(input.teamId),
+                            distinct_id: input.eventsToEmit[0]?.event.distinct_id ?? '',
+                            partition: String(input.message.partition),
+                        }),
+                        (input) => input.eventsToEmit.length
+                    ),
+                    sum(
+                        'emitted_events_per_partition',
+                        (input) => ({
+                            team_id: String(input.teamId),
+                            partition: String(input.message.partition),
+                        }),
+                        (input) => input.eventsToEmit.length
+                    ),
                 ]
             )
         )

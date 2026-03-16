@@ -66,8 +66,8 @@ pub enum FlagError {
     NoTokenError,
     #[error("API key is not valid")]
     TokenValidationError,
-    #[error("Personal API key found in request {0} is invalid")]
-    PersonalApiKeyInvalid(String),
+    #[error("Personal API key is invalid")]
+    PersonalApiKeyInvalid,
     #[error("Secret API token is invalid")]
     SecretApiTokenInvalid,
     #[error("No authentication credentials provided")]
@@ -125,6 +125,8 @@ pub enum FlagError {
     DataParsingError,
     #[error("Parallel batch evaluation task panicked")]
     BatchEvaluationPanicked,
+    #[error("Rayon semaphore acquisition timed out after {0}ms")]
+    RayonSemaphoreTimeout(u64),
     #[error(transparent)]
     CookielessError(#[from] CookielessManagerError),
 }
@@ -158,7 +160,7 @@ impl FlagError {
             // Authentication errors (401)
             FlagError::NoTokenError => ("missing_token", 401),
             FlagError::TokenValidationError => ("invalid_token", 401),
-            FlagError::PersonalApiKeyInvalid(_) => ("personal_api_key_invalid", 401),
+            FlagError::PersonalApiKeyInvalid => ("personal_api_key_invalid", 401),
             FlagError::SecretApiTokenInvalid => ("secret_api_token_invalid", 401),
             FlagError::NoAuthenticationProvided => ("no_authentication", 401),
 
@@ -174,6 +176,7 @@ impl FlagError {
             FlagError::DataParsingError => ("data_parsing_error", 500),
             FlagError::BatchEvaluationPanicked => ("batch_evaluation_panicked", 500),
             FlagError::HashKeyOverrideError => ("hash_key_override_error", 500),
+            FlagError::RayonSemaphoreTimeout(_) => ("rayon_semaphore_timeout", 504),
 
             // Data parsing errors (500) - internal errors, not service unavailability
             FlagError::DataParsingErrorWithContext(_) => ("flag_data_parsing_error", 500),
@@ -196,6 +199,16 @@ impl FlagError {
                 _ => ("cookieless_error", 500),
             },
         }
+    }
+
+    /// Whether this error definitively means the token does not map to any team.
+    /// Transient infrastructure errors (timeouts, Redis/DB unavailable) return false
+    /// to avoid poisoning the negative cache with valid tokens during outages.
+    pub fn is_token_not_found(&self) -> bool {
+        matches!(
+            self,
+            FlagError::TokenValidationError | FlagError::RowNotFound
+        )
     }
 
     /// Returns a short error code for canonical logging.
@@ -307,6 +320,8 @@ impl FlagError {
             | FlagError::DataParsingErrorWithContext(_)
             | FlagError::HashKeyOverrideError => StatusCode::INTERNAL_SERVER_ERROR,
 
+            FlagError::RayonSemaphoreTimeout(_) => StatusCode::GATEWAY_TIMEOUT,
+
             FlagError::RedisUnavailable
             | FlagError::DatabaseUnavailable
             | FlagError::TimeoutError(_)
@@ -335,7 +350,15 @@ impl IntoResponse for FlagError {
             FlagError::ClientFacing(err) => match err {
                 ClientFacingError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
                 ClientFacingError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
-                ClientFacingError::BillingLimit => (StatusCode::PAYMENT_REQUIRED, "Billing limit reached. Please upgrade your plan.".to_string()),
+                ClientFacingError::BillingLimit => {
+                    let response = AuthenticationErrorResponse {
+                        error_type: "quota_limited".to_string(),
+                        code: "payment_required".to_string(),
+                        detail: "You have exceeded your feature flag request quota".to_string(),
+                        attr: None,
+                    };
+                    return (StatusCode::PAYMENT_REQUIRED, Json(response)).into_response();
+                }
                 ClientFacingError::RateLimited
                 | ClientFacingError::IpRateLimited
                 | ClientFacingError::TokenRateLimited => {
@@ -371,11 +394,11 @@ impl IntoResponse for FlagError {
             FlagError::TokenValidationError => {
                 (StatusCode::UNAUTHORIZED, "The provided API key is invalid or has expired. Please check your API key and try again.".to_string())
             }
-            FlagError::PersonalApiKeyInvalid(source) => {
+            FlagError::PersonalApiKeyInvalid => {
                 let response = AuthenticationErrorResponse {
                     error_type: "authentication_error".to_string(),
                     code: "authentication_failed".to_string(),
-                    detail: format!("Personal API key found in request {source} is invalid."),
+                    detail: "Personal API key is invalid.".to_string(),
                     attr: None,
                 };
                 return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
@@ -499,6 +522,10 @@ impl IntoResponse for FlagError {
                 tracing::error!("Parallel batch evaluation task panicked");
                 (StatusCode::INTERNAL_SERVER_ERROR, "An internal error occurred during flag evaluation. Please try again later.".to_string())
             }
+            FlagError::RayonSemaphoreTimeout(ms) => {
+                tracing::warn!("Rayon semaphore acquisition timed out after {}ms", ms);
+                (StatusCode::GATEWAY_TIMEOUT, format!("Evaluation pool busy, timed out after {ms}ms. Please retry."))
+            }
             FlagError::CookielessError(err) => {
                 match err {
                     // 400 Bad Request errors - client-side issues
@@ -612,6 +639,7 @@ mod tests {
         assert!(FlagError::RedisUnavailable.is_5xx());
         assert!(FlagError::TimeoutError(None).is_5xx());
         assert!(FlagError::BatchEvaluationPanicked.is_5xx());
+        assert!(FlagError::RayonSemaphoreTimeout(800).is_5xx());
         assert!(FlagError::ClientFacing(ClientFacingError::ServiceUnavailable).is_5xx());
 
         // Test 4XX errors
@@ -710,7 +738,7 @@ mod tests {
             FlagError::MissingDistinctId,
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
-            FlagError::PersonalApiKeyInvalid("test".to_string()),
+            FlagError::PersonalApiKeyInvalid,
             FlagError::SecretApiTokenInvalid,
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,
@@ -730,6 +758,7 @@ mod tests {
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
+            FlagError::RayonSemaphoreTimeout(800),
             CookielessManagerError::MissingProperty("test".to_string()).into(), // CookielessError
         ];
 
@@ -783,6 +812,8 @@ mod tests {
         assert_eq!(FlagError::PersonNotFound.status_code(), 503);
         assert_eq!(FlagError::PropertiesNotInCache.status_code(), 503);
         assert_eq!(FlagError::StaticCohortMatchesNotCached.status_code(), 503);
+        // Semaphore timeout is 504 (gateway timeout for ingress retry)
+        assert_eq!(FlagError::RayonSemaphoreTimeout(800).status_code(), 504);
     }
 
     #[test]
@@ -831,6 +862,7 @@ mod tests {
             FlagError::DependencyCycle(DependencyType::Cohort, 2),
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
+            FlagError::RayonSemaphoreTimeout(800),
             FlagError::DataParsingErrorWithContext("test".to_string()),
             FlagError::RedisUnavailable,
             FlagError::DatabaseUnavailable,
@@ -854,6 +886,23 @@ mod tests {
                 "status_code() should be >= 500 for {error:?}, got {status}"
             );
         }
+    }
+
+    #[test]
+    fn test_is_token_not_found() {
+        // These errors mean the token definitively doesn't map to a team
+        assert!(FlagError::TokenValidationError.is_token_not_found());
+        assert!(FlagError::RowNotFound.is_token_not_found());
+
+        // Transient infrastructure errors should NOT be treated as "not found"
+        assert!(!FlagError::CacheMiss.is_token_not_found());
+        assert!(!FlagError::RedisUnavailable.is_token_not_found());
+        assert!(!FlagError::DatabaseUnavailable.is_token_not_found());
+        assert!(!FlagError::TimeoutError(None).is_token_not_found());
+        assert!(!FlagError::TimeoutError(Some("pool_timeout".to_string())).is_token_not_found());
+        assert!(!FlagError::DatabaseError(sqlx::Error::PoolTimedOut, None).is_token_not_found());
+        assert!(!FlagError::Internal("serialization failed".to_string()).is_token_not_found());
+        assert!(!FlagError::DataParsingError.is_token_not_found());
     }
 
     #[test]
@@ -907,7 +956,7 @@ mod tests {
             FlagError::MissingDistinctId,
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
-            FlagError::PersonalApiKeyInvalid("test".to_string()),
+            FlagError::PersonalApiKeyInvalid,
             FlagError::SecretApiTokenInvalid,
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,
@@ -927,6 +976,7 @@ mod tests {
             FlagError::CacheMiss,
             FlagError::DataParsingError,
             FlagError::BatchEvaluationPanicked,
+            FlagError::RayonSemaphoreTimeout(800),
             CookielessManagerError::MissingProperty("test".to_string()).into(),
         ];
 

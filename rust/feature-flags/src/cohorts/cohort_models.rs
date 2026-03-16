@@ -2,6 +2,17 @@ use crate::properties::property_models::PropertyFilter;
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, sqlx::Type)]
+#[serde(rename_all = "snake_case")]
+#[sqlx(type_name = "varchar", rename_all = "snake_case")]
+pub enum CohortType {
+    Static,
+    PersonProperty,
+    Behavioral,
+    Realtime,
+    Analytical,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Cohort {
     pub id: i32,
@@ -19,9 +30,19 @@ pub struct Cohort {
     pub errors_calculating: i32,
     pub groups: serde_json::Value,
     pub created_by_id: Option<i32>,
+    pub cohort_type: Option<CohortType>,
 }
 
 impl Cohort {
+    /// Returns true if this cohort's membership should be resolved via the
+    /// realtime cohort_membership table rather than the static cohortpeople table.
+    pub fn uses_realtime_membership(&self) -> bool {
+        matches!(
+            self.cohort_type,
+            Some(CohortType::Realtime) | Some(CohortType::Behavioral)
+        )
+    }
+
     /// Estimates the memory size of this cohort in bytes.
     ///
     /// This approximation accounts for the variable-size JSON fields (`filters`, `query`, `groups`)
@@ -151,6 +172,7 @@ mod tests {
             errors_calculating: 0,
             groups,
             created_by_id: Some(1),
+            cohort_type: None,
         }
     }
 
@@ -271,6 +293,28 @@ mod tests {
             assert!(
                 deviation < 0.20,
                 "Estimate {estimated} deviates too much from actual {actual} for {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_uses_realtime_membership() {
+        let cases = vec![
+            (None, false),
+            (Some(CohortType::Static), false),
+            (Some(CohortType::PersonProperty), false),
+            (Some(CohortType::Analytical), false),
+            (Some(CohortType::Realtime), true),
+            (Some(CohortType::Behavioral), true),
+        ];
+
+        for (cohort_type, expected) in cases {
+            let mut cohort = create_test_cohort(None, None, serde_json::json!({}));
+            cohort.cohort_type = cohort_type;
+            assert_eq!(
+                cohort.uses_realtime_membership(),
+                expected,
+                "cohort_type={cohort_type:?} should return {expected}"
             );
         }
     }

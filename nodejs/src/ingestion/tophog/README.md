@@ -6,15 +6,17 @@ This is not a tool for analyzing customer behavior. It is designed for realtime 
 
 ## Metric types
 
-Each metric type has an input variant (records before the step runs, derives key/value from the step input) and a result variant (records after the step completes, only on OK results, derives key/value from the step output).
+Each metric type has three variants:
 
-- **`count(name, keyFn, opts?)`** / **`countResult(name, keyFn, opts?)`** — increments by 1 per invocation. Use for tracking volume (e.g. messages received, events produced).
-- **`sum(name, keyFn, valueFn, opts?)`** / **`sumResult(name, keyFn, valueFn, opts?)`** — accumulates a custom value per invocation. Use for tracking totals where each invocation contributes a variable amount (e.g. bytes ingested, payload sizes).
-- **`max(name, keyFn, valueFn, opts?)`** / **`maxResult(name, keyFn, valueFn, opts?)`** — tracks the maximum observed value per key. Use for finding peak values (e.g. largest payload size, slowest individual request).
-- **`average(name, keyFn, valueFn, opts?)`** / **`averageResult(name, keyFn, valueFn, opts?)`** — tracks the average value per key. Ranks and evicts by average, not sum. Use for finding keys with consistently high values rather than high volume (e.g. average payload size per team).
+- **Input** (`count`, `sum`, `max`, `average`) — records before the step runs. Key/value derived from the step input.
+- **Result** (`countResult`, `sumResult`, `maxResult`, `averageResult`) — records after the step completes, regardless of result type (ok, drop, dlq, redirect). Key/value receive `(result, input)` where `result` is the full `PipelineResult<TOutput>`. Use when you need to count all invocations including drops/dlqs.
+- **Ok** (`countOk`, `sumOk`, `maxOk`, `averageOk`) — records after the step completes, only on OK results. Key/value receive `(output, input)` where `output` is the unwrapped OK value. Use when you need the output value.
+
+- **`count(name, keyFn, opts?)`** / **`countResult(name, keyFn, opts?)`** / **`countOk(name, keyFn, opts?)`** — increments by 1 per invocation. Use for tracking volume (e.g. messages received, events produced).
+- **`sum(name, keyFn, valueFn, opts?)`** / **`sumResult(name, keyFn, valueFn, opts?)`** / **`sumOk(name, keyFn, valueFn, opts?)`** — accumulates a custom value per invocation. Use for tracking totals where each invocation contributes a variable amount (e.g. bytes ingested, payload sizes).
+- **`max(name, keyFn, valueFn, opts?)`** / **`maxResult(name, keyFn, valueFn, opts?)`** / **`maxOk(name, keyFn, valueFn, opts?)`** — tracks the maximum observed value per key. Use for finding peak values (e.g. largest payload size, slowest individual request).
+- **`average(name, keyFn, valueFn, opts?)`** / **`averageResult(name, keyFn, valueFn, opts?)`** / **`averageOk(name, keyFn, valueFn, opts?)`** — tracks the average value per key. Ranks and evicts by average, not sum. Use for finding keys with consistently high values rather than high volume (e.g. average payload size per team).
 - **`timer(name, keyFn, opts?)`** — records elapsed wall-clock time in milliseconds. The key is derived from the step input at start time. Records regardless of whether the step succeeds or fails.
-
-For result variants, the key and value functions receive `(output, input)` — output first since result-based metrics typically derive their key from the output.
 
 ## Designing metrics
 
@@ -94,8 +96,8 @@ return builder
                 team_id: String(input.team_id),
                 distinct_id: input.distinct_id,
             })),
-            // Count successful person processing results per team
-            countResult('persons_processed', (output, input) => ({
+            // Count person processing completions per team (all results)
+            countResult('persons_processed', (_result, input) => ({
                 team_id: String(input.team_id),
             })),
         ])
@@ -148,13 +150,17 @@ TopHog (registry + Kafka reporter)
 
 Pipeline extension (pipelines/extensions/tophog.ts)
 ├── count("emitted_events", keyFn)           → increments by 1 before step runs
-├── countResult("output_count", keyFn)       → increments by 1 after step, on OK results only
+├── countResult("output_count", keyFn)       → increments by 1 after step, on all results
+├── countOk("ok_count", keyFn)              → increments by 1 after step, on OK results only
 ├── sum("total_bytes", keyFn, valueFn)       → accumulates value before step runs
-├── sumResult("output_bytes", keyFn, valueFn)→ accumulates value after step, on OK results only
+├── sumResult("output_bytes", keyFn, valueFn)→ accumulates value after step, on all results
+├── sumOk("ok_bytes", keyFn, valueFn)       → accumulates value after step, on OK results only
 ├── max("max_payload", keyFn, valueFn)       → tracks max value before step runs
-├── maxResult("max_output", keyFn, valueFn)  → tracks max value after step, on OK results only
+├── maxResult("max_output", keyFn, valueFn)  → tracks max value after step, on all results
+├── maxOk("max_ok_output", keyFn, valueFn)  → tracks max value after step, on OK results only
 ├── average("avg_size", keyFn, valueFn)     → tracks average before step runs
-├── averageResult("avg_out", keyFn, valueFn)→ tracks average after step, on OK results only
+├── averageResult("avg_out", keyFn, valueFn)→ tracks average after step, on all results
+├── averageOk("avg_ok_out", keyFn, valueFn)→ tracks average after step, on OK results only
 ├── timer("processing_time", keyFn)         → records elapsed ms per step
 └── createTopHogWrapper(registry)            → wraps pipeline steps with metrics
 ```

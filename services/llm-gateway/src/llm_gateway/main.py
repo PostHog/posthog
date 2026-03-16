@@ -8,7 +8,7 @@ from contextlib import asynccontextmanager
 
 import asyncpg
 import structlog
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from redis.asyncio import Redis
@@ -181,9 +181,24 @@ class ContentSizeLimitMiddleware(BaseHTTPMiddleware):
         if content_length and int(content_length) > self.max_content_size:
             return JSONResponse(
                 status_code=413,
-                content={"detail": "Request body too large"},
+                content={"error": {"message": "Request body too large", "type": "request_too_large"}},
             )
         return await call_next(request)
+
+
+async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    content = exc.detail
+    if isinstance(content, dict) and "error" in content:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content=content,
+            headers=exc.headers,
+        )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": content},
+        headers=exc.headers,
+    )
 
 
 def create_app() -> FastAPI:
@@ -203,6 +218,8 @@ def create_app() -> FastAPI:
         allow_methods=["POST", "GET", "OPTIONS"],
         allow_headers=["*"],
     )
+
+    app.exception_handler(HTTPException)(http_exception_handler)
 
     app.include_router(health_router)
     app.include_router(router)

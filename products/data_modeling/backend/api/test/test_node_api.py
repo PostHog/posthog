@@ -5,7 +5,7 @@ from rest_framework import status
 
 from posthog.models import Team
 
-from products.data_modeling.backend.models import Edge, Node, NodeType
+from products.data_modeling.backend.models import DAG, Edge, Node, NodeType
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 
@@ -13,6 +13,7 @@ class TestNodeViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.dag_id = f"posthog_{self.team.id}"
+        self.dag = DAG.objects.create(team=self.team, name=self.dag_id)
 
         self.saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
@@ -22,21 +23,21 @@ class TestNodeViewSet(APIBaseTest):
 
         self.table_node = Node.objects.create(
             team=self.team,
-            dag_id_text=self.dag_id,
+            dag=self.dag,
             name="events",
             type=NodeType.TABLE,
         )
 
         self.view_node = Node.objects.create(
             team=self.team,
-            dag_id_text=self.dag_id,
+            dag=self.dag,
             saved_query=self.saved_query,
             type=NodeType.VIEW,
         )
 
         Edge.objects.create(
             team=self.team,
-            dag_id_text=self.dag_id,
+            dag=self.dag,
             source=self.table_node,
             target=self.view_node,
         )
@@ -52,9 +53,10 @@ class TestNodeViewSet(APIBaseTest):
 
     def test_list_nodes_filters_by_team(self):
         other_team = Team.objects.create(organization=self.organization)
+        other_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
         Node.objects.create(
             team=other_team,
-            dag_id_text=self.dag_id,
+            dag=other_dag,
             name="other_table",
             type=NodeType.TABLE,
         )
@@ -70,7 +72,7 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json()["name"], "test_view")
         self.assertEqual(response.json()["type"], "view")
-        self.assertEqual(response.json()["dag_id_text"], self.dag_id)
+        self.assertEqual(response.json()["dag"], str(self.dag.id))
 
     def test_get_node_includes_upstream_downstream_counts(self):
         response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/")
@@ -80,9 +82,10 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.json()["downstream_count"], 0)
 
     def test_dag_ids_action(self):
+        another_dag = DAG.objects.create(team=self.team, name="another_dag")
         Node.objects.create(
             team=self.team,
-            dag_id_text="another_dag",
+            dag=another_dag,
             name="another_table",
             type=NodeType.TABLE,
         )
@@ -223,15 +226,111 @@ class TestNodeViewSet(APIBaseTest):
         call_args = mock_client.start_workflow.call_args
         self.assertEqual(call_args[0][0], "data-modeling-run")
 
+    def test_lineage_returns_subgraph(self):
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/lineage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        node_ids = {n["id"] for n in response.json()["nodes"]}
+        self.assertIn(str(self.view_node.id), node_ids)
+        self.assertIn(str(self.table_node.id), node_ids)
+        edge_source_ids = {e["source_id"] for e in response.json()["edges"]}
+        self.assertIn(str(self.table_node.id), edge_source_ids)
+
+    def test_lineage_multi_level(self):
+        sq_b = DataWarehouseSavedQuery.objects.create(
+            name="view_b", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        sq_c = DataWarehouseSavedQuery.objects.create(
+            name="view_c", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        view_b = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="view_b",
+            type=NodeType.VIEW,
+            saved_query=sq_b,
+        )
+        view_c = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="view_c",
+            type=NodeType.VIEW,
+            saved_query=sq_c,
+        )
+        Edge.objects.create(team=self.team, dag=self.dag, source=self.view_node, target=view_b)
+        Edge.objects.create(team=self.team, dag=self.dag, source=view_b, target=view_c)
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{view_b.id}/lineage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        node_ids = {n["id"] for n in response.json()["nodes"]}
+        self.assertIn(str(self.table_node.id), node_ids)
+        self.assertIn(str(self.view_node.id), node_ids)
+        self.assertIn(str(view_b.id), node_ids)
+        self.assertIn(str(view_c.id), node_ids)
+
+    def test_lineage_no_dependencies(self):
+        sq_standalone = DataWarehouseSavedQuery.objects.create(
+            name="standalone", team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        standalone = Node.objects.create(
+            team=self.team,
+            dag=self.dag,
+            name="standalone",
+            type=NodeType.VIEW,
+            saved_query=sq_standalone,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{standalone.id}/lineage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["nodes"]), 1)
+        self.assertEqual(response.json()["nodes"][0]["id"], str(standalone.id))
+        self.assertEqual(len(response.json()["edges"]), 0)
+
+    def test_lineage_filters_by_team(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
+        other_table = Node.objects.create(
+            team=other_team,
+            dag=other_dag,
+            name="other_table",
+            type=NodeType.TABLE,
+        )
+        other_sq = DataWarehouseSavedQuery.objects.create(
+            name="other_view", team=other_team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        other_view = Node.objects.create(
+            team=other_team,
+            dag=other_dag,
+            name="other_view",
+            type=NodeType.VIEW,
+            saved_query=other_sq,
+        )
+        Edge.objects.create(
+            team=other_team,
+            dag=other_dag,
+            source=other_table,
+            target=other_view,
+        )
+
+        response = self.client.get(f"/api/environments/{self.team.id}/data_modeling_nodes/{self.view_node.id}/lineage/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        node_ids = {n["id"] for n in response.json()["nodes"]}
+        self.assertNotIn(str(other_table.id), node_ids)
+        self.assertNotIn(str(other_view.id), node_ids)
+
 
 class TestEdgeViewSet(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.dag_id = f"posthog_{self.team.id}"
+        self.dag = DAG.objects.create(team=self.team, name=self.dag_id)
 
         self.source_node = Node.objects.create(
             team=self.team,
-            dag_id_text=self.dag_id,
+            dag=self.dag,
             name="events",
             type=NodeType.TABLE,
         )
@@ -244,14 +343,14 @@ class TestEdgeViewSet(APIBaseTest):
 
         self.target_node = Node.objects.create(
             team=self.team,
-            dag_id_text=self.dag_id,
+            dag=self.dag,
             saved_query=self.saved_query,
             type=NodeType.VIEW,
         )
 
         self.edge = Edge.objects.create(
             team=self.team,
-            dag_id_text=self.dag_id,
+            dag=self.dag,
             source=self.source_node,
             target=self.target_node,
         )
@@ -265,25 +364,26 @@ class TestEdgeViewSet(APIBaseTest):
         edge = response.json()["results"][0]
         self.assertEqual(edge["source_id"], str(self.source_node.id))
         self.assertEqual(edge["target_id"], str(self.target_node.id))
-        self.assertEqual(edge["dag_id_text"], self.dag_id)
+        self.assertEqual(edge["dag"], str(self.dag.id))
 
     def test_list_edges_filters_by_team(self):
         other_team = Team.objects.create(organization=self.organization)
+        other_dag = DAG.objects.create(team=other_team, name=f"posthog_{other_team.id}")
         other_source = Node.objects.create(
             team=other_team,
-            dag_id_text=self.dag_id,
+            dag=other_dag,
             name="other_events",
             type=NodeType.TABLE,
         )
         other_target = Node.objects.create(
             team=other_team,
-            dag_id_text=self.dag_id,
+            dag=other_dag,
             name="other_view",
             type=NodeType.TABLE,
         )
         Edge.objects.create(
             team=other_team,
-            dag_id_text=self.dag_id,
+            dag=other_dag,
             source=other_source,
             target=other_target,
         )

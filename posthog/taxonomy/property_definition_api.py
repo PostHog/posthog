@@ -24,7 +24,11 @@ from posthog.models import EventProperty, PropertyDefinition, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.utils import UUIDT
 from posthog.settings import EE_AVAILABLE
-from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP, PROPERTY_NAME_ALIASES
+from posthog.taxonomy.taxonomy import (
+    CORE_FILTER_DEFINITIONS_BY_GROUP,
+    PROPERTY_NAME_ALIASES,
+    PROPERTY_NAME_ALIASES_BY_TYPE,
+)
 
 tracer = trace.get_tracer(__name__)
 
@@ -140,6 +144,8 @@ class QueryContext:
     is_feature_flag_filter: str = ""
     excluded_properties_filter: str = ""
 
+    order_by_search_relevance: bool = False
+
     event_property_join_type: str = ""
     event_property_field: str = "NULL"
 
@@ -254,10 +260,11 @@ class QueryContext:
             params={**self.params, "event_names": list(map(str, event_names or []))},
         )
 
-    def with_search(self, search_query: str, search_kwargs: dict) -> Self:
+    def with_search(self, search_query: str, search_kwargs: dict, order_by_search_relevance: bool = False) -> Self:
         return dataclasses.replace(
             self,
             search_query=search_query,
+            order_by_search_relevance=order_by_search_relevance,
             params={**self.params, "project_id": self.project_id, **search_kwargs},
         )
 
@@ -320,6 +327,9 @@ class QueryContext:
 
     def as_sql(self, order_by_verified: bool):
         verified_ordering = "verified DESC NULLS LAST," if order_by_verified else ""
+        length_ordering = (
+            f"length({self.property_definition_table}.name) ASC," if self.order_by_search_relevance else ""
+        )
         query = f"""
             SELECT {self.property_definition_fields}, {self.event_property_field} AS is_seen_on_filtered_events
             FROM {self.table}
@@ -330,7 +340,7 @@ class QueryContext:
               {self.excluded_properties_filter}
              {self.name_filter} {self.numerical_filter} {self.search_query} {self.event_property_filter} {self.is_feature_flag_filter}
              {self.event_name_filter}
-            ORDER BY is_seen_on_filtered_events DESC, {verified_ordering} {self.property_definition_table}.name ASC
+            ORDER BY is_seen_on_filtered_events DESC, {length_ordering} {verified_ordering} {self.property_definition_table}.name ASC
             LIMIT %(limit)s OFFSET %(offset)s
             """
 
@@ -365,18 +375,16 @@ class QueryContext:
         )
 
 
-def add_name_alias_to_search_query(search_term: str):
+def add_name_alias_to_search_query(search_term: str, prop_type: str = "event"):
     if not search_term:
         return ""
 
     normalised_search_term = search_term.lower()
     search_words = normalised_search_term.split()
 
-    entries = [
-        f"'{key}'"
-        for (key, value) in PROPERTY_NAME_ALIASES.items()
-        if all(word in value.lower() for word in search_words)
-    ]
+    aliases = PROPERTY_NAME_ALIASES_BY_TYPE.get(prop_type, PROPERTY_NAME_ALIASES)
+
+    entries = [f"'{key}'" for (key, value) in aliases.items() if all(word in value.lower() for word in search_words)]
 
     if not entries:
         return ""
@@ -614,7 +622,7 @@ class PropertyDefinitionViewSet(
             span.set_attribute("limit", limit or 0)
             span.set_attribute("offset", offset or 0)
 
-            search_extra = add_name_alias_to_search_query(search)
+            search_extra = add_name_alias_to_search_query(search, prop_type)
 
             if prop_type == "person":
                 search_extra += add_latest_means_not_initial(search)
@@ -645,7 +653,11 @@ class PropertyDefinitionViewSet(
                     event_names=event_names,
                     filter_by_event_names=filter_by_event_names,
                 )
-                .with_search(search_query, search_kwargs)
+                .with_search(
+                    search_query,
+                    search_kwargs,
+                    order_by_search_relevance=bool(search and search.strip()),
+                )
                 .with_excluded_properties(query.validated_data.get("excluded_properties"))
                 .with_excluded_core_properties(
                     query.validated_data.get("exclude_core_properties", False),
@@ -776,7 +788,8 @@ class PropertyDefinitionViewSet(
             words = search.split()
             if not all(w in prop["name"].lower() for w in words):
                 # fall back to alias match
-                alias = PROPERTY_NAME_ALIASES.get(prop["name"])
+                aliases = PROPERTY_NAME_ALIASES_BY_TYPE.get(v.get("type", "event"), PROPERTY_NAME_ALIASES)
+                alias = aliases.get(prop["name"])
                 if not (alias and all(w in alias.lower() for w in words)):
                     return False
 
@@ -821,11 +834,12 @@ class PropertyDefinitionViewSet(
         instance: PropertyDefinition = self.get_object()
         instance_id = str(instance.id)
         self.perform_destroy(instance)
-        # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "property definition deleted",
             {"name": instance.name, "type": instance.get_type_display()},
+            team=self.team,
+            request=request,
         )
 
         log_activity(

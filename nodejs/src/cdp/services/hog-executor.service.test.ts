@@ -17,7 +17,7 @@ import { parseJSON } from '../../utils/json-parse'
 import { promisifyCallback } from '../../utils/utils'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../_tests/examples'
 import { createExampleInvocation, createHogExecutionGlobals, createHogFunction } from '../_tests/fixtures'
-import { EXTEND_OBJECT_KEY, cdpTrackedFetch, shadowFetchContext } from './hog-executor.service'
+import { EXTEND_OBJECT_KEY, isConnectionLevelError } from './hog-executor.service'
 
 // Mock before importing fetch
 jest.mock('~/utils/request', () => {
@@ -99,6 +99,7 @@ describe('Hog Executor', () => {
             const result = await executor.execute(invocation)
             expect(result).toEqual({
                 capturedPostHogEvents: [],
+                warehouseWebhookPayloads: [],
                 invocation: {
                     state: {
                         globals: invocation.state.globals,
@@ -324,7 +325,7 @@ describe('Hog Executor', () => {
 
             expect(results.invocations[0].state.globals.source).toEqual({
                 name: 'Hog Function',
-                url: `http://localhost:8000/projects/1/pipeline/destinations/hog-${fn.id}/configuration/`,
+                url: `http://localhost:8000/projects/1/functions/${fn.id}/configuration/`,
             })
         })
 
@@ -816,7 +817,7 @@ describe('Hog Executor', () => {
         it('postHogGetTicket queues internal fetch with correct params', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogGetTicket', [{ ticket_id: 'test-ticket-123' }])
@@ -827,14 +828,14 @@ describe('Hog Executor', () => {
                 type: 'fetch',
                 url: `${hub.SITE_URL}/api/conversations/external/ticket/test-ticket-123`,
                 method: 'GET',
-                headers: { Authorization: 'Bearer test-api-token' },
+                headers: { Authorization: 'Bearer test-secret-token' },
             })
         })
 
         it('postHogUpdateTicket queues internal fetch with correct params', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogUpdateTicket', [
@@ -850,7 +851,7 @@ describe('Hog Executor', () => {
                 body: JSON.stringify({ status: 'resolved', priority: 'high' }),
                 headers: {
                     'Content-Type': 'application/json',
-                    Authorization: 'Bearer test-api-token',
+                    Authorization: 'Bearer test-secret-token',
                 },
             })
         })
@@ -858,7 +859,7 @@ describe('Hog Executor', () => {
         it('postHogGetTicket errors when ticket_id is missing', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogGetTicket', [{}])
@@ -870,7 +871,7 @@ describe('Hog Executor', () => {
         it('postHogUpdateTicket errors when ticket_id is missing', async () => {
             jest.spyOn(hub.teamManager, 'getTeam').mockResolvedValue({
                 id: 1,
-                api_token: 'test-api-token',
+                secret_api_token: 'test-secret-token',
             } as any)
 
             mockExecHogForAsyncFunction('postHogUpdateTicket', [{ updates: { status: 'resolved' } }])
@@ -1133,7 +1134,7 @@ describe('Hog Executor', () => {
 
             const result = await executor.executeFetch(invocation)
 
-            // Should be scheduled for retry
+            // Should not be scheduled for retry
             expect(result.invocation.queue).toBe('hog')
             expect(result.invocation.queueScheduledAt).toBeUndefined()
             expect(result.logs.map((log) => log.message)).toMatchInlineSnapshot(`
@@ -1368,69 +1369,19 @@ describe('Hog Executor', () => {
         })
     })
 
-    describe('shadowFetchContext', () => {
-        beforeEach(() => {
-            jest.mocked(fetch).mockClear()
-        })
-
-        it('returns no-op response when inside shadow context', async () => {
-            const result = await shadowFetchContext.run(true, () =>
-                cdpTrackedFetch({
-                    url: 'http://should-not-be-called.example.com/test',
-                    fetchParams: { method: 'GET' },
-                    templateId: 'test-template',
-                })
-            )
-
-            expect(result.fetchError).toBeNull()
-            expect(result.fetchResponse?.status).toBe(200)
-            expect(result.fetchDuration).toBe(0)
-            expect(fetch).not.toHaveBeenCalled()
-        })
-
-        it('makes real HTTP request when outside shadow context', async () => {
-            jest.mocked(fetch).mockResolvedValueOnce({
-                status: 200,
-                headers: {},
-            } as any)
-
-            const result = await cdpTrackedFetch({
-                url: 'http://example.com/test',
-                fetchParams: { method: 'GET' },
-                templateId: 'test-template',
-            })
-
-            expect(fetch).toHaveBeenCalledWith('http://example.com/test', { method: 'GET' })
-            expect(result.fetchResponse?.status).toBe(200)
-        })
-
-        it('isolates shadow context from concurrent non-shadow fetches', async () => {
-            jest.mocked(fetch).mockResolvedValue({
-                status: 200,
-                headers: {},
-            } as any)
-
-            const [shadowResult, normalResult] = await Promise.all([
-                shadowFetchContext.run(true, () =>
-                    cdpTrackedFetch({
-                        url: 'http://shadow.example.com/test',
-                        fetchParams: { method: 'GET' },
-                        templateId: 'shadow-template',
-                    })
-                ),
-                cdpTrackedFetch({
-                    url: 'http://normal.example.com/test',
-                    fetchParams: { method: 'GET' },
-                    templateId: 'normal-template',
-                }),
-            ])
-
-            expect(shadowResult.fetchDuration).toBe(0)
-            expect(shadowResult.fetchResponse?.status).toBe(200)
-
-            expect(fetch).toHaveBeenCalledTimes(1)
-            expect(fetch).toHaveBeenCalledWith('http://normal.example.com/test', { method: 'GET' })
-            expect(normalResult.fetchResponse?.status).toBe(200)
+    describe('isConnectionLevelError', () => {
+        it.each([
+            [{ code: 'UND_ERR_SOCKET', message: 'other side closed' }, true],
+            [{ code: 'ECONNRESET', message: 'read ECONNRESET' }, true],
+            [{ code: 'EPIPE', message: 'write EPIPE' }, true],
+            [{ code: undefined, message: 'other side closed' }, true],
+            [{ code: undefined, message: 'socket hang up' }, true],
+            [{ code: 'ENOTFOUND', message: 'getaddrinfo ENOTFOUND' }, false],
+            [{ code: undefined, message: 'some other error' }, false],
+            [null, false],
+            [undefined, false],
+        ])('returns %s for %j', (error, expected) => {
+            expect(isConnectionLevelError(error)).toBe(expected)
         })
     })
 })

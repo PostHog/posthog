@@ -1058,7 +1058,7 @@ class TestWebStatsTableQueryRunner(ClickhouseTestMixin, APIBaseTest, FloatAwareT
 
         assert [
             ["google / (none) / (none)", (1, None), (1, None), 1 / 2, ""],
-            ["news.ycombinator.com / referral / (none)", (1, None), (1, None), 1 / 2, ""],
+            ["referrer:news.ycombinator.com / referral / (none)", (1, None), (1, None), 1 / 2, ""],
         ] == results
 
     def test_null_in_utm_tags(self):

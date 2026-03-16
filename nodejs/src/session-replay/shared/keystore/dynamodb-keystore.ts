@@ -1,4 +1,10 @@
-import { DynamoDBClient, GetItemCommand, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb'
+import {
+    ConditionalCheckFailedException,
+    DynamoDBClient,
+    GetItemCommand,
+    PutItemCommand,
+    UpdateItemCommand,
+} from '@aws-sdk/client-dynamodb'
 import { DecryptCommand, GenerateDataKeyCommand, KMSClient } from '@aws-sdk/client-kms'
 import sodium from 'libsodium-wrappers'
 
@@ -43,19 +49,28 @@ export class DynamoDBKeyStore implements KeyStore {
             throw new Error('Failed to generate data key from KMS')
         }
 
-        await this.dynamoDBClient.send(
-            new PutItemCommand({
-                TableName: KEYS_TABLE_NAME,
-                Item: {
-                    session_id: { S: sessionId },
-                    team_id: { N: String(teamId) },
-                    encrypted_key: { B: CiphertextBlob },
-                    session_state: { S: 'ciphertext' },
-                    created_at: { N: String(createdAt) },
-                    expires_at: { N: String(expiresAt) },
-                },
-            })
-        )
+        try {
+            await this.dynamoDBClient.send(
+                new PutItemCommand({
+                    TableName: KEYS_TABLE_NAME,
+                    Item: {
+                        session_id: { S: sessionId },
+                        team_id: { N: String(teamId) },
+                        encrypted_key: { B: CiphertextBlob },
+                        session_state: { S: 'ciphertext' },
+                        created_at: { N: String(createdAt) },
+                        expires_at: { N: String(expiresAt) },
+                    },
+                    ConditionExpression: 'attribute_not_exists(session_id)',
+                })
+            )
+        } catch (error) {
+            if (error instanceof ConditionalCheckFailedException) {
+                // Key already exists — return the existing key instead of overwriting
+                return this.getKey(sessionId, teamId)
+            }
+            throw error
+        }
 
         return {
             plaintextKey: Buffer.from(Plaintext),

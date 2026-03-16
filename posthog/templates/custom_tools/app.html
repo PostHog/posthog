@@ -31,6 +31,12 @@
       </td>
       <td>Manage email addresses that bypass suspicious signup checks (WorkOS Radar)</td>
     </tr>
+    <tr class="model-emailmfabypass">
+      <td scope="row">
+        <a href="{% url 'email-mfa-bypass' %}">Email MFA bypass</a>
+      </td>
+      <td>Manage email addresses that bypass email MFA verification</td>
+    </tr>
     <tr class="model-backfillprecalculatedpersonproperties">
       <td scope="row">
         <a href="{% url 'backfill-precalculated-person-properties' %}">Backfill Precalculated Person Properties</a>
@@ -47,6 +53,12 @@
         <a href="{% url 'tophog-dashboard' %}">TopHog Dashboard</a>
       </td>
       <td>Live top-N metrics dashboard (count, time, max) across pipelines</td>
+    </tr>
+    <tr class="model-healthchecks">
+      <td scope="row">
+        <a href="{% url 'health-checks' %}">Health checks</a>
+      </td>
+      <td>View and trigger Temporal health check workflows</td>
     </tr>
   </table>
 </div>

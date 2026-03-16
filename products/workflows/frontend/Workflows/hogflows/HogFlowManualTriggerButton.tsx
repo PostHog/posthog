@@ -11,7 +11,7 @@ import { CyclotronJobInputSchemaType } from '~/types'
 
 import { WorkflowLogicProps, workflowLogic } from '../workflowLogic'
 import { hogFlowManualTriggerButtonLogic } from './HogFlowManualTriggerButtonLogic'
-import { batchTriggerLogic } from './steps/batchTriggerLogic'
+import { batchTriggerLogic, BLAST_RADIUS_LIMIT } from './steps/batchTriggerLogic'
 
 const TriggerPopover = ({
     setPopoverVisible,
@@ -30,6 +30,9 @@ const TriggerPopover = ({
             filters: workflow?.trigger?.type === 'batch' ? workflow?.trigger?.filters : undefined,
         })
     )
+
+    const blastRadiusExceeded =
+        workflow?.trigger?.type === 'batch' && blastRadius != null && blastRadius.users_affected > BLAST_RADIUS_LIMIT
 
     const blastRadiusSuffix = (): string => {
         if (workflow?.trigger?.type === 'batch') {
@@ -103,6 +106,11 @@ const TriggerPopover = ({
                     type="primary"
                     status="alt"
                     loading={blastRadiusLoading}
+                    disabledReason={
+                        blastRadiusExceeded
+                            ? `Batch size exceeds the limit of ${humanFriendlyNumber(BLAST_RADIUS_LIMIT)} users. Add filters to narrow your audience. This limit will be loosened in the future.`
+                            : undefined
+                    }
                     onClick={() => {
                         if (workflow?.trigger?.type === 'batch') {
                             triggerBatchWorkflow(

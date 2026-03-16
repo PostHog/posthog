@@ -178,14 +178,17 @@ describe('processAiEvent()', () => {
     })
 
     describe('event matching', () => {
-        it.each(['$ai_generation', '$ai_embedding'])('processes cost calculation for %s events', (eventType) => {
-            event.event = eventType
-            const result = processAiEvent(event)
-            // With gpt-4 model and openai provider from primaryCostsList: 0.2 per token
-            expect(result.properties!.$ai_input_cost_usd).toBe(20) // 100 * 0.2
-            expect(result.properties!.$ai_output_cost_usd).toBe(10) // 50 * 0.2
-            expect(result.properties!.$ai_total_cost_usd).toBe(30)
-        })
+        it.each(['$ai_generation', '$ai_embedding', '$ai_evaluation'])(
+            'processes cost calculation for %s events',
+            (eventType) => {
+                event.event = eventType
+                const result = processAiEvent(event)
+                // With gpt-4 model and openai provider from primaryCostsList: 0.2 per token
+                expect(result.properties!.$ai_input_cost_usd).toBe(20) // 100 * 0.2
+                expect(result.properties!.$ai_output_cost_usd).toBe(10) // 50 * 0.2
+                expect(result.properties!.$ai_total_cost_usd).toBe(30)
+            }
+        )
 
         it('does not process cost for other AI events', () => {
             event.event = '$ai_span'

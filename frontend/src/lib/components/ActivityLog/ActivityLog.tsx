@@ -3,10 +3,10 @@ import './ActivityLog.scss'
 import useSize from '@react-hook/size'
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import { useRef, useState } from 'react'
+import { lazy, Suspense, useRef, useState } from 'react'
 
 import { IconCollapse, IconExpand } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
 import { ActivityLogLogicProps, activityLogLogic } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityChange, HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
@@ -24,8 +24,9 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from '~/types'
 
 import { AccessDenied } from '../AccessDenied'
-import MonacoDiffEditor from '../MonacoDiffEditor'
 import { PayGateMini } from '../PayGateMini/PayGateMini'
+
+const MonacoDiffEditor = lazy(() => import('../MonacoDiffEditor'))
 import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 
 export type ActivityLogProps = ActivityLogLogicProps & {
@@ -107,23 +108,25 @@ const JsonDiffViewer = ({ field, before, after }: JsonDiffViewerProps): JSX.Elem
     return (
         <div ref={containerRef} className="flex flex-col space-y-2 w-full">
             {field ? <h2>{field}</h2> : null}
-            <MonacoDiffEditor
-                original={JSON.stringify(before, null, 2)}
-                modified={JSON.stringify(after, null, 2)}
-                language="json"
-                width={width}
-                options={{
-                    renderOverviewRuler: false,
-                    scrollBeyondLastLine: false,
-                    hideUnchangedRegions: {
-                        enabled: true,
-                        contextLineCount: 3,
-                        minimumLineCount: 3,
-                        revealLineCount: 20,
-                    },
-                    diffAlgorithm: 'advanced',
-                }}
-            />
+            <Suspense fallback={<Spinner className="text-2xl mx-auto my-4" />}>
+                <MonacoDiffEditor
+                    original={JSON.stringify(before, null, 2)}
+                    modified={JSON.stringify(after, null, 2)}
+                    language="json"
+                    width={width}
+                    options={{
+                        renderOverviewRuler: false,
+                        scrollBeyondLastLine: false,
+                        hideUnchangedRegions: {
+                            enabled: true,
+                            contextLineCount: 3,
+                            minimumLineCount: 3,
+                            revealLineCount: 20,
+                        },
+                        diffAlgorithm: 'advanced',
+                    }}
+                />
+            </Suspense>
         </div>
     )
 }

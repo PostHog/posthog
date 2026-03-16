@@ -1,7 +1,7 @@
 {
     "id": 51,
     "short_id": "xEAIVJnM",
-    "name": "",
+    "name": null,
     "derived_name": "Pageview count by event's Browser Version",
     "filters": {},
     "filters_hash": "cache_31a060ddaf3ad137b7ae0f05afb06ce0",

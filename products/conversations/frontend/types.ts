@@ -55,10 +55,12 @@ export interface Ticket {
         current_url?: string
         [key: string]: any
     }
+    sla_due_at?: string | null
     slack_channel_id?: string | null
     slack_thread_ts?: string | null
     slack_team_id?: string | null
     person?: TicketPerson | null
+    tags?: string[]
 }
 
 export interface ConversationTicket {

@@ -153,11 +153,20 @@ class MultipleInCohortResolver(TraversingVisitor):
                 break
 
         if must_add_join:
+            from posthog.hogql.functions.cohort import inline_cohort_query
+
             static_cohorts = list(filter(lambda cohort: cohort[1] == "static", cohorts))
             dynamic_cohorts = list(filter(lambda cohort: cohort[1] == "dynamic", cohorts))
 
-            any_static = len(static_cohorts) > 0
-            any_dynamic = len(dynamic_cohorts) > 0
+            # Split dynamic cohorts into inlineable and non-inlineable
+            inlineable_dynamic: list[tuple[int, ast.SelectQuery | ast.SelectSetQuery]] = []
+            non_inlineable_dynamic: list[tuple[int, StaticOrDynamic, int]] = []
+            for cohort_id, cohort_type, version in dynamic_cohorts:
+                inline_ast = inline_cohort_query(cohort_id, False, version, self.context)
+                if inline_ast is not None:
+                    inlineable_dynamic.append((cohort_id, inline_ast))
+                else:
+                    non_inlineable_dynamic.append((cohort_id, cohort_type, version))
 
             def get_static_cohort_clause():
                 return ast.CompareOperation(
@@ -183,7 +192,7 @@ class MultipleInCohortResolver(TraversingVisitor):
                                 ),
                             ]
                         )
-                        for id, is_static, version in dynamic_cohorts
+                        for id, is_static, version in non_inlineable_dynamic
                     ]
                 )
 
@@ -192,44 +201,44 @@ class MultipleInCohortResolver(TraversingVisitor):
 
                 return cohort_or
 
-            # TODO: Extract these `SELECT` clauses out into their own vars and inject
-            # via placeholders once the HogQL SELECT placeholders functionality is done
-            if any_static and any_dynamic:
-                static_clause = get_static_cohort_clause()
-                dynamic_clause = get_dynamic_cohort_clause()
+            parts: list[ast.SelectQuery | ast.SelectSetQuery] = []
 
-                table_query = parse_select(
-                    """
-                        SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
-                        FROM static_cohort_people
-                        WHERE {static_clause}
-                        UNION ALL
-                        SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
-                        FROM raw_cohort_people
-                        WHERE {dynamic_clause}
-                    """,
-                    placeholders={"static_clause": static_clause, "dynamic_clause": dynamic_clause},
+            if static_cohorts:
+                parts.append(
+                    parse_select(
+                        """
+                            SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
+                            FROM static_cohort_people
+                            WHERE {clause}
+                        """,
+                        placeholders={"clause": get_static_cohort_clause()},
+                    )
                 )
-            elif any_static:
-                clause = get_static_cohort_clause()
-                table_query = parse_select(
-                    """
-                        SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
-                        FROM static_cohort_people
-                        WHERE {cohort_clause}
-                    """,
-                    placeholders={"cohort_clause": clause},
+
+            if non_inlineable_dynamic:
+                parts.append(
+                    parse_select(
+                        """
+                            SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
+                            FROM raw_cohort_people
+                            WHERE {clause}
+                        """,
+                        placeholders={"clause": get_dynamic_cohort_clause()},
+                    )
                 )
-            else:
-                clause = get_dynamic_cohort_clause()
-                table_query = parse_select(
-                    """
-                        SELECT person_id AS cohort_person_id, 1 AS matched, cohort_id
-                        FROM raw_cohort_people
-                        WHERE {cohort_clause}
-                    """,
-                    placeholders={"cohort_clause": clause},
+
+            for cohort_id, inline_ast in inlineable_dynamic:
+                parts.append(
+                    parse_select(
+                        "SELECT id AS cohort_person_id, 1 AS matched, {cohort_id_val} AS cohort_id FROM {inline_query}",
+                        placeholders={
+                            "cohort_id_val": ast.Constant(value=cohort_id),
+                            "inline_query": inline_ast,
+                        },
+                    )
                 )
+
+            table_query = ast.SelectSetQuery.create_from_queries(parts, "UNION ALL")
 
             new_join = ast.JoinExpr(
                 alias=f"__in_cohort",
@@ -348,6 +357,11 @@ class InCohortResolver(TraversingVisitor):
         compare: ast.CompareOperation,
         negative: bool,
     ):
+        from posthog.hogql.functions.cohort import inline_cohort_query
+        from posthog.hogql.transforms.lazy_tables import resolve_lazy_tables
+
+        assert self.context is not None
+
         must_add_join = True
         last_join = select.select_from
         while last_join:
@@ -360,17 +374,25 @@ class InCohortResolver(TraversingVisitor):
                 break
 
         if must_add_join:
-            if is_static:
-                sql = "(SELECT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
-            elif version is not None:
-                sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} AND version = {version})"
+            inline_ast = inline_cohort_query(cohort_id, is_static, version, self.context)
+            subquery: ast.Expr
+            if inline_ast is not None:
+                subquery = parse_select(
+                    "SELECT id as person_id, 1 as matched FROM {inline_query}",
+                    {"inline_query": inline_ast},
+                )
             else:
-                sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
-            subquery = parse_expr(
-                sql,
-                {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
-                start=None,  # clear the source start position
-            )
+                if is_static:
+                    sql = "(SELECT person_id, 1 as matched FROM static_cohort_people WHERE cohort_id = {cohort_id})"
+                elif version is not None:
+                    sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} AND version = {version})"
+                else:
+                    sql = "(SELECT person_id, 1 as matched FROM raw_cohort_people WHERE cohort_id = {cohort_id} GROUP BY person_id, cohort_id, version HAVING sum(sign) > 0)"
+                subquery = parse_expr(
+                    sql,
+                    {"cohort_id": ast.Constant(value=cohort_id), "version": ast.Constant(value=version)},
+                    start=None,
+                )
 
             new_join = ast.JoinExpr(
                 alias=f"in_cohort__{cohort_id}",
@@ -390,6 +412,13 @@ class InCohortResolver(TraversingVisitor):
                 ast.JoinExpr,
                 resolve_types(new_join, self.context, self.dialect, [self.stack[-1].type]),
             )
+            if inline_ast is not None:
+                resolve_lazy_tables(new_join, self.dialect, [self.stack[-1]], self.context)
+                if self.context.property_swapper:
+                    new_join = cast(
+                        ast.JoinExpr,
+                        self.context.property_swapper.visit(new_join),
+                    )
             new_join.constraint.expr.left = resolve_types(
                 ast.Field(chain=[f"in_cohort__{cohort_id}", "person_id"]),
                 self.context,

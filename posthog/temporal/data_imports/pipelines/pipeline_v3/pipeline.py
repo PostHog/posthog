@@ -3,7 +3,9 @@ import asyncio
 from typing import Any, Generic
 
 import pyarrow as pa
+import posthoganalytics
 from structlog.types import FilteringBoundLogger
+from temporalio import activity
 
 from posthog.models import DataWarehouseTable
 from posthog.temporal.common.shutdown import ShutdownMonitor
@@ -32,10 +34,17 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _handle_null_columns_with_definitions,
     normalize_table_column_names,
 )
+from posthog.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka import KafkaBatchProducer, SyncTypeLiteral
+from posthog.temporal.data_imports.pipelines.pipeline_v3.metrics import (
+    get_batches_produced_metric,
+    get_pipeline_run_duration_metric,
+    get_rows_extracted_metric,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult, S3BatchWriter
 from posthog.temporal.data_imports.pipelines.pipeline_v3.s3.writer import ParquetCompression
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
+from posthog.utils import get_machine_id
 
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_schema import process_incremental_value
@@ -156,6 +165,14 @@ class PipelineV3(Generic[ResumableData]):
         if should_resume:
             await self._logger.ainfo("V3 Pipeline: Resumable source detected - attempting to resume previous import")
 
+        team_id_str = str(self._job.team_id)
+        schema_id_str = str(self._schema.id)
+        source_type = self._source.source_type if self._source else "unknown"
+        sync_type = self._kafka_producer.sync_type
+
+        start_time = time.perf_counter()
+        status = "success"
+
         try:
             await cdp_producer_clear_chunks(self._cdp_producer)
 
@@ -180,6 +197,10 @@ class PipelineV3(Generic[ResumableData]):
                 self._reset_pipeline, should_resume, self._schema, self._delta_table_helper, self._logger
             )
 
+            is_fresh_sync = self._delta_table_helper.is_first_sync or self._schema.table is None
+            if is_fresh_sync:
+                self._kafka_producer.is_first_ever_sync = True
+
             async for item in async_iterate(self._resource.items()):
                 py_table = None
 
@@ -195,6 +216,10 @@ class PipelineV3(Generic[ResumableData]):
                     batch_index=chunk_index,
                     row_count=row_count,
                 )
+
+                if activity.in_activity():
+                    get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
+                    get_batches_produced_metric(team_id_str, schema_id_str).add(1)
 
                 chunk_index += 1
 
@@ -213,10 +238,43 @@ class PipelineV3(Generic[ResumableData]):
                     row_count=row_count,
                 )
 
+                if activity.in_activity():
+                    get_rows_extracted_metric(team_id_str, schema_id_str, source_type).add(py_table.num_rows)
+                    get_batches_produced_metric(team_id_str, schema_id_str).add(1)
+
             await self._finalize(row_count=row_count)
 
-            return {"should_trigger_cdp_producer": await self._cdp_producer.should_produce_table()}
+            return {
+                "should_trigger_cdp_producer": await self._cdp_producer.should_produce_table(),
+                "consumer_manages_job_status": len(self._batch_results) > 0,
+            }
+        except Exception:
+            status = "error"
+            try:
+                self._s3_batch_writer.cleanup()
+            except Exception:
+                self._logger.exception("V3 Pipeline: Failed to clean up S3 resources")
+            raise
         finally:
+            duration = time.perf_counter() - start_time
+            if activity.in_activity():
+                get_pipeline_run_duration_metric(team_id_str, source_type, sync_type, status).record(duration)
+
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="warehouse_v3_extraction_completed",
+                properties={
+                    "team_id": self._job.team_id,
+                    "schema_id": str(self._schema.id),
+                    "source_type": source_type,
+                    "sync_type": sync_type,
+                    "status": status,
+                    "duration_seconds": duration,
+                    "total_batches": len(self._batch_results),
+                    "total_rows": row_count if "row_count" in locals() else 0,
+                },
+            )
+
             self._logger.debug("V3 Pipeline: Cleaning up resources")
             del self._resource
             del self._s3_batch_writer
@@ -304,6 +362,10 @@ class PipelineV3(Generic[ResumableData]):
         await finalize_desc_sort_incremental_value(
             self._resource, self._schema, self._last_incremental_field_value, self._logger, log_prefix="V3 Pipeline: "
         )
+
+        if not self._schema.initial_sync_complete:
+            await self._logger.adebug("V3 Pipeline: Setting initial_sync_complete on schema")
+            await set_initial_sync_complete(schema_id=self._schema.id, team_id=self._job.team_id)
 
         await self._logger.ainfo(
             f"V3 Pipeline: Extraction complete",

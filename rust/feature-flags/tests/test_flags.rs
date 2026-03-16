@@ -5,6 +5,7 @@ use base64::{engine::general_purpose, Engine as _};
 use feature_flags::api::types::{FlagsResponse, LegacyFlagsResponse};
 use limiters::redis::ServiceName;
 use rand::Rng;
+
 use reqwest::StatusCode;
 use rstest::rstest;
 use serde_json::{json, Value};
@@ -1003,9 +1004,8 @@ async fn test_feature_flags_with_group_relationships() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "example_id".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let context = TestContext::new(None).await;
-    let team = context.insert_new_team(Some(team_id)).await.unwrap();
+    let team = context.insert_new_team(None).await.unwrap();
 
     // need this for the test to work, since we look up the dinstinct_id <-> person_id in from the DB at the beginning
     // of the flag evaluation process
@@ -2765,9 +2765,8 @@ async fn test_numeric_group_ids_work_correctly() -> Result<()> {
     let config = DEFAULT_TEST_CONFIG.clone();
     let distinct_id = "user_with_numeric_group".to_string();
     let redis_client = setup_redis_client(Some(config.redis_url.clone())).await;
-    let team_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
     let context = TestContext::new(None).await;
-    let team = context.insert_new_team(Some(team_id)).await.unwrap();
+    let team = context.insert_new_team(None).await.unwrap();
 
     context
         .insert_person(team.id, distinct_id.clone(), None)

@@ -18,12 +18,16 @@ class SCIMUserConflict(Exception):
 
 
 def _validate_email_domain_matches(email: str, organization_domain: OrganizationDomain) -> None:
-    """Ensure email domain matches the organization domain. Prevents cross-tenant user adoption."""
+    """Ensure email domain matches any verified domain for the organization. Prevents cross-tenant user adoption."""
     email_domain = email.split("@")[1].lower()
-    if organization_domain.domain.lower() != email_domain:
-        raise ValueError(
-            f"Email domain '{email_domain}' does not match organization domain '{organization_domain.domain}'"
-        )
+    verified_domains = set(
+        OrganizationDomain.objects.filter(
+            organization=organization_domain.organization,
+            verified_at__isnull=False,
+        ).values_list("domain", flat=True)
+    )
+    if email_domain not in {d.lower() for d in verified_domains}:
+        raise ValueError(f"Email domain '{email_domain}' does not match any verified domain for this organization")
 
 
 class PostHogSCIMUser(SCIMUser):

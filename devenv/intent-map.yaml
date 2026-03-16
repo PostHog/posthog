@@ -43,6 +43,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    coordination:
+        description: 'etcd-based coordination for PersonHog and Kafka partition assignment'
+        requires: [core_infra]
+        docker_profiles: [etcd]
+
     celery_workers:
         description: 'Celery background job processing'
         requires: [core_infra]
@@ -57,6 +62,11 @@ capabilities:
         description: 'Temporal workflow orchestration'
         requires: [core_infra]
         docker_profiles: [temporal]
+
+    recording_rasterizer:
+        description: 'Temporal worker that records session replays to video'
+        requires: [temporal_workflows]
+        docker_profiles: []
 
     dagster_pipelines:
         description: 'Dagster data pipeline orchestration'
@@ -124,6 +134,11 @@ capabilities:
         requires: [event_ingestion]
         docker_profiles: []
 
+    personhog:
+        description: 'PersonHog gRPC service (router + replica) for person data access'
+        requires: [core_infra]
+        docker_profiles: []
+
     observability:
         description: 'OpenTelemetry tracing with Jaeger'
         requires: [core_infra]
@@ -138,6 +153,16 @@ capabilities:
         description: 'MCP server for AI assistant integration'
         requires: [core_infra]
         docker_profiles: []
+
+    stripe_app:
+        description: 'Stripe app for PostHog integration'
+        requires: [core_infra]
+        docker_profiles: []
+
+    duckgres:
+        description: 'Duckgres query server (DuckDB with Postgres wire protocol)'
+        requires: [core_infra]
+        docker_profiles: [duckgres]
 
 # Intents map to products/features developers work on
 intents:
@@ -159,11 +184,12 @@ intents:
                 celery_workers,
                 temporal_workflows,
                 nodejs_session_replay,
+                recording_rasterizer,
             ]
 
     feature_flags:
         description: 'Feature flag management and evaluation'
-        capabilities: [flag_evaluation, celery_workers, celery_scheduler, nodejs_feature_flags]
+        capabilities: [flag_evaluation, coordination, celery_workers, celery_scheduler, nodejs_feature_flags]
 
     experiments:
         description: 'A/B testing and experimentation'
@@ -174,7 +200,9 @@ intents:
                 property_definitions,
                 celery_workers,
                 nodejs_feature_flags,
+                nodejs_cdp,
                 dagster_pipelines,
+                temporal_workflows,
             ]
 
     llm_analytics:
@@ -225,6 +253,18 @@ intents:
     mcp:
         description: 'MCP server for AI assistant integration'
         capabilities: [mcp_server]
+
+    stripe:
+        description: 'Stripe app for PostHog integration'
+        capabilities: [stripe_app]
+
+    personhog:
+        description: 'PersonHog gRPC service for person data access (replaces direct DB queries)'
+        capabilities: [personhog]
+
+    endpoints:
+        description: 'Endpoints (the product)'
+        capabilities: [event_ingestion, property_definitions, celery_workers, temporal_workflows, duckgres]
 
     dagster:
         description: 'Dagster for clickhouse maintenance, system workflows'

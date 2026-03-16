@@ -28,16 +28,15 @@ import { Scene } from '~/scenes/sceneTypes'
 import { sidePanelOfframpLogic } from '../navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
 import { panelLayoutLogic } from '../panel-layout/panelLayoutLogic'
-import { ConfigurePinnedTabsModal } from './ConfigurePinnedTabsModal'
 
 export function SceneTabs(): JSX.Element {
     const { tabs, sceneId } = useValues(sceneLogic)
     const { newTab, reorderTabs, clearFrozenWidths } = useActions(sceneLogic)
     const { mobileLayout } = useValues(navigationLogic)
+    const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
     const { showLayoutNavBar } = useActions(panelLayoutLogic)
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
-    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const { showOfframpModal } = useActions(sidePanelOfframpLogic)
     const { isSceneTabsOfframpDismissed } = useValues(sidePanelOfframpLogic)
 
@@ -106,7 +105,7 @@ export function SceneTabs(): JSX.Element {
                                         tab={tab}
                                         index={index}
                                         sortableId={sortableId}
-                                        onConfigurePinnedTabs={() => setIsConfigurePinnedTabsOpen(true)}
+                                        onConfigurePinnedTabs={() => showConfigurePinnedTabsModal()}
                                     />
                                     {isLastPinned && (
                                         <div
@@ -152,10 +151,6 @@ export function SceneTabs(): JSX.Element {
                     </div>
                 </SortableContext>
             </DndContext>
-            <ConfigurePinnedTabsModal
-                isOpen={isConfigurePinnedTabsOpen}
-                onClose={() => setIsConfigurePinnedTabsOpen(false)}
-            />
         </div>
     )
 }

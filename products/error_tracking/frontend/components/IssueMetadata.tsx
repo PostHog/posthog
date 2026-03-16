@@ -54,7 +54,7 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
 
     return (
         <div className={className}>
-            <div className="flex justify-between items-center h-[40px] px-2">
+            <div className="flex justify-between items-center h-[40px] px-2 shrink-0">
                 <div className="flex justify-end items-center h-full">
                     {match(hoveredDatum)
                         .when(
@@ -98,7 +98,7 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                         .otherwise(() => null)}
                 </div>
             </div>
-            <div onClick={cancelEvent}>
+            <div onClick={cancelEvent} className="shrink-0">
                 <SparklineChart
                     data={sparklineData}
                     events={sparklineEvents}
@@ -106,7 +106,7 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                     className="h-full pt-0"
                 />
             </div>
-            {children}
+            <div className="flex-1 min-h-0 overflow-y-auto">{children}</div>
         </div>
     )
 }

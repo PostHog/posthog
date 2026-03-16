@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -18,7 +20,7 @@ describe('ExperimentForm Integration', () => {
 
         useMocks({
             post: {
-                '/api/projects/@current/experiments': async (req) => {
+                [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async (req) => {
                     const body = (await req.json()) as Experiment
                     return [
                         200,
@@ -110,7 +112,7 @@ describe('ExperimentForm Integration', () => {
     })
 
     describe('full submission flow', () => {
-        it('successfully submits valid experiment and navigates', async () => {
+        it('successfully submits valid experiment and navigates to view page', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setExperiment({
                     ...NEW_EXPERIMENT,
@@ -123,7 +125,7 @@ describe('ExperimentForm Integration', () => {
                 .toDispatchActions(['saveExperiment', 'createExperimentSuccess'])
                 .toFinishAllListeners()
 
-            expect(routerPushSpy).toHaveBeenCalledWith('/experiments')
+            expect(routerPushSpy).toHaveBeenCalledWith('/experiments/123')
         })
 
         it('clears errors after successful submission', async () => {

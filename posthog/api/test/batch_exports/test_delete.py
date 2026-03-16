@@ -122,7 +122,9 @@ def test_delete_batch_export_cancels_backfills(client: HttpClient, temporal, org
 
     start_at = "2023-10-23T00:00:00+00:00"
     end_at = "2023-10-24T00:00:00+00:00"
-    batch_export_backfill = backfill_batch_export_ok(client, team.pk, batch_export_id, start_at, end_at)
+    backfill_batch_export_ok(client, team.pk, batch_export_id, start_at, end_at)
+
+    backfill_workflow_id = f"{batch_export_id}-Backfill-{start_at}-{end_at}"
 
     # In order for the backfill to be cancelable, it needs to be running and requesting backfills.
     # We check this by waiting for executions scheduled by our BatchExport id to pop up.
@@ -135,7 +137,7 @@ def test_delete_batch_export_cancels_backfills(client: HttpClient, temporal, org
 
     workflow = wait_for_workflow_in_status(
         temporal,
-        workflow_id=batch_export_backfill["backfill_id"],
+        workflow_id=backfill_workflow_id,
         status=temporalio.client.WorkflowExecutionStatus.CANCELED,
     )
     assert workflow.status == temporalio.client.WorkflowExecutionStatus.CANCELED

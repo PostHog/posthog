@@ -101,8 +101,8 @@ INKEEP_API_KEY = get_from_env("INKEEP_API_KEY", "")
 MISTRAL_API_KEY = get_from_env("MISTRAL_API_KEY", "")
 GEMINI_API_KEY = get_from_env("GEMINI_API_KEY", "")
 PPLX_API_KEY = get_from_env("PPLX_API_KEY", "")
-AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "")
-AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "")
+AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
+AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)
 BRAINTRUST_API_KEY = get_from_env("BRAINTRUST_API_KEY", "")
 
 LLMA_EVAL_OPENAI_API_KEY = get_from_env("LLMA_EVAL_OPENAI_API_KEY", "")
@@ -122,9 +122,6 @@ SQS_QUEUES = {
         "type": "billing",
     },
 }
-
-AZURE_INFERENCE_ENDPOINT = get_from_env("AZURE_INFERENCE_ENDPOINT", "", type_cast=str)
-AZURE_INFERENCE_CREDENTIAL = get_from_env("AZURE_INFERENCE_CREDENTIAL", "", type_cast=str)
 
 # Salesforce API credentials
 SALESFORCE_USERNAME = get_from_env("SF_USERNAME", "", type_cast=str)

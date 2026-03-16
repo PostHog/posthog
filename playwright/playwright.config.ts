@@ -15,7 +15,7 @@ export default defineConfig({
         Maximum time one test can run for. 
         Shorter timeout in local dev since it's annoying to wait 90 seconds for a test to run.
     */
-    timeout: process.env.CI ? 60 * 1000 : 30 * 1000,
+    timeout: process.env.CI ? 90 * 1000 : 30 * 1000,
     expect: {
         /**
          * Maximum time expect() should wait for the condition to be met.

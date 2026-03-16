@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { windowValues } from 'kea-window-values'
 
@@ -10,6 +10,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
+import { ProxyRecord } from 'scenes/settings/environment/proxyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -22,29 +23,44 @@ export type ProjectNoticeVariant =
     | 'unverified_email'
     | 'internet_connection_issue'
     | 'event_ingestion_restriction'
+    | 'missing_reverse_proxy'
 
 export const navigationLogic = kea<navigationLogicType>([
     path(['layout', 'navigation', 'navigationLogic']),
     connect(() => ({
-        values: [sceneLogic, ['sceneConfig'], membersLogic, ['memberCount']],
+        values: [
+            sceneLogic,
+            ['sceneConfig'],
+            membersLogic,
+            ['memberCount'],
+            organizationLogic,
+            ['currentOrganization'],
+        ],
         actions: [eventUsageLogic, ['reportProjectNoticeDismissed']],
     })),
     actions({
         closeProjectNotice: (projectNoticeVariant: ProjectNoticeVariant) => ({ projectNoticeVariant }),
+        showConfigurePinnedTabsModal: true,
+        hideConfigurePinnedTabsModal: true,
     }),
-    loaders({
-        navigationStatus: [
-            { system_status_ok: true, async_migrations_ok: true } as {
+    loaders(({ values }) => ({
+        proxyRecords: {
+            __default: null as null | ProxyRecord[],
+            loadRecords: async () => {
+                const response = await api.get(`api/organizations/${values.currentOrganization?.id}/proxy_records`)
+                return response.results
+            },
+        },
+        navigationStatus: {
+            __default: { system_status_ok: true, async_migrations_ok: true } as {
                 system_status_ok: boolean
                 async_migrations_ok: boolean
             },
-            {
-                loadNavigationStatus: async () => {
-                    return await api.get('api/instance_settings')
-                },
+            loadNavigationStatus: async () => {
+                return await api.get('api/instance_settings')
             },
-        ],
-    }),
+        },
+    })),
     windowValues(() => ({
         fullscreen: (window: Window) => !!window.document.fullscreenElement,
         mobileLayout: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!
@@ -55,6 +71,19 @@ export const navigationLogic = kea<navigationLogicType>([
             { persist: true },
             {
                 closeProjectNotice: (state, { projectNoticeVariant }) => ({ ...state, [projectNoticeVariant]: true }),
+            },
+        ],
+        hasClosedNotice: [
+            false,
+            {
+                closeProjectNotice: () => true,
+            },
+        ],
+        isConfigurePinnedTabsModalOpen: [
+            false,
+            {
+                showConfigurePinnedTabsModal: () => true,
+                hideConfigurePinnedTabsModal: () => false,
             },
         ],
     }),
@@ -85,6 +114,8 @@ export const navigationLogic = kea<navigationLogicType>([
                 apiStatusLogic.selectors.internetConnectionIssue,
                 s.projectNoticesAcknowledged,
                 eventIngestionRestrictionLogic.selectors.hasProjectNoticeRestriction,
+                s.proxyRecords,
+                s.hasClosedNotice,
             ],
             (
                 organization,
@@ -94,11 +125,20 @@ export const navigationLogic = kea<navigationLogicType>([
                 memberCount,
                 internetConnectionIssue,
                 projectNoticesAcknowledged,
-                hasEventIngestionRestriction
+                hasEventIngestionRestriction,
+                proxyRecords,
+                hasClosedNotice
             ): ProjectNoticeVariant | null => {
                 if (!organization) {
                     return null
                 }
+
+                // If has closed a notice in this session, don't show any notice (even if there are multiple that apply)
+                // We'll display the "follow-up" one the next time they start a session
+                if (hasClosedNotice) {
+                    return null
+                }
+
                 if (internetConnectionIssue) {
                     return 'internet_connection_issue'
                 } else if (currentTeam?.is_demo && !preflight?.demo) {
@@ -116,6 +156,12 @@ export const navigationLogic = kea<navigationLogicType>([
                     return 'real_project_with_no_events'
                 } else if (hasEventIngestionRestriction) {
                     return 'event_ingestion_restriction'
+                } else if (
+                    !projectNoticesAcknowledged['missing_reverse_proxy'] &&
+                    proxyRecords !== null &&
+                    proxyRecords.length === 0
+                ) {
+                    return 'missing_reverse_proxy'
                 } else if (!projectNoticesAcknowledged['invite_teammates'] && memberCount === 1) {
                     return 'invite_teammates'
                 }
@@ -129,4 +175,7 @@ export const navigationLogic = kea<navigationLogicType>([
             actions.reportProjectNoticeDismissed(projectNoticeVariant)
         },
     })),
+    afterMount(({ actions }) => {
+        actions.loadRecords()
+    }),
 ])

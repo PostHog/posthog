@@ -1,6 +1,6 @@
 import { PluginEvent } from '~/plugin-scaffold'
 
-import { calculateInputCost } from './input-costs'
+import { calculateInputCost, resolveCacheReportingExclusive } from './input-costs'
 import { ResolvedModelCost } from './providers/types'
 
 // Test helper functions
@@ -116,6 +116,80 @@ const GEMINI_MODEL: ResolvedModelCost = {
         cache_read_token: 3.1e-7,
     },
 }
+
+describe('resolveCacheReportingExclusive()', () => {
+    it.each<{ name: string; properties: Record<string, any> | undefined; expected: boolean }>([
+        {
+            name: 'explicit true overrides auto-detect on OpenAI event',
+            properties: { $ai_provider: 'openai', $ai_cache_reporting_exclusive: true },
+            expected: true,
+        },
+        {
+            name: 'explicit false overrides auto-detect on Anthropic event',
+            properties: {
+                $ai_provider: 'anthropic',
+                $ai_model: 'claude-3-5-sonnet',
+                $ai_cache_reporting_exclusive: false,
+            },
+            expected: false,
+        },
+        {
+            name: 'explicit false overrides auto-detect on Claude via Vertex',
+            properties: {
+                $ai_provider: 'vertex',
+                $ai_model: 'claude-haiku-4-5',
+                $ai_cache_reporting_exclusive: false,
+            },
+            expected: false,
+        },
+        {
+            name: 'auto-detects exclusive for Anthropic provider',
+            properties: { $ai_provider: 'anthropic' },
+            expected: true,
+        },
+        {
+            name: 'auto-detects exclusive for Claude model via Vertex',
+            properties: { $ai_provider: 'vertex', $ai_model: 'claude-haiku-4-5' },
+            expected: true,
+        },
+        {
+            name: 'auto-detects inclusive for Vercel gateway with valid token counts',
+            properties: {
+                $ai_provider: 'gateway',
+                $ai_framework: 'vercel',
+                $ai_model: 'anthropic/claude-sonnet-4.5',
+                $ai_input_tokens: 14013,
+                $ai_cache_read_input_tokens: 13306,
+                $ai_cache_creation_input_tokens: 701,
+            },
+            expected: false,
+        },
+        {
+            name: 'falls back to exclusive when Vercel gateway tokens are provably not inclusive',
+            properties: {
+                $ai_provider: 'gateway',
+                $ai_framework: 'vercel',
+                $ai_model: 'anthropic/claude-opus-4.6',
+                $ai_input_tokens: 247,
+                $ai_cache_read_input_tokens: 6287,
+            },
+            expected: true,
+        },
+        {
+            name: 'auto-detects inclusive for OpenAI provider',
+            properties: { $ai_provider: 'openai' },
+            expected: false,
+        },
+        {
+            name: 'returns false when event has no properties',
+            properties: undefined,
+            expected: false,
+        },
+    ])('$name', ({ properties, expected }) => {
+        const event = createTestEvent({ properties } as any)
+        expect(resolveCacheReportingExclusive(event)).toBe(expected)
+    })
+})
 
 describe('calculateInputCost()', () => {
     describe('anthropic provider - cache handling', () => {
@@ -651,6 +725,40 @@ describe('calculateInputCost()', () => {
             // Regular: 1000 * 0.000003 = 0.003
             // Total: 0.00312
             expectCostToBeCloseTo(result, 0.00312)
+        })
+    })
+
+    describe('explicit $ai_cache_reporting_exclusive flag', () => {
+        it('uses exclusive accounting when flag is true on OpenAI event', () => {
+            const event = createOpenAITestEvent(1000, 400, {
+                $ai_cache_reporting_exclusive: true,
+            })
+            const result = calculateInputCost(event, OPENAI_MODEL)
+
+            // Exclusive: no subtraction of cache tokens from input
+            // Regular: 1000 * 0.0000025 = 0.0025
+            // Read: 400 * 0.00000125 = 0.0005
+            // Total: 0.003
+            expectCostToBeCloseTo(result, 0.003)
+        })
+
+        it('uses inclusive accounting when flag is false on Anthropic event', () => {
+            const event = createAnthropicTestEvent(1000, 500, undefined, {
+                $ai_cache_reporting_exclusive: false,
+            })
+            const result = calculateInputCost(event, ANTHROPIC_MODEL)
+
+            // Inclusive: subtracts cache tokens from input
+            // Read: 500 * 3e-7 = 0.00015
+            // Uncached: (1000 - 500) * 0.000003 = 0.0015
+            // Total: 0.00015 + 0.0015 = 0.00165
+            expectCostToBeCloseTo(result, 0.00165)
+        })
+
+        it('writes resolved value back to event properties', () => {
+            const event = createAnthropicTestEvent(1000)
+            calculateInputCost(event, ANTHROPIC_MODEL)
+            expect(event.properties!['$ai_cache_reporting_exclusive']).toBe(true)
         })
     })
 })

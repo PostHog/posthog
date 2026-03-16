@@ -29,15 +29,15 @@ impl CohortStorage for PostgresStorage {
 
         let cohort_ids_i32: Vec<i32> = cohort_ids.iter().map(|&id| id as i32).collect();
 
-        let member_ids: Vec<i32> = sqlx::query_scalar(
+        let member_ids: Vec<i32> = sqlx::query_scalar!(
             r#"
             SELECT cohort_id
             FROM posthog_cohortpeople
             WHERE person_id = $1 AND cohort_id = ANY($2)
             "#,
+            person_id,
+            &cohort_ids_i32
         )
-        .bind(person_id)
-        .bind(&cohort_ids_i32)
         .fetch_all(pool)
         .await?;
 

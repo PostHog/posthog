@@ -4,6 +4,7 @@ use crate::api::symbol_sets::SymbolSetUpload;
 use anyhow::{anyhow, Result};
 use clap::Subcommand;
 
+pub mod source_bundle;
 pub mod upload;
 
 #[derive(Subcommand)]
@@ -24,7 +25,7 @@ pub struct DsymFile {
 
 impl DsymFile {
     /// Create a new DsymFile from a .dSYM bundle path
-    pub fn new(path: &PathBuf) -> Result<Self> {
+    pub fn new(path: &PathBuf, include_source: bool) -> Result<Self> {
         // Validate it's a dSYM bundle
         if !path.is_dir() {
             anyhow::bail!("Path {} is not a directory", path.display());
@@ -42,7 +43,7 @@ impl DsymFile {
         let uuids = extract_dsym_uuids(path)?;
 
         // Zip the dSYM bundle
-        let data = zip_dsym_bundle(path)?;
+        let data = zip_dsym_bundle(path, include_source)?;
 
         Ok(Self {
             uuids,
@@ -110,11 +111,12 @@ fn extract_dsym_uuids(dsym_path: &PathBuf) -> Result<Vec<String>> {
     Ok(uuids)
 }
 
-/// Zip a dSYM bundle into memory
-fn zip_dsym_bundle(dsym_path: &PathBuf) -> Result<Vec<u8>> {
+/// Zip a dSYM bundle into memory, optionally including source files
+fn zip_dsym_bundle(dsym_path: &PathBuf, include_source: bool) -> Result<Vec<u8>> {
     use std::fs::File;
     use std::io::Read;
     use std::io::{Cursor, Write};
+    use tracing::info;
     use walkdir::WalkDir;
 
     let mut buffer = Cursor::new(Vec::new());
@@ -124,8 +126,13 @@ fn zip_dsym_bundle(dsym_path: &PathBuf) -> Result<Vec<u8>> {
         let options = zip::write::SimpleFileOptions::default()
             .compression_method(zip::CompressionMethod::Deflated);
 
-        for entry in WalkDir::new(dsym_path) {
-            let entry = entry?;
+        // Collect and sort entries for deterministic zip output
+        let mut entries: Vec<_> = WalkDir::new(dsym_path)
+            .into_iter()
+            .collect::<std::result::Result<Vec<_>, _>>()?;
+        entries.sort_by(|a, b| a.path().cmp(b.path()));
+
+        for entry in &entries {
             let path = entry.path();
 
             // Create relative path within the zip
@@ -141,6 +148,37 @@ fn zip_dsym_bundle(dsym_path: &PathBuf) -> Result<Vec<u8>> {
             } else if path.is_dir() && path != dsym_path.as_path() {
                 // Add directory entry (but not the root)
                 zip.add_directory(format!("{zip_path}/"), options)?;
+            }
+        }
+
+        // Optionally include source files referenced by DWARF debug info
+        if include_source {
+            match source_bundle::extract_dwarf_source_paths(dsym_path) {
+                Ok(all_paths) => {
+                    let filtered = source_bundle::filter_source_paths(&all_paths);
+                    info!(
+                        "Found {} source paths in DWARF ({} after filtering)",
+                        all_paths.len(),
+                        filtered.len()
+                    );
+
+                    if !filtered.is_empty() {
+                        match source_bundle::collect_source_files(&filtered) {
+                            Ok(source_files) => {
+                                source_bundle::add_source_to_zip(&mut zip, &source_files)?;
+                            }
+                            Err(e) => {
+                                tracing::warn!("Failed to collect source files: {} (continuing without source)", e);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to extract DWARF source paths: {} (continuing without source)",
+                        e
+                    );
+                }
             }
         }
 

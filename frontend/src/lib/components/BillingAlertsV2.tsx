@@ -4,7 +4,9 @@ import { useEffect, useState } from 'react'
 
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { cn } from 'lib/utils/css-classes'
+import { canAccessBilling } from 'scenes/billing/billing-utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { organizationLogic } from 'scenes/organizationLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -13,7 +15,10 @@ export function BillingAlertsV2({ className }: { className?: string }): JSX.Elem
     const { reportBillingAlertShown, reportBillingAlertActionClicked } = useActions(billingLogic)
     const { currentLocation } = useValues(router)
     const { sceneConfig } = useValues(sceneLogic)
+    const { currentOrganization } = useValues(organizationLogic)
     const [alertHidden, setAlertHidden] = useState(false)
+
+    const hasBillingAccess = canAccessBilling(currentOrganization)
 
     useEffect(() => {
         if (billingAlert?.pathName && currentLocation.pathname !== billingAlert?.pathName) {
@@ -44,11 +49,13 @@ export function BillingAlertsV2({ className }: { className?: string }): JSX.Elem
                 children: billingAlert.buttonCTA || 'Contact support',
                 onClick: () => reportBillingAlertActionClicked(billingAlert),
             }
-          : {
-                to: urls.organizationBilling(),
-                children: 'Manage billing',
-                onClick: () => reportBillingAlertActionClicked(billingAlert),
-            }
+          : hasBillingAccess
+            ? {
+                  to: urls.organizationBilling(),
+                  children: 'Manage billing',
+                  onClick: () => reportBillingAlertActionClicked(billingAlert),
+              }
+            : undefined
 
     return (
         <div className={cn('my-4', requiresHorizontalMargin && 'mx-4', className)}>

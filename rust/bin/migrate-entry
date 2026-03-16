@@ -23,11 +23,11 @@ parse_args() {
 }
 
 show_usage() {
-    echo "Usage: $0 <all|persons|cyclotron|cyclotron-shadow|behavioral-cohorts> [--fresh]"
+    echo "Usage: $0 <all|persons|cyclotron|cyclotron-node|behavioral-cohorts> [--fresh]"
     echo "  all                - Run all migrations"
     echo "  persons            - Run only persons migrations"
     echo "  cyclotron          - Run only cyclotron migrations"
-    echo "  cyclotron-shadow   - Run only cyclotron shadow migrations"
+    echo "  cyclotron-node     - Run only cyclotron node migrations"
     echo "  behavioral-cohorts - Run only behavioral cohorts migrations"
     echo ""
     echo "Options:"
@@ -119,21 +119,21 @@ run_cyclotron_migrations() {
     fi
 }
 
-run_cyclotron_shadow_migrations() {
-    local db_type="cyclotron-shadow"
-    CYCLOTRON_SHADOW_DATABASE_NAME=${CYCLOTRON_SHADOW_DATABASE_NAME:-cyclotron_shadow}
-    CYCLOTRON_SHADOW_DATABASE_URL=${CYCLOTRON_SHADOW_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$CYCLOTRON_SHADOW_DATABASE_NAME}
+run_cyclotron_node_migrations() {
+    local db_type="cyclotron-node"
+    CYCLOTRON_NODE_DATABASE_NAME=${CYCLOTRON_NODE_DATABASE_NAME:-cyclotron_node}
+    CYCLOTRON_NODE_DATABASE_URL=${CYCLOTRON_NODE_DATABASE_URL:-postgres://posthog:posthog@localhost:5432/$CYCLOTRON_NODE_DATABASE_NAME}
 
-    log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$CYCLOTRON_SHADOW_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
+    log_json "info" "Starting migrations" "starting" "$db_type" "\"database_name\":\"$CYCLOTRON_NODE_DATABASE_NAME\",\"fresh_mode\":$FRESH_MODE"
 
     if [ "$FRESH_MODE" = true ]; then
-        sqlx database reset -y -D "$CYCLOTRON_SHADOW_DATABASE_URL" --source "$MIGRATIONS_BASE/cyclotron-core/migrations/"
+        sqlx database reset -y -D "$CYCLOTRON_NODE_DATABASE_URL" --source "$MIGRATIONS_BASE/cyclotron-node-migrations/"
         log_json "info" "Database reset and migrations completed" "completed" "$db_type"
     else
-        sqlx database create -D "$CYCLOTRON_SHADOW_DATABASE_URL"
+        sqlx database create -D "$CYCLOTRON_NODE_DATABASE_URL"
         log_json "info" "Database created or already exists" "running" "$db_type"
 
-        sqlx migrate run -D "$CYCLOTRON_SHADOW_DATABASE_URL" --source "$MIGRATIONS_BASE/cyclotron-core/migrations/"
+        sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source "$MIGRATIONS_BASE/cyclotron-node-migrations/"
         log_json "info" "Migrations completed successfully" "completed" "$db_type"
     fi
 }
@@ -170,8 +170,8 @@ case "$MIGRATION_TYPE" in
     cyclotron)
         run_cyclotron_migrations
         ;;
-    cyclotron-shadow)
-        run_cyclotron_shadow_migrations
+    cyclotron-node)
+        run_cyclotron_node_migrations
         ;;
     behavioral-cohorts)
         run_behavioral_cohorts_migrations
@@ -179,7 +179,7 @@ case "$MIGRATION_TYPE" in
     all)
         run_persons_migrations
         run_cyclotron_migrations
-        run_cyclotron_shadow_migrations
+        run_cyclotron_node_migrations
         run_behavioral_cohorts_migrations
         ;;
     *)

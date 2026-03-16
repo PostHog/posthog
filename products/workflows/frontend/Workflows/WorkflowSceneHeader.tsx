@@ -17,7 +17,6 @@ import { workflowLogic } from './workflowLogic'
 import { WorkflowSceneLogicProps } from './workflowSceneLogic'
 
 export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.Element => {
-    const logic = workflowLogic(props)
     const {
         workflow,
         workflowChanged,
@@ -25,9 +24,9 @@ export const WorkflowSceneHeader = (props: WorkflowSceneLogicProps = {}): JSX.El
         workflowLoading,
         workflowHasErrors,
         workflowHasActionErrors,
-    } = useValues(logic)
-    const { saveWorkflowPartial, submitWorkflow, discardChanges, setWorkflowValue, duplicate, archiveWorkflow } =
-        useActions(logic)
+    } = useValues(workflowLogic)
+    const { saveWorkflowPartial, submitWorkflow, setWorkflowValue, duplicate, archiveWorkflow, discardChanges } =
+        useActions(workflowLogic)
     const { searchParams } = useValues(router)
     const editTemplateId = searchParams.editTemplateId as string | undefined
     const templateId = searchParams.templateId as string | undefined

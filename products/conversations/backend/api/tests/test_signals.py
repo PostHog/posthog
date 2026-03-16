@@ -318,6 +318,20 @@ class TestTicketMessageSignals(BaseTest):
 
         mock_invalidate.assert_called_once_with(self.team.id, self.widget_session_id)
 
+    @patch("products.conversations.backend.signals.invalidate_messages_cache")
+    def test_message_invalidates_messages_cache(self, mock_invalidate, mock_on_commit):
+        """Sending a message should invalidate the widget messages cache."""
+        self._create_customer_message("Hello")
+
+        mock_invalidate.assert_called_once_with(self.team.id, str(self.ticket.id))
+
+    @patch("products.conversations.backend.signals.invalidate_messages_cache")
+    def test_private_message_does_not_invalidate_messages_cache(self, mock_invalidate, mock_on_commit):
+        """Private messages should not invalidate the messages cache."""
+        self._create_team_message("Private note", is_private=True)
+
+        mock_invalidate.assert_not_called()
+
     @patch("products.conversations.backend.signals.invalidate_tickets_cache")
     def test_private_message_does_not_invalidate_cache(self, mock_invalidate, mock_on_commit):
         """Private messages should not invalidate the cache (they don't affect widget display)."""

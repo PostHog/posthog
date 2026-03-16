@@ -11,11 +11,9 @@ import {
     IconGear,
     IconLive,
     IconOpenSidebar,
-    IconQuestion,
     IconServer,
     IconShieldLock,
     IconSparkles,
-    IconSupport,
 } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
@@ -37,6 +35,9 @@ import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelOfframpLogic } from '~/layout/navigation-3000/sidepanel/sidePanelOfframpLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
+
+import { SidePanelQuestionIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelQuestionIcon'
+import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
 
 import { appShortcutLogic } from '../AppShortcuts/appShortcutLogic'
 import { RenderKeybind } from '../AppShortcuts/AppShortcutMenu'
@@ -80,7 +81,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                         data-attr="help-menu-button"
                     >
                         <span className="flex text-secondary group-hover:text-primary">
-                            <IconQuestion className="size-[17px]" />
+                            <SidePanelQuestionIcon className="size-[17px]" />
                         </span>
                         {!iconOnly && (
                             <>
@@ -137,7 +138,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     onClick={() => openSidePanel(SidePanelTab.Support)}
                                     render={
                                         <ButtonPrimitive menuItem data-attr="help-menu-support-button">
-                                            <IconSupport />
+                                            <SidePanelSupportIcon />
                                             Support
                                             <IconOpenSidebar className="size-3" />
                                         </ButtonPrimitive>

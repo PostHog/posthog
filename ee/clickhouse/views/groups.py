@@ -30,8 +30,15 @@ from posthog.models.activity_logging.activity_page import activity_page_response
 from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import create_group, raw_create_group_ch
-from posthog.models.group_type_mapping import GROUP_TYPE_MAPPING_SERIALIZER_FIELDS, GroupTypeMapping
+from posthog.models.group_type_mapping import (
+    GROUP_TYPE_MAPPING_SERIALIZER_FIELDS,
+    GroupTypeMapping,
+    invalidate_group_types_cache,
+)
 from posthog.models.user import User
+from posthog.personhog_client.converters import GroupTypeMappingResult
+from posthog.personhog_client.metrics import PERSONHOG_ROUTING_ERRORS_TOTAL, PERSONHOG_ROUTING_TOTAL, get_client_name
+from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
 
 from products.event_definitions.backend.models.property_definition import PropertyType
 from products.notebooks.backend.models import Notebook, ResourceNotebook
@@ -80,7 +87,7 @@ def create_property_definition(team_id: int, group_type_index: int, property_nam
     )
 
 
-class GroupTypeSerializer(serializers.ModelSerializer):
+class GroupTypeSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     class Meta:
         model = GroupTypeMapping
         fields = GROUP_TYPE_MAPPING_SERIALIZER_FIELDS
@@ -107,10 +114,13 @@ class GroupsTypesViewSet(
             instance = GroupTypeMapping.objects.get(
                 project_id=self.team.project_id, group_type_index=row["group_type_index"]
             )
+            # Pre-populate the team FK cache so serializer access control checks
+            instance.team = self.team
             serializer = self.get_serializer(instance, data=row)
             serializer.is_valid(raise_exception=True)
             serializer.save()
 
+        invalidate_group_types_cache(self.team.project_id)
         return self.list(request, *args, **kwargs)
 
     @action(methods=["PUT"], detail=False)
@@ -131,7 +141,12 @@ class GroupsTypesViewSet(
         dashboard = create_group_type_mapping_detail_dashboard(group_type_mapping, request.user)
         group_type_mapping.detail_dashboard_id = dashboard.id
         group_type_mapping.save()
+        invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
+
+    def perform_destroy(self, instance):
+        super().perform_destroy(instance)
+        invalidate_group_types_cache(self.team.project_id)
 
     @action(methods=["PUT"], detail=False)
     def set_default_columns(self, request: request.Request, **kw):
@@ -144,6 +159,7 @@ class GroupsTypesViewSet(
 
         group_type_mapping.default_columns = request.data["default_columns"]
         group_type_mapping.save()
+        invalidate_group_types_cache(self.team.project_id)
         return response.Response(self.get_serializer(group_type_mapping).data)
 
 
@@ -205,9 +221,41 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
 
         return get_object_or_404(queryset)
 
-    def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMapping:
+    def get_group_type_mapping_or_404(self, group_type_index: GroupTypeIndex) -> GroupTypeMappingResult:
+        from posthog.personhog_client.converters import fetch_group_type_mapping_result
+        from posthog.personhog_client.gate import use_personhog
+
+        if use_personhog():
+            try:
+                result = fetch_group_type_mapping_result(self.team.project_id, group_type_index)
+                if result is not None:
+                    PERSONHOG_ROUTING_TOTAL.labels(
+                        operation="get_group_type_mapping_or_404", source="personhog", client_name=get_client_name()
+                    ).inc()
+                    return result
+                raise NotFound()
+            except NotFound:
+                raise
+            except Exception:
+                PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                    operation="get_group_type_mapping_or_404",
+                    source="personhog",
+                    error_type="grpc_error",
+                    client_name=get_client_name(),
+                ).inc()
+                logger.warning(
+                    "personhog_group_type_mapping_failure",
+                    project_id=self.team.project_id,
+                    group_type_index=group_type_index,
+                    exc_info=True,
+                )
+
         try:
-            return GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
+            obj = GroupTypeMapping.objects.get(project_id=self.team.project_id, group_type_index=group_type_index)
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_group_type_mapping_or_404", source="django_orm", client_name=get_client_name()
+            ).inc()
+            return GroupTypeMappingResult(group_type=obj.group_type, group_type_index=obj.group_type_index)
         except GroupTypeMapping.DoesNotExist:
             raise NotFound()
 
@@ -509,12 +557,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
                         },
                         status=400,
                     )
-            try:
-                group_type_mapping = GroupTypeMapping.objects.get(
-                    project_id=self.team.project_id, group_type_index=group.group_type_index
-                )
-            except GroupTypeMapping.DoesNotExist:
-                raise NotFound()
+            group_type_mapping = self.get_group_type_mapping_or_404(cast(GroupTypeIndex, group.group_type_index))
             original_value = group.group_properties[request.data["$unset"]]
             del group.group_properties[request.data["$unset"]]
             group.save()
@@ -705,7 +748,9 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             rows = sync_execute(query, params)
 
             span.set_attribute("result_count", len(rows))
-            return response.Response([{"name": name, "count": count} for name, count in rows])
+            return response.Response(
+                {"results": [{"name": name, "count": count} for name, count in rows], "refreshing": False}
+            )
 
     def _is_crm_enabled(self, user: User) -> bool:
         return posthoganalytics.feature_enabled(
@@ -743,7 +788,7 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
         ResourceNotebook.objects.create(notebook=notebook, group=group.id)
 
 
-class GroupUsageMetricSerializer(serializers.ModelSerializer):
+class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     class Meta:
         model = GroupUsageMetric
         fields = ("id", "name", "format", "interval", "display", "filters")

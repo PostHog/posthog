@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -108,7 +109,6 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
                 },
             },
         ],
-        // This is used to force a re-render every time we add an event or a minute passes
         windowVersion: [
             0,
             {
@@ -168,10 +168,12 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         deviceBreakdown: [
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): DeviceBreakdownItem[] => slidingWindow.getDeviceBreakdown(),
+            { resultEqualityCheck: equal },
         ],
         browserBreakdown: [
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): BrowserBreakdownItem[] => slidingWindow.getBrowserBreakdown(6),
+            { resultEqualityCheck: equal },
         ],
         countryBreakdown: [
             (s) => [s.slidingWindow, s.windowVersion],
@@ -180,6 +182,7 @@ export const liveWebAnalyticsMetricsLogic = kea<liveWebAnalyticsMetricsLogicType
         topPaths: [
             (s) => [s.slidingWindow, s.windowVersion],
             (slidingWindow: LiveMetricsSlidingWindow): PathItem[] => slidingWindow.getTopPaths(10),
+            { resultEqualityCheck: equal },
         ],
         totalPageviews: [
             (s) => [s.slidingWindow, s.windowVersion],

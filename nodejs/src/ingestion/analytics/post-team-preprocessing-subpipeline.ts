@@ -18,7 +18,6 @@ import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
     createValidateEventSchemaStep,
-    createValidateEventUuidStep,
 } from '../event-preprocessing'
 import { createDropOldEventsStep } from '../event-processing/drop-old-events-step'
 import { createPrefetchHogFunctionsStep } from '../event-processing/prefetch-hog-functions-step'
@@ -78,7 +77,6 @@ export function createPostTeamPreprocessingSubpipeline<TInput extends PostTeamPr
 
                 return schemaChecked
                     .pipe(createApplyPersonProcessingRestrictionsStep(eventIngestionRestrictionManager))
-                    .pipe(createValidateEventUuidStep())
                     .pipe(createDropOldEventsStep())
             })
             // We want to call cookieless with the whole batch at once.

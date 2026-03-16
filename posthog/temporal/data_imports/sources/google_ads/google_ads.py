@@ -1,6 +1,5 @@
 import typing
 import datetime as dt
-import operator
 import collections.abc
 
 from django.conf import settings
@@ -117,6 +116,33 @@ class GoogleAdsColumn(Column):
         self.is_enum = data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.ENUM
         self.is_message = data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.MESSAGE
         self.is_date = data_type == ga_enums.GoogleAdsFieldDataTypeEnum.GoogleAdsFieldDataType.DATE
+
+    @staticmethod
+    def _safe_get_enum(enum_cls, value) -> str:
+        try:
+            return enum_cls(value).name
+        except ValueError:
+            return str(value)
+
+    def resolve_value(self, value):
+        """Coerce a raw protobuf value to the appropriate Python type."""
+        if self.is_enum:
+            enum_cls = _resolve_protobuf_message_type_url(self.type_url)
+            if self.is_repeatable:
+                return [self._safe_get_enum(enum_cls, v) for v in value]
+            return self._safe_get_enum(enum_cls, value)
+
+        if self.is_message:
+            if self.is_repeatable:
+                return list(map(MessageToJson, value))
+            return MessageToJson(value)
+
+        if self.is_date:
+            if self.is_repeatable:
+                return [dt.date.fromisoformat(v[:10]) if v else None for v in value]
+            return dt.date.fromisoformat(value[:10]) if value else None
+
+        return value
 
     def to_arrow_field(self):
         """Return the Arrow type associated with this column.
@@ -401,7 +427,6 @@ def _stream_response_as_dicts(
     resource we are querying, and everything else unset.
     """
     field_paths = response.field_mask.paths
-    get_enum_name = operator.attrgetter("name")
     path_to_column = {col.qualified_name: col for col in table}
 
     for row in response.results:
@@ -410,27 +435,6 @@ def _stream_response_as_dicts(
         for path in field_paths:
             value = _traverse_attributes(row, *path.split("."))
             column = path_to_column[path]
-
-            # TODO: Special type handling moved somewhere else.
-            if column.is_enum:
-                enum_cls = _resolve_protobuf_message_type_url(column.type_url)
-                if column.is_repeatable:
-                    value = list(map(get_enum_name, map(enum_cls, value)))
-                else:
-                    value = enum_cls(value).name
-
-            elif column.is_message:
-                if column.is_repeatable:
-                    value = list(map(MessageToJson, value))
-                else:
-                    value = MessageToJson(value)
-
-            elif column.is_date:
-                if column.is_repeatable:
-                    value = [dt.date.fromisoformat(v[:10]) if v else None for v in value]
-                else:
-                    value = dt.date.fromisoformat(value[:10]) if value else None
-
-            row_dict[column.name] = value
+            row_dict[column.name] = column.resolve_value(value)
 
         yield row_dict

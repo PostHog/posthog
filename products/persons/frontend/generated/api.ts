@@ -12,6 +12,7 @@ import type {
     PaginatedPersonListApi,
     PatchedPersonApi,
     PersonApi,
+    PersonPropertiesAtTimeResponseApi,
     PersonsActivityRetrieve2Params,
     PersonsActivityRetrieveParams,
     PersonsBatchByDistinctIdsCreateParams,
@@ -25,6 +26,7 @@ import type {
     PersonsLifecycleRetrieveParams,
     PersonsListParams,
     PersonsPartialUpdateParams,
+    PersonsPropertiesAtTimeRetrieveParams,
     PersonsPropertiesTimelineRetrieveParams,
     PersonsResetPersonDistinctIdCreateParams,
     PersonsRetrieveParams,
@@ -650,6 +652,48 @@ export const personsLifecycleRetrieve = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getPersonsLifecycleRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+/**
+ * Get person properties as they existed at a specific point in time.
+
+This endpoint reconstructs person properties by querying ClickHouse events
+for $set and $set_once operations up to the specified timestamp.
+
+Query parameters:
+- distinct_id: The distinct_id of the person
+- timestamp: ISO datetime string for the point in time (e.g., "2023-06-15T14:30:00Z")
+- include_set_once: Whether to handle $set_once operations (default: false)
+- debug: Whether to include debug information with raw events (default: false)
+ */
+export const getPersonsPropertiesAtTimeRetrieveUrl = (
+    projectId: string,
+    params: PersonsPropertiesAtTimeRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/persons/properties_at_time/?${stringifiedParams}`
+        : `/api/projects/${projectId}/persons/properties_at_time/`
+}
+
+export const personsPropertiesAtTimeRetrieve = async (
+    projectId: string,
+    params: PersonsPropertiesAtTimeRetrieveParams,
+    options?: RequestInit
+): Promise<PersonPropertiesAtTimeResponseApi> => {
+    return apiMutator<PersonPropertiesAtTimeResponseApi>(getPersonsPropertiesAtTimeRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

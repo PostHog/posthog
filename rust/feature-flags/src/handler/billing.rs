@@ -1,10 +1,7 @@
 use crate::{
     api::{errors::FlagError, types::FlagsResponse},
     flags::{
-        flag_analytics::{
-            increment_request_count, PRODUCT_TOUR_TARGETING_FLAG_PREFIX,
-            SURVEY_TARGETING_FLAG_PREFIX,
-        },
+        flag_analytics::{increment_request_count, is_billable_flag_key},
         flag_models::FeatureFlagList,
         flag_request::FlagRequestType,
     },
@@ -76,19 +73,13 @@ pub async fn record_usage(
 
 /// Checks if the flag list contains any billable flags.
 ///
-/// Returns true if there are any flags that are both active and NOT survey or
-/// product tour targeting flags.
+/// Returns true if there are any non-filtered flags that are NOT survey or
+/// product tour targeting flags. Deleted and inactive flags are already in
+/// `filtered_out_flag_ids`, so no separate check is needed.
 fn contains_billable_flags(filtered_flags: &FeatureFlagList) -> bool {
-    filtered_flags.flags.iter().any(is_billable_flag)
-}
-
-/// Determines if a flag is billable based on its key and active status.
-///
-/// Returns true for active regular feature flags, false for survey/product tour targeting flags or disabled flags.
-fn is_billable_flag(flag: &crate::flags::flag_models::FeatureFlag) -> bool {
-    flag.active
-        && !flag.key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
-        && !flag.key.starts_with(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+    filtered_flags.flags.iter().any(|flag| {
+        !filtered_flags.filtered_out_flag_ids.contains(&flag.id) && is_billable_flag_key(&flag.key)
+    })
 }
 
 /// Helper function to determine if usage should be recorded
@@ -100,11 +91,19 @@ pub fn should_record_usage(filtered_flags: &FeatureFlagList) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::flags::flag_analytics::{
+        PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX,
+    };
     use crate::flags::flag_models::{FeatureFlag, FlagFilters, FlagPropertyGroup};
 
+    use std::collections::HashSet;
+
+    static NEXT_FLAG_ID: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(1);
+
     fn create_test_flag(key: &str) -> FeatureFlag {
+        let id = NEXT_FLAG_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         FeatureFlag {
-            id: 1,
+            id,
             team_id: 1,
             name: Some(key.to_string()),
             key: key.to_string(),
@@ -119,6 +118,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -137,6 +137,7 @@ mod tests {
 
         let flag_list = FeatureFlagList {
             flags: vec![survey_flag1, survey_flag2],
+            ..Default::default()
         };
 
         // Should NOT record usage when only survey flags are present
@@ -150,6 +151,7 @@ mod tests {
 
         let flag_list = FeatureFlagList {
             flags: vec![regular_flag1, regular_flag2],
+            ..Default::default()
         };
 
         // Should record usage when only regular flags are present
@@ -163,6 +165,7 @@ mod tests {
 
         let flag_list = FeatureFlagList {
             flags: vec![survey_flag, regular_flag],
+            ..Default::default()
         };
 
         // Should record usage when there's at least one regular flag, even with survey flags
@@ -171,7 +174,10 @@ mod tests {
 
     #[test]
     fn test_should_record_usage_empty_flags() {
-        let flag_list = FeatureFlagList { flags: vec![] };
+        let flag_list = FeatureFlagList {
+            flags: vec![],
+            ..Default::default()
+        };
 
         // Should NOT record usage when there are no flags at all
         assert!(!should_record_usage(&flag_list));
@@ -188,6 +194,7 @@ mod tests {
 
         let flag_list = FeatureFlagList {
             flags: vec![flag_with_prefix_inside, survey_flag_with_suffix],
+            ..Default::default()
         };
 
         // Should record usage: first flag doesn't START with prefix, second does start with prefix
@@ -196,57 +203,57 @@ mod tests {
     }
 
     #[test]
-    fn test_should_record_usage_disabled_flags_not_billable() {
-        let mut disabled_flag = create_test_flag("regular_flag");
-        disabled_flag.active = false;
+    fn test_should_record_usage_filtered_out_flags_not_billable() {
+        let disabled_flag = create_test_flag("regular_flag");
 
         let flag_list = FeatureFlagList {
-            flags: vec![disabled_flag],
+            flags: vec![disabled_flag.clone()],
+            filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
         };
 
-        // Should NOT record usage when only disabled flags are present
+        // Should NOT record usage when only filtered-out flags are present
         assert!(!should_record_usage(&flag_list));
     }
 
     #[test]
-    fn test_should_record_usage_mixed_active_and_disabled() {
-        let mut disabled_flag = create_test_flag("disabled_flag");
-        disabled_flag.active = false;
+    fn test_should_record_usage_mixed_active_and_filtered_out() {
+        let disabled_flag = create_test_flag("disabled_flag");
         let active_flag = create_test_flag("active_flag");
 
         let flag_list = FeatureFlagList {
-            flags: vec![disabled_flag, active_flag],
+            flags: vec![disabled_flag.clone(), active_flag],
+            filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
         };
 
-        // Should record usage when at least one active, non-survey flag is present
+        // Should record usage when at least one non-filtered, non-survey flag is present
         assert!(should_record_usage(&flag_list));
     }
 
     #[test]
-    fn test_should_record_usage_disabled_survey_flag() {
-        let mut disabled_survey_flag =
+    fn test_should_record_usage_filtered_out_survey_flag() {
+        let disabled_survey_flag =
             create_test_flag(&format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
-        disabled_survey_flag.active = false;
 
         let flag_list = FeatureFlagList {
-            flags: vec![disabled_survey_flag],
+            flags: vec![disabled_survey_flag.clone()],
+            filtered_out_flag_ids: HashSet::from([disabled_survey_flag.id]),
         };
 
-        // Should NOT record usage for disabled survey flags
+        // Should NOT record usage for filtered-out survey flags
         assert!(!should_record_usage(&flag_list));
     }
 
     #[test]
-    fn test_should_record_usage_only_disabled_and_survey_flags() {
-        let mut disabled_flag = create_test_flag("disabled_flag");
-        disabled_flag.active = false;
+    fn test_should_record_usage_only_filtered_out_and_survey_flags() {
+        let disabled_flag = create_test_flag("disabled_flag");
         let survey_flag = create_test_flag(&format!("{SURVEY_TARGETING_FLAG_PREFIX}survey1"));
 
         let flag_list = FeatureFlagList {
-            flags: vec![disabled_flag, survey_flag],
+            flags: vec![disabled_flag.clone(), survey_flag],
+            filtered_out_flag_ids: HashSet::from([disabled_flag.id]),
         };
 
-        // Should NOT record usage when only disabled and survey flags are present
+        // Should NOT record usage when only filtered-out and survey flags are present
         assert!(!should_record_usage(&flag_list));
     }
 
@@ -257,6 +264,7 @@ mod tests {
 
         let flag_list = FeatureFlagList {
             flags: vec![tour_flag1, tour_flag2],
+            ..Default::default()
         };
 
         // Should NOT record usage when only product tour flags are present
@@ -270,6 +278,7 @@ mod tests {
 
         let flag_list = FeatureFlagList {
             flags: vec![tour_flag, regular_flag],
+            ..Default::default()
         };
 
         // Should record usage when there's at least one regular flag, even with product tour flags
@@ -277,16 +286,16 @@ mod tests {
     }
 
     #[test]
-    fn test_should_record_usage_disabled_product_tour_flag() {
-        let mut disabled_tour_flag =
+    fn test_should_record_usage_filtered_out_product_tour_flag() {
+        let disabled_tour_flag =
             create_test_flag(&format!("{PRODUCT_TOUR_TARGETING_FLAG_PREFIX}tour1"));
-        disabled_tour_flag.active = false;
 
         let flag_list = FeatureFlagList {
-            flags: vec![disabled_tour_flag],
+            flags: vec![disabled_tour_flag.clone()],
+            filtered_out_flag_ids: HashSet::from([disabled_tour_flag.id]),
         };
 
-        // Should NOT record usage for disabled product tour flags
+        // Should NOT record usage for filtered-out product tour flags
         assert!(!should_record_usage(&flag_list));
     }
 
@@ -297,6 +306,7 @@ mod tests {
 
         let flag_list = FeatureFlagList {
             flags: vec![survey_flag, tour_flag],
+            ..Default::default()
         };
 
         // Should NOT record usage when only survey and product tour flags are present
@@ -316,6 +326,7 @@ mod tests {
 
         let flag_list = FeatureFlagList {
             flags: vec![flag_with_prefix_inside, tour_flag_with_suffix],
+            ..Default::default()
         };
 
         // Should record usage: first flag doesn't START with prefix, second does start with prefix

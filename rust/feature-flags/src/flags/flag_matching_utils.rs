@@ -159,16 +159,14 @@ pub fn populate_missing_initial_properties(properties: &mut HashMap<String, Valu
     team_id = %team_id,
     distinct_id = %distinct_id,
     cohort_ids = ?static_cohort_ids,
-    group_type_indexes = ?group_type_indexes,
-    group_keys = ?group_keys
+    group_type_to_key = ?group_type_to_key
 ))]
 pub async fn fetch_and_locally_cache_all_relevant_properties(
     flag_evaluation_state: &mut FlagEvaluationState,
     reader: PostgresReader,
     distinct_id: String,
     team_id: TeamId,
-    group_type_indexes: &HashSet<GroupTypeIndex>,
-    group_keys: &HashSet<String>,
+    group_type_to_key: &HashMap<GroupTypeIndex, String>,
     static_cohort_ids: Vec<CohortId>,
 ) -> Result<(), FlagError> {
     // Add the test-specific counter increment
@@ -364,21 +362,22 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     person_processing_timer.fin();
 
     // Only fetch group property data if we have group types to look up
-    if !group_type_indexes.is_empty() {
+    if !group_type_to_key.is_empty() {
         let group_query = r#"
             SELECT
-                group_type_index,
-                group_key,
-                group_properties
-            FROM posthog_group
-            WHERE team_id = $1
-                AND group_type_index = ANY($2)
-                AND group_key = ANY($3)
+                g.group_type_index,
+                g.group_properties
+            FROM posthog_group g
+            INNER JOIN UNNEST($2::integer[], $3::text[]) AS t(group_type_index, group_key)
+                ON g.group_type_index = t.group_type_index AND g.group_key = t.group_key
+            WHERE g.team_id = $1
         "#;
 
-        let group_type_indexes_vec: Vec<GroupTypeIndex> =
-            group_type_indexes.iter().copied().collect();
-        let group_keys_vec: Vec<String> = group_keys.iter().cloned().collect();
+        let (group_type_indexes_vec, group_keys_vec): (Vec<GroupTypeIndex>, Vec<String>) =
+            group_type_to_key
+                .iter()
+                .map(|(&k, v)| (k, v.clone()))
+                .unzip();
 
         let group_query_start = Instant::now();
         let group_query_timer = common_metrics::timing_guard(FLAG_GROUP_QUERY_TIME, &query_labels);
@@ -399,8 +398,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             warn!(
                 duration_ms = group_query_duration.as_millis(),
                 team_id = team_id,
-                group_type_count = group_type_indexes_vec.len(),
-                group_key_count = group_keys_vec.len(),
+                group_pair_count = group_type_to_key.len(),
                 sql_summary =
                     "SELECT group properties with UNNEST for group_type_index, group_key pairs",
                 "Slow group query detected"
@@ -409,8 +407,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             info!(
                 duration_ms = group_query_duration.as_millis(),
                 team_id = team_id,
-                group_type_count = group_type_indexes_vec.len(),
-                group_key_count = group_keys_vec.len(),
+                group_pair_count = group_type_to_key.len(),
                 result_count = groups.len(),
                 "Group query completed"
             );
@@ -506,10 +503,10 @@ fn classify_and_track_error(error: &FlagError, operation: &str, will_retry: bool
             } else if common_database::is_timeout_error(sqlx_error) {
                 "timeout"
             } else {
-                match sqlx_error {
-                    sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed => "connection",
-                    _ => "unknown",
-                }
+                // PoolTimedOut → intercepted by From<sqlx::Error>, arrives as TimeoutError
+                // PoolClosed → caught by is_transient_error above
+                // Everything else that reaches here is genuinely unknown
+                "unknown"
             };
             (err_type, None)
         }
@@ -590,8 +587,8 @@ pub fn match_flag_value_to_flag_filter(
 ///
 /// This function fetches any hash key overrides that have been set for feature flags
 /// for the given distinct IDs. It handles priority by giving precedence to the first
-/// distinct ID in the list. The operation is retried up to 3 times with exponential
-/// backoff on transient database errors.
+/// distinct ID in the list. The operation is retried once (2 total attempts) with
+/// exponential backoff on transient database errors.
 pub async fn get_feature_flag_hash_key_overrides(
     reader: PostgresReader,
     team_id: TeamId,
@@ -603,8 +600,8 @@ pub async fn get_feature_flag_hash_key_overrides(
 
     let retry_strategy = ExponentialBackoff::from_millis(50)
         .max_delay(Duration::from_millis(300))
-        .take(3)
-        .map(jitter); // Add jitter to prevent thundering herd
+        .take(1) // 1 retry = 2 total attempts; keeps retry budget tight (~350ms worst case)
+        .map(jitter);
 
     // Use tokio-retry to automatically retry on transient failures
     Retry::spawn(retry_strategy, || async {
@@ -1434,6 +1431,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             Some(false), // not deleted
             Some(true),  // active
@@ -2250,9 +2248,13 @@ mod tests {
     async fn test_should_retry_on_error() {
         use sqlx::Error as SqlxError;
 
-        // Test that database connection errors trigger retries
-        let pool_timeout_error = FlagError::DatabaseError(SqlxError::PoolTimedOut, None);
-        assert!(should_retry_on_error(&pool_timeout_error));
+        // PoolTimedOut goes through From<sqlx::Error> → is_timeout_error() → TimeoutError,
+        // so it never arrives as DatabaseError in production. Verify the real conversion path.
+        let pool_timeout: FlagError = SqlxError::PoolTimedOut.into();
+        assert!(
+            matches!(pool_timeout, FlagError::TimeoutError(Some(ref t)) if t == "pool_timeout")
+        );
+        assert!(!should_retry_on_error(&pool_timeout));
 
         let pool_closed_error = FlagError::DatabaseError(SqlxError::PoolClosed, None);
         assert!(should_retry_on_error(&pool_closed_error));

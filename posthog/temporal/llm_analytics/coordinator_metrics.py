@@ -29,3 +29,11 @@ def increment_team_failed(pipeline: str, analysis_level: str) -> None:
         "llma_coordinator_team_failed",
         "Teams that failed processing",
     ).add(1)
+
+
+def record_jobs_dispatched(count: int, pipeline: str, analysis_level: str) -> None:
+    meter = get_metric_meter({"pipeline": pipeline, "analysis_level": analysis_level})
+    meter.create_counter(
+        "llma_coordinator_jobs_dispatched",
+        "Jobs dispatched to child workflows per coordinator run",
+    ).add(count)

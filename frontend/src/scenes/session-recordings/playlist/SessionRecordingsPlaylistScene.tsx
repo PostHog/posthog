@@ -98,7 +98,6 @@ export function SessionRecordingsPlaylistScene(): JSX.Element {
         type: 'session_recording_playlist',
         ref: playlist?.short_id,
         enabled: Boolean(playlist?.short_id && !playlistLoading && !playlist?.is_synthetic),
-        deps: [playlist?.short_id, playlistLoading, playlist?.is_synthetic],
     })
 
     if (playlistLoading) {

@@ -2,12 +2,18 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSelect } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { teamLogic } from 'scenes/teamLogic'
 
 export function WeekStartConfig({ displayWarning = true }: { displayWarning?: boolean }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <LemonSelect
@@ -31,6 +37,7 @@ export function WeekStartConfig({ displayWarning = true }: { displayWarning?: bo
                 { value: 0, label: 'Sunday' },
                 { value: 1, label: 'Monday' },
             ]}
+            disabledReason={restrictedReason}
         />
     )
 }

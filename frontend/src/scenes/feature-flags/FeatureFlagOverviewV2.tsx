@@ -4,34 +4,27 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { IconCode, IconFlag, IconGlobe, IconLaptop, IconList, IconMessage, IconServer } from '@posthog/icons'
-import {
-    LemonButton,
-    LemonCollapse,
-    LemonDialog,
-    LemonDivider,
-    LemonSwitch,
-    LemonTag,
-    Lettermark,
-    LettermarkColor,
-} from '@posthog/lemon-ui'
+import { LemonButton, LemonCollapse, LemonDialog, LemonDivider, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
+import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic as enabledFeaturesLogic } from 'lib/logic/featureFlagLogic'
-import { alphabet } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, FeatureFlagEvaluationRuntime, FeatureFlagType } from '~/types'
 
-import { FeatureFlagEvaluationTags } from './FeatureFlagEvaluationTags'
+import { EditableOverviewSection } from './EditableOverviewSection'
+import { FeatureFlagEvaluationContexts } from './FeatureFlagEvaluationContexts'
 import { FeatureFlagInstructions } from './FeatureFlagInstructions'
 import { featureFlagLogic } from './featureFlagLogic'
 import {
     FeatureFlagReleaseConditionsReadonly,
     FeatureFlagSuperConditionsReadonly,
 } from './FeatureFlagReleaseConditionsReadonly'
+import { FeatureFlagVariantsSection } from './FeatureFlagVariantsSection'
 import { JSONEditorInput } from './JSONEditorInput'
 import { RecentFeatureFlagInsights } from './RecentFeatureFlagInsightsCard'
 
@@ -42,17 +35,22 @@ interface FeatureFlagOverviewV2Props {
 
 interface TagsDisplayProps {
     tags: string[]
-    evaluationTags: string[]
+    evaluationContexts: string[]
     flagId: number | null
-    hasEvaluationTags: boolean
+    hasEvaluationContexts: boolean
 }
 
-function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDisplayProps): JSX.Element {
-    const hasTags = tags.length > 0 || evaluationTags.length > 0
+function TagsDisplay({ tags, evaluationContexts, flagId, hasEvaluationContexts }: TagsDisplayProps): JSX.Element {
+    const hasTags = tags.length > 0 || evaluationContexts.length > 0
 
-    if (hasEvaluationTags && hasTags) {
+    if (hasEvaluationContexts && hasTags) {
         return (
-            <FeatureFlagEvaluationTags tags={tags} evaluationTags={evaluationTags} flagId={flagId} context="static" />
+            <FeatureFlagEvaluationContexts
+                tags={tags}
+                evaluationContexts={evaluationContexts}
+                flagId={flagId}
+                context="static"
+            />
         )
     }
 
@@ -72,7 +70,7 @@ function TagsDisplay({ tags, evaluationTags, flagId, hasEvaluationTags }: TagsDi
  */
 export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFlagOverviewV2Props): JSX.Element {
     const { featureFlags } = useValues(enabledFeaturesLogic)
-    const { recordingFilterForFlag } = useValues(featureFlagLogic)
+    const { recordingFilterForFlag, featureFlagActiveUpdateLoading } = useValues(featureFlagLogic)
     const { toggleFeatureFlagActive } = useActions(featureFlagLogic)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
 
@@ -155,8 +153,18 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
 
     const evaluationRuntimeDisplay = getEvaluationRuntimeDisplay()
 
-    // All variant panels open by default
-    const allVariantKeys = variants.map((_, index) => `variant-${index}`)
+    const flagTypeCard = (
+        <div className="flex flex-col gap-2">
+            <label className="text-sm font-semibold">Flag type</label>
+            <div className="flex items-center gap-3 p-3 rounded border bg-surface-secondary">
+                {flagTypeDisplay.icon}
+                <div className="flex flex-col">
+                    <span className="font-medium">{flagTypeDisplay.label}</span>
+                    <span className="text-xs text-muted">{flagTypeDisplay.description}</span>
+                </div>
+            </div>
+        </div>
+    )
 
     return (
         <div className="flex flex-col gap-6">
@@ -171,71 +179,85 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                 </LemonTag>
                             </div>
                         ) : (
-                            <LemonSwitch
-                                checked={featureFlag.active}
-                                onChange={handleToggleClick}
-                                label="Enable feature flag"
-                                bordered
-                                fullWidth
-                            />
+                            <AccessControlAction
+                                resourceType={AccessControlResourceType.FeatureFlag}
+                                minAccessLevel={AccessControlLevel.Editor}
+                                userAccessLevel={featureFlag.user_access_level}
+                            >
+                                <LemonSwitch
+                                    checked={featureFlag.active}
+                                    onChange={handleToggleClick}
+                                    loading={featureFlagActiveUpdateLoading}
+                                    disabledReason={
+                                        !featureFlag.can_edit
+                                            ? "You only have view access to this feature flag. To make changes, contact the flag's creator."
+                                            : null
+                                    }
+                                    label="Enable feature flag"
+                                    bordered
+                                    fullWidth
+                                />
+                            </AccessControlAction>
                         )}
                     </div>
 
-                    <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
-                        <div className="font-semibold">Advanced options</div>
+                    <EditableOverviewSection editOptions={{ expandAdvanced: true }}>
+                        <div className="flex flex-col gap-4">
+                            <div className="font-semibold">Advanced options</div>
 
-                        <div className="flex flex-col gap-2">
-                            <label className="text-sm font-medium">
-                                {hasEvaluationTags ? 'Tags & evaluation contexts' : 'Tags'}
-                            </label>
-                            <TagsDisplay
-                                tags={featureFlag.tags || []}
-                                evaluationTags={featureFlag.evaluation_tags || []}
-                                flagId={featureFlag.id}
-                                hasEvaluationTags={hasEvaluationTags}
-                            />
-                        </div>
+                            <div className="flex flex-col gap-2">
+                                {!hasEvaluationTags && <label className="text-sm font-medium">Tags</label>}
+                                <TagsDisplay
+                                    tags={featureFlag.tags || []}
+                                    evaluationContexts={featureFlag.evaluation_contexts || []}
+                                    flagId={featureFlag.id}
+                                    hasEvaluationContexts={hasEvaluationTags}
+                                />
+                            </div>
 
-                        {hasEvaluationRuntimes && (
-                            <>
-                                <LemonDivider className="my-1" />
+                            {hasEvaluationRuntimes && (
+                                <>
+                                    <LemonDivider className="my-1" />
 
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-sm font-medium">Evaluation runtime</label>
-                                    <div className="flex items-center gap-2">
-                                        {evaluationRuntimeDisplay.icon}
-                                        <span className="font-medium text-sm">{evaluationRuntimeDisplay.label}</span>
-                                        <LemonTag type="muted" size="small">
-                                            {evaluationRuntimeDisplay.tag}
-                                        </LemonTag>
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-sm font-medium">Evaluation runtime</label>
+                                        <div className="flex items-center gap-2">
+                                            {evaluationRuntimeDisplay.icon}
+                                            <span className="font-medium text-sm">
+                                                {evaluationRuntimeDisplay.label}
+                                            </span>
+                                            <LemonTag type="muted" size="small">
+                                                {evaluationRuntimeDisplay.tag}
+                                            </LemonTag>
+                                        </div>
                                     </div>
-                                </div>
-                            </>
-                        )}
+                                </>
+                            )}
 
-                        {!featureFlag.is_remote_configuration && (
-                            <>
-                                <LemonDivider className="my-1" />
+                            {!featureFlag.is_remote_configuration && (
+                                <>
+                                    <LemonDivider className="my-1" />
 
-                                <div className="flex flex-col gap-2">
-                                    <label className="text-sm font-medium">Persistence</label>
-                                    <span className="text-sm text-muted">
-                                        {featureFlag.ensure_experience_continuity ? (
-                                            <>
-                                                This flag <b className="text-default">persists</b> across authentication
-                                                steps
-                                            </>
-                                        ) : (
-                                            <>
-                                                This flag <b className="text-default">does not persist</b> across
-                                                authentication steps
-                                            </>
-                                        )}
-                                    </span>
-                                </div>
-                            </>
-                        )}
-                    </div>
+                                    <div className="flex flex-col gap-2">
+                                        <label className="text-sm font-medium">Persistence</label>
+                                        <span className="text-sm text-muted">
+                                            {featureFlag.ensure_experience_continuity ? (
+                                                <>
+                                                    This flag <b className="text-default">persists</b> across
+                                                    authentication steps
+                                                </>
+                                            ) : (
+                                                <>
+                                                    This flag <b className="text-default">does not persist</b> across
+                                                    authentication steps
+                                                </>
+                                            )}
+                                        </span>
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                    </EditableOverviewSection>
 
                     {!featureFlag.is_remote_configuration && (
                         <div className="rounded border p-4 bg-bg-light flex flex-col gap-3">
@@ -243,11 +265,12 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                             <RecentFeatureFlagInsights />
 
                             <div className="flex flex-col gap-3 mt-2 pt-3 border-t border-border-light">
-                                <div className="flex items-center justify-between">
-                                    <span className="text-sm text-muted">
+                                <div className="flex items-start gap-2">
+                                    <span className="text-sm text-muted flex-1">
                                         Watch recordings of users exposed to this flag
                                     </span>
                                     <ViewRecordingsPlaylistButton
+                                        className="shrink-0"
                                         filters={recordingFilterForFlag}
                                         type="secondary"
                                         size="small"
@@ -263,11 +286,12 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     />
                                 </div>
                                 {onGetFeedback && (
-                                    <div className="flex items-center justify-between">
-                                        <span className="text-sm text-muted">
-                                            Gather feedback from users who see this flag
+                                    <div className="flex items-start gap-2">
+                                        <span className="text-sm text-muted flex-1">
+                                            Get feedback from users who see this flag
                                         </span>
                                         <LemonButton
+                                            className="shrink-0"
                                             onClick={() => onGetFeedback()}
                                             type="secondary"
                                             size="small"
@@ -283,99 +307,36 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                 </div>
 
                 <div className="flex-[2] min-w-80 flex flex-col gap-4">
-                    <div className="rounded border p-4 bg-bg-light flex flex-col gap-4">
-                        <div className="flex flex-col gap-2">
-                            <label className="text-sm font-semibold">Flag type</label>
-                            <div className="flex items-center gap-3 p-3 rounded border bg-surface-secondary">
-                                {flagTypeDisplay.icon}
-                                <div className="flex flex-col">
-                                    <span className="font-medium">{flagTypeDisplay.label}</span>
-                                    <span className="text-xs text-muted">{flagTypeDisplay.description}</span>
+                    {multivariateEnabled && variants.length > 0 ? (
+                        <EditableOverviewSection
+                            disabledReason={
+                                featureFlag.experiment_set && featureFlag.experiment_set.length > 0
+                                    ? 'Variants are managed by the linked experiment'
+                                    : undefined
+                            }
+                        >
+                            <div className="flex flex-col gap-4">
+                                {flagTypeCard}
+                                <FeatureFlagVariantsSection featureFlag={featureFlag} variants={variants} />
+                            </div>
+                        </EditableOverviewSection>
+                    ) : (
+                        <EditableOverviewSection>
+                            <div className="flex flex-col gap-4">
+                                {flagTypeCard}
+                                <div className="flex flex-col gap-2">
+                                    <label className="text-sm font-semibold">Payload</label>
+                                    {hasPayload && featureFlag.filters?.payloads?.['true'] ? (
+                                        <JSONEditorInput readOnly value={featureFlag.filters.payloads['true']} />
+                                    ) : (
+                                        <div className="text-sm text-muted p-3 rounded border border-dashed bg-surface-secondary">
+                                            No payload configured
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                        </div>
-
-                        {multivariateEnabled && variants.length > 0 && (
-                            <div className="flex flex-col gap-2">
-                                <label className="text-sm font-medium text-muted">Variants</label>
-                                <LemonCollapse
-                                    multiple
-                                    defaultActiveKeys={allVariantKeys}
-                                    panels={variants.map((variant, index) => ({
-                                        key: `variant-${index}`,
-                                        header: (
-                                            <div className="flex gap-2 items-center">
-                                                <Lettermark
-                                                    name={alphabet[index] ?? String(index + 1)}
-                                                    color={LettermarkColor.Gray}
-                                                    size="small"
-                                                />
-                                                <span className="text-sm font-medium">
-                                                    {variant.key || `Variant ${index + 1}`}
-                                                </span>
-                                                <span className="text-xs text-muted">
-                                                    ({variant.rollout_percentage || 0}%)
-                                                </span>
-                                            </div>
-                                        ),
-                                        content: (
-                                            <div className="flex flex-col gap-3">
-                                                <div className="flex flex-col gap-1">
-                                                    <label className="text-xs font-medium text-muted">
-                                                        Variant key
-                                                    </label>
-                                                    <div className="font-mono text-sm">{variant.key}</div>
-                                                </div>
-
-                                                <div className="flex flex-col gap-1">
-                                                    <label className="text-xs font-medium text-muted">
-                                                        Rollout percentage
-                                                    </label>
-                                                    <div className="text-sm font-semibold">
-                                                        {variant.rollout_percentage || 0}%
-                                                    </div>
-                                                </div>
-
-                                                {variant.name && (
-                                                    <div className="flex flex-col gap-1">
-                                                        <label className="text-xs font-medium text-muted">
-                                                            Description
-                                                        </label>
-                                                        <div className="text-sm">{variant.name}</div>
-                                                    </div>
-                                                )}
-
-                                                {featureFlag.filters?.payloads?.[variant.key] && (
-                                                    <div className="flex flex-col gap-1">
-                                                        <label className="text-xs font-medium text-muted">
-                                                            Payload
-                                                        </label>
-                                                        <JSONEditorInput
-                                                            readOnly
-                                                            value={featureFlag.filters.payloads[variant.key]}
-                                                        />
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ),
-                                    }))}
-                                />
-                            </div>
-                        )}
-
-                        {!multivariateEnabled && (
-                            <div className="flex flex-col gap-2">
-                                <label className="text-sm font-semibold">Payload</label>
-                                {hasPayload && featureFlag.filters?.payloads?.['true'] ? (
-                                    <JSONEditorInput readOnly value={featureFlag.filters.payloads['true']} />
-                                ) : (
-                                    <div className="text-sm text-muted p-3 rounded border border-dashed bg-surface-secondary">
-                                        No payload configured
-                                    </div>
-                                )}
-                            </div>
-                        )}
-                    </div>
+                        </EditableOverviewSection>
+                    )}
 
                     {!featureFlag.is_remote_configuration && (
                         <>
@@ -394,13 +355,20 @@ export function FeatureFlagOverviewV2({ featureFlag, onGetFeedback }: FeatureFla
                                     />
                                 </div>
                             )}
-                            <div className="rounded border p-4 bg-bg-light">
+                            <EditableOverviewSection
+                                disabledReason={
+                                    featureFlag.experiment_set && featureFlag.experiment_set.length > 0
+                                        ? 'Release conditions are managed by the linked experiment'
+                                        : undefined
+                                }
+                            >
                                 <FeatureFlagReleaseConditionsReadonly
                                     id={String(featureFlag.id)}
                                     filters={featureFlag.filters}
                                     isDisabled={!featureFlag.active}
+                                    evaluationRuntime={featureFlag.evaluation_runtime}
                                 />
-                            </div>
+                            </EditableOverviewSection>
                         </>
                     )}
                 </div>

@@ -1,7 +1,7 @@
 {
     "id": 51,
     "short_id": "jEAIVJnG",
-    "name": "",
+    "name": null,
     "derived_name": "Retention of users based on doing Pageview for the first time and returning with the same event",
     "filters": {},
     "filters_hash": "cache_4f4306af941fa3a1e14ec30da0ac8339",

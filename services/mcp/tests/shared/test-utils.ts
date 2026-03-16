@@ -3,7 +3,9 @@ import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import type { InsightQuery } from '@/schema/query'
-import type { Context } from '@/tools/types'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import { TOOL_MAP } from '@/tools/index'
+import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 export const API_BASE_URL = process.env.TEST_POSTHOG_API_BASE_URL || 'http://localhost:8010'
 export const API_TOKEN = process.env.TEST_POSTHOG_PERSONAL_API_KEY
@@ -16,6 +18,7 @@ export interface CreatedResources {
     dashboards: number[]
     surveys: string[]
     actions: number[]
+    cohorts: number[]
 }
 
 export function validateEnvironmentVariables(): void {
@@ -67,7 +70,11 @@ export async function cleanupResources(
 ): Promise<void> {
     for (const flagId of resources.featureFlags) {
         try {
-            await client.featureFlags({ projectId }).delete({ flagId })
+            await client.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/feature_flags/${flagId}/`,
+                body: { deleted: true },
+            })
         } catch (error) {
             console.warn(`Failed to cleanup feature flag ${flagId}:`, error)
         }
@@ -85,7 +92,11 @@ export async function cleanupResources(
 
     for (const dashboardId of resources.dashboards) {
         try {
-            await client.dashboards({ projectId }).delete({ dashboardId })
+            await client.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/dashboards/${dashboardId}/`,
+                body: { deleted: true },
+            })
         } catch (error) {
             console.warn(`Failed to cleanup dashboard ${dashboardId}:`, error)
         }
@@ -103,18 +114,67 @@ export async function cleanupResources(
 
     for (const actionId of resources.actions) {
         try {
-            await client.actions({ projectId }).delete({ actionId })
+            await client.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/actions/${actionId}/`,
+                body: { deleted: true },
+            })
         } catch (error) {
             console.warn(`Failed to cleanup action ${actionId}:`, error)
         }
     }
     resources.actions = []
+
+    for (const cohortId of resources.cohorts) {
+        try {
+            await client.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/cohorts/${cohortId}/`,
+                body: { deleted: true },
+            })
+        } catch (error) {
+            console.warn(`Failed to cleanup cohort ${cohortId}:`, error)
+        }
+    }
+    resources.cohorts = []
 }
 
 export function parseToolResponse(result: any): any {
     // Tool handlers now return plain JSON objects directly
     // The MCP server wraps them with formatResponse, but tests call handlers directly
     return result
+}
+
+/**
+ * Look up a tool by name. When called with a single argument, searches the
+ * combined hand-written and generated tool maps. When called with a tool map
+ * as the first argument, searches only that map.
+ */
+export function getToolByName(name: string): ToolBase<ZodObjectAny>
+export function getToolByName(
+    toolMap: Record<string, () => ToolBase<ZodObjectAny>>,
+    name: string
+): ToolBase<ZodObjectAny>
+export function getToolByName(
+    nameOrMap: string | Record<string, () => ToolBase<ZodObjectAny>>,
+    maybeName?: string
+): ToolBase<ZodObjectAny> {
+    let toolMap: Record<string, () => ToolBase<ZodObjectAny>>
+    let name: string
+
+    if (typeof nameOrMap === 'string') {
+        toolMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+        name = nameOrMap
+    } else {
+        toolMap = nameOrMap
+        name = maybeName!
+    }
+
+    const factory = toolMap[name]
+    if (!factory) {
+        throw new Error(`Tool "${name}" not found`)
+    }
+    return factory()
 }
 
 export function generateUniqueKey(prefix: string): string {
@@ -479,3 +539,79 @@ export const SAMPLE_FUNNEL_QUERIES = {
         },
     },
 } as const satisfies Record<SampleFunnelQuery, InsightQuery>
+
+type SamplePathsQuery = 'basicPageviewPaths' | 'customEventPaths' | 'pathsWithStartPoint' | 'pathsWithHogQL'
+
+export const SAMPLE_PATHS_QUERIES = {
+    basicPageviewPaths: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['$pageview'],
+                stepLimit: 5,
+                edgeLimit: 50,
+            },
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+    customEventPaths: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['custom_event'],
+                stepLimit: 3,
+                edgeLimit: 30,
+                excludeEvents: ['$feature_flag_called'],
+            },
+            dateRange: {
+                date_from: '-14d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+    pathsWithStartPoint: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['$pageview'],
+                startPoint: '/',
+                stepLimit: 5,
+                edgeLimit: 50,
+            },
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+    pathsWithHogQL: {
+        kind: 'InsightVizNode',
+        source: {
+            kind: 'PathsQuery',
+            pathsFilter: {
+                includeEventTypes: ['hogql'],
+                pathsHogQLExpression: 'event',
+                stepLimit: 5,
+                edgeLimit: 50,
+            },
+            dateRange: {
+                date_from: '-7d',
+                date_to: null,
+            },
+            properties: [],
+            filterTestAccounts: false,
+        },
+    },
+} as const satisfies Record<SamplePathsQuery, InsightQuery>

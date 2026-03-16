@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from json import JSONDecodeError, loads
 from typing import Any, List, Literal, cast  # noqa: UP035
 
@@ -23,11 +23,10 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
-from posthog.auth import TemporaryTokenAuthentication
 from posthog.heatmaps.heatmaps_utils import DEFAULT_TARGET_WIDTHS
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
-from posthog.models.heatmap_saved import SavedHeatmap
+from posthog.models.heatmap_saved import HeatmapSnapshot, SavedHeatmap
 from posthog.rate_limit import (
     AIBurstRateThrottle,
     AISustainedRateThrottle,
@@ -37,6 +36,8 @@ from posthog.rate_limit import (
 from posthog.security.url_validation import is_url_allowed
 from posthog.tasks.heatmap_screenshot import generate_heatmap_screenshot
 from posthog.utils import relative_date_parse_with_delta_mapping
+
+STALE_PROCESSING_THRESHOLD = timedelta(minutes=10)
 
 DEFAULT_QUERY = """
             select pointer_target_fixed, pointer_relative_x, client_y, {aggregation_count}
@@ -104,6 +105,7 @@ class HeatmapsRequestSerializer(serializers.Serializer):
         default="total_count",
     )
     filter_test_accounts = serializers.BooleanField(required=False, default=None, allow_null=True)
+    hide_zero_coordinates = serializers.BooleanField(required=False, default=True)
 
     def validate_date(self, value, label: Literal["date_from", "date_to"]) -> date:
         try:
@@ -228,13 +230,12 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapsResponseSerializer
 
-    authentication_classes = [TemporaryTokenAuthentication]
-
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         request_serializer = HeatmapsRequestSerializer(data=request.query_params, context={"team": self.team})
         request_serializer.is_valid(raise_exception=True)
 
         aggregation = request_serializer.validated_data.pop("aggregation")
+        hide_zero_coordinates = request_serializer.validated_data.pop("hide_zero_coordinates", True)
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in request_serializer.validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
         is_scrolldepth_query = placeholders.get("type", None) == Constant(value="scrolldepth")
@@ -243,6 +244,9 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         aggregation_count = self._choose_aggregation(aggregation, is_scrolldepth_query)
         exprs = self._predicate_expressions(placeholders)
+
+        if hide_zero_coordinates and not is_scrolldepth_query:
+            exprs.append(parse_expr("NOT (x = 0 AND y = 0)"))
 
         if request_serializer.validated_data.get("filter_test_accounts") is True:
             date_from: date = request_serializer.validated_data["date_from"]
@@ -362,6 +366,7 @@ class HeatmapViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         offset = validated_data.pop("offset")
         points = validated_data.pop("points")
         validated_data.pop("aggregation", None)
+        validated_data.pop("hide_zero_coordinates", None)
 
         placeholders: dict[str, Expr] = {k: Constant(value=v) for k, v in validated_data.items()}
         placeholders["date_to"] = placeholders.get("date_to", Constant(value=date.today().strftime("%Y-%m-%d")))
@@ -494,7 +499,6 @@ class HeatmapScreenshotViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object_read_actions = ["list", "retrieve", "content"]
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
-    authentication_classes = [TemporaryTokenAuthentication]
     queryset = SavedHeatmap.objects.all()
 
     def safely_get_queryset(self, queryset):
@@ -572,7 +576,6 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
     scope_object = "heatmap"
     throttle_classes = [ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle]
     serializer_class = HeatmapScreenshotResponseSerializer
-    authentication_classes = [TemporaryTokenAuthentication]
     queryset = SavedHeatmap.objects.all()
     lookup_field = "short_id"
 
@@ -669,7 +672,33 @@ class SavedHeatmapViewSet(TeamAndOrgViewSetMixin, ForbidDestroyModel, viewsets.G
 
     def retrieve(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()
+
+        if (
+            obj.type == SavedHeatmap.Type.SCREENSHOT
+            and obj.status == SavedHeatmap.Status.PROCESSING
+            and obj.updated_at < datetime.now(tz=obj.updated_at.tzinfo) - STALE_PROCESSING_THRESHOLD
+        ):
+            self._regenerate(obj)
+
         return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+
+    @action(methods=["POST"], detail=True)
+    def regenerate(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
+        obj = self.get_object()
+        if obj.type != SavedHeatmap.Type.SCREENSHOT:
+            return response.Response(
+                {"error": "Only screenshot heatmaps can be regenerated"}, status=status.HTTP_400_BAD_REQUEST
+            )
+
+        self._regenerate(obj)
+        return response.Response(HeatmapScreenshotResponseSerializer(obj).data, status=status.HTTP_200_OK)
+
+    def _regenerate(self, obj: SavedHeatmap) -> None:
+        obj.status = SavedHeatmap.Status.PROCESSING
+        obj.exception = None
+        obj.save(update_fields=["status", "exception", "updated_at"])
+        HeatmapSnapshot.objects.filter(heatmap=obj).delete()
+        generate_heatmap_screenshot.delay(obj.id)
 
     def partial_update(self, request: request.Request, *args: Any, **kwargs: Any) -> response.Response:
         obj = self.get_object()

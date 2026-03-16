@@ -1,12 +1,13 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.conf import settings
 from django.test import override_settings
 
 from parameterized import parameterized
 
 from posthog.models.cohort.cohort import Cohort
-from posthog.models.feature_flag.feature_flag import FeatureFlag, FeatureFlagEvaluationTag
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.feature_flag.local_evaluation import (
     FLAG_DEFINITIONS_HYPERCACHE_MANAGEMENT_CONFIG,
     FLAG_DEFINITIONS_NO_COHORTS_HYPERCACHE_MANAGEMENT_CONFIG,
@@ -21,7 +22,9 @@ from posthog.models.feature_flag.local_evaluation import (
     get_flags_response_for_local_evaluation,
     update_flag_caches,
     update_flag_definitions_cache,
+    verify_team_flag_definitions,
 )
+from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.project import Project
 from posthog.models.surveys.survey import Survey
 from posthog.models.tag import Tag
@@ -211,8 +214,57 @@ class TestLocalEvaluationCache(BaseTest):
 class TestLocalEvaluationSignals(BaseTest):
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_evaluation_tag_create(self, mock_task):
+    def test_signal_fired_on_evaluation_context_association_create(self, mock_task):
+        """Creating a FeatureFlagEvaluationContext fires the cache update signal."""
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+
         flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        # Create the context first (this will fire a signal for EvaluationContext.post_save)
+        ctx = EvaluationContext.objects.create(team=self.team, name="production")
+
+        mock_task.reset_mock()
+
+        # Creating the association should fire the signal
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_fired_on_evaluation_context_association_delete(self, mock_task):
+        """Deleting a FeatureFlagEvaluationContext fires the cache update signal."""
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        ctx = EvaluationContext.objects.create(team=self.team, name="production")
+        eval_ctx = FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
+
+        mock_task.reset_mock()
+
+        eval_ctx.delete()
+
+        mock_task.delay.assert_called_once_with(self.team.id)
+
+    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
+    @patch("django.db.transaction.on_commit", lambda fn: fn())
+    def test_signal_not_fired_on_evaluation_context_create(self, mock_task):
+        """Creating an EvaluationContext does NOT fire the cache update signal.
+
+        New contexts can't be referenced by any flags yet, so invalidation is a no-op.
+        """
+        from posthog.models.evaluation_context import EvaluationContext
+
+        FeatureFlag.objects.create(
             team=self.team,
             key="test-flag",
             created_by=self.user,
@@ -221,102 +273,64 @@ class TestLocalEvaluationSignals(BaseTest):
 
         mock_task.reset_mock()
 
-        tag = Tag.objects.create(team=self.team, name="docs-page")
-        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+        EvaluationContext.objects.create(team=self.team, name="production")
 
-        mock_task.delay.assert_called_once_with(self.team.id)
-
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_evaluation_tag_delete(self, mock_task):
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        tag = Tag.objects.create(team=self.team, name="docs-page")
-        eval_tag = FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
-
-        mock_task.reset_mock()
-
-        eval_tag.delete()
-
-        mock_task.delay.assert_called_once_with(self.team.id)
-
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_on_tag_rename(self, mock_task):
-        flag = FeatureFlag.objects.create(
-            team=self.team,
-            key="test-flag",
-            created_by=self.user,
-            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-        )
-        tag = Tag.objects.create(team=self.team, name="docs-page")
-        FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
-
-        mock_task.reset_mock()
-
-        # Rename the tag
-        tag.name = "landing-page"
-        tag.save()
-
-        mock_task.delay.assert_called_once_with(self.team.id)
-
-    @patch("posthog.tasks.feature_flags.update_team_flags_cache")
-    @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_not_fired_on_tag_rename_when_not_used_by_flags(self, mock_task):
-        # Create a tag that is not used by any flag
-        tag = Tag.objects.create(team=self.team, name="unused-tag")
-
-        mock_task.reset_mock()
-
-        # Rename the tag
-        tag.name = "still-unused-tag"
-        tag.save()
-
-        # Signal should NOT trigger the Celery task since no flags use this tag
         mock_task.delay.assert_not_called()
 
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_fired_once_when_tag_used_by_multiple_flags(self, mock_task):
-        """Tag used by multiple flags should trigger cache update once per team."""
-        tag = Tag.objects.create(team=self.team, name="shared-tag")
+    def test_signal_fired_on_evaluation_context_rename(self, mock_task):
+        """Renaming an EvaluationContext fires the cache update signal.
 
-        for i in range(3):
-            flag = FeatureFlag.objects.create(
-                team=self.team,
-                key=f"flag-{i}",
-                created_by=self.user,
-                filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
-            )
-            FeatureFlagEvaluationTag.objects.create(feature_flag=flag, tag=tag)
+        Flags referencing the context need to pick up the new name.
+        """
+        from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
+
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        ctx = EvaluationContext.objects.create(team=self.team, name="production")
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag, evaluation_context=ctx)
 
         mock_task.reset_mock()
 
-        tag.name = "renamed-shared-tag"
-        tag.save()
+        ctx.name = "staging"
+        ctx.save()
 
-        # Should fire once (team-level), not 3 times (flag-level)
         mock_task.delay.assert_called_once_with(self.team.id)
 
     @patch("posthog.tasks.feature_flags.update_team_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_signal_not_fired_on_tag_creation(self, mock_task):
-        """Signal should not fire when a new tag is created."""
+    def test_tag_rename_does_not_fire_signal(self, mock_task):
+        """Tag renames no longer affect evaluation contexts, so no cache invalidation needed."""
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+        tag = Tag.objects.create(team=self.team, name="docs-page")
+
         mock_task.reset_mock()
 
-        # Create a new tag
-        Tag.objects.create(team=self.team, name="brand-new-tag")
+        tag.name = "landing-page"
+        tag.save()
 
-        # Signal should NOT trigger because new tags can't be used by any flags yet
         mock_task.delay.assert_not_called()
 
 
 class TestSurveyFlagExclusion(BaseTest):
     """Tests for excluding survey-linked flags from local evaluation (GitHub issue #43631)."""
+
+    def setUp(self):
+        super().setUp()
+        # Clear existing flags and caches to ensure test isolation
+        FeatureFlag.objects.filter(team=self.team).delete()
+        Survey.objects.filter(team=self.team).delete()
+        clear_flag_definition_caches(self.team)
 
     @parameterized.expand(
         [
@@ -1147,6 +1161,256 @@ class TestFlagDefinitionsCache(BaseTest):
 
         mock_with.assert_called_once_with(self.team, ttl=3600)
         mock_without.assert_called_once_with(self.team, ttl=3600)
+
+
+@override_settings(FLAGS_REDIS_URL="redis://test")
+class TestVerifyFlagDefinitions(BaseTest):
+    """Tests for flag definitions cache verification."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+
+    def test_verify_returns_miss_when_cache_empty(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True)
+
+        assert result["status"] == "miss"
+        assert result["issue"] == "CACHE_MISS"
+
+    def test_verify_returns_match_when_cache_matches(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        update_flag_definitions_cache(self.team)
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True)
+
+        assert result["status"] == "match"
+        assert result["issue"] == ""
+
+    def test_verify_returns_mismatch_when_flag_key_renamed(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        update_flag_definitions_cache(self.team)
+
+        flag.key = "modified-flag"
+        flag.save()
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "DATA_MISMATCH"
+        assert "1 missing, 1 stale" in result["details"]
+        missing_diffs = [d for d in result["diffs"] if d["type"] == "MISSING_IN_CACHE"]
+        stale_diffs = [d for d in result["diffs"] if d["type"] == "STALE_IN_CACHE"]
+        assert len(missing_diffs) == 1
+        assert missing_diffs[0]["flag_key"] == "modified-flag"
+        assert len(stale_diffs) == 1
+        assert stale_diffs[0]["flag_key"] == "test-flag"
+
+    def test_verify_returns_field_mismatch_when_flag_filters_changed(self):
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        update_flag_definitions_cache(self.team)
+
+        flag.filters = {"groups": [{"properties": [], "rollout_percentage": 50}]}
+        flag.save()
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "DATA_MISMATCH"
+        assert "1 mismatched" in result["details"]
+        field_mismatch_diffs = [d for d in result["diffs"] if d["type"] == "FIELD_MISMATCH"]
+        assert len(field_mismatch_diffs) == 1
+        assert field_mismatch_diffs[0]["flag_key"] == "test-flag"
+
+    def test_verify_both_variants_independently(self):
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        update_flag_definitions_cache(self.team)
+
+        result_with = verify_team_flag_definitions(self.team, include_cohorts=True)
+        result_without = verify_team_flag_definitions(self.team, include_cohorts=False)
+
+        assert result_with["status"] == "match"
+        assert result_without["status"] == "match"
+
+    def test_verify_returns_mismatch_when_cohort_changed(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test Cohort",
+            groups=[{"properties": [{"key": "email", "value": "test@example.com", "type": "person"}]}],
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={
+                "groups": [
+                    {
+                        "properties": [{"key": "id", "value": cohort.pk, "type": "cohort"}],
+                        "rollout_percentage": 100,
+                    }
+                ]
+            },
+        )
+
+        update_flag_definitions_cache(self.team)
+
+        cohort.groups = [{"properties": [{"key": "email", "value": "changed@example.com", "type": "person"}]}]
+        cohort.save()
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "DATA_MISMATCH"
+        assert "cohorts mismatch" in result["details"]
+        assert "diffs" in result
+        cohorts_diff = [d for d in result["diffs"] if d.get("type") == "COHORTS_MISMATCH"]
+        assert len(cohorts_diff) == 1
+
+    def test_verify_returns_mismatch_when_group_type_mapping_changed(self):
+        GroupTypeMapping.objects.create(
+            team=self.team,
+            project_id=self.team.project_id,
+            group_type="company",
+            group_type_index=0,
+        )
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={
+                "aggregation_group_type_index": 0,
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+            },
+        )
+
+        update_flag_definitions_cache(self.team)
+
+        mapping = GroupTypeMapping.objects.get(team=self.team, group_type_index=0)
+        mapping.group_type = "organization"
+        mapping.save()
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True, verbose=True)
+
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "DATA_MISMATCH"
+        assert "group_type_mapping mismatch" in result["details"]
+        assert "diffs" in result
+        mapping_diff = [d for d in result["diffs"] if d.get("type") == "GROUP_TYPE_MAPPING_MISMATCH"]
+        assert len(mapping_diff) == 1
+
+
+@override_settings(
+    FLAGS_REDIS_URL="redis://test",
+    CACHES={
+        **settings.CACHES,
+        "flags_dedicated": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "flags-definitions-test",
+        },
+    },
+)
+class TestFlagDefinitionsManagementCommands(BaseTest):
+    """Tests for flag definitions cache management commands."""
+
+    def setUp(self):
+        super().setUp()
+        clear_flag_definition_caches(self.team, kinds=["redis", "s3"])
+
+    def test_verify_command_checks_both_variants(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        out = StringIO()
+        call_command("verify_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
+
+        output = out.getvalue()
+        assert "with cohorts" in output
+        assert "without cohorts" in output
+        assert output.count("Verification Results") == 2
+
+    def test_warm_command_processes_both_variants_by_default(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        out = StringIO()
+        call_command("warm_flag_definitions_cache", f"--team-ids={self.team.id}", stdout=out)
+
+        output = out.getvalue()
+        assert "with cohorts" in output
+        assert "without cohorts" in output
+        assert "Successful: 1" in output
+
+    def test_warm_command_with_variant_flag(self):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag",
+            created_by=self.user,
+            filters={"groups": [{"properties": [], "rollout_percentage": 100}]},
+        )
+
+        out = StringIO()
+        call_command(
+            "warm_flag_definitions_cache",
+            f"--team-ids={self.team.id}",
+            "--variant=with-cohorts",
+            stdout=out,
+        )
+
+        output = out.getvalue()
+        assert "with cohorts" in output
+        assert "without cohorts" not in output
 
 
 @override_settings(FLAGS_REDIS_URL=None)

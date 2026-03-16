@@ -15,6 +15,7 @@ from posthog.api.test.batch_exports.operations import (
     get_batch_export_backfill_ok,
     list_batch_export_backfills_ok,
 )
+from posthog.batch_exports.models import BatchExportRun
 
 pytestmark = [
     pytest.mark.usefixtures("temporal_worker", "cleanup"),
@@ -34,6 +35,18 @@ def wait_for_backfill_creation(client: HttpClient, team_id: int, batch_export_id
             return backfills[0]
 
     raise Exception("Backfill not found")
+
+
+def wait_for_backfill_runs(backfill_id: str, timeout: int = 30) -> list[BatchExportRun]:
+    total = 0
+    while total < timeout:
+        runs = list(BatchExportRun.objects.filter(backfill_id=backfill_id))
+        if runs:
+            return runs
+        time.sleep(1)
+        total += 1
+
+    raise Exception("No runs found for backfill")
 
 
 @pytest.mark.django_db(transaction=True)
@@ -89,8 +102,16 @@ def test_cancelling_a_batch_export_backfill(client: HttpClient, organization, te
         assert backfill_data["status"] in ("Running", "Starting")
         backfill_id = backfill_data["id"]
 
+        # wait for at least one run to be created so we can verify runs are cancelled too
+        wait_for_backfill_runs(backfill_id)
+
         data = cancel_batch_export_backfill_ok(client, team.pk, batch_export_id, backfill_id)
         assert data["cancelled"] is True
 
         backfill_data = get_batch_export_backfill_ok(client, team.pk, batch_export_id, backfill_id)
         assert backfill_data["status"] == "Cancelled"
+
+        runs = BatchExportRun.objects.filter(backfill_id=backfill_id)
+        assert runs.count() > 0
+        for run in runs:
+            assert run.status == BatchExportRun.Status.CANCELLED

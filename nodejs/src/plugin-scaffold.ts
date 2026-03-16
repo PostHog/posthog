@@ -43,13 +43,6 @@ export interface Element {
     group_id?: number
 }
 
-export interface PluginPerson {
-    uuid: string
-    team_id: number
-    properties: Properties
-    created_at: string
-}
-
 // TODO: These types are "Plugin" types which make no sense anymore
 // - we should remove them where possible and stick to more purpose built types
 export interface PluginEvent {
@@ -66,7 +59,6 @@ export interface PluginEvent {
     $set?: Properties
     $set_once?: Properties
     uuid: string
-    person?: PluginPerson
 }
 
 export interface ProcessedPluginEvent {
@@ -79,7 +71,6 @@ export interface ProcessedPluginEvent {
     $set?: Properties
     $set_once?: Properties
     uuid: string
-    person?: PluginPerson
     elements?: Element[]
 }
 

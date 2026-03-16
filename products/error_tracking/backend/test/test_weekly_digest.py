@@ -5,15 +5,20 @@ from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, f
 
 from django.utils import timezone
 
+from posthog.models import Team
+from posthog.models.organization import Organization
 from posthog.models.utils import uuid7
 
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueFingerprintV2
 from products.error_tracking.backend.weekly_digest import (
+    auto_select_project_for_user,
     compute_week_over_week_change,
     get_crash_free_sessions,
     get_daily_exception_counts,
     get_exception_counts,
+    get_exception_counts_for_org,
     get_new_issues_for_team,
+    get_org_ids_with_exceptions,
     get_top_issues_for_team,
 )
 
@@ -260,6 +265,80 @@ class TestWeeklyDigest(ClickhouseTestMixin, APIBaseTest):
     def test_get_new_issues_empty_when_none(self):
         result = get_new_issues_for_team(self.team)
         assert result == []
+
+    def test_get_org_ids_with_exceptions(self):
+        issue = self._create_issue()
+        self._create_exception_event(issue_id=issue.id)
+        flush_persons_and_events()
+
+        org_ids = get_org_ids_with_exceptions()
+
+        assert self.team.organization_id in org_ids
+
+    def test_get_org_ids_with_exceptions_empty(self):
+        org_ids = get_org_ids_with_exceptions()
+        assert org_ids == []
+
+    def test_get_exception_counts_for_org(self):
+        issue = self._create_issue()
+        for _ in range(3):
+            self._create_exception_event(issue_id=issue.id)
+        flush_persons_and_events()
+
+        result = get_exception_counts_for_org(self.team.organization.id)
+
+        assert self.team.pk in result
+        assert result[self.team.pk]["exception_count"] == 3
+
+    def test_get_exception_counts_for_org_excludes_other_orgs(self):
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        issue = self._create_issue()
+        self._create_exception_event(issue_id=issue.id)
+        flush_persons_and_events()
+
+        result = get_exception_counts_for_org(self.team.organization.id)
+
+        assert other_team.pk not in result
+
+    def test_auto_select_project_picks_busiest(self):
+        team_b = Team.objects.create(organization=self.organization, name="Team B")
+
+        team_exception_counts = {
+            self.team.pk: {"exception_count": 5, "ingestion_failure_count": 0, "prev_exception_count": 0},
+            team_b.pk: {"exception_count": 15, "ingestion_failure_count": 0, "prev_exception_count": 0},
+        }
+
+        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
+        self.user.refresh_from_db()
+
+        settings = self.user.notification_settings
+        project_enabled = settings.get("error_tracking_weekly_digest_project_enabled", {})
+        assert str(self.team.pk) not in project_enabled
+        assert project_enabled[str(team_b.pk)] is True
+
+    def test_auto_select_project_skips_if_already_configured(self):
+        self.user.partial_notification_settings = {
+            "error_tracking_weekly_digest_project_enabled": {str(self.team.pk): True},
+        }
+        self.user.save()
+
+        team_exception_counts = {
+            self.team.pk: {"exception_count": 5, "ingestion_failure_count": 0, "prev_exception_count": 0},
+        }
+
+        auto_select_project_for_user(self.user, self.organization.id, team_exception_counts)
+        self.user.refresh_from_db()
+
+        settings = self.user.notification_settings
+        assert settings["error_tracking_weekly_digest_project_enabled"] == {str(self.team.pk): True}
+
+    def test_auto_select_project_noop_when_no_exceptions(self):
+        auto_select_project_for_user(self.user, self.organization.id, {})
+        self.user.refresh_from_db()
+
+        assert "error_tracking_weekly_digest_project_enabled" not in (self.user.partial_notification_settings or {})
 
 
 class TestComputeWeekOverWeekChange:

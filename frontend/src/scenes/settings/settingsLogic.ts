@@ -238,8 +238,21 @@ export const settingsLogic = kea<settingsLogicType>([
             },
         ],
         sections: [
-            (s) => [s.doesMatchFlags, s.isCloudOrDev, s.currentTeam, s.organizationIntegrations],
-            (doesMatchFlags, isCloudOrDev, currentTeam, organizationIntegrations): SettingSection[] => {
+            (s) => [s.doesMatchFlags, s.isCloudOrDev, s.currentTeam, s.organizationIntegrations, s.preflight],
+            (doesMatchFlags, isCloudOrDev, currentTeam, organizationIntegrations, preflight): SettingSection[] => {
+                const isSettingVisible = (setting: Setting): boolean => {
+                    if (!doesMatchFlags(setting)) {
+                        return false
+                    }
+                    if (setting.hideOn?.includes(Realm.Cloud) && preflight?.cloud) {
+                        return false
+                    }
+                    if (setting.allowForTeam && !setting.allowForTeam(currentTeam)) {
+                        return false
+                    }
+                    return true
+                }
+
                 const sections = SETTINGS_MAP.filter(doesMatchFlags).filter((section) => {
                     if (section.hideSelfHost && !isCloudOrDev) {
                         return false
@@ -275,6 +288,10 @@ export const settingsLogic = kea<settingsLogicType>([
                             id: setting.id.replace('environment-', 'project-') as SettingId,
                         })),
                     }))
+                    .filter(
+                        (section) =>
+                            section.to || section.settings.length === 0 || section.settings.some(isSettingVisible)
+                    )
             },
         ],
         selectedLevel: [

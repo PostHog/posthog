@@ -1,4 +1,4 @@
-import { DynamoDBClient } from '@aws-sdk/client-dynamodb'
+import { ConditionalCheckFailedException, DynamoDBClient } from '@aws-sdk/client-dynamodb'
 import { KMSClient } from '@aws-sdk/client-kms'
 
 import { RetentionService } from '../retention/retention-service'
@@ -56,7 +56,7 @@ describe('DynamoDBKeyStore', () => {
     })
 
     describe('generateKey', () => {
-        it('should generate a new key and store it in DynamoDB', async () => {
+        it('should generate a new key and store it in DynamoDB with condition expression', async () => {
             const result = await keyStore.generateKey('session-123', 1)
 
             expect(mockKMSClient.send).toHaveBeenCalledTimes(1)
@@ -66,9 +66,42 @@ describe('DynamoDBKeyStore', () => {
             expect(dynamoCall.input.TableName).toBe('session-recording-keys')
             expect(dynamoCall.input.Item.session_id).toEqual({ S: 'session-123' })
             expect(dynamoCall.input.Item.team_id).toEqual({ N: '1' })
+            expect(dynamoCall.input.ConditionExpression).toBe('attribute_not_exists(session_id)')
 
             expect(result.plaintextKey).toEqual(Buffer.from(mockPlaintextKey))
             expect(result.encryptedKey).toEqual(Buffer.from(mockEncryptedKey))
+        })
+
+        it('should return existing key when session already has a key in DynamoDB', async () => {
+            const existingEncryptedKey = new Uint8Array([201, 202, 203])
+            const existingPlaintextKey = new Uint8Array([
+                11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26,
+            ])
+
+            ;(mockDynamoDBClient.send as jest.Mock)
+                // First call: PutItem fails with ConditionalCheckFailedException
+                .mockRejectedValueOnce(
+                    new ConditionalCheckFailedException({ message: 'Key already exists', $metadata: {} })
+                )
+                // Second call: GetItem returns the existing key
+                .mockResolvedValueOnce({
+                    Item: {
+                        session_id: { S: 'session-123' },
+                        team_id: { N: '1' },
+                        encrypted_key: { B: existingEncryptedKey },
+                        session_state: { S: 'ciphertext' },
+                    },
+                })
+            // KMS decrypt for the existing key
+            ;(mockKMSClient.send as jest.Mock)
+                .mockResolvedValueOnce({ Plaintext: mockPlaintextKey, CiphertextBlob: mockEncryptedKey })
+                .mockResolvedValueOnce({ Plaintext: existingPlaintextKey })
+
+            const result = await keyStore.generateKey('session-123', 1)
+
+            expect(result.plaintextKey).toEqual(Buffer.from(existingPlaintextKey))
+            expect(result.encryptedKey).toEqual(Buffer.from(existingEncryptedKey))
+            expect(result.sessionState).toBe('ciphertext')
         })
 
         it('should calculate expiration based on retention days', async () => {

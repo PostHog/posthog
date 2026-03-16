@@ -5,7 +5,6 @@ import { Properties } from '~/plugin-scaffold'
 import { TopicMessage } from '../../../../kafka/producer'
 import {
     InternalPerson,
-    PersonPropertyFilter,
     PersonUpdateFields,
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
@@ -28,14 +27,6 @@ export interface RawPostgresPersonRepository {
         teamPersons: { teamId: TeamId; distinctId: string }[],
         useReadReplica?: boolean
     ): Promise<InternalPersonWithDistinctId[]>
-
-    countPersonsByProperties(teamPersons: { teamId: TeamId; properties: PersonPropertyFilter[] }): Promise<number>
-
-    fetchPersonsByProperties(teamPersons: {
-        teamId: TeamId
-        properties: PersonPropertyFilter[]
-        options?: { limit?: number; offset?: number }
-    }): Promise<InternalPersonWithDistinctId[]>
 
     createPerson(
         createdAt: DateTime,

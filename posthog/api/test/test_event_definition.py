@@ -137,7 +137,21 @@ class TestEventDefinitionAPI(APIBaseTest):
         mock_capture.assert_called_once_with(
             distinct_id=self.user.distinct_id,
             event="event definition deleted",
-            properties={"name": "test_event"},
+            properties={
+                "source": ANY,
+                "$current_url": ANY,
+                "$host": ANY,
+                "$pathname": ANY,
+                "$session_id": ANY,
+                "was_impersonated": ANY,
+                "mcp_user_agent": ANY,
+                "mcp_client_name": ANY,
+                "mcp_client_version": ANY,
+                "mcp_protocol_version": ANY,
+                "mcp_oauth_client_name": ANY,
+                "$set_once": ANY,
+                "name": "test_event",
+            },
             groups={
                 "instance": ANY,
                 "organization": str(self.organization.id),
@@ -227,6 +241,43 @@ class TestEventDefinitionAPI(APIBaseTest):
         assert response.json()["count"] == 1
         for item in response.json()["results"]:
             assert item["name"] in ["watched_movie"]
+
+    @parameterized.expand(
+        [
+            ("shorter match first for 'app'", "app", ["rated_app", "installed_app"]),
+            ("shorter match first for uppercase 'APP'", "APP", ["rated_app", "installed_app"]),
+            ("shorter match first for encoded ' app '", "%20app%20", ["rated_app", "installed_app"]),
+            (
+                "multiple matches sorted by length for 'ed'",
+                "ed",
+                ["rated_app", "installed_app", "watched_movie", "entered_free_trial"],
+            ),
+        ]
+    )
+    def test_search_results_ordered_by_name_length(
+        self, _name: str, search_term: str, expected_names: list[str]
+    ) -> None:
+        response = self.client.get(f"/api/projects/@current/event_definitions/?search={search_term}")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+        assert result_names == expected_names
+
+    def test_search_keeps_explicit_ordering(self) -> None:
+        response = self.client.get("/api/projects/@current/event_definitions/?search=app&ordering=name")
+        assert response.status_code == status.HTTP_200_OK
+        result_names = [r["name"] for r in response.json()["results"]]
+        assert result_names == ["installed_app", "rated_app"]
+
+    def test_whitespace_search_does_not_change_default_ordering(self) -> None:
+        default_response = self.client.get("/api/projects/@current/event_definitions/")
+        assert default_response.status_code == status.HTTP_200_OK
+        default_names = [r["name"] for r in default_response.json()["results"]]
+
+        whitespace_search_response = self.client.get("/api/projects/@current/event_definitions/?search=%20%20")
+        assert whitespace_search_response.status_code == status.HTTP_200_OK
+        whitespace_search_names = [r["name"] for r in whitespace_search_response.json()["results"]]
+
+        assert whitespace_search_names == default_names
 
     def test_event_type_event(self):
         action = Action.objects.create(team=self.demo_team, name="action1_app")

@@ -713,6 +713,8 @@ class PluginConfigSerializer(serializers.ModelSerializer):
                     "plugin_id": validated_data["plugin"].id,
                     "team_id": self.context["team_id"],
                 },
+                team=hog_function.team,
+                request=self.context["request"],
             )
             # Return plugin config without saving if hog function was created successfully
             return PluginConfig(**validated_data)

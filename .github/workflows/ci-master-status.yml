@@ -114,10 +114,13 @@ jobs:
 
             - name: Save Slack info to state
               if: steps.process.outputs.action == 'create'
+              env:
+                  SLACK_CHANNEL_ID: ${{ steps.slack_new.outputs.channel_id }}
+                  SLACK_TS: ${{ steps.slack_new.outputs.ts }}
               run: |
                   jq \
-                    --arg channel "${{ steps.slack_new.outputs.channel_id }}" \
-                    --arg ts "${{ steps.slack_new.outputs.ts }}" \
+                    --arg channel "$SLACK_CHANNEL_ID" \
+                    --arg ts "$SLACK_TS" \
                     '. + {channel: $channel, ts: $ts}' \
                     .master-ci-incident > .master-ci-incident.tmp
                   mv .master-ci-incident.tmp .master-ci-incident
@@ -185,8 +188,10 @@ jobs:
             - name: Calculate duration
               if: steps.process.outputs.resolved == 'true'
               id: duration
+              env:
+                  INCIDENT_SINCE: ${{ steps.process.outputs.since }}
               run: |
-                  since="${{ steps.process.outputs.since }}"
+                  since="$INCIDENT_SINCE"
                   now=$(date +%s)
                   then=$(date -d "$since" +%s 2>/dev/null || date -j -f "%Y-%m-%dT%H:%M:%SZ" "$since" +%s 2>/dev/null || echo "$now")
                   mins=$(( (now - then) / 60 ))

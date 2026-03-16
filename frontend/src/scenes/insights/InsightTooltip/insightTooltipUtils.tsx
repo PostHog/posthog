@@ -47,11 +47,14 @@ export interface TooltipConfig {
     renderCount?: (value: number) => React.ReactNode
     showHeader?: boolean
     hideColorCol?: boolean
+    hideInspectActorsSection?: boolean
+    inspectLabel?: string
+    getInspectLabel?: (referenceDatum: SeriesDatum | undefined) => string
     groupTypeLabel?: string
     filter?: (s: SeriesDatum) => boolean
 }
 
-export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' | 'renderCount'> {
+export interface InsightTooltipProps extends Omit<TooltipConfig, 'renderSeries' | 'renderCount' | 'getInspectLabel'> {
     renderSeries: Required<TooltipConfig>['renderSeries']
     renderCount: Required<TooltipConfig>['renderCount']
     /**
@@ -125,7 +128,7 @@ function formatDateRange(startDate: dayjs.Dayjs, endDate: dayjs.Dayjs): string {
 }
 
 export function getFormattedDate(input?: string | number, options?: FormattedDateOptions): string {
-    const defaultOptions = {
+    const defaultOptions: FormattedDateOptions = {
         interval: 'day',
         timezone: 'UTC',
         weekStartDay: 0, // Default to Sunday

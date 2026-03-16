@@ -36,7 +36,7 @@ describe('CdpCyclotronWorker', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub)
-        processor = new CdpCyclotronWorker(hub)
+        processor = new CdpCyclotronWorker(hub, hub)
 
         fn = await insertHogFunction(
             hub.postgres,
