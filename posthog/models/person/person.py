@@ -206,7 +206,7 @@ class Person(models.Model):
     def distinct_ids(self) -> list[str]:
         if hasattr(self, "distinct_ids_cache"):
             return [id.distinct_id for id in self.distinct_ids_cache]
-        if hasattr(self, "_distinct_ids") and self._distinct_ids:
+        if hasattr(self, "_distinct_ids") and self._distinct_ids is not None:
             return self._distinct_ids
         return [
             id[0]

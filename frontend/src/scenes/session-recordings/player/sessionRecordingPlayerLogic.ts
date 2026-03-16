@@ -19,6 +19,13 @@ import posthog from 'posthog-js'
 import { RefObject } from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
+import {
+    AudioMuteReplayerPlugin,
+    COMMON_REPLAYER_CONFIG,
+    CanvasReplayerPlugin,
+    CorsPlugin,
+    HLSPlayerPlugin,
+} from '@posthog/replay-shared'
 import { ReplayPlugin, Replayer, playerConfig } from '@posthog/rrweb'
 import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-types'
 
@@ -48,11 +55,9 @@ import { sessionRecordingEventUsageLogic } from '../sessionRecordingEventUsageLo
 import { playerCommentOverlayLogic } from './commenting/playerFrameCommentOverlayLogic'
 import { playerCommentOverlayLogicType } from './commenting/playerFrameCommentOverlayLogicType'
 import { playerSettingsLogic } from './playerSettingsLogic'
-import { BuiltLogging, COMMON_REPLAYER_CONFIG, CorsPlugin, HLSPlayerPlugin, makeLogger, makeNoOpLogger } from './rrweb'
-import { AudioMuteReplayerPlugin } from './rrweb/audio/audio-mute-plugin'
-import { CanvasReplayerPlugin } from './rrweb/canvas/canvas-plugin'
 import type { sessionRecordingPlayerLogicType } from './sessionRecordingPlayerLogicType'
 import { snapshotDataLogic } from './snapshotDataLogic'
+import { BuiltLogging, makeLogger, makeNoOpLogger } from './utils/player-logging'
 import { deleteRecording } from './utils/playerUtils'
 import { initialFrameState, resolveFrameTimestamp } from './utils/resolve-frame-timestamp'
 import { shouldUpdatePlaybackPosition } from './utils/snapshot-sync'
@@ -1213,7 +1218,11 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 plugins.push(CorsPlugin)
             }
 
-            plugins.push(CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId]))
+            plugins.push(
+                CanvasReplayerPlugin(values.sessionPlayerData.snapshotsByWindowId[windowId], (error) =>
+                    posthog.captureException(error)
+                )
+            )
             plugins.push(AudioMuteReplayerPlugin(values.isMuted))
 
             // we override the console in the player, with one which stores its data instead of logging

@@ -76,6 +76,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -113,6 +116,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -167,12 +173,17 @@ jobs:
               continue-on-error: true
 
             - name: Stop/Start stack with Docker Compose
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: dev_tools,localstack
               run: |
-                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile localstack down
-                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile localstack up -d
+                  bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: dev_tools,localstack
+              run: bin/ci-wait-for-docker wait
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
@@ -227,7 +238,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Download MaxMind Database
               run: |

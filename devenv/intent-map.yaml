@@ -63,6 +63,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: [temporal]
 
+    recording_rasterizer:
+        description: 'Temporal worker that records session replays to video'
+        requires: [temporal_workflows]
+        docker_profiles: []
+
     dagster_pipelines:
         description: 'Dagster data pipeline orchestration'
         requires: [core_infra]
@@ -179,6 +184,7 @@ intents:
                 celery_workers,
                 temporal_workflows,
                 nodejs_session_replay,
+                recording_rasterizer,
             ]
 
     feature_flags:
@@ -194,7 +200,9 @@ intents:
                 property_definitions,
                 celery_workers,
                 nodejs_feature_flags,
+                nodejs_cdp,
                 dagster_pipelines,
+                temporal_workflows,
             ]
 
     llm_analytics:

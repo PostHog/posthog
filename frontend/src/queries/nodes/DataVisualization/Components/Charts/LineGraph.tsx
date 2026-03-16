@@ -27,6 +27,8 @@ import {
     TickOptions,
     TooltipModel,
 } from 'lib/Chart'
+import { resolveVariableColor } from 'lib/charts/utils/color'
+import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -36,8 +38,6 @@ import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hexToRGBA, uuid } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
-import { createXAxisTickCallback } from 'scenes/insights/views/LineGraph/formatXAxisTick'
-import { resolveVariableColor } from 'scenes/insights/views/LineGraph/LineGraph'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ChartSettings, GoalLine, YAxisSettings } from '~/queries/schema/schema-general'
@@ -133,7 +133,7 @@ export const LineGraph = ({
     goalLines = [],
     className,
 }: LineGraphProps): JSX.Element => {
-    const { tooltipId, getTooltip, positionTooltip } = useInsightTooltip()
+    const { tooltipId, getTooltip, showTooltip, hideTooltip, positionTooltip } = useInsightTooltip()
     const { ref: containerRef, height } = useResizeObserver()
 
     const logicKey = useMemo(() => uuid(), [])
@@ -412,13 +412,13 @@ export const LineGraph = ({
 
                             const [tooltipRoot, tooltipEl] = getTooltip()
                             if (tooltip.opacity === 0) {
-                                tooltipEl.style.opacity = '0'
+                                hideTooltip()
                                 return
                             }
 
                             tooltipEl.classList.remove('above', 'below', 'no-transform')
                             tooltipEl.classList.add(tooltip.yAlign || 'no-transform')
-                            tooltipEl.style.opacity = '1'
+                            showTooltip()
 
                             if (tooltip.body) {
                                 const referenceDataPoint = tooltip.dataPoints[0]

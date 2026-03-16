@@ -14,11 +14,11 @@ from temporalio.common import RetryPolicy
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.batch_exports.service import BaseBatchExportInputs, BatchExportInsertInputs, BatchExportModel
 from posthog.models import BatchExport, BatchExportDestination
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.tests.utils.models import afetch_batch_export_runs
 
+from products.batch_exports.backend.service import BaseBatchExportInputs, BatchExportInsertInputs, BatchExportModel
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     finish_batch_export_run,
@@ -56,7 +56,7 @@ async def batch_export(
     await destination.adelete()
 
 
-@pytest.fixture(params=["hour", "day", "week", "every 5 minutes"])
+@pytest.fixture(params=["hour", "day", "week", "every 5 minutes", "every 15 minutes"])
 def interval(request):
     return request.param
 

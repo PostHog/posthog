@@ -14,18 +14,6 @@ tools:
     error-tracking-assignment-rules-create:
         operation: error_tracking_assignment_rules_create
         enabled: false
-    error-tracking-assignment-rules-retrieve:
-        operation: error_tracking_assignment_rules_retrieve
-        enabled: false
-    error-tracking-assignment-rules-update:
-        operation: error_tracking_assignment_rules_update
-        enabled: false
-    error-tracking-assignment-rules-partial-update:
-        operation: error_tracking_assignment_rules_partial_update
-        enabled: false
-    error-tracking-assignment-rules-destroy:
-        operation: error_tracking_assignment_rules_destroy
-        enabled: false
     error-tracking-assignment-rules-reorder-partial-update:
         operation: error_tracking_assignment_rules_reorder_partial_update
         enabled: false
@@ -34,18 +22,6 @@ tools:
         enabled: false
     error-tracking-external-references-create:
         operation: error_tracking_external_references_create
-        enabled: false
-    error-tracking-external-references-retrieve:
-        operation: error_tracking_external_references_retrieve
-        enabled: false
-    error-tracking-external-references-update:
-        operation: error_tracking_external_references_update
-        enabled: false
-    error-tracking-external-references-partial-update:
-        operation: error_tracking_external_references_partial_update
-        enabled: false
-    error-tracking-external-references-destroy:
-        operation: error_tracking_external_references_destroy
         enabled: false
     error-tracking-fingerprints-list:
         operation: error_tracking_fingerprints_list
@@ -67,18 +43,6 @@ tools:
         enabled: false
     error-tracking-grouping-rules-create:
         operation: error_tracking_grouping_rules_create
-        enabled: false
-    error-tracking-grouping-rules-retrieve:
-        operation: error_tracking_grouping_rules_retrieve
-        enabled: false
-    error-tracking-grouping-rules-update:
-        operation: error_tracking_grouping_rules_update
-        enabled: false
-    error-tracking-grouping-rules-partial-update:
-        operation: error_tracking_grouping_rules_partial_update
-        enabled: false
-    error-tracking-grouping-rules-destroy:
-        operation: error_tracking_grouping_rules_destroy
         enabled: false
     error-tracking-grouping-rules-reorder-partial-update:
         operation: error_tracking_grouping_rules_reorder_partial_update
@@ -206,18 +170,6 @@ tools:
     error-tracking-suppression-rules-create:
         operation: error_tracking_suppression_rules_create
         enabled: false
-    error-tracking-suppression-rules-retrieve:
-        operation: error_tracking_suppression_rules_retrieve
-        enabled: false
-    error-tracking-suppression-rules-update:
-        operation: error_tracking_suppression_rules_update
-        enabled: false
-    error-tracking-suppression-rules-partial-update:
-        operation: error_tracking_suppression_rules_partial_update
-        enabled: false
-    error-tracking-suppression-rules-destroy:
-        operation: error_tracking_suppression_rules_destroy
-        enabled: false
     error-tracking-suppression-rules-reorder-partial-update:
         operation: error_tracking_suppression_rules_reorder_partial_update
         enabled: false
@@ -250,4 +202,52 @@ tools:
         enabled: false
     error-tracking-symbol-sets-start-upload-create:
         operation: error_tracking_symbol_sets_start_upload_create
+        enabled: false
+    error-tracking-assignment-rules-retrieve:
+        operation: error_tracking_assignment_rules_retrieve
+        enabled: false
+    error-tracking-assignment-rules-update:
+        operation: error_tracking_assignment_rules_update
+        enabled: false
+    error-tracking-assignment-rules-partial-update:
+        operation: error_tracking_assignment_rules_partial_update
+        enabled: false
+    error-tracking-assignment-rules-destroy:
+        operation: error_tracking_assignment_rules_destroy
+        enabled: false
+    error-tracking-external-references-retrieve:
+        operation: error_tracking_external_references_retrieve
+        enabled: false
+    error-tracking-external-references-update:
+        operation: error_tracking_external_references_update
+        enabled: false
+    error-tracking-external-references-partial-update:
+        operation: error_tracking_external_references_partial_update
+        enabled: false
+    error-tracking-external-references-destroy:
+        operation: error_tracking_external_references_destroy
+        enabled: false
+    error-tracking-grouping-rules-retrieve:
+        operation: error_tracking_grouping_rules_retrieve
+        enabled: false
+    error-tracking-grouping-rules-update:
+        operation: error_tracking_grouping_rules_update
+        enabled: false
+    error-tracking-grouping-rules-partial-update:
+        operation: error_tracking_grouping_rules_partial_update
+        enabled: false
+    error-tracking-grouping-rules-destroy:
+        operation: error_tracking_grouping_rules_destroy
+        enabled: false
+    error-tracking-suppression-rules-retrieve:
+        operation: error_tracking_suppression_rules_retrieve
+        enabled: false
+    error-tracking-suppression-rules-update:
+        operation: error_tracking_suppression_rules_update
+        enabled: false
+    error-tracking-suppression-rules-partial-update:
+        operation: error_tracking_suppression_rules_partial_update
+        enabled: false
+    error-tracking-suppression-rules-destroy:
+        operation: error_tracking_suppression_rules_destroy
         enabled: false

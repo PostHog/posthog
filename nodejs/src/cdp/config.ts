@@ -52,9 +52,6 @@ export type CdpConfig = {
     CDP_FETCH_BACKOFF_BASE_MS: number
     CDP_FETCH_BACKOFF_MAX_MS: number
     CDP_OVERFLOW_QUEUE_ENABLED: boolean
-    OUTBOUND_PROXY_URL: string
-    OUTBOUND_PROXY_ENABLED: boolean
-
     HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: string
     HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: string
 
@@ -63,16 +60,7 @@ export type CdpConfig = {
     // Cyclotron (CDP job queue)
     CYCLOTRON_DATABASE_URL: string
     CYCLOTRON_SHARD_DEPTH_LIMIT: number
-    CYCLOTRON_SHADOW_DATABASE_URL?: string
-    CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: boolean
     CYCLOTRON_NODE_DATABASE_URL?: string
-    CDP_CYCLOTRON_TEST_SEEK_LATENCY: boolean
-    CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: number
-    CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: number
-    CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: number
-    CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: number
-    CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: string
-
     // SES (Workflows email sending)
     SES_ENDPOINT: string
     SES_ACCESS_KEY_ID: string
@@ -157,9 +145,6 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_FETCH_BACKOFF_BASE_MS: 1000,
         CDP_FETCH_BACKOFF_MAX_MS: 30000,
         CDP_OVERFLOW_QUEUE_ENABLED: false,
-        OUTBOUND_PROXY_URL: '',
-        OUTBOUND_PROXY_ENABLED: false,
-
         HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC: KAFKA_APP_METRICS_2,
         HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC: KAFKA_LOG_ENTRIES,
 
@@ -170,23 +155,11 @@ export function getDefaultCdpConfig(): CdpConfig {
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron'
             : 'postgres://posthog:posthog@localhost:5432/cyclotron',
         CYCLOTRON_SHARD_DEPTH_LIMIT: 1000000,
-        CYCLOTRON_SHADOW_DATABASE_URL: isTestEnv()
-            ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_shadow'
-            : isDevEnv()
-              ? 'postgres://posthog:posthog@localhost:5432/cyclotron_shadow'
-              : undefined,
-        CDP_CYCLOTRON_SHADOW_WRITE_ENABLED: false,
         CYCLOTRON_NODE_DATABASE_URL: isTestEnv()
             ? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
             : isDevEnv()
               ? 'postgres://posthog:posthog@localhost:5432/cyclotron_node'
               : undefined,
-        CDP_CYCLOTRON_TEST_SEEK_LATENCY: false,
-        CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET: 50_000_000,
-        CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT: 500,
-        CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT: 10,
-        CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE: 50,
-        CDP_CYCLOTRON_WARPSTREAM_HTTP_URL: '',
 
         // SES
         SES_ENDPOINT: isTestEnv() || isDevEnv() ? 'http://localhost:4566' : '',

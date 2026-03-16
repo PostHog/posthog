@@ -6,9 +6,9 @@ import { EventType, IncrementalSource, eventWithTime } from '@posthog/rrweb-type
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { playerSettingsLogic } from 'scenes/session-recordings/player/playerSettingsLogic'
-import { makeLogger } from 'scenes/session-recordings/player/rrweb'
 import { sessionRecordingDataCoordinatorLogic } from 'scenes/session-recordings/player/sessionRecordingDataCoordinatorLogic'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
+import { makeLogger } from 'scenes/session-recordings/player/utils/player-logging'
 import { urls } from 'scenes/urls'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'

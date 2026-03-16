@@ -14,27 +14,16 @@ import { logger } from '../../../utils/logger'
 import { CdpConfig } from '../../config'
 import { CyclotronJobInvocation, CyclotronJobInvocationResult, CyclotronJobQueueKind } from '../../types'
 import { cdpJobSizeCompressedKb, cdpJobSizeKb } from './shared'
-import { WarpstreamFetchTester } from './warpstream-fetch-tester'
 
 export class CyclotronJobQueueKafka {
     private kafkaConsumer?: KafkaConsumer
     private kafkaProducer?: KafkaProducerWrapper
-    private fetchTester?: WarpstreamFetchTester
     private queue?: CyclotronJobQueueKind
     private consumeBatch?: (invocations: CyclotronJobInvocation[]) => Promise<{ backgroundTask: Promise<any> }>
 
     constructor(
         private kafkaClientRack: string | undefined,
-        private config: Pick<
-            CdpConfig,
-            | 'CDP_CYCLOTRON_TEST_SEEK_LATENCY'
-            | 'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA'
-            | 'CDP_CYCLOTRON_WARPSTREAM_HTTP_URL'
-            | 'CDP_CYCLOTRON_TEST_SEEK_MAX_OFFSET'
-            | 'CDP_CYCLOTRON_TEST_FETCH_INDIVIDUAL_COUNT'
-            | 'CDP_CYCLOTRON_TEST_FETCH_BATCH_COUNT'
-            | 'CDP_CYCLOTRON_TEST_FETCH_BATCH_SIZE'
-        >
+        private config: Pick<CdpConfig, 'CDP_CYCLOTRON_COMPRESS_KAFKA_DATA'>
     ) {}
 
     /**
@@ -63,23 +52,6 @@ export class CyclotronJobQueueKafka {
             const { backgroundTask } = await this.consumeKafkaBatch(messages)
             return { backgroundTask }
         })
-
-        if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
-            if (this.config.CDP_CYCLOTRON_TEST_SEEK_LATENCY) {
-                try {
-                    this.fetchTester = new WarpstreamFetchTester(this.config)
-                    this.fetchTester.start()
-                    logger.info('🔄', 'WarpStream fetch tester initialized')
-                } catch (error) {
-                    logger.warn('🔄', 'Failed to initialize WarpStream fetch tester', {
-                        error: String(error),
-                    })
-                    this.fetchTester = undefined
-                }
-            }
-
-            logger.info('🔄', 'WarpStream fetch tester initialized')
-        }
     }
 
     public async stopConsumer() {
@@ -184,14 +156,6 @@ export class CyclotronJobQueueKafka {
 
             invocation.queueSource = 'kafka' // NOTE: We always set this here, as we know it came from kafka
             invocations.push(invocation)
-        }
-
-        if (this.fetchTester) {
-            try {
-                await this.fetchTester.maybeMeasureFetchLatency(messages)
-            } catch (error) {
-                logger.warn('fetch_tester_error', { error: String(error) })
-            }
         }
 
         return await this.consumeBatch!(invocations)

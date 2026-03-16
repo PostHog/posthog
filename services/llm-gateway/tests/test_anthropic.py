@@ -14,6 +14,7 @@ DANGEROUS_PARAMS: list[tuple[str, str]] = [
     ("api_key", "sk-stolen-key"),
     ("api_base", "https://attacker.example.com"),
     ("base_url", "https://attacker.example.com"),
+    ("api_version", "2024-10-01"),
     ("organization", "org-attacker"),
 ]
 
@@ -221,6 +222,78 @@ class TestAnthropicMessagesEndpoint:
         )
 
     @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_model_list_not_forwarded_to_llm(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        body_with_model_list = {
+            **valid_request_body,
+            "model_list": [
+                {
+                    "model_name": "claude-3-5-sonnet-20241022",
+                    "litellm_params": {
+                        "model": "claude-3-5-sonnet-20241022",
+                        "api_base": "https://attacker.example.com",
+                        "api_key": "sk-stolen-key",
+                    },
+                }
+            ],
+        }
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=body_with_model_list,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_anthropic.call_args
+        assert "model_list" not in call_kwargs.kwargs
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
+    def test_nested_dangerous_params_sanitized(
+        self,
+        mock_anthropic: MagicMock,
+        authenticated_client: TestClient,
+        valid_request_body: dict,
+        mock_anthropic_response: dict,
+    ) -> None:
+        mock_response = MagicMock()
+        mock_response.model_dump = MagicMock(return_value=mock_anthropic_response)
+        mock_anthropic.return_value = mock_response
+
+        body_with_nested_injection = {
+            **valid_request_body,
+            "metadata": {
+                "safe": "value",
+                "api_key": "sk-stolen-key",
+                "nested": {
+                    "keep": "ok",
+                    "base_url": "https://attacker.example.com",
+                },
+            },
+        }
+        response = authenticated_client.post(
+            "/v1/messages",
+            json=body_with_nested_injection,
+            headers={"Authorization": "Bearer phx_test_key"},
+        )
+
+        assert response.status_code == 200
+        call_kwargs = mock_anthropic.call_args
+        forwarded_metadata = call_kwargs.kwargs["metadata"]
+        assert "api_key" not in forwarded_metadata
+        assert "base_url" not in forwarded_metadata["nested"]
+        assert forwarded_metadata["safe"] == "value"
+        assert forwarded_metadata["nested"]["keep"] == "ok"
+
+    @patch("llm_gateway.api.anthropic.litellm.anthropic_messages")
     def test_product_prefix_route(
         self,
         mock_anthropic: MagicMock,
@@ -395,6 +468,24 @@ class TestAnthropicCountTokensEndpoint:
             "messages": [{"role": "user", "content": "Hello"}],
             "api_key": "sk-stolen-key",
             "base_url": "https://attacker.example.com",
+            "model_list": [
+                {
+                    "model_name": "claude-3-5-sonnet-20241022",
+                    "litellm_params": {
+                        "model": "claude-3-5-sonnet-20241022",
+                        "api_base": "https://attacker.example.com",
+                        "api_key": "sk-stolen-key",
+                    },
+                }
+            ],
+            "metadata": {
+                "safe": "value",
+                "api_key": "sk-stolen-key",
+                "nested": {
+                    "keep": "ok",
+                    "base_url": "https://attacker.example.com",
+                },
+            },
         }
 
         response = authenticated_client.post(
@@ -408,6 +499,11 @@ class TestAnthropicCountTokensEndpoint:
         sent_json = call_kwargs[1]["json"]
         assert "api_key" not in sent_json
         assert "base_url" not in sent_json
+        assert "model_list" not in sent_json
+        assert "api_key" not in sent_json["metadata"]
+        assert "base_url" not in sent_json["metadata"]["nested"]
+        assert sent_json["metadata"]["safe"] == "value"
+        assert sent_json["metadata"]["nested"]["keep"] == "ok"
 
     @patch("llm_gateway.api.anthropic.get_settings")
     def test_missing_api_key_returns_503(
