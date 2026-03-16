@@ -6,6 +6,7 @@ import { LemonButton, LemonSegmentedButton, Link, Spinner, Tooltip } from '@post
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 import { urls } from 'scenes/urls'
 
@@ -180,14 +181,23 @@ function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: b
                         <span className="text-xs text-muted whitespace-nowrap tabular-nums">
                             {formatScore(sentiment.score)}
                         </span>
-                        <Link
-                            to={urls.llmAnalyticsTrace(traceId, { event: uuid, timestamp, msg: String(messageIndex) })}
-                            className="text-xs ml-1"
-                            data-attr="llma-sentiment-trace-link"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            View trace
-                        </Link>
+                        <span className="text-xs text-muted whitespace-nowrap ml-1">
+                            <TZLabel time={timestamp} />
+                        </span>
+                        <Tooltip title="View the trace with this user message expanded">
+                            <Link
+                                to={urls.llmAnalyticsTrace(traceId, {
+                                    event: uuid,
+                                    timestamp,
+                                    msg: String(messageIndex),
+                                })}
+                                className="text-xs ml-1"
+                                data-attr="llma-sentiment-trace-link"
+                                onClick={(e) => e.stopPropagation()}
+                            >
+                                View trace
+                            </Link>
+                        </Tooltip>
                     </div>
                 </div>
 
