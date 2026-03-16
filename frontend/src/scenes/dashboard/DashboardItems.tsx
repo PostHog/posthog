@@ -108,6 +108,7 @@ export function DashboardItems(): JSX.Element {
 
     const showDashboardGrid = useFeatureFlag('DASHBOARD_GRID')
     const showLayoutZoom = useFeatureFlag('DASHBOARD_LAYOUT_ZOOM')
+    const isLayoutZoomToggled = dashboardMode === DashboardMode.Edit && showLayoutZoom && layoutZoom !== 1
 
     const effectiveZoom = dashboardMode === DashboardMode.Edit && showLayoutZoom ? layoutZoom : 1
     const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
@@ -147,7 +148,7 @@ export function DashboardItems(): JSX.Element {
                             bounded: true,
                         }}
                         resizeConfig={{
-                            enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
+                            enabled: dashboardMode === DashboardMode.Edit && !isMobileView && !isLayoutZoomToggled,
                             handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'],
                         }}
                         layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
@@ -247,7 +248,10 @@ export function DashboardItems(): JSX.Element {
                             const commonTileProps = {
                                 dashboardId: dashboard?.id,
                                 showResizeHandles:
-                                    dashboardMode === DashboardMode.Edit && !isMobileView && isEditablePlacement,
+                                    dashboardMode === DashboardMode.Edit &&
+                                    !isMobileView &&
+                                    isEditablePlacement &&
+                                    !isLayoutZoomToggled,
                                 canEnterEditModeFromEdge,
                                 onEnterEditModeFromEdge: canEnterEditModeFromEdge
                                     ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
