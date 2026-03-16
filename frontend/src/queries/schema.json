@@ -620,6 +620,9 @@
                     "$ref": "#/definitions/DataWarehouseNode"
                 },
                 {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
                     "$ref": "#/definitions/LifecycleDataWarehouseNode"
                 }
             ]
@@ -634,6 +637,22 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<(DataWarehouseNode|FunnelsDataWarehouseNode)>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
                 }
             ]
         },
@@ -16674,6 +16693,87 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "FunnelsDataWarehouseNode": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "distinct_id_field": {
+                    "type": "string"
+                },
+                "dw_source_type": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "id_field": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "FunnelsDataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["distinct_id_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "FunnelsFilter": {
             "additionalProperties": false,
             "properties": {
@@ -16902,10 +17002,10 @@
                     "items": {
                         "anyOf": [
                             {
-                                "$ref": "#/definitions/AnyEntityNode"
+                                "$ref": "#/definitions/AnyEntityNode%3C(DataWarehouseNode%7CFunnelsDataWarehouseNode)%3E"
                             },
                             {
-                                "$ref": "#/definitions/GroupNode"
+                                "$ref": "#/definitions/GroupNode%3C(DataWarehouseNode%7CFunnelsDataWarehouseNode)%3E"
                             }
                         ]
                     },
@@ -17156,6 +17256,90 @@
                     "description": "Entities to combine in this group",
                     "items": {
                         "$ref": "#/definitions/AnyEntityNode%3CDataWarehouseNode%3E"
+                    },
+                    "type": "array"
+                },
+                "operator": {
+                    "$ref": "#/definitions/FilterLogicalOperator",
+                    "description": "Group of entities combined with AND/OR operator"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["kind", "nodes", "operator"],
+            "type": "object"
+        },
+        "GroupNode<(DataWarehouseNode|FunnelsDataWarehouseNode)>": {
+            "additionalProperties": false,
+            "properties": {
+                "custom_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "GroupNode",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nodes": {
+                    "description": "Entities to combine in this group",
+                    "items": {
+                        "$ref": "#/definitions/AnyEntityNode%3C(DataWarehouseNode%7CFunnelsDataWarehouseNode)%3E"
                     },
                     "type": "array"
                 },
@@ -22665,6 +22849,7 @@
                 "GroupNode",
                 "ActionsNode",
                 "DataWarehouseNode",
+                "FunnelsDataWarehouseNode",
                 "LifecycleDataWarehouseNode",
                 "EventsQuery",
                 "SessionsQuery",
@@ -28531,6 +28716,9 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
                 },
                 {
                     "$ref": "#/definitions/LifecycleDataWarehouseNode"
