@@ -229,7 +229,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
-        saveEarlyAccessFeatureFailure: ({ error }) => {
+        saveEarlyAccessFeatureFailure: ({ error: rawError }) => {
+            // kea-loaders types error as string but at runtime it's the API error object
+            const error = rawError as Record<string, any>
             // DRF returns field-level errors as { field_name: ["error message"] }
             if (error?.data && typeof error.data === 'object' && !error.detail) {
                 const fieldErrors = Object.entries(error.data)
