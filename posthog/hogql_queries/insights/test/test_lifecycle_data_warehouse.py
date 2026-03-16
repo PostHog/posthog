@@ -256,6 +256,7 @@ class TestLifecycleDataWarehouse(ClickhouseTestMixin, APIBaseTest):
                 "timestamp_field": "sent_at",
                 "aggregation_target_field": "users.person_id",
                 "created_at_field": "users.signed_up",
+                "id": "posthog_test_sent_messages",
             },
             results_by_status["new"]["action"],
         )
