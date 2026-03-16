@@ -1,11 +1,64 @@
+from unittest.mock import patch
+
 from rest_framework import status
 
 from posthog.models.experiment import Experiment, ExperimentToSavedMetric
+
+from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 
 from ee.api.test.base import APILicensedTest
 
 
 class TestExperimentSavedMetricsCRUD(APILicensedTest):
+    def test_http_saved_metric_validation_runs_once(self) -> None:
+        original_validate_query = ExperimentSavedMetricService.validate_query.__func__
+        validate_query_call_count = 0
+
+        def counting_validate_query(cls, query: dict | None) -> None:
+            nonlocal validate_query_call_count
+            validate_query_call_count += 1
+            original_validate_query(cls, query)
+
+        with patch.object(ExperimentSavedMetricService, "validate_query", classmethod(counting_validate_query)):
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+                data={
+                    "name": "Test Experiment saved metric",
+                    "query": {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(validate_query_call_count, 1)
+
+        saved_metric_id = create_response.json()["id"]
+        validate_query_call_count = 0
+
+        with patch.object(ExperimentSavedMetricService, "validate_query", classmethod(counting_validate_query)):
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}",
+                data={
+                    "query": {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageleave"}],
+                        },
+                    }
+                },
+                format="json",
+            )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(validate_query_call_count, 1)
+
     def test_can_list_experiment_saved_metrics(self):
         response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

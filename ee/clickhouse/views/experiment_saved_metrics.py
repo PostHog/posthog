@@ -65,10 +65,6 @@ class ExperimentSavedMetricSerializer(
             "user_access_level",
         ]
 
-    def validate_query(self, value):
-        ExperimentSavedMetricService.validate_query(value)
-        return value
-
     def create(self, validated_data):
         tags = validated_data.pop("tags", None)
         name = validated_data.pop("name")
