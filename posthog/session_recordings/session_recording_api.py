@@ -596,14 +596,18 @@ class SessionRecordingViewSet(
 
                     return response
         except CHQueryErrorTooManySimultaneousQueries:
-            SESSION_RECORDING_THROTTLED.labels(location="too_many_simultaneous_queries", is_personal_api_key=str(is_personal_api_key).lower()).inc()
+            SESSION_RECORDING_THROTTLED.labels(
+                location="too_many_simultaneous_queries", is_personal_api_key=str(is_personal_api_key).lower()
+            ).inc()
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
         except (ServerException, Exception) as e:
             if isinstance(e, exceptions.ValidationError):
                 raise
 
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
-                SESSION_RECORDING_THROTTLED.labels(location="query_timeout_exceeded", is_personal_api_key=str(is_personal_api_key).lower()).inc()
+                SESSION_RECORDING_THROTTLED.labels(
+                    location="query_timeout_exceeded", is_personal_api_key=str(is_personal_api_key).lower()
+                ).inc()
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
