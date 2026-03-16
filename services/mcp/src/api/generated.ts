@@ -11507,7 +11507,10 @@ export namespace Schemas {
     export interface EarlyAccessFeature {
       readonly id: string;
       readonly feature_flag: MinimalFeatureFlag;
-      /** @maxLength 200 */
+      /**
+       * The name of the early access feature.
+       * @maxLength 200
+       */
       name: string;
       description?: string;
       stage: StageEnum;
@@ -11519,7 +11522,10 @@ export namespace Schemas {
 
     export interface EarlyAccessFeatureSerializerCreateOnly {
       readonly id: string;
-      /** @maxLength 200 */
+      /**
+       * The name of the early access feature.
+       * @maxLength 200
+       */
       name: string;
       description?: string;
       stage: StageEnum;
@@ -20451,7 +20457,10 @@ export namespace Schemas {
     export interface PatchedEarlyAccessFeature {
       readonly id?: string;
       readonly feature_flag?: MinimalFeatureFlag;
-      /** @maxLength 200 */
+      /**
+       * The name of the early access feature.
+       * @maxLength 200
+       */
       name?: string;
       description?: string;
       stage?: StageEnum;

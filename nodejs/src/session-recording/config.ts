@@ -8,6 +8,7 @@ export type SessionRecordingApiConfig = {
     CLICKHOUSE_USER: string
     CLICKHOUSE_PASSWORD: string | undefined
     CLICKHOUSE_SECURE: boolean
+    CLICKHOUSE_CA: string | undefined
 }
 
 export type SessionRecordingConfig = {
