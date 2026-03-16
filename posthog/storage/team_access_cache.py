@@ -15,7 +15,7 @@ from posthog.models.personal_api_key import PersonalAPIKey
 
 logger = structlog.get_logger(__name__)
 
-# Cache key prefix
+# Cache key prefix (must match TOKEN_CACHE_PREFIX in rust/feature-flags/src/api/auth.rs)
 TOKEN_CACHE_PREFIX = "posthog:auth_token:"
 
 
@@ -51,11 +51,7 @@ class TokenAuthCache:
             logger.debug("Auth token cache entry not found", token_hash_prefix=token_hash[:12])
 
     def invalidate_user_tokens(self, user_id: int) -> None:
-        """Invalidate all cached tokens for a user via DB lookup."""
-        self._invalidate_user_tokens_from_db(user_id)
-
-    def _invalidate_user_tokens_from_db(self, user_id: int) -> None:
-        """Look up user's sha256 keys from DB and invalidate.
+        """Invalidate all cached tokens for a user via DB lookup.
 
         Rust caches all personal API keys under their sha256 hash.
         The sha256$ filter is a defensive guard against any legacy rows
