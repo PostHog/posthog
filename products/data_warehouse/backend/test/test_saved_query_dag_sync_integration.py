@@ -33,8 +33,8 @@ class TestSavedQueryDagSyncIntegration(APIBaseTest):
         assert node.saved_query is not None
         self.assertEqual(node.saved_query.name, "dag_sync_create_test")
         self.assertEqual(node.type, NodeType.VIEW)
-        assert node.dag_fk is not None
-        self.assertEqual(node.dag_fk.name, get_dag_id(self.team.id))
+        assert node.dag is not None
+        self.assertEqual(node.dag.name, get_dag_id(self.team.id))
 
     def test_update_saved_query_syncs_to_dag(self):
         # create

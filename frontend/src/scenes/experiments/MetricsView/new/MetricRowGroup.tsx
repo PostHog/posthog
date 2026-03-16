@@ -441,6 +441,9 @@ function CollapsibleBreakdownSection({
                                                                             isAlternatingRow={isAlternatingRow}
                                                                             isLastRow={isLastRow}
                                                                             isSecondary={false}
+                                                                            gradientSuffix={String(
+                                                                                breakdownResult.breakdown_value
+                                                                            )}
                                                                         />
                                                                     </tr>
                                                                 )

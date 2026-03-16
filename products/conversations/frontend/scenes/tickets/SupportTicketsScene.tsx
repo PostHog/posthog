@@ -462,7 +462,9 @@ export function SupportTicketsScene(): JSX.Element {
                     {
                         title: 'Channel',
                         key: 'channel',
-                        render: (_, ticket) => <ChannelsTag channel={ticket.channel_source} />,
+                        render: (_, ticket) => (
+                            <ChannelsTag channel={ticket.channel_source} detail={ticket.channel_detail} />
+                        ),
                     },
                     {
                         title: 'Tags',

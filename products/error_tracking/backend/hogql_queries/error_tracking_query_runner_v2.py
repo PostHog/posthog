@@ -10,6 +10,7 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
+from posthog.hogql.base import CTE
 
 from posthog.models.filters.mixins.utils import cached_property
 
@@ -29,14 +30,21 @@ class ErrorTrackingQueryV2Builder:
         self.date_to = date_to
 
     def build_query(self) -> ast.SelectQuery:
+        issue_ids_cte = CTE(
+            name="issue_ids",
+            expr=self._issue_ids_subquery(),
+            cte_type="subquery",
+        )
+
         return ast.SelectQuery(
+            ctes={"issue_ids": issue_ids_cte},
             select=self._outer_select_expressions(),
             select_from=ast.JoinExpr(
                 table=self._inner_subquery(),
                 alias="agg",
                 next_join=ast.JoinExpr(
                     join_type="INNER JOIN",
-                    table=ast.Field(chain=["system", "error_tracking_issues"]),
+                    table=self._issues_subquery(),
                     alias="issues",
                     constraint=ast.JoinConstraint(
                         constraint_type="ON",
@@ -60,7 +68,7 @@ class ErrorTrackingQueryV2Builder:
                         ),
                         next_join=ast.JoinExpr(
                             join_type="LEFT JOIN",
-                            table=ast.Field(chain=["system", "error_tracking_issue_assignments"]),
+                            table=self._assignments_subquery(),
                             alias="assignment",
                             constraint=ast.JoinConstraint(
                                 constraint_type="ON",
@@ -119,6 +127,43 @@ class ErrorTrackingQueryV2Builder:
             group_by=[ast.Field(chain=["id"])],
         )
 
+    def _issue_ids_subquery(self) -> ast.SelectQuery:
+        """Lightweight subquery returning distinct issue IDs matching event filters.
+
+        Used as an IN filter on Postgres-backed system tables so ClickHouse can
+        push the ID list down to Postgres instead of scanning the full team table.
+        """
+        return ast.SelectQuery(
+            select=[ast.Field(chain=["e", "issue_id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["events"]), alias="e"),
+            where=ast.And(exprs=build_event_where_exprs(self.query, self.date_from, self.date_to)),
+            group_by=[ast.Field(chain=["e", "issue_id"])],
+        )
+
+    @staticmethod
+    def _issue_ids_cte_ref() -> ast.SelectQuery:
+        """Reference to the issue_ids CTE."""
+        return ast.SelectQuery(
+            select=[ast.Field(chain=["issue_id"])],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["issue_ids"])),
+        )
+
+    def _issues_subquery(self) -> ast.SelectQuery:
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=["id"]),
+                ast.Field(chain=["status"]),
+                ast.Field(chain=["name"]),
+                ast.Field(chain=["description"]),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["system", "error_tracking_issues"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["id"]),
+                right=self._issue_ids_cte_ref(),
+            ),
+        )
+
     def _fingerprints_subquery(self) -> ast.SelectQuery:
         """Historical first_seen per issue, regardless of the queried date range."""
         return ast.SelectQuery(
@@ -127,7 +172,27 @@ class ErrorTrackingQueryV2Builder:
                 ast.Alias(alias="first_seen", expr=ast.Call(name="min", args=[ast.Field(chain=["first_seen"])])),
             ],
             select_from=ast.JoinExpr(table=ast.Field(chain=["system", "error_tracking_issue_fingerprints"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["issue_id"]),
+                right=self._issue_ids_cte_ref(),
+            ),
             group_by=[ast.Field(chain=["issue_id"])],
+        )
+
+    def _assignments_subquery(self) -> ast.SelectQuery:
+        return ast.SelectQuery(
+            select=[
+                ast.Field(chain=["issue_id"]),
+                ast.Field(chain=["user_id"]),
+                ast.Field(chain=["role_id"]),
+            ],
+            select_from=ast.JoinExpr(table=ast.Field(chain=["system", "error_tracking_issue_assignments"])),
+            where=ast.CompareOperation(
+                op=ast.CompareOperationOp.In,
+                left=ast.Field(chain=["issue_id"]),
+                right=self._issue_ids_cte_ref(),
+            ),
         )
 
     def _outer_select_expressions(self) -> list[ast.Expr]:

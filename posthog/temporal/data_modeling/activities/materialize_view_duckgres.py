@@ -90,7 +90,7 @@ def _get_shadow_input_objects(
 ) -> tuple[Team, Node, DataWarehouseSavedQuery]:
     team = Team.objects.get(id=inputs.team_id)
     node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_fk_id=inputs.dag_id
+        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
     if node.type == NodeType.TABLE or node.saved_query is None:
         raise ValueError(f"Node {node.name} is not materializable")
