@@ -321,7 +321,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                         disabled: isEmptyFolder,
                                         className: cn(
                                             'group/lemon-tree-button gap-[5px] min-w-0 pr-0 group-hover/lemon-tree-button-group:pr-[30px]',
-                                            'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3',
+                                            'relative z-1 focus-visible:bg-fill-button-tertiary-hover motion-safe:transition-[padding] duration-50 h-[var(--lemon-tree-button-height)] [&_.icon-shortcut]:size-3 -outline-offset-2',
                                             {
                                                 'bg-fill-button-tertiary-hover':
                                                     ((selectMode === 'folder-only' || selectMode === 'all') &&
@@ -503,6 +503,7 @@ const LemonTreeNode = forwardRef<HTMLDivElement, LemonTreeNodeProps>(
                                                                     opacity-0
                                                                     group-hover/lemon-tree-button-group:opacity-100
                                                                     data-[state=open]:opacity-100
+                                                                    -outline-offset-2
                                                                 "
                                                             >
                                                                 <IconEllipsis className="text-tertiary size-3 group-hover/lemon-tree-button-group:text-primary z-10" />
