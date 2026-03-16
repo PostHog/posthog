@@ -2080,7 +2080,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (mode || source) {
-                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source)
+                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source, values.layoutZoom)
             }
 
             if (mode !== DashboardMode.Edit) {
