@@ -7,6 +7,10 @@
         left 0.05s linear,
         top 0.05s linear,
         opacity 0.2s;
+
+    .table-subtext-click-to-inspect {
+        pointer-events: auto;
+    }
 }
 
 .InsightTooltip {
