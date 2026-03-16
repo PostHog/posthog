@@ -1718,3 +1718,183 @@ async fn test_flag_definitions_billing_limited_returns_402() {
     assert_eq!(body["type"], "quota_limited");
     assert_eq!(body["code"], "payment_required");
 }
+
+#[tokio::test]
+async fn test_flag_definitions_with_project_secret_api_key() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+
+    let raw_key = context
+        .create_project_secret_api_key(team.id, "Test Key", Some(vec!["feature_flag:read"]))
+        .await
+        .unwrap();
+
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {raw_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Response body: {}",
+        response.text().await.unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_flag_definitions_with_project_secret_api_key_wrong_team() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team1 = context.insert_new_team(None).await.unwrap();
+    let team2 = context.insert_new_team(None).await.unwrap();
+
+    // Create key for team2, but authenticate against team1's public token
+    let raw_key = context
+        .create_project_secret_api_key(team2.id, "Wrong Team Key", Some(vec!["feature_flag:read"]))
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team1.api_token
+        ))
+        .header("Authorization", format!("Bearer {raw_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 401);
+}
+
+#[tokio::test]
+async fn test_flag_definitions_with_project_secret_api_key_no_scopes() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+
+    // scopes = NULL means full access
+    let raw_key = context
+        .create_project_secret_api_key(team.id, "Full Access Key", None)
+        .await
+        .unwrap();
+
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {raw_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Response body: {}",
+        response.text().await.unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_flag_definitions_with_project_secret_api_key_wrong_scopes() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+
+    let raw_key = context
+        .create_project_secret_api_key(team.id, "Wrong Scopes Key", Some(vec!["insight:read"]))
+        .await
+        .unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {raw_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    // Key exists but wrong scopes — falls through to legacy, which also fails → 401
+    assert_eq!(response.status(), 401);
+}
+
+#[tokio::test]
+async fn test_flag_definitions_with_legacy_secret_token_fallback() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    // create_team_with_secret_token creates a legacy phs_ token on posthog_team
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Do NOT insert a project secret API key — the phs_ token should fall back to legacy
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Response body: {}",
+        response.text().await.unwrap()
+    );
+}
