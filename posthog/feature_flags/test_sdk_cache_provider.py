@@ -190,7 +190,7 @@ class TestSDKClientIntegration(SimpleTestCase):
         mock_hypercache.get_from_cache.return_value = updated_flags
         client._load_feature_flags()
 
-        flags_by_key: dict = client.feature_flags_by_key or {}
+        flags_by_key = client.feature_flags_by_key or {}
         assert flags_by_key["beta-feature"]["active"] is False
         assert len(client.feature_flags) == 1
 
