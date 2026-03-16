@@ -114,7 +114,9 @@ async def emit_subscription_delivery_outcome_events_activity(
     sub_to_team = await load_team_ids()
 
     for sub_id in inputs.succeeded_subscription_ids:
-        team_id = sub_to_team.get(sub_id, 0)
+        team_id = sub_to_team.get(sub_id)
+        if team_id is None:
+            continue
         posthoganalytics.capture(
             distinct_id=str(team_id),
             event="subscription_delivery_succeeded",
@@ -123,7 +125,9 @@ async def emit_subscription_delivery_outcome_events_activity(
 
     for failure in inputs.failed_deliveries:
         sub_id = failure["subscription_id"]
-        team_id = sub_to_team.get(sub_id, 0)
+        team_id = sub_to_team.get(sub_id)
+        if team_id is None:
+            continue
         posthoganalytics.capture(
             distinct_id=str(team_id),
             event="subscription_delivery_exhausted",

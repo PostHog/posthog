@@ -315,13 +315,21 @@ async def test_deliver_subscription_report_slack(
     assert mock_send_slack.call_count == 1
 
 
+@pytest.mark.parametrize(
+    "should_succeed,expected_succeeded,expected_exhausted",
+    [
+        (True, 1, 0),
+        (False, 0, 1),
+    ],
+    ids=["success", "failure"],
+)
 @patch("posthog.temporal.subscriptions.subscription_scheduling_workflow.posthoganalytics")
 @patch("ee.tasks.subscriptions.get_metric_meter")
 @patch("ee.tasks.subscriptions.send_email_subscription_report")
 @patch("ee.tasks.subscriptions.generate_assets_async")
 @freeze_time("2022-02-02T08:55:00.000Z")
 @pytest.mark.asyncio
-async def test_successful_deliveries_emit_succeeded_events(
+async def test_delivery_outcome_events(
     mock_gen_assets: MagicMock,
     mock_send_email: MagicMock,
     mock_metric_meter: MagicMock,
@@ -329,6 +337,9 @@ async def test_successful_deliveries_emit_succeeded_events(
     temporal_client: Client,
     team,
     user,
+    should_succeed: bool,
+    expected_succeeded: int,
+    expected_exhausted: int,
 ):
     insight = await sync_to_async(Insight.objects.create)(team=team, short_id="ev1234", name="Insight")
     asset = await sync_to_async(ExportedAsset.objects.create)(
@@ -336,6 +347,8 @@ async def test_successful_deliveries_emit_succeeded_events(
     )
 
     async def mock_generate_assets_async(subscription):
+        if not should_succeed:
+            raise Exception("OOM killed")
         return [insight], [asset]
 
     mock_gen_assets.side_effect = mock_generate_assets_async
@@ -370,74 +383,13 @@ async def test_successful_deliveries_emit_succeeded_events(
     succeeded_calls = [
         c for c in mock_posthog.capture.call_args_list if c.kwargs.get("event") == "subscription_delivery_succeeded"
     ]
-    assert len(succeeded_calls) == 1
-    assert succeeded_calls[0].kwargs["properties"]["subscription_id"] == sub.id
-
     exhausted_calls = [
         c for c in mock_posthog.capture.call_args_list if c.kwargs.get("event") == "subscription_delivery_exhausted"
     ]
-    assert len(exhausted_calls) == 0
-
-
-@patch("posthog.temporal.subscriptions.subscription_scheduling_workflow.posthoganalytics")
-@patch("ee.tasks.subscriptions.get_metric_meter")
-@patch("ee.tasks.subscriptions.send_email_subscription_report")
-@patch("ee.tasks.subscriptions.generate_assets_async")
-@freeze_time("2022-02-02T08:55:00.000Z")
-@pytest.mark.asyncio
-async def test_failed_deliveries_emit_exhausted_events(
-    mock_gen_assets: MagicMock,
-    mock_send_email: MagicMock,
-    mock_metric_meter: MagicMock,
-    mock_posthog: MagicMock,
-    temporal_client: Client,
-    team,
-    user,
-):
-    insight = await sync_to_async(Insight.objects.create)(team=team, short_id="ev5678", name="Insight")
-
-    async def mock_generate_assets_async(subscription):
-        raise Exception("OOM killed")
-
-    mock_gen_assets.side_effect = mock_generate_assets_async
-
-    await sync_to_async(set_instance_setting)("EMAIL_HOST", "fake_host")
-    await sync_to_async(set_instance_setting)("EMAIL_ENABLED", True)
-
-    with freeze_time("2022-02-02T08:30:00.000Z"):
-        sub = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
-
-    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
-        async with Worker(
-            activity_environment.client,
-            task_queue=settings.TEMPORAL_TASK_QUEUE,
-            workflows=[ScheduleAllSubscriptionsWorkflow],
-            activities=[
-                deliver_subscription_report_activity,
-                emit_subscription_delivery_outcome_events_activity,
-                fetch_due_subscriptions_activity,
-            ],
-            workflow_runner=UnsandboxedWorkflowRunner(),
-            activity_executor=ThreadPoolExecutor(max_workers=50),
-            debug_mode=True,
-        ):
-            await activity_environment.client.execute_workflow(
-                ScheduleAllSubscriptionsWorkflow.run,
-                ScheduleAllSubscriptionsWorkflowInputs(),
-                id=str(uuid.uuid4()),
-                task_queue=settings.TEMPORAL_TASK_QUEUE,
-            )
-
-    exhausted_calls = [
-        c for c in mock_posthog.capture.call_args_list if c.kwargs.get("event") == "subscription_delivery_exhausted"
-    ]
-    assert len(exhausted_calls) == 1
-    assert exhausted_calls[0].kwargs["properties"]["subscription_id"] == sub.id
-
-    succeeded_calls = [
-        c for c in mock_posthog.capture.call_args_list if c.kwargs.get("event") == "subscription_delivery_succeeded"
-    ]
-    assert len(succeeded_calls) == 0
+    assert len(succeeded_calls) == expected_succeeded
+    assert len(exhausted_calls) == expected_exhausted
+    matching_calls = succeeded_calls or exhausted_calls
+    assert matching_calls[0].kwargs["properties"]["subscription_id"] == sub.id
 
 
 @patch("posthog.temporal.subscriptions.subscription_scheduling_workflow.posthoganalytics")
@@ -467,11 +419,7 @@ async def test_mixed_success_and_failure_does_not_block(
         sub_ok = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
         sub_fail = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
 
-    call_count = 0
-
     async def mock_generate_assets_async(subscription):
-        nonlocal call_count
-        call_count += 1
         if subscription.id == sub_fail.id:
             raise Exception("asset generation failed")
         return [insight], [asset]
