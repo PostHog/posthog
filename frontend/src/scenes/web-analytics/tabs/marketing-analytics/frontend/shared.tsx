@@ -196,7 +196,7 @@ const MarketingAnalyticsCellInternal = ({
     // Handle different no-data scenarios
     if (!item || (item.value == null && item.previous == null)) {
         return (
-            <Tooltip title={getNoDataTooltip(item)} delayMs={300} className="cursor-default">
+            <Tooltip title={getNoDataTooltip(item)} delayMs={0} className="cursor-default">
                 <div
                     className="flex items-center justify-start min-w-0 cursor-default text-muted w-full hover:bg-warning-highlight h-full"
                     style={{ padding: '0.5rem', ...style }}
@@ -211,10 +211,9 @@ const MarketingAnalyticsCellInternal = ({
     if (item.value == null && item.previous != null) {
         const formattedPrevious = formatMarketingItem(item.previous, item.kind, {
             currency: baseCurrency,
-            hideCurrency: true,
         })
         return (
-            <Tooltip title={getNoDataTooltip(item)} delayMs={300} className="cursor-default">
+            <Tooltip title={getNoDataTooltip(item)} delayMs={0} className="cursor-default">
                 <div
                     className="flex flex-wrap items-center min-w-0 cursor-default text-muted w-full hover:bg-warning-highlight h-full"
                     style={{ padding: '0.5rem', ...style }}
@@ -251,13 +250,13 @@ const MarketingAnalyticsCellInternal = ({
         ? `${item.key}: ${formatMarketingItem(item.value, item.kind, { precise: true, currency: baseCurrency })}`
         : createComparisonTooltip(item, baseCurrency)
 
-    const formattedValue = formatMarketingItem(item.value, item.kind, { currency: baseCurrency, hideCurrency: true })
+    const formattedValue = formatMarketingItem(item.value, item.kind, { currency: baseCurrency })
     const changePercFormatted = formatChangePercentage(item.changeFromPreviousPct)
 
     const bgColor = getChangeBackgroundColor(item.changeFromPreviousPct, item.isIncreaseBad)
 
     return (
-        <Tooltip title={tooltip} delayMs={300} className="cursor-default">
+        <Tooltip title={tooltip} delayMs={0} className="cursor-default">
             <div
                 className="flex flex-wrap items-center min-w-0 cursor-default w-full hover:bg-warning-highlight h-full"
                 style={{
