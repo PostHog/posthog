@@ -153,6 +153,7 @@ Column | Type | Nullable | Description
 `schema_id` | uuid | NULL | FK to schema being synced
 `status` | varchar | NOT NULL | Job status
 `rows_synced` | bigint | NULL | Number of rows synced
+`billable` | boolean | NULL | Whether this sync job is billable (non-billable syncs don't appear in the syncs UI)
 `latest_error` | text | NULL | Error message if failed
 `created_at` | timestamp with tz | NOT NULL | Job start timestamp
 `finished_at` | timestamp with tz | NULL | Job completion timestamp

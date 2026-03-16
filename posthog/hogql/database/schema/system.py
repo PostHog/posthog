@@ -222,6 +222,7 @@ source_sync_jobs: PostgresTable = PostgresTable(
         "schema_id": StringDatabaseField(name="schema_id"),
         "status": StringDatabaseField(name="status"),
         "rows_synced": IntegerDatabaseField(name="rows_synced"),
+        "billable": BooleanDatabaseField(name="billable"),
         "latest_error": StringDatabaseField(name="latest_error"),
         "created_at": DateTimeDatabaseField(name="created_at"),
         "finished_at": DateTimeDatabaseField(name="finished_at"),

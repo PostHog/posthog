@@ -4726,6 +4726,16 @@
                   "table": null,
                   "type": "integer"
               },
+              "billable": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "billable",
+                  "id": null,
+                  "name": "billable",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
+              },
               "latest_error": {
                   "chain": null,
                   "fields": null,
@@ -8771,6 +8781,16 @@
                   "schema_valid": true,
                   "table": null,
                   "type": "integer"
+              },
+              "billable": {
+                  "chain": null,
+                  "fields": null,
+                  "hogql_value": "billable",
+                  "id": null,
+                  "name": "billable",
+                  "schema_valid": true,
+                  "table": null,
+                  "type": "boolean"
               },
               "latest_error": {
                   "chain": null,
