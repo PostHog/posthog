@@ -1,6 +1,6 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import { IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -16,15 +16,22 @@ import { InAppNotification } from '~/types'
 import { NotificationRow } from './NotificationRow'
 import { notificationsMenuLogic } from './notificationsMenuLogic'
 
-type NotificationTab = 'all' | 'unread'
-
 export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element => {
-    const { isNotificationsMenuOpen } = useValues(notificationsMenuLogic)
-    const { setNotificationsMenuOpen } = useActions(notificationsMenuLogic)
+    const { isNotificationsMenuOpen, activeTab } = useValues(notificationsMenuLogic)
+    const { setNotificationsMenuOpen, setActiveTab } = useActions(notificationsMenuLogic)
     const { inAppNotifications, inAppUnreadCount, importantChangesLoading } = useValues(sidePanelNotificationsLogic)
     const { markAllAsRead } = useActions(sidePanelNotificationsLogic)
+    const [badgePulse, setBadgePulse] = useState(false)
+    const prevCountRef = useRef(inAppUnreadCount)
 
-    const [activeTab, setActiveTab] = useState<NotificationTab>('all')
+    useEffect(() => {
+        if (inAppUnreadCount !== prevCountRef.current) {
+            prevCountRef.current = inAppUnreadCount
+            setBadgePulse(true)
+            const timer = setTimeout(() => setBadgePulse(false), 300)
+            return () => clearTimeout(timer)
+        }
+    }, [inAppUnreadCount])
 
     const filteredNotifications =
         activeTab === 'unread' ? inAppNotifications.filter((n: InAppNotification) => !n.read) : inAppNotifications
@@ -46,7 +53,11 @@ export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }):
                         menuItem={!iconOnly}
                         data-attr="notifications-menu-button"
                     >
-                        <span className="flex text-secondary group-hover:text-primary">
+                        <span
+                            className={`flex text-secondary group-hover:text-primary transition-transform duration-300 ${
+                                badgePulse ? 'scale-125' : 'scale-100'
+                            }`}
+                        >
                             <IconWithCount count={inAppUnreadCount}>
                                 <IconNotification className="size-4.5" />
                             </IconWithCount>

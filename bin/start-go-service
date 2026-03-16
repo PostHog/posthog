@@ -51,6 +51,9 @@ case "$GO_SVC" in
     # Postgres settings
     export LIVESTREAM_POSTGRES_URL=postgres://posthog:posthog@localhost:5432/posthog
 
+    # Redis (needed for real-time notifications SSE endpoint)
+    export LIVESTREAM_REDIS_URL="redis://localhost:6379"
+
     # JWT secret
     export LIVESTREAM_JWT_SECRET="<randomly generated secret key>"
 

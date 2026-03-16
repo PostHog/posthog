@@ -2,11 +2,13 @@ import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, redu
 import { lazyLoaders } from 'kea-loaders'
 import posthog, { JsonRecord } from 'posthog-js'
 
+import { IconBug, IconCheckCircle, IconComment, IconNotification, IconPlug, IconWarning } from '@posthog/icons'
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { describerFor } from 'lib/components/ActivityLog/activityLogLogic'
 import { HumanizedActivityLogItem, humanize } from 'lib/components/ActivityLog/humanizeActivity'
+import { notificationsMenuLogic } from 'lib/components/NotificationsMenu/notificationsMenuLogic'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
@@ -60,11 +62,18 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         notificationReceived: (notification: InAppNotification) => ({ notification }),
         markAsRead: (id: string) => ({ id }),
         toggleRead: (id: string) => ({ id }),
+        initialLoadDone: true,
         startSSE: true,
         stopSSE: true,
         fallbackToPoll: true,
     }),
     reducers({
+        isInitialLoadComplete: [
+            false,
+            {
+                initialLoadDone: () => true,
+            },
+        ],
         errorCounter: [
             0,
             {
@@ -198,11 +207,46 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 },
                 signal: abortController.signal,
                 onMessage: (event) => {
+                    if (!values.isInitialLoadComplete) {
+                        return
+                    }
                     try {
                         const notification = JSON.parse(event.data) as InAppNotification
                         actions.notificationReceived(notification)
                         if (notification.priority === 'urgent') {
-                            lemonToast.info(notification.title)
+                            const iconMap: Record<string, JSX.Element> = {
+                                comment_mention: <IconComment className="size-5 text-primary shrink-0" />,
+                                alert_firing: <IconWarning className="size-5 text-warning shrink-0" />,
+                                approval_requested: <IconCheckCircle className="size-5 text-success shrink-0" />,
+                                approval_resolved: <IconCheckCircle className="size-5 text-success shrink-0" />,
+                                pipeline_failure: <IconPlug className="size-5 text-danger shrink-0" />,
+                                issue_assigned: <IconBug className="size-5 text-primary shrink-0" />,
+                            }
+                            const icon = iconMap[notification.notification_type] ?? (
+                                <IconNotification className="size-5 text-secondary shrink-0" />
+                            )
+                            lemonToast.info(
+                                <div className="flex items-start gap-2">
+                                    {icon}
+                                    <div className="min-w-0">
+                                        <div className="font-semibold text-xs">{notification.title}</div>
+                                        {notification.body && (
+                                            <div className="text-xs text-secondary mt-0.5 line-clamp-1">
+                                                {notification.body}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>,
+                                {
+                                    icon: false,
+                                    autoClose: false,
+                                    toastId: `notification-${notification.id}`,
+                                    button: {
+                                        label: 'Open notifications',
+                                        action: () => notificationsMenuLogic.actions.openToUnread(),
+                                    },
+                                }
+                            )
                         }
                     } catch {
                         // Ignore heartbeat or malformed messages
@@ -365,7 +409,10 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
     }),
     afterMount(({ cache, actions, values }) => {
         if (values.realTimeNotificationsEnabled) {
-            // Load initial notifications from the REST API
+            // Start SSE first so it's connected, but messages are ignored until initial load completes
+            actions.startSSE()
+
+            // Load initial notifications from the REST API — this is the authoritative source
             void (async () => {
                 try {
                     const resp = await api.get<{ results: InAppNotification[] }>(
@@ -383,9 +430,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 } catch {
                     // Swallow
                 }
+                // Now SSE messages will be processed as truly new notifications
+                actions.initialLoadDone()
             })()
-
-            actions.startSSE()
         } else {
             cache.disposables.add(() => {
                 const onVisibilityChange = (): void => {
