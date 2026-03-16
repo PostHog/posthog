@@ -35,7 +35,7 @@ def telemetry_status() -> None:
     elif os.environ.get("DO_NOT_TRACK") == "1":
         click.echo("Controlled by: DO_NOT_TRACK=1")
     else:
-        click.echo(f"Controlled by: config file")
+        click.echo("Controlled by: config file")
 
     click.echo(f"Anonymous ID: {telemetry.get_anonymous_id()}")
     click.echo(f"Config path: {config_path}")

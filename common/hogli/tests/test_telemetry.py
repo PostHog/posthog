@@ -86,7 +86,7 @@ class TestGetAnonymousId:
 class TestTrack:
     def test_fires_post_when_enabled(self, tmp_path):
         config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id"}))
+        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True}))
         with (
             patch.object(telemetry, "get_config_path", return_value=config_path),
             patch.dict(
@@ -117,7 +117,9 @@ class TestTrack:
 
     def test_correct_payload_structure(self, tmp_path):
         config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id-123"}))
+        config_path.write_text(
+            json.dumps({"enabled": True, "anonymous_id": "test-id-123", "first_run_notice_shown": True})
+        )
         with (
             patch.object(telemetry, "get_config_path", return_value=config_path),
             patch.dict(os.environ, {"POSTHOG_TELEMETRY_API_KEY": "test-key"}, clear=False),
@@ -133,6 +135,17 @@ class TestTrack:
             assert payload["properties"]["$groups"] == {"project": "hogli"}
             assert payload["properties"]["command"] == "test"
             assert "timestamp" in payload
+
+    def test_noops_when_notice_not_shown(self, tmp_path):
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id"}))
+        with (
+            patch.object(telemetry, "get_config_path", return_value=config_path),
+            patch.object(telemetry, "_post_event") as mock_post,
+        ):
+            telemetry.track("command_invoked")
+            assert len(telemetry._pending_threads) == 0
+            mock_post.assert_not_called()
 
     def test_never_raises_on_http_failure(self, tmp_path):
         config_path = tmp_path / "config.json"
@@ -158,7 +171,7 @@ class TestTrack:
 class TestFlush:
     def test_joins_pending_threads(self, tmp_path):
         config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id"}))
+        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True}))
         with (
             patch.object(telemetry, "get_config_path", return_value=config_path),
             patch.object(telemetry, "_post_event"),
@@ -170,7 +183,7 @@ class TestFlush:
 
     def test_respects_timeout(self, tmp_path):
         config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id"}))
+        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True}))
 
         def slow_post(host, payload):
             time.sleep(5)
@@ -223,15 +236,31 @@ class TestFirstRunNotice:
                 telemetry.show_first_run_notice_if_needed()
                 mock_echo.assert_not_called()
 
-    def test_noops_if_config_exists(self, tmp_path):
+    def test_noops_if_notice_already_shown(self, tmp_path):
         config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"enabled": True}))
+        config_path.write_text(json.dumps({"first_run_notice_shown": True}))
         with patch.object(telemetry, "get_config_path", return_value=config_path):
             import click
 
             with patch.object(click, "echo") as mock_echo:
                 telemetry.show_first_run_notice_if_needed()
                 mock_echo.assert_not_called()
+
+    def test_shows_notice_when_config_exists_without_flag(self, tmp_path):
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "pre-existing"}))
+        with patch.object(telemetry, "get_config_path", return_value=config_path):
+            import click
+
+            with patch.object(click, "echo", wraps=click.echo) as mock_echo:
+                telemetry.show_first_run_notice_if_needed()
+                mock_echo.assert_called()
+                _, kwargs = mock_echo.call_args
+                assert kwargs.get("err") is True
+
+            config = json.loads(config_path.read_text())
+            assert config["first_run_notice_shown"] is True
+            assert config["anonymous_id"] == "pre-existing"
 
 
 class TestSetEnabled:

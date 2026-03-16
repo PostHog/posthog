@@ -95,7 +95,8 @@ def set_enabled(enabled: bool) -> None:
 
 def show_first_run_notice_if_needed() -> None:
     """Print a one-time notice to stderr on first invocation, then create config."""
-    if get_config_path().exists():
+    config = _load_config()
+    if config.get("first_run_notice_shown"):
         return
 
     click.echo(
@@ -111,13 +112,11 @@ def show_first_run_notice_if_needed() -> None:
         err=True,
     )
 
-    _save_config(
-        {
-            "enabled": True,
-            "anonymous_id": str(uuid.uuid4()),
-            "first_run_notice_shown": True,
-        }
-    )
+    config["first_run_notice_shown"] = True
+    if "anonymous_id" not in config:
+        config["anonymous_id"] = str(uuid.uuid4())
+    config.setdefault("enabled", True)
+    _save_config(config)
 
 
 def track(event: str, properties: dict[str, Any] | None = None) -> None:
@@ -126,6 +125,9 @@ def track(event: str, properties: dict[str, Any] | None = None) -> None:
     Silently no-ops if telemetry is disabled or on any error.
     """
     if not is_enabled():
+        return
+    config = _load_config()
+    if not config.get("first_run_notice_shown"):
         return
 
     host = os.environ.get("POSTHOG_TELEMETRY_HOST", _HOST)
