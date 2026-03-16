@@ -27,7 +27,7 @@ from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_
 
 from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
-from .models.constants import Channel, Status
+from .models.constants import Channel, ChannelDetail, Status
 from .support_slack import (
     SUPPORT_SLACK_ALLOWED_HOST_SUFFIXES,
     SUPPORT_SLACK_MAX_IMAGE_BYTES,
@@ -310,6 +310,7 @@ def create_or_update_slack_ticket(
     files: list[dict] | None = None,
     is_thread_reply: bool = False,
     slack_team_id: str | None = None,
+    channel_detail: ChannelDetail | None = None,
 ) -> Ticket | None:
     """
     Core function: create a new ticket or add a message to an existing one.
@@ -425,6 +426,7 @@ def create_or_update_slack_ticket(
     ticket = Ticket.objects.create_with_number(
         team=team,
         channel_source=Channel.SLACK,
+        channel_detail=channel_detail,
         widget_session_id="",  # Not used for Slack tickets
         distinct_id="",  # Will be linked later if email matches a person
         status=Status.NEW,
@@ -552,6 +554,7 @@ def handle_support_message(event: dict, team: Team, slack_team_id: str) -> None:
         files=files,
         is_thread_reply=False,
         slack_team_id=slack_team_id,
+        channel_detail=ChannelDetail.SLACK_CHANNEL_MESSAGE,
     )
 
 
@@ -597,6 +600,7 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
         files=files,
         is_thread_reply=existing,
         slack_team_id=slack_team_id,
+        channel_detail=ChannelDetail.SLACK_BOT_MENTION,
     )
 
 
@@ -759,6 +763,7 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
         files=original_files,
         is_thread_reply=False,
         slack_team_id=slack_team_id,
+        channel_detail=ChannelDetail.SLACK_EMOJI_REACTION,
     )
 
     if ticket:
