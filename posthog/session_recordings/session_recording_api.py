@@ -1168,8 +1168,8 @@ class SessionRecordingViewSet(
                     sources.append(
                         {
                             "source": "blob_v2",
-                            "start_timestamp": block.start_time,
-                            "end_timestamp": block.end_time,
+                            "start_timestamp": block.start_timestamp,
+                            "end_timestamp": block.end_timestamp,
                             "blob_key": str(i),
                         }
                     )
@@ -1387,7 +1387,12 @@ class SessionRecordingViewSet(
             try:
                 block = blocks[block_index]
                 content = await api_client.fetch_block(
-                    block.url, recording.session_id, self.team.id, decompress=decompress
+                    block.key,
+                    block.start_byte,
+                    block.end_byte,
+                    recording.session_id,
+                    self.team.id,
+                    decompress=decompress,
                 )
                 return block_index, content
             except RecordingDeletedError:
