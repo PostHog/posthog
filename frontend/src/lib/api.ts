@@ -237,6 +237,7 @@ import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
     ErrorTrackingSpikeDetectionConfig,
+    ErrorTrackingSpikeEvent,
     ErrorTrackingStackFrame,
     ErrorTrackingStackFrameRecord,
     ErrorTrackingSymbolSet,
@@ -1297,6 +1298,10 @@ export class ApiRequest {
 
     public errorTrackingSpikeDetectionConfig(teamId?: TeamType['id']): ApiRequest {
         return this.errorTracking(teamId).addPathComponent('spike_detection_config')
+    }
+
+    public errorTrackingSpikeEvents(teamId?: TeamType['id']): ApiRequest {
+        return this.errorTracking(teamId).addPathComponent('spike_events')
     }
 
     public quickFilters(teamId?: TeamType['id']): ApiRequest {
@@ -3758,6 +3763,37 @@ const api = {
                 .errorTrackingSpikeDetectionConfig()
                 .withAction('update_config')
                 .update({ data })
+        },
+
+        async getSpikeEvents(
+            issueId?: string,
+            params?: { limit?: number; offset?: number; orderBy?: string }
+        ): Promise<CountedPaginatedResponse<ErrorTrackingSpikeEvent>> {
+            const query: Record<string, string | number> = {}
+            if (issueId) {
+                query.issue_id = issueId
+            }
+            if (params?.limit !== undefined) {
+                query.limit = params.limit
+            }
+            if (params?.offset !== undefined) {
+                query.offset = params.offset
+            }
+            if (params?.orderBy) {
+                query.order_by = params.orderBy
+            }
+            let request = new ApiRequest().errorTrackingSpikeEvents()
+            if (Object.keys(query).length > 0) {
+                request = request.withQueryString(query)
+            }
+            return await request.get()
+        },
+
+        async getBatchSpikeEvents(issueIds: string[]): Promise<CountedPaginatedResponse<ErrorTrackingSpikeEvent>> {
+            return await new ApiRequest()
+                .errorTrackingSpikeEvents()
+                .withQueryString({ issue_ids: issueIds.join(',') })
+                .get()
         },
     },
 

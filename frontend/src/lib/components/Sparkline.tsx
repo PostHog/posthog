@@ -1,9 +1,9 @@
 import clsx from 'clsx'
-import { useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { Popover } from '@posthog/lemon-ui'
 
-import { ScaleOptions, TooltipModel } from 'lib/Chart'
+import { Chart, ScaleOptions, TooltipModel } from 'lib/Chart'
 import { getColorVar } from 'lib/colors'
 import { useChart } from 'lib/hooks/useChart'
 import { useEventListener } from 'lib/hooks/useEventListener'
@@ -18,6 +18,10 @@ export interface SparklineTimeSeries {
     values: number[]
     /** Check vars.scss for available colors. @default 'muted' */
     color?: string
+    /** Per-bar color overrides. Each entry is a CSS var name or a CanvasPattern. */
+    barColors?: (string | CanvasPattern)[]
+    /** Per-bar hover color overrides. Each entry is a CSS var name or a CanvasPattern. */
+    barHoverColors?: (string | CanvasPattern)[]
     hoverColor?: string
 }
 
@@ -54,6 +58,10 @@ interface SparklineProps {
     hideZerosInTooltip?: boolean
     /** Sort tooltip items by count (descending). @default false */
     sortTooltipByCount?: boolean
+    /** Ref to access the Chart.js instance for direct updates (e.g. animation). */
+    chartInstanceRef?: React.MutableRefObject<Chart | null>
+    /** Custom series label renderer for tooltip. Receives default label node and data index. */
+    renderTooltipSeries?: (label: React.ReactNode, dataIndex: number) => React.ReactNode
 }
 
 export function Sparkline({
@@ -74,6 +82,8 @@ export function Sparkline({
     tooltipRowCutoff,
     hideZerosInTooltip = false,
     sortTooltipByCount = false,
+    chartInstanceRef,
+    renderTooltipSeries,
 }: SparklineProps): JSX.Element {
     const tooltipRef = useRef<HTMLDivElement | null>(null)
 
@@ -98,6 +108,8 @@ export function Sparkline({
                     return {
                         name: timeseries.name || defaultName,
                         color: timeseries.color || defaultColor,
+                        barColors: timeseries.barColors,
+                        barHoverColors: timeseries.barHoverColors,
                         values: timeseries.values || [],
                     }
                 }
@@ -115,7 +127,7 @@ export function Sparkline({
         })
     }, [data]) // oxlint-disable-line react-hooks/exhaustive-deps
 
-    const { canvasRef } = useChart({
+    const { canvasRef, chartRef } = useChart({
         getConfig: () => {
             // data should always be provided but React can render this without it,
             // so, fall back to null for safety
@@ -182,13 +194,19 @@ export function Sparkline({
                     datasets: adjustedData.map((timeseries) => {
                         const seriesColor = getColorVar(timeseries.color || 'muted')
                         const hoverColor = getColorVar(timeseries.hoverColor || timeseries.color || 'muted')
+                        const bgColor = timeseries.barColors
+                            ? timeseries.barColors.map((c) => (typeof c === 'string' ? getColorVar(c) : c))
+                            : seriesColor
+                        const hoverBgColor = timeseries.barHoverColors
+                            ? timeseries.barHoverColors.map((c) => (typeof c === 'string' ? getColorVar(c) : c))
+                            : hoverColor
                         return {
                             label: timeseries.name,
                             data: timeseries.values,
                             minBarLength: 0,
                             categoryPercentage: 0.9, // Slightly tighter bar spacing than the default 0.8
-                            backgroundColor: seriesColor,
-                            hoverBackgroundColor: hoverColor,
+                            backgroundColor: bgColor,
+                            hoverBackgroundColor: hoverBgColor,
                             borderColor: seriesColor,
                             borderWidth: type === 'line' ? 2 : 0,
                             pointRadius: 0,
@@ -224,6 +242,13 @@ export function Sparkline({
             }
         },
         deps: [labels, adjustedData, withXScale, withYScale, renderLabel, data, maximumIndicator, type],
+    })
+
+    // Sync after useChart's effect creates the instance
+    useEffect(() => {
+        if (chartInstanceRef) {
+            chartInstanceRef.current = chartRef.current
+        }
     })
 
     const dataPointCount = adjustedData[0]?.values?.length || 0
@@ -346,7 +371,11 @@ export function Sparkline({
                                 }))
                                 .filter((item) => !hideZerosInTooltip || item.count > 0)
                                 .sort((a, b) => (sortTooltipByCount ? b.count - a.count : a.order - b.order))}
-                            renderSeries={(value) => value}
+                            renderSeries={(value) =>
+                                renderTooltipSeries && toolTipDataPoints.length > 0
+                                    ? renderTooltipSeries(value, toolTipDataPoints[0].dataIndex)
+                                    : value
+                            }
                             renderCount={(count) => humanFriendlyNumber(count)}
                             rowCutoff={tooltipRowCutoff}
                         />

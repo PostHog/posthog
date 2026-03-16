@@ -6,6 +6,7 @@ import { ErrorTrackingIssue } from '~/queries/schema/schema-general'
 
 import { issueActionsLogic } from '../components/IssueActions/issueActionsLogic'
 import { mergeIssues } from '../utils'
+import { batchSpikeEventsLogic } from './batchSpikeEventsLogic'
 import type { issuesDataNodeLogicType } from './issuesDataNodeLogicType'
 
 export interface IssuesDataNodeLogicProps {
@@ -24,6 +25,8 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             actions: [
                 nodeLogic,
                 ['setResponse', 'loadData', 'loadDataSuccess', 'loadDataFailure', 'cancelQuery'],
+                batchSpikeEventsLogic,
+                ['loadSpikeEventsForIssues'],
                 issueActionsLogic,
                 [
                     'mergeIssues',
@@ -92,6 +95,11 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
                 assignee_filter: !!query?.assignee,
                 status_filter: query?.status ?? null,
             })
+
+            const issueIds = (results as ErrorTrackingIssue[]).map((issue) => issue.id).filter(Boolean)
+            if (issueIds.length > 0) {
+                actions.loadSpikeEventsForIssues(issueIds)
+            }
         },
         // optimistically update local results
         mergeIssues: ({ ids }) => {

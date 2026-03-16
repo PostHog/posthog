@@ -9,6 +9,7 @@ import { errorTrackingIssueSceneLogic } from '../scenes/ErrorTrackingIssueScene/
 
 export function useSparklineEvents(): SparklineEvent<string>[] {
     const { firstSeen, lastSeen, selectedEvent } = useValues(errorTrackingIssueSceneLogic)
+
     return useMemo(() => {
         const events = []
         if (firstSeen) {

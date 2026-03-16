@@ -12802,6 +12802,16 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ErrorTrackingSpikeEvent {
+      readonly id: string;
+      issue_id: string;
+      readonly detected_at: string;
+      readonly computed_baseline: number;
+      readonly current_bucket_value: number;
+      issue_name?: string;
+      issue_description?: string;
+    }
+
     export interface ErrorTrackingStackFrame {
       readonly id: string;
       /** Raw frame ID in 'hash/part' format */
@@ -18503,6 +18513,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingRelease[];
+    }
+
+    export interface PaginatedErrorTrackingSpikeEventList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingSpikeEvent[];
     }
 
     export interface PaginatedErrorTrackingStackFrameList {
@@ -29769,6 +29788,17 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
      */

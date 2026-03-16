@@ -155,6 +155,16 @@ export interface ErrorTrackingSpikeDetectionConfig {
     threshold: number
 }
 
+export interface ErrorTrackingSpikeEvent {
+    id: string
+    issue_id: string
+    detected_at: string
+    computed_baseline: number
+    current_bucket_value: number
+    issue_name: string | null
+    issue_description: string | null
+}
+
 export type SymbolSetStatus = 'valid' | 'invalid'
 export type SymbolSetStatusFilter = SymbolSetStatus | 'all'
 export type ErrorEventProperties = EventType['properties']

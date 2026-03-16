@@ -321,6 +321,25 @@ export interface PatchedErrorTrackingReleaseApi {
     project?: string
 }
 
+export interface ErrorTrackingSpikeEventApi {
+    readonly id: string
+    issue_id: string
+    readonly detected_at: string
+    readonly computed_baseline: number
+    readonly current_bucket_value: number
+    issue_name?: string
+    issue_description?: string
+}
+
+export interface PaginatedErrorTrackingSpikeEventListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ErrorTrackingSpikeEventApi[]
+}
+
 export interface ErrorTrackingStackFrameApi {
     readonly id: string
     /** Raw frame ID in 'hash/part' format */
@@ -492,6 +511,17 @@ export type ErrorTrackingIssuesListParams = {
 }
 
 export type ErrorTrackingReleasesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+}
+
+export type ErrorTrackingSpikeEventsListParams = {
     /**
      * Number of results to return per page.
      */

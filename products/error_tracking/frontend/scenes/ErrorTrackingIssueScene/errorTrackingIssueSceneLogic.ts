@@ -5,7 +5,12 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { ErrorEventProperties, ErrorEventType, ErrorTrackingFingerprint } from 'lib/components/Errors/types'
+import {
+    ErrorEventProperties,
+    ErrorEventType,
+    ErrorTrackingFingerprint,
+    ErrorTrackingSpikeEvent,
+} from 'lib/components/Errors/types'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { Dayjs, dayjs } from 'lib/dayjs'
 import { uuid } from 'lib/utils'
@@ -278,6 +283,15 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
                 },
             },
         ],
+        spikeEvents: [
+            [] as ErrorTrackingSpikeEvent[],
+            {
+                loadSpikeEvents: async () => {
+                    const response = await api.errorTracking.getSpikeEvents(props.id)
+                    return response.results
+                },
+            },
+        ],
     })),
 
     selectors(({ actions }) => ({
@@ -438,6 +452,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
             actions.setInitialEventTimestamp(props.timestamp ?? null)
             actions.loadSummary()
             actions.loadIssueFingerprints()
+            actions.loadSpikeEvents()
             globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.ViewFirstError)
         },
     })),
