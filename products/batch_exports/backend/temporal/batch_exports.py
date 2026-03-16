@@ -7,6 +7,7 @@ import datetime as dt
 import operator
 import dataclasses
 import collections.abc
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 
@@ -283,13 +284,18 @@ def iter_records(
     yield from client.stream_query_as_arrow(query_str, query_parameters=query_parameters)
 
 
-def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.datetime, dt.datetime]:
+def get_data_interval(
+    interval: str, data_interval_end: str | None, timezone: str | None = None
+) -> tuple[dt.datetime, dt.datetime]:
     """Return the start and end of an export's data interval.
 
     Args:
         interval: The interval of the BatchExport associated with this Workflow.
         data_interval_end: The optional end of the BatchExport period. If not included, we will
             attempt to extract it from Temporal SearchAttributes.
+        timezone: The IANA timezone of the batch export (e.g. "US/Eastern"). When provided,
+            daily/weekly intervals use timezone-aware arithmetic so that DST transitions
+            produce correct interval lengths (23h or 25h) instead of a fixed 24h.
 
     Raises:
         TypeError: If when trying to obtain the data interval end we run into non-str types.
@@ -317,10 +323,8 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
         if isinstance(data_interval_end_search_attr[0], str):
             data_interval_end_str = data_interval_end_search_attr[0]
             data_interval_end_dt = dt.datetime.fromisoformat(data_interval_end_str)
-
         elif isinstance(data_interval_end_search_attr[0], dt.datetime):
             data_interval_end_dt = data_interval_end_search_attr[0]
-
         else:
             msg = (
                 f"Expected search attribute to be of type 'str' or 'datetime' but found '{data_interval_end_search_attr[0]}' "
@@ -330,12 +334,16 @@ def get_data_interval(interval: str, data_interval_end: str | None) -> tuple[dt.
     else:
         data_interval_end_dt = dt.datetime.fromisoformat(data_interval_end_str)
 
+    tz = ZoneInfo(timezone) if timezone else dt.UTC
+
     if interval == "hour":
         data_interval_start_dt = data_interval_end_dt - dt.timedelta(hours=1)
     elif interval == "day":
-        data_interval_start_dt = data_interval_end_dt - dt.timedelta(days=1)
+        local_end = data_interval_end_dt.astimezone(tz)
+        data_interval_start_dt = (local_end - dt.timedelta(days=1)).astimezone(dt.UTC)
     elif interval == "week":
-        data_interval_start_dt = data_interval_end_dt - dt.timedelta(weeks=1)
+        local_end = data_interval_end_dt.astimezone(tz)
+        data_interval_start_dt = (local_end - dt.timedelta(weeks=1)).astimezone(dt.UTC)
     elif interval.startswith("every"):
         _, value, unit = interval.split(" ")
         kwargs = {unit: int(value)}
