@@ -1,7 +1,12 @@
-from typing import Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional
 
 import structlog
 from posthoganalytics.flag_definition_cache import FlagDefinitionCacheData
+
+if TYPE_CHECKING:
+    from posthog.storage.hypercache import HyperCache
 
 logger = structlog.get_logger(__name__)
 
@@ -18,7 +23,7 @@ class HyperCacheFlagProvider:
 
     def __init__(self, team_id: int):
         self._team_id = team_id
-        self._hypercache = None
+        self._hypercache: Optional[HyperCache] = None
 
     def _get_hypercache(self):
         """Lazily resolve the hypercache reference.
