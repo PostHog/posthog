@@ -163,15 +163,26 @@ export function MarketingAnalyticsScene(): JSX.Element {
                             type: sceneConfigurations[Scene.MarketingAnalytics]?.iconType || 'marketing_analytics',
                         }}
                         actions={
-                            <LemonButton
-                                type="secondary"
-                                size="small"
-                                icon={<IconGear />}
-                                to={urls.settings('environment-marketing-analytics', 'marketing-settings')}
-                                data-attr="marketing-analytics-settings-button"
-                            >
-                                Settings
-                            </LemonButton>
+                            <>
+                                <LemonButton
+                                    to="https://posthog.com/docs/web-analytics/marketing-analytics"
+                                    type="secondary"
+                                    targetBlank
+                                    size="small"
+                                    data-attr="marketing-analytics-docs-button"
+                                >
+                                    Documentation
+                                </LemonButton>
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    icon={<IconGear />}
+                                    to={urls.settings('environment-marketing-analytics', 'marketing-settings')}
+                                    data-attr="marketing-analytics-settings-button"
+                                >
+                                    Settings
+                                </LemonButton>
+                            </>
                         }
                     />
                     <MarketingAnalyticsFilters tabs={<></>} />
