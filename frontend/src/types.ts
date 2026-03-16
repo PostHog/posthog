@@ -464,6 +464,26 @@ export interface OrganizationDomainType {
     scim_bearer_token?: string
 }
 
+export interface SCIMRequestLogType {
+    id: string
+    request_method: string
+    request_path: string
+    request_headers: Record<string, string>
+    request_body: Record<string, any> | null
+    response_status: number
+    response_body: Record<string, any> | null
+    identity_provider: string
+    duration_ms: number | null
+    created_at: string
+}
+
+export interface PaginatedSCIMRequestLogs {
+    count: number
+    next: string | null
+    previous: string | null
+    results: SCIMRequestLogType[]
+}
+
 /** Member properties relevant at both organization and project level. */
 export interface BaseMemberType {
     id: string
