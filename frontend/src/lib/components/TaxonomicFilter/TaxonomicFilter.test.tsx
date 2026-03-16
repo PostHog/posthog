@@ -637,7 +637,7 @@ describe('TaxonomicFilter', () => {
             },
         })
 
-        const { onChange } = renderFilter({
+        renderFilter({
             taxonomicGroupTypes: [TaxonomicFilterGroupType.EventProperties],
         })
 
@@ -657,8 +657,8 @@ describe('TaxonomicFilter', () => {
         await userEvent.click(screen.getByTestId('prop-filter-event_properties-0'))
 
         await waitFor(() => {
-            expect(onChange).toHaveBeenCalledTimes(1)
+            expect(onChangeMock).toHaveBeenCalledTimes(1)
         })
-        expect(onChange.mock.calls[0][1]).toBe(expectedFirstProperty)
+        expect(onChangeMock.mock.calls[0][1]).toBe(expectedFirstProperty)
     })
 })

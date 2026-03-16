@@ -473,7 +473,7 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
 
 class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
     scope = "snapshots_burst"
-    rate = "120/minute"
+    rate = "90/minute"
 
 
 class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
