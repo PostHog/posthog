@@ -13,6 +13,7 @@ pub struct DatabasePools {
     pub non_persons_writer: Arc<PgPool>,
     pub persons_reader: Arc<PgPool>,
     pub persons_writer: Arc<PgPool>,
+    pub behavioral_cohorts_reader: Option<Arc<PgPool>>,
     pub test_before_acquire: bool,
 }
 
@@ -20,19 +21,23 @@ impl DatabasePools {
     /// Default value for max_connections when config value is invalid (matches PoolConfig::default)
     const DEFAULT_MAX_CONNECTIONS: u32 = 10;
 
-    /// Helper to build a pool configuration with specific min_connections and statement_timeout
+    /// Helper to build a pool configuration, overriding specific fields from the base config.
     fn build_pool_config(
         base: &PoolConfig,
         min_connections: u32,
+        max_connections: Option<u32>,
         statement_timeout_ms: u64,
+        pool_name: &str,
     ) -> PoolConfig {
         PoolConfig {
             min_connections,
+            max_connections: max_connections.unwrap_or(base.max_connections),
             statement_timeout_ms: if statement_timeout_ms > 0 {
                 Some(statement_timeout_ms)
             } else {
                 None
             },
+            pool_name: Some(pool_name.to_string()),
             ..base.clone()
         }
     }
@@ -118,13 +123,16 @@ impl DatabasePools {
             },
             test_before_acquire: *config.test_before_acquire,
             statement_timeout_ms: None, // Set per pool type below
+            pool_name: None,            // Set per pool type below
         };
 
         // Non-persons reader pool config (may allow longer queries for analytics)
         let non_persons_reader_pool_config = Self::build_pool_config(
             &base_pool_config,
             min_non_persons_reader_connections,
+            None,
             config.non_persons_reader_statement_timeout_ms,
+            "non_persons_reader",
         );
         info!(
             pool = "non_persons_reader",
@@ -136,7 +144,9 @@ impl DatabasePools {
         let persons_reader_pool_config = Self::build_pool_config(
             &base_pool_config,
             min_persons_reader_connections,
+            None,
             config.persons_reader_statement_timeout_ms,
+            "persons_reader",
         );
         info!(
             pool = "persons_reader",
@@ -148,14 +158,18 @@ impl DatabasePools {
         let non_persons_writer_pool_config = Self::build_pool_config(
             &base_pool_config,
             min_non_persons_writer_connections,
+            None,
             config.writer_statement_timeout_ms,
+            "non_persons_writer",
         );
 
         // Persons writer pool config (should be fast transactional operations)
         let persons_writer_pool_config = Self::build_pool_config(
             &base_pool_config,
             min_persons_writer_connections,
+            None,
             config.writer_statement_timeout_ms,
+            "persons_writer",
         );
         info!(
             pool = "writer",
@@ -254,11 +268,32 @@ impl DatabasePools {
             info!("Persons pools are aliased to non-persons pools (persons DB routing disabled)");
         }
 
+        // Optional behavioral cohorts database pool for realtime cohort membership lookups.
+        // Small pool (max 5 connections) with a tight 1s statement timeout for simple key lookups.
+        let behavioral_cohorts_reader = if config.is_behavioral_cohorts_db_configured() {
+            let pool_config =
+                Self::build_pool_config(&base_pool_config, 1, Some(5), 1000, "behavioral_cohorts");
+            info!("Creating behavioral cohorts reader pool");
+            Some(Arc::new(
+                get_pool_with_config(&config.behavioral_cohorts_read_database_url, pool_config)
+                    .map_err(|e| {
+                        FlagError::DatabaseError(
+                            e,
+                            Some("Failed to create behavioral cohorts reader pool".to_string()),
+                        )
+                    })?,
+            ))
+        } else {
+            info!("Behavioral cohorts DB not configured, realtime cohort evaluation disabled");
+            None
+        };
+
         Ok(DatabasePools {
             non_persons_reader,
             non_persons_writer,
             persons_reader,
             persons_writer,
+            behavioral_cohorts_reader,
             test_before_acquire: *config.test_before_acquire,
         })
     }
@@ -269,6 +304,25 @@ mod tests {
     use super::*;
     use crate::config::Config;
     use std::sync::Arc;
+
+    #[test]
+    fn test_build_pool_config_sets_pool_name_and_timeout() {
+        let base = PoolConfig::default();
+        let config = DatabasePools::build_pool_config(&base, 3, None, 5000, "persons_reader");
+
+        assert_eq!(config.min_connections, 3);
+        assert_eq!(config.statement_timeout_ms, Some(5000));
+        assert_eq!(config.pool_name, Some("persons_reader".to_string()));
+    }
+
+    #[test]
+    fn test_build_pool_config_zero_timeout_is_none() {
+        let base = PoolConfig::default();
+        let config = DatabasePools::build_pool_config(&base, 0, None, 0, "non_persons_writer");
+
+        assert_eq!(config.statement_timeout_ms, None);
+        assert_eq!(config.pool_name, Some("non_persons_writer".to_string()));
+    }
 
     #[tokio::test]
     async fn test_database_routing_disabled() {

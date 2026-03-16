@@ -28,7 +28,7 @@ def strip_s3_protocol(s3_path: str) -> str:
 
 def get_base_folder(team_id: int, schema_id: str, run_uuid: str) -> str:
     """Get the base S3 folder path for a pipeline run."""
-    return f"{settings.BUCKET_URL}/data_pipelines_extract/{team_id}/{schema_id}/{run_uuid}"
+    return f"s3://{settings.DATAWAREHOUSE_BUCKET}/data_pipelines_extract/{team_id}/{schema_id}/{run_uuid}"
 
 
 def get_data_folder(base_folder: str) -> str:

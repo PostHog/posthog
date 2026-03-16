@@ -7,7 +7,16 @@ import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
-export type PanelLayoutNavIdentifier = 'Project' | 'Products' | 'People' | 'Games' | 'Shortcuts' | 'DataManagement'
+export type PanelLayoutNavIdentifier =
+    | 'Project'
+    | 'Products'
+    | 'People'
+    | 'Games'
+    | 'Shortcuts'
+    | 'DataManagement'
+    | 'DataAndPeople'
+    | 'Chat'
+export type NavExperimentTab = 'home' | 'chat'
 export type PanelLayoutTreeRef = React.RefObject<LemonTreeRef> | null
 export type PanelLayoutMainContentRef = React.RefObject<HTMLElement> | null
 export const PANEL_LAYOUT_DEFAULT_WIDTH: number = 245
@@ -37,6 +46,7 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
         setMainContentRect: (rect: DOMRect) => ({ rect }),
         setSidePanelWidth: (width: number) => ({ width }),
         toggleNavSection: (section: string) => ({ section }),
+        setNavExperimentTab: (tab: NavExperimentTab) => ({ tab }),
     }),
     reducers({
         isLayoutNavbarVisibleForDesktop: [
@@ -139,8 +149,15 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
                 setSidePanelWidth: (_, { width }) => width,
             },
         ],
+        navExperimentActiveTab: [
+            'home' as NavExperimentTab,
+            { persist: true },
+            {
+                setNavExperimentTab: (_, { tab }) => tab,
+            },
+        ],
         expandedNavSections: [
-            { ai: true, project: true, files: true, favorites: true } as Record<string, boolean>,
+            { ai: true, project: true, files: true, favorites: false, apps: false } as Record<string, boolean>,
             { persist: true },
             {
                 toggleNavSection: (state, { section }) => ({
@@ -216,6 +233,23 @@ export const panelLayoutLogic = kea<panelLayoutLogicType>([
 
                 if (cleanPath === '/persons' || cleanPath === '/cohorts' || cleanPath.startsWith('/groups/')) {
                     return 'People'
+                }
+
+                return ''
+            },
+        ],
+        activePanelIdentifierFromUrlAiFirst: [
+            () => [router.selectors.location],
+            (location): PanelLayoutNavIdentifier | '' => {
+                const cleanPath = removeProjectIdIfPresent(location.pathname)
+
+                if (
+                    cleanPath.startsWith('/data-management/') ||
+                    cleanPath === '/persons' ||
+                    cleanPath === '/cohorts' ||
+                    cleanPath.startsWith('/groups/')
+                ) {
+                    return 'DataAndPeople'
                 }
 
                 return ''

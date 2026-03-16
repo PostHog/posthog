@@ -90,6 +90,9 @@ pub enum CaptureError {
 
     #[error("client stopped sending data")]
     BodyReadTimeout,
+
+    #[error("internal server error: {0}")]
+    InternalError(String),
 }
 
 impl From<serde_json::Error> for CaptureError {
@@ -126,6 +129,7 @@ impl CaptureError {
             CaptureError::EmptyPayloadFiltered => "empty_filtered_payload",
             CaptureError::ServiceUnavailable(_) => "service_unavailable",
             CaptureError::BodyReadTimeout => "body_read_timeout",
+            CaptureError::InternalError(_) => "internal_error",
         }
     }
 }
@@ -168,6 +172,11 @@ impl IntoResponse for CaptureError {
             }
 
             CaptureError::BodyReadTimeout => (StatusCode::REQUEST_TIMEOUT, self.to_string()),
+
+            CaptureError::InternalError(_) => (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal server error".to_string(),
+            ),
         }
         .into_response()
     }
@@ -198,5 +207,12 @@ mod tests {
         };
         let response = response.into_response();
         assert_eq!(response.status(), StatusCode::NO_CONTENT);
+    }
+
+    #[test]
+    fn test_internal_error_into_response() {
+        let error = CaptureError::InternalError("some detail".to_string());
+        let response = error.into_response();
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
     }
 }

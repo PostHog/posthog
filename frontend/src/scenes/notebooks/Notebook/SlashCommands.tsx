@@ -29,7 +29,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { IconBold, IconItalic, IconTableChart } from 'lib/lemon-ui/icons'
 import { Popover } from 'lib/lemon-ui/Popover'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { isKeyOf } from 'lib/utils'
 import { selectFiles } from 'lib/utils/file-utils'
+import { ValueOf } from 'lib/utils/types'
 
 import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
@@ -75,7 +77,7 @@ type SlashCommandsItem = {
     search?: string
     icon?: JSX.Element
     command: (chain: EditorCommands, pos: number | EditorRange) => EditorCommands | Promise<EditorCommands>
-    featureFlag?: string
+    featureFlag?: ValueOf<typeof FEATURE_FLAGS>
 }
 
 const TEXT_CONTROLS: SlashCommandsItem[] = [
@@ -542,7 +544,7 @@ export const SlashCommands = forwardRef<SlashCommandsRef, SlashCommandsProps>(fu
                 Enter: onPressEnter,
             }
 
-            if (keyMappings[event.key]) {
+            if (isKeyOf(event.key, keyMappings)) {
                 keyMappings[event.key]()
                 return true
             }

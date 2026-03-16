@@ -8,7 +8,7 @@ import { createTestPluginEvent } from '../../../../tests/helpers/plugin-event'
 import { createTestTeam } from '../../../../tests/helpers/team'
 import { InternalPerson, PropertyUpdateOperation } from '../../../types'
 import { parseJSON } from '../../../utils/json-parse'
-import { EVENTS_OUTPUT, IngestionOutputs } from '../../event-processing/ingestion-outputs'
+import { AI_EVENTS_OUTPUT, EVENTS_OUTPUT, IngestionOutputs } from '../../event-processing/ingestion-outputs'
 import { newPipelineBuilder } from '../../pipelines/builders'
 import { createContext } from '../../pipelines/helpers'
 import { PipelineResultType, ok } from '../../pipelines/results'
@@ -78,6 +78,10 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
                 topic: 'events_topic',
                 producer: { produce: mockProduce } as any,
             },
+            [AI_EVENTS_OUTPUT]: {
+                topic: 'ai_events_topic',
+                producer: { produce: mockProduce } as any,
+            },
         }),
         teamManager: {
             setTeamIngestedEvent: jest.fn().mockResolvedValue(undefined),
@@ -98,6 +102,7 @@ function buildPipeline(configOverrides: Partial<AiEventSubpipelineConfig> = {}) 
         kafkaProducer: {
             queueMessages: jest.fn().mockResolvedValue(undefined),
         } as any,
+        splitAiEventsConfig: { enabled: false, enabledTeams: '*' },
         groupId: 'test-group',
         topHog: (step) => step,
         ...configOverrides,

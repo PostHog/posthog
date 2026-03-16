@@ -31,9 +31,9 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
         return ExternalDataSourceType.TEMPORALIO
 
     def get_schemas(
-        self, config: TemporalIOSourceConfig, team_id: int, with_counts: bool = False
+        self, config: TemporalIOSourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
     ) -> list[SourceSchema]:
-        return [
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -42,6 +42,10 @@ class TemporalIOSource(ResumableSource[TemporalIOSourceConfig, TemporalIOResumeC
             )
             for endpoint in ENDPOINTS
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[TemporalIOResumeConfig]:
         return ResumableSourceManager[TemporalIOResumeConfig](inputs, TemporalIOResumeConfig)

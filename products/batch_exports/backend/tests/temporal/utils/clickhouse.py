@@ -78,9 +78,11 @@ async def truncate_events(clickhouse_client):
 
 async def truncate_persons(clickhouse_client):
     await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS person_distinct_id2")
+    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS person")
 
 
 async def truncate_sessions(clickhouse_client):
+    await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS sharded_raw_sessions")
     await execute_query(clickhouse_client, "TRUNCATE TABLE IF EXISTS raw_sessions")
 
 

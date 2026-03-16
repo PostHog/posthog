@@ -46,7 +46,7 @@ async fn ad_hoc_handler(
         Ok(response) => Ok(Json(response)),
         Err(e) => {
             // TODO - this is a hack until I do a proper pass and add real error enums
-            error!("Ad hoc embedding request failed: {}", e);
+            error!("Ad hoc embedding request failed: {:?}", e);
             Err(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
@@ -84,7 +84,7 @@ async fn main() {
     let _profiling_agent = match config.continuous_profiling.start_agent() {
         Ok(agent) => agent,
         Err(e) => {
-            error!("Failed to start continuous profiling agent: {e}");
+            error!("Failed to start continuous profiling agent: {e:?}");
             None
         }
     };
@@ -147,8 +147,8 @@ async fn main() {
         let responses = match handle_batch(to_process, &offsets, context.clone()).await {
             Ok(embeddings) => embeddings,
             Err(failure) => {
-                error!("Error handling batch: {failure}");
-                panic!("Unhandled error: {failure}");
+                error!("Error handling batch: {failure:?}");
+                panic!("Unhandled error: {failure:?}");
             }
         };
 

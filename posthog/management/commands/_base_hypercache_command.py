@@ -9,6 +9,7 @@ For other cache types, create a different base class.
 from django.conf import settings
 from django.core.management.base import BaseCommand, CommandParser
 from django.db import connection
+from django.db.models import QuerySet
 
 from posthog.caching.flags_redis_cache import FLAGS_DEDICATED_CACHE_ALIAS
 from posthog.models.team.team import Team
@@ -250,6 +251,24 @@ class BaseHyperCacheCommand(BaseCommand):
 
         return total_processed
 
+    # Team scoping
+
+    def get_teams_queryset(self) -> QuerySet:
+        """Return the base queryset of teams to process.
+
+        Uses the config's ``get_teams_queryset()`` method when set, falling
+        back to all teams.
+        """
+        return self.get_hypercache_config().get_teams_queryset().select_related("organization", "project")
+
+    def _print_scope_info(self, scoped_count: int, total_count: int):
+        """Print a message when team scoping reduces the verification set."""
+        if scoped_count < total_count:
+            skipped = total_count - scoped_count
+            self.stdout.write(
+                f"Scope: {scoped_count:,} of {total_count:,} teams ({skipped:,} teams skipped — no relevant data)\n"
+            )
+
     # Verification framework
 
     def run_verification(
@@ -303,13 +322,19 @@ class BaseHyperCacheCommand(BaseCommand):
                 self.stdout.write(f"Verifying {teams_queryset.count()} specific teams...\n")
                 self._verify_teams_batch(list(teams_queryset), stats, mismatches, verbose, fix)
             elif sample_size:
-                teams_queryset = Team.objects.select_related("organization", "project").order_by("?")[:sample_size]
-                self.stdout.write(f"Verifying random sample of {teams_queryset.count()} teams...\n")
-                self._verify_teams_batch(list(teams_queryset), stats, mismatches, verbose, fix)
+                total_teams = Team.objects.count()
+                scoped_queryset = self.get_teams_queryset()
+                scoped_count = scoped_queryset.count()
+                self._print_scope_info(scoped_count, total_teams)
+                teams = list(scoped_queryset.order_by("?")[:sample_size])
+                self.stdout.write(f"Verifying random sample of {len(teams)} teams...\n")
+                self._verify_teams_batch(teams, stats, mismatches, verbose, fix)
             else:
                 # For all teams, use chunked iteration to avoid memory exhaustion
-                teams_queryset = Team.objects.select_related("organization", "project")
+                total_teams = Team.objects.count()
+                teams_queryset = self.get_teams_queryset()
                 total = teams_queryset.count()
+                self._print_scope_info(total, total_teams)
                 self.stdout.write(f"Verifying all {total} teams...\n")
 
                 # Process teams in chunks using the helper method
@@ -737,12 +762,14 @@ class BaseHyperCacheCommand(BaseCommand):
         else:
             # Get current cache stats for upfront reporting
             total_teams = Team.objects.count()
+            scoped_teams = self.get_teams_queryset().count()
+            self._print_scope_info(scoped_teams, total_teams)
             cache_stats = get_cache_stats(config)
 
             # Handle all teams - show configuration and current state
             self.stdout.write(
                 f"\nStarting {cache_name} cache warm:\n"
-                f"  Total teams: {total_teams:,}\n"
+                f"  Teams to warm: {scoped_teams:,}\n"
                 f"  Current cache coverage: {cache_stats.get('cache_coverage', 'unknown')}\n"
                 f"  Batch size: {batch_size}\n"
                 f"  Invalidate first: {invalidate_first}\n"

@@ -1,5 +1,9 @@
 locals {
-  slo_base_query = <<-SQL
+  # ---------------------------------------------------------------------------
+  # Burn rate query template.
+  # Shows 1d / 7d / 30d burn rates as separate series.
+  # ---------------------------------------------------------------------------
+  slo_burn_rate_query = <<-SQL
     WITH
         date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),
         daily AS (
@@ -29,12 +33,11 @@ locals {
     FROM (
         SELECT
             date,
-            ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d', 'Success rate 30d'] AS metrics,
+            ['Burn rate 1d', 'Burn rate 7d', 'Burn rate 30d'] AS metrics,
             [
                 round(if(t1  > 0, f1  / t1  / {{ERROR_BUDGET}}, 0), 2),
                 round(if(t7  > 0, f7  / t7  / {{ERROR_BUDGET}}, 0), 2),
-                round(if(t30 > 0, f30 / t30 / {{ERROR_BUDGET}}, 0), 2),
-                round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2)
+                round(if(t30 > 0, f30 / t30 / {{ERROR_BUDGET}}, 0), 2)
             ] AS values
         FROM rolling
     )
@@ -43,48 +46,72 @@ locals {
     LIMIT 500
   SQL
 
-  # -----------------------------------------------------------------------
-  # Region-specific table names. All SQL templates use {{TOKEN}}
-  # placeholders which are replaced per region.
-  # -----------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Success rate CTE template (per SLO, used to build combined insight).
+  # ---------------------------------------------------------------------------
+  slo_success_cte = <<-SQL
+    {{PREFIX}}_daily AS (
+        {{DAILY_SQL}}
+    ),
+    {{PREFIX}}_base AS (
+        SELECT
+            d.date,
+            coalesce(daily.total, 0)    AS total,
+            coalesce(daily.failures, 0) AS failures
+        FROM date_range d
+        LEFT JOIN {{PREFIX}}_daily AS daily ON d.date = daily.date
+    ),
+    {{PREFIX}}_rolling AS (
+        SELECT
+            date,
+            sum(failures) OVER w AS f30,
+            sum(total) OVER w    AS t30
+        FROM {{PREFIX}}_base
+        WINDOW w AS (ORDER BY date ASC ROWS BETWEEN 29 PRECEDING AND CURRENT ROW)
+    )
+  SQL
 
+  slo_success_select = <<-SQL
+    SELECT date, '{{SLO_NAME}}' AS slo,
+           round(if(t30 > 0, (t30 - f30) / t30 * 100, 0), 2) AS value
+    FROM {{PREFIX}}_rolling
+  SQL
+
+  # ---------------------------------------------------------------------------
+  # Region-specific table names.
+  # ---------------------------------------------------------------------------
   region_tables = {
     us = {
-      events_table  = "events"
       exports_table = "postgres.posthog_exportedasset"
       history_table = "system.cohort_calculation_history"
     }
     eu = {
-      events_table  = "eu_events"
       exports_table = "eu_posthog_exportedasset"
-      history_table = "eu_system.cohort_calculation_history"
+      history_table = "eu_posthog_cohortcalculationhistory"
     }
   }
 
-  # -----------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
   # SLO definitions. Each daily_sql must return (date, total, failures).
-  # Token replacement uses the centralized region_tables above — all tokens
-  # are replaced on every template (unused tokens are no-ops).
-  # -----------------------------------------------------------------------
-
+  # ---------------------------------------------------------------------------
   slo_definitions = {
     alerts = {
       name_prefix  = "SLO: Alert checks"
-      description  = "Rolling burn rate and 30d success rate for alert checks."
+      description  = "Rolling burn rate for alert checks."
       error_budget = 0.01
+      regions      = ["us"]
       daily_sql    = <<-SQL
         SELECT
             toDate(timestamp) AS date,
             countIf(event = 'alert check') AS total,
             countIf(event = 'alert check failed') AS failures
-        FROM {{EVENTS_TABLE}}
+        FROM events
         WHERE event IN ('alert check', 'alert check failed')
             AND timestamp >= now() - INTERVAL 30 DAY
         GROUP BY date
       SQL
     }
 
-    # Timeliness: did each alert fire within its scheduled interval?
     # Tolerances (exact interval window):
     #   hourly  <= 60 min,   daily   <= 24 h (1440 min),
     #   weekly  <= 7 d (10080 min),  monthly <= 31 d (44640 min)
@@ -92,8 +119,9 @@ locals {
     # Looks back 45 days so monthly alerts have a valid prev_check in the 30-day window.
     alerts_timeliness = {
       name_prefix  = "SLO: Alert timeliness"
-      description  = "Timeliness SLO: % of alert checks that fired within their scheduled interval."
+      description  = "Rolling burn rate for alert check timeliness."
       error_budget = 0.01
+      regions      = ["us"]
       daily_sql    = <<-SQL
         WITH alert_checks AS (
             SELECT
@@ -105,7 +133,7 @@ locals {
                     ORDER BY timestamp ASC
                     ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING
                 ) AS prev_check
-            FROM {{EVENTS_TABLE}}
+            FROM events
             WHERE event IN ('alert check', 'alert check failed')
                 AND properties.calculation_interval IN ('hourly', 'daily', 'weekly', 'monthly')
                 AND timestamp >= now() - INTERVAL 45 DAY
@@ -130,8 +158,9 @@ locals {
     # had time to produce output yet.
     exports = {
       name_prefix  = "SLO: Exports"
-      description  = "Rolling burn rate and 30d success rate for exports."
+      description  = "Rolling burn rate for exports."
       error_budget = 0.01
+      regions      = ["us", "eu"]
       daily_sql    = <<-SQL
         SELECT
             toDate(created_at) AS date,
@@ -147,8 +176,9 @@ locals {
     # Cohorts not calculated within a day count as failures.
     cohorts = {
       name_prefix  = "SLO: Cohort calculations"
-      description  = "Rolling burn rate and 30d success rate for cohort calculations. Cohorts not calculated within a day count as failures."
+      description  = "Rolling burn rate for cohort calculations. Cohorts not calculated within a day count as failures."
       error_budget = 0.01
+      regions      = ["us", "eu"]
       daily_sql    = <<-SQL
         SELECT
             cc.date,
@@ -181,27 +211,58 @@ locals {
     }
   }
 
-  # Flatten: creates keys like "alerts_us", "alerts_eu", "exports_us", etc.
-  # All region tokens are replaced on every template — tokens that don't
-  # appear in a given template are harmless no-ops.
+  # ---------------------------------------------------------------------------
+  # Flatten: {slo_key}_{region} for each active region.
+  # ---------------------------------------------------------------------------
   slo_insights = merge([
     for slo_key, slo in local.slo_definitions : {
-      for region in keys(local.region_tables) :
+      for region in slo.regions :
       "${slo_key}_${region}" => {
-        name         = "${slo.name_prefix} (${upper(region)})"
+        name         = "${slo.name_prefix} — ${format("%.0f", 100 - slo.error_budget * 100)}%${length(slo.regions) > 1 ? " (${upper(region)})" : ""}"
         description  = slo.description
         error_budget = slo.error_budget
         daily_sql = replace(
-          replace(
-            replace(slo.daily_sql,
-              "{{EVENTS_TABLE}}", local.region_tables[region].events_table),
+          replace(slo.daily_sql,
             "{{EXPORTS_TABLE}}", local.region_tables[region].exports_table),
           "{{HISTORY_TABLE}}", local.region_tables[region].history_table)
       }
     }
   ]...)
+
+  # ---------------------------------------------------------------------------
+  # Combined success rate query (dynamic UNION ALL).
+  # ---------------------------------------------------------------------------
+  slo_success_ctes = [
+    for key, slo in local.slo_insights :
+    replace(
+      replace(local.slo_success_cte,
+        "{{PREFIX}}", key),
+      "{{DAILY_SQL}}", slo.daily_sql)
+  ]
+
+  slo_success_selects = [
+    for key, slo in local.slo_insights :
+    replace(
+      replace(local.slo_success_select,
+        "{{PREFIX}}", key),
+      "{{SLO_NAME}}", slo.name)
+  ]
+
+  slo_success_query = <<-SQL
+    WITH
+        date_range AS (SELECT toDate(now()) - number AS date FROM numbers(30)),
+        ${join(",\n        ", local.slo_success_ctes)}
+    SELECT date, slo, value FROM (
+        ${join("\n        UNION ALL\n        ", local.slo_success_selects)}
+    )
+    ORDER BY date ASC, slo ASC
+    LIMIT 500
+  SQL
 }
 
+# ---------------------------------------------------------------------------
+# Burn rate insights (one per SLO).
+# ---------------------------------------------------------------------------
 resource "posthog_insight" "slo" {
   for_each = local.slo_insights
 
@@ -212,7 +273,7 @@ resource "posthog_insight" "slo" {
     source = {
       kind  = "HogQLQuery"
       query = replace(
-        replace(local.slo_base_query, "{{DAILY_SQL}}", each.value.daily_sql),
+        replace(local.slo_burn_rate_query, "{{DAILY_SQL}}", each.value.daily_sql),
         "{{ERROR_BUDGET}}", tostring(each.value.error_budget)
       )
     }
@@ -232,7 +293,44 @@ resource "posthog_insight" "slo" {
       columns = [
         { column = "date",   settings = { formatting = { prefix = "", suffix = "" } } },
         { column = "metric", settings = { formatting = { prefix = "", suffix = "" } } },
-        { column = "value",  settings = { formatting = { prefix = "", suffix = "%" } } },
+        { column = "value",  settings = { formatting = { prefix = "", suffix = "" } } },
+      ]
+    }
+  })
+
+  dashboard_ids = [posthog_dashboard.team_analytics_platform_slos.id]
+  tags          = ["managed-by:terraform", "slo"]
+}
+
+# ---------------------------------------------------------------------------
+# Combined success rate insight (all SLOs on one chart).
+# ---------------------------------------------------------------------------
+resource "posthog_insight" "slo_success_rates" {
+  name        = "SLO: Success rates"
+  description = "Combined 30-day success rates for all SLOs."
+  query_json = jsonencode({
+    kind = "DataVisualizationNode"
+    source = {
+      kind  = "HogQLQuery"
+      query = local.slo_success_query
+    }
+    display = "ActionsLineGraph"
+    chartSettings = {
+      xAxis = { column = "date" }
+      yAxis = [
+        {
+          column   = "value"
+          settings = { formatting = { prefix = "", suffix = "%" } }
+        }
+      ]
+      seriesBreakdownColumn = "slo"
+      showLegend            = true
+    }
+    tableSettings = {
+      columns = [
+        { column = "date",  settings = { formatting = { prefix = "", suffix = "" } } },
+        { column = "slo",   settings = { formatting = { prefix = "", suffix = "" } } },
+        { column = "value", settings = { formatting = { prefix = "", suffix = "%" } } },
       ]
     }
   })

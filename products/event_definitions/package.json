@@ -1,0 +1,6 @@
+{
+    "name": "@posthog/products-event-definitions",
+    "scripts": {
+        "backend:test": "echo 'No backend tests'"
+    }
+}

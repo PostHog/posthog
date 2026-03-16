@@ -204,9 +204,11 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
             if parsed:
                 queryset = queryset.filter(updated_at__lte=parsed)
 
-        distinct_id = self.request.query_params.get("distinct_id")
-        if distinct_id and len(distinct_id) <= 200:
-            queryset = queryset.filter(distinct_id__icontains=distinct_id)
+        distinct_ids_param = self.request.query_params.get("distinct_ids")
+        if distinct_ids_param:
+            ids = [id.strip() for id in distinct_ids_param.split(",") if id.strip()][:100]
+            if ids:
+                queryset = queryset.filter(distinct_id__in=ids)
 
         search = self.request.query_params.get("search")
         if search and len(search) <= 200:
@@ -419,7 +421,40 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         except Exception as e:
             capture_exception(e, {"ticket_id": str(instance.id)})
 
+        # Log all field changes to activity log
+        changes: list[Change] = []
+        if status_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="status",
+                    before=old_status,
+                    after=new_status,
+                    action="changed",
+                )
+            )
+        if priority_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="priority",
+                    before=old_priority,
+                    after=new_priority,
+                    action="changed",
+                )
+            )
         if sla_changed:
+            changes.append(
+                Change(
+                    type="Ticket",
+                    field="sla_due_at",
+                    before=old_sla_due_at.isoformat() if old_sla_due_at else None,
+                    after=new_sla_due_at.isoformat() if new_sla_due_at else None,
+                    action="changed",
+                )
+            )
+
+        if changes:
             try:
                 log_activity(
                     organization_id=self.organization.id,
@@ -431,15 +466,7 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
                     activity="updated",
                     detail=Detail(
                         name=f"Ticket #{instance.ticket_number}",
-                        changes=[
-                            Change(
-                                type="Ticket",
-                                field="sla_due_at",
-                                before=old_sla_due_at.isoformat() if old_sla_due_at else None,
-                                after=new_sla_due_at.isoformat() if new_sla_due_at else None,
-                                action="changed",
-                            )
-                        ],
+                        changes=changes,
                     ),
                 )
             except Exception as e:

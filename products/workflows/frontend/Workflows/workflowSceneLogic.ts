@@ -20,7 +20,7 @@ export interface WorkflowSceneLogicProps {
 export const workflowSceneLogic = kea<workflowSceneLogicType>([
     path(['products', 'workflows', 'frontend', 'workflowSceneLogic']),
     props({ id: 'new', tabId: 'default' } as WorkflowSceneLogicProps),
-    key((props) => `workflow-scene-${props.id || 'new'}-${props.tabId}`),
+    key((props) => `workflow-scene-${props.id || 'new'}-${props.tabId || 'default'}`),
     actions({
         setCurrentTab: (tab: WorkflowTab) => ({ tab }),
     }),

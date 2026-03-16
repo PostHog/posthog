@@ -362,6 +362,7 @@ impl StoreManager {
         let store_config = DeduplicationStoreConfig {
             path: path.to_path_buf(),
             max_capacity: self.store_config.max_capacity,
+            rocksdb: self.store_config.rocksdb.clone(),
         };
         let restored = DeduplicationStore::new(store_config, topic.to_string(), partition)
             .with_context(|| {
@@ -1316,6 +1317,7 @@ impl CleanupTaskHandle {
 
 #[cfg(test)]
 mod tests {
+    use crate::rocksdb::store::RocksDbConfig;
     use crate::store::{TimestampKey, TimestampMetadata};
     use crate::test_utils::create_test_tracker;
 
@@ -1330,6 +1332,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 100, // Very small capacity to test the logic
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1369,6 +1372,7 @@ mod tests {
         let zero_config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 0,
+            rocksdb: RocksDbConfig::default(),
         };
         let zero_manager = Arc::new(StoreManager::new(zero_config, create_test_tracker()));
         assert!(
@@ -1383,6 +1387,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 5_000, // Small capacity
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1431,6 +1436,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1_000_000,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1459,6 +1465,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 0, // Unlimited capacity
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1477,6 +1484,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024, // 1GB
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -1518,6 +1526,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1574,6 +1583,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -1611,6 +1621,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -1655,6 +1666,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -1716,6 +1728,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -1756,6 +1769,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1813,6 +1827,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1880,6 +1895,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 100, // Very small to trigger cleanup
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1924,6 +1940,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1956,6 +1973,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -1989,6 +2007,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -2033,6 +2052,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -2056,6 +2076,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -2082,6 +2103,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1000,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = StoreManager::new(config, create_test_tracker());
@@ -2121,6 +2143,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -2188,6 +2211,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -2232,6 +2256,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -2288,6 +2313,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));
@@ -2367,6 +2393,7 @@ mod tests {
         let config = DeduplicationStoreConfig {
             path: temp_dir.path().to_path_buf(),
             max_capacity: 1024 * 1024 * 1024,
+            rocksdb: RocksDbConfig::default(),
         };
 
         let manager = Arc::new(StoreManager::new(config, create_test_tracker()));

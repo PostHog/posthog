@@ -218,6 +218,11 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         setTileVisualization: (tileId: TileId, visualization: TileVisualizationOption) => ({ tileId, visualization }),
         setTileVisibility: (tileId: TileId, visible: boolean) => ({ tileId, visible }),
         resetTileVisibility: () => true,
+        zoomIntoPeriod: (dateFrom: string, dateTo: string) => ({ dateFrom, dateTo }),
+        resetZoom: true,
+        setPreZoomDateFilter: (
+            filter: { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null
+        ) => ({ filter }),
         clearFilters: true,
     }),
     loaders(({ values }) => ({
@@ -396,6 +401,15 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                     interval: INITIAL_INTERVAL,
                     isIntervalManuallySet: false,
                 }),
+            },
+        ],
+        preZoomDateFilter: [
+            null as { dateFrom: string | null; dateTo: string | null; interval: IntervalType } | null,
+            {
+                setPreZoomDateFilter: (_, { filter }) => filter,
+                setDates: () => null,
+                setDateInterval: () => null,
+                clearFilters: () => null,
             },
         ],
         shouldFilterTestAccounts: [
@@ -1431,6 +1445,9 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                         },
                         activeTabId: sourceTab,
                         setTabId: actions.setSourceTab,
+                        splitIndices: featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REFERRER_URL_DRILLDOWN]
+                            ? [1, 3] // [Channel] [Referring Domain ▼ Referring URL] [UTM Source ▼ ...]
+                            : [2], // [Channel] [Referring Domain] [UTM Source ▼ ...]
                         tabs: [
                             createTableTab(
                                 TileId.SOURCES,
@@ -1492,12 +1509,32 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                                 {},
                                 {
                                     docs: {
-                                        url: 'https://posthog.com/docs/web-analytics/dashboard#referrers-channels-utms',
+                                        url: 'https://posthog.com/docs/web-analytics/dashboard#channels-referrers-utms',
                                         title: 'Referrers',
                                         description: 'Understand where your users are coming from',
                                     },
                                 }
                             ),
+                            ...(featureFlags[FEATURE_FLAGS.WEB_ANALYTICS_REFERRER_URL_DRILLDOWN]
+                                ? [
+                                      createTableTab(
+                                          TileId.SOURCES,
+                                          SourceTab.REFERRING_URL,
+                                          'Referrer URLs',
+                                          'Referring URL',
+                                          WebStatsBreakdown.InitialReferringURL,
+                                          {},
+                                          {
+                                              docs: {
+                                                  url: 'https://posthog.com/docs/web-analytics/dashboard#channels-referrers-utms',
+                                                  title: 'Referrer URLs',
+                                                  description:
+                                                      'Full referring URLs (without query parameters) showing where your users came from',
+                                              },
+                                          }
+                                      ),
+                                  ]
+                                : []),
                             createTableTab(
                                 TileId.SOURCES,
                                 SourceTab.UTM_SOURCE,
@@ -2344,6 +2381,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 (date_to && date_to !== values.dateFilter.dateTo) ||
                 (interval && interval !== values.dateFilter.interval)
             ) {
+                actions.setPreZoomDateFilter(null)
                 actions.setDatesAndInterval(date_from, date_to, interval)
             }
             if (device_tab && device_tab !== values._deviceTab) {
@@ -2441,6 +2479,23 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 })
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
+            zoomIntoPeriod: ({ dateFrom, dateTo }) => {
+                if (values.preZoomDateFilter === null) {
+                    actions.setPreZoomDateFilter({
+                        dateFrom: values.dateFilter.dateFrom,
+                        dateTo: values.dateFilter.dateTo,
+                        interval: values.dateFilter.interval,
+                    })
+                }
+                actions.setDatesAndInterval(dateFrom, dateTo, getDefaultInterval(dateFrom, dateTo))
+            },
+            resetZoom: () => {
+                const preZoom = values.preZoomDateFilter
+                if (preZoom) {
+                    actions.setPreZoomDateFilter(null)
+                    actions.setDatesAndInterval(preZoom.dateFrom, preZoom.dateTo, preZoom.interval)
+                }
+            },
             setWebAnalyticsFilters: () => {
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.FilterWebAnalytics)
             },
@@ -2528,6 +2583,7 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             loadPreset: ({ filters }) => {
                 if (filters.dateFrom !== undefined || filters.dateTo !== undefined) {
                     const interval = filters.interval ?? values.dateFilter.interval
+                    actions.setPreZoomDateFilter(null)
                     actions.setDatesAndInterval(
                         filters.dateFrom ?? values.dateFilter.dateFrom,
                         filters.dateTo ?? values.dateFilter.dateTo,

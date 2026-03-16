@@ -19,6 +19,7 @@ import type {
     DashboardsListParams,
     DashboardsMoveTilePartialUpdateParams,
     DashboardsPartialUpdateParams,
+    DashboardsReorderTilesCreateParams,
     DashboardsRetrieveParams,
     DashboardsSnapshotCreateParams,
     DashboardsStreamTilesRetrieveParams,
@@ -29,6 +30,7 @@ import type {
     PaginatedDataColorThemeListApi,
     PatchedDashboardApi,
     PatchedDataColorThemeApi,
+    ReorderTilesRequestApi,
     SharingConfigurationApi,
 } from './api.schemas'
 
@@ -473,6 +475,41 @@ export const dashboardsMoveTilePartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedDashboardApi),
+    })
+}
+
+export const getDashboardsReorderTilesCreateUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsReorderTilesCreateParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/reorder_tiles/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/reorder_tiles/`
+}
+
+export const dashboardsReorderTilesCreate = async (
+    projectId: string,
+    id: number,
+    reorderTilesRequestApi: ReorderTilesRequestApi,
+    params?: DashboardsReorderTilesCreateParams,
+    options?: RequestInit
+): Promise<DashboardApi> => {
+    return apiMutator<DashboardApi>(getDashboardsReorderTilesCreateUrl(projectId, id, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(reorderTilesRequestApi),
     })
 }
 

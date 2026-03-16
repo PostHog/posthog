@@ -966,6 +966,8 @@ class SelectQuery(Expr):
 SetOperator = Literal[
     "UNION ALL",
     "UNION DISTINCT",
+    "UNION ALL BY NAME",
+    "UNION DISTINCT BY NAME",
     "INTERSECT",
     "INTERSECT ALL",
     "INTERSECT DISTINCT",

@@ -17,9 +17,10 @@ Optional: Issues (R/W), Workflows (R/W).
 Steps:
 
 1. GitHub -> Settings -> Developer Settings -> GitHub Apps -> New GitHub App
-2. Set the permissions above
-3. Generate and download a private key
-4. Install the app on your test repositories
+2. Set the **Setup URL** to `http://localhost:8010/integrations/github/callback`
+3. Set the permissions above
+4. Generate and download a private key
+5. Install the app on your test repositories
 
 Add to your `.env`:
 
@@ -66,7 +67,7 @@ GITHUB_APP_SLUG=your-app-slug
 GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"
 
 # Optional: for local agent development (see step 7)
-# LOCAL_TWIG_MONOREPO_ROOT=/path/to/twig
+# LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
 ```
 
 ## 4. Feature flag
@@ -108,11 +109,11 @@ This is very minimal at the moment, but the tasks page can be used to see what i
 To test changes to `@posthog/agent` before publishing:
 
 ```bash
-# Set the twig monorepo root
-export LOCAL_TWIG_MONOREPO_ROOT=/path/to/twig
+# Set the PostHog Code monorepo root
+export LOCAL_POSTHOG_CODE_MONOREPO_ROOT=/path/to/posthog-code
 
 # Build the packages first
-cd /path/to/twig/packages/agent && pnpm build
+cd /path/to/posthog-code/packages/agent && pnpm build
 
 # Run a task from the UI
 ```

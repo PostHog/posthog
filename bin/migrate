@@ -31,17 +31,14 @@ if [ -d "$SCRIPT_DIR/../rust/bin" ] && [ "${DEPLOYMENT:-}" != "hobby" ]; then
             echo "Error in rust/bin/migrate-cyclotron, exiting."
             exit 1
         fi
-    fi
-    
-    if run_scope "cyclotron-shadow"; then
-        bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron-shadow
+
+        bash $SCRIPT_DIR/../rust/bin/migrate-cyclotron-node
         if [ $? -ne 0 ]; then
-            echo "Error in rust/bin/migrate-cyclotron-shadow, exiting."
+            echo "Error in rust/bin/migrate-cyclotron-node, exiting."
             exit 1
         fi
     fi
-
-
+    
     if run_scope "behavioral-cohorts"; then
         echo "Running behavioral cohorts migrations via external non-django migrator..."
         bash $SCRIPT_DIR/../rust/bin/migrate-behavioral-cohorts

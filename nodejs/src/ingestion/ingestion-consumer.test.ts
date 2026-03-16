@@ -864,6 +864,54 @@ describe('IngestionConsumer', () => {
             expect(nonAiEvent).toBeDefined()
             expect(nonAiEvent?.value.distinct_id).toBe('user-non-ai')
         })
+
+        it('should split AI events with large properties when splitting is enabled', async () => {
+            await ingester.stop()
+            hub.INGESTION_AI_EVENT_SPLITTING_ENABLED = true
+            hub.INGESTION_AI_EVENT_SPLITTING_TEAMS = '*'
+            ingester = await createIngestionConsumer(hub)
+
+            const events = [
+                createEvent({
+                    distinct_id: 'user-ai-split',
+                    event: '$ai_generation',
+                    properties: {
+                        $ai_model: 'gpt-4',
+                        $ai_provider: 'openai',
+                        $ai_input_tokens: 100,
+                        $ai_output_tokens: 50,
+                        $ai_input: 'What is the meaning of life?',
+                        $ai_output: 'The meaning of life is 42.',
+                    },
+                }),
+            ]
+
+            await ingester.handleKafkaBatch(createKafkaMessages(events))
+
+            const producedMessages = mockProducerObserver.getProducedKafkaMessages()
+            const eventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_events_json_test')
+            const aiEventsTopicMessages = producedMessages.filter((m) => m.topic === 'clickhouse_ai_events_json_test')
+
+            // Main events topic: stripped of large AI properties
+            expect(eventsTopicMessages).toHaveLength(1)
+            const mainEvent = eventsTopicMessages[0]
+            expect(mainEvent.value.event).toBe('$ai_generation')
+            expect(typeof mainEvent.value.properties).toBe('string')
+            const mainProps = parseJSON(mainEvent.value.properties as any)
+            expect(mainProps.$ai_model).toBe('gpt-4')
+            expect(mainProps.$ai_input).toBeUndefined()
+            expect(mainProps.$ai_output).toBeUndefined()
+
+            // AI events topic: full event with all properties
+            expect(aiEventsTopicMessages).toHaveLength(1)
+            const aiEvent = aiEventsTopicMessages[0]
+            expect(aiEvent.value.event).toBe('$ai_generation')
+            expect(typeof aiEvent.value.properties).toBe('string')
+            const aiProps = parseJSON(aiEvent.value.properties as any)
+            expect(aiProps.$ai_model).toBe('gpt-4')
+            expect(aiProps.$ai_input).toBe('What is the meaning of life?')
+            expect(aiProps.$ai_output).toBe('The meaning of life is 42.')
+        })
     })
 
     describe('error handling', () => {

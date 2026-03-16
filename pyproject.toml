@@ -39,7 +39,7 @@ dependencies = [
     "dagster-webserver==1.10.18",
     "deltalake[pyarrow]==1.4.0",
     "dj-database-url==0.5.0",
-    "django~=4.2.28",
+    "django~=4.2.29",
     "django-axes[ipware]==8.0.0",
     "django-cors-headers~=4.8.0",
     "django-deprecate-fields==0.1.1",
@@ -68,7 +68,7 @@ dependencies = [
     "grimp==3.13",
     "grpcio~=1.71.0",
     "gspread==6.2.1",
-    "hogql-parser==1.3.23",
+    "hogql-parser==1.3.26",
     "infi-clickhouse-orm",
     "jsonref==1.1.0",
     "kafka-python==2.3.0",
@@ -92,7 +92,7 @@ dependencies = [
     "numpy~=2.1.0",
     "openai==1.109.1",
     "openpyxl==3.1.2",
-    "orjson==3.11.5",
+    "orjson==3.11.6",
     "pandas~=2.2.2",
     "paramiko==3.4.1",
     "pillow==12.1.1",
@@ -185,6 +185,8 @@ dependencies = [
     "botocore[crt]~=1.40.49",
     "defusedxml>=0.7.1",
     "confluent-kafka>=2.13.0",
+    "blake3>=1.0.8",
+    "pixelmatch>=0.3.1",
 ]
 
 [dependency-groups]
@@ -214,7 +216,7 @@ dev = [
     "ty==0.0.4",
     # openapi-spec-validator needed for prance as a validation backend
     "openapi-spec-validator==0.7.1",
-    "orjson==3.11.5",
+    "orjson==3.11.6",
     "packaging==24.1",
     "parameterized==0.9.0",
     "prance==23.6.21.0",
@@ -222,6 +224,7 @@ dev = [
     "pyarrow-stubs==17.16",
     "pytest~=8.4.2",
     "pytest-asyncio~=1.3.0",
+    "pytest-aiohttp~=1.1.0",
     "pytest-cov~=7.0.0",
     "pytest-django~=4.11.1",
     "pytest-env~=1.2.0",
@@ -266,7 +269,7 @@ sentiment = [
 required-version = "~=0.10.2"
 
 [tool.uv.sources]
-infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "9578c79f29635ee2c1d01b7979e89adab8383de2" }
+infi-clickhouse-orm = { git = "https://github.com/PostHog/infi.clickhouse_orm", rev = "4e3996becf66bf5c26580aff12a80425d9d56fe5" }
 
 
 [tool.isort]
@@ -379,7 +382,7 @@ warn_unreachable = true
 strict_equality = true
 ignore_missing_imports = true
 exclude_gitignore = true
-exclude = ["^(bin/.*|gunicorn\\.config\\.py|manage\\.py)$"]
+exclude = ["^(bin/.*|tools/.*|gunicorn\\.config\\.py|manage\\.py)$"]
 
 [[tool.mypy.overrides]]
 module = "bin.*"

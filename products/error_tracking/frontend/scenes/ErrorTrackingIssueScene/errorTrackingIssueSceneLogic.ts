@@ -259,7 +259,7 @@ export const errorTrackingIssueSceneLogic = kea<errorTrackingIssueSceneLogicType
         issueFingerprints: [
             [] as ErrorTrackingFingerprint[],
             {
-                loadIssueFingerprints: async () => (await api.errorTracking.fingerprints.list(props.id)).results,
+                loadIssueFingerprints: async () => await api.errorTracking.fingerprints.list(props.id),
             },
         ],
         similarIssues: [

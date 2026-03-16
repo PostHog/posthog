@@ -31,6 +31,7 @@ import {
     findSidebarOccurrences,
     findTraceOccurrences,
 } from './searchUtils'
+import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
 import { formatLLMUsage, getEventType, isLLMEvent, normalizeMessages } from './utils'
 
 export interface TraceDataLogicProps {
@@ -432,6 +433,7 @@ export const llmAnalyticsTraceDataLogic = kea<llmAnalyticsTraceDataLogicType>([
             if (trace?.id && values.featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]) {
                 llmSentimentLazyLoaderLogic.actions.ensureSentimentLoaded(trace.id, {
                     dateFrom: trace.createdAt,
+                    dateTo: dayjs(trace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
                 })
             }
 

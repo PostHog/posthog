@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
@@ -18,7 +20,7 @@ describe('ExperimentForm Integration', () => {
 
         useMocks({
             post: {
-                '/api/projects/@current/experiments': async (req) => {
+                [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async (req) => {
                     const body = (await req.json()) as Experiment
                     return [
                         200,

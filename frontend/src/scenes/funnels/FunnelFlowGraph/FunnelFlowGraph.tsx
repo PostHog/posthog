@@ -6,37 +6,48 @@ import {
     Controls,
     EdgeTypes,
     MiniMap,
-    Node,
     NodeTypes,
     ReactFlow,
-    ReactFlowInstance,
     ReactFlowProvider,
+    useReactFlow,
 } from '@xyflow/react'
 import { useValues } from 'kea'
-import { useCallback } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { isInsightVizNode } from '~/queries/utils'
 
-import { JourneyFlowEdge, ProfileFlowEdge } from './FunnelFlowEdge'
-import { funnelFlowGraphLogic, FunnelFlowNodeData } from './funnelFlowGraphLogic'
-import { JourneyFlowNode, ProfileFlowNode } from './FunnelFlowNode'
+import { JOURNEY_BUILDER_INSIGHT_PROPS } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'
 
-const NODE_TYPES = {
-    journey: JourneyFlowNode,
-    profile: ProfileFlowNode,
-} as NodeTypes
+import { BuilderPathFlowNode } from './BuilderPathFlowNode'
+import { BuilderStepNode } from './BuilderStepNode'
+import { JourneyFlowEdge, ProfileFlowEdge } from './FunnelFlowEdge'
+import { funnelFlowGraphLogic } from './funnelFlowGraphLogic'
+import { JourneyFlowNode, ProfileFlowNode } from './FunnelFlowNode'
+import { PathFlowEdge } from './PathFlowEdge'
+import { PathFlowNode } from './PathFlowNode'
 
 const EDGE_TYPES = {
     journey: JourneyFlowEdge,
     profile: ProfileFlowEdge,
+    pathFlow: PathFlowEdge,
 } as EdgeTypes
+
+const NODE_TYPES = {
+    journey: JourneyFlowNode,
+    journeyCreate: BuilderStepNode,
+    profile: ProfileFlowNode,
+    pathNode: PathFlowNode,
+    builderPathNode: BuilderPathFlowNode,
+} as NodeTypes
 
 const PROFILE_GRAPH_HEIGHT = 140
 
 function FunnelFlowGraphContent(): JSX.Element {
+    const containerRef = useRef<HTMLDivElement>(null)
+    const { fitView: fitViewImperative } = useReactFlow()
     const { isDarkModeOn } = useValues(themeLogic)
     const { insightProps } = useValues(insightLogic)
     // Property filters are only set when in person/group profile, so we can use that as a proxy
@@ -44,14 +55,24 @@ function FunnelFlowGraphContent(): JSX.Element {
         isInsightVizNode(insightProps.query) &&
         Array.isArray(insightProps.query.source?.properties) &&
         insightProps.query.source.properties.length > 0
-    const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, isProfileMode }))
+    const isBuilderMode = insightProps.dashboardItemId === JOURNEY_BUILDER_INSIGHT_PROPS.dashboardItemId
+    const mode = isProfileMode ? 'profile' : isBuilderMode ? 'builder' : undefined
+    const { laidOutNodes, edges, fitViewOptions } = useValues(funnelFlowGraphLogic({ ...insightProps, mode }))
+    const layoutCountRef = useRef(0)
 
-    const onInit = useCallback(
-        (instance: ReactFlowInstance<Node<FunnelFlowNodeData>>) => {
-            instance.fitView(fitViewOptions)
-        },
-        [fitViewOptions]
-    )
+    useEffect(() => {
+        if (laidOutNodes.length === 0) {
+            return
+        }
+        layoutCountRef.current++
+        if (layoutCountRef.current <= 1) {
+            return
+        }
+        const rafId = requestAnimationFrame(() => {
+            fitViewImperative({ ...fitViewOptions, duration: 200 })
+        })
+        return () => cancelAnimationFrame(rafId)
+    }, [laidOutNodes, fitViewImperative, fitViewOptions])
 
     const closeOpenPopovers = useCallback(() => {
         document.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }))
@@ -59,9 +80,11 @@ function FunnelFlowGraphContent(): JSX.Element {
 
     return (
         <div
+            ref={containerRef}
             className="relative w-full"
             style={{ height: isProfileMode ? PROFILE_GRAPH_HEIGHT : 'var(--insight-viz-min-height)' }}
         >
+            {!isProfileMode && <style>{'.react-flow__edgelabel-renderer { z-index: 5; }'}</style>}
             <ReactFlow
                 nodes={laidOutNodes}
                 edges={edges}
@@ -76,7 +99,6 @@ function FunnelFlowGraphContent(): JSX.Element {
                 elevateNodesOnSelect={false}
                 minZoom={0.25}
                 maxZoom={1.5}
-                onInit={onInit}
                 onPaneClick={closeOpenPopovers}
                 onNodeClick={closeOpenPopovers}
             >

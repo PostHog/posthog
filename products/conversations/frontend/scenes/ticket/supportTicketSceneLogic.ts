@@ -1,7 +1,7 @@
 import { JSONContent } from '@tiptap/core'
 import { actions, afterMount, beforeUnmount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { router } from 'kea-router'
+import { beforeUnload, router } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -179,18 +179,15 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     }
 
                     try {
-                        // Load all tickets for any of this person's distinct_ids (in parallel)
-                        const responses = await Promise.all(
-                            person.distinct_ids.map((distinctId: string) =>
-                                api.conversationsTickets.list({ distinct_id: distinctId })
-                            )
-                        )
-                        const allTickets = responses.flatMap((r) => r.results || [])
+                        const response = await api.conversationsTickets.list({
+                            distinct_ids: person.distinct_ids.join(','),
+                        })
+                        const allTickets = response.results || []
 
-                        // Deduplicate by ID and exclude current ticket
-                        const uniqueTickets = Array.from(
-                            new Map(allTickets.map((ticket) => [ticket.id, ticket])).values()
-                        ).filter((ticket) => ticket.id !== currentTicketId)
+                        // Exclude current ticket
+                        const uniqueTickets = allTickets.filter(
+                            (ticket) => ticket.ticket_number !== parseInt(currentTicketId.toString())
+                        )
 
                         // Sort by created_at descending (most recent first)
                         return uniqueTickets.sort(
@@ -320,6 +317,10 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                     JSON.stringify([...tags].sort()) !== JSON.stringify([...(ticket.tags || [])].sort())
                 )
             },
+        ],
+        hasPendingWork: [
+            (s) => [s.hasUnsavedChanges, s.draftContent],
+            (hasUnsavedChanges, draftContent): boolean => hasUnsavedChanges || draftContent !== null,
         ],
         chatPanelWidth: [
             () => [],
@@ -577,4 +578,8 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
     beforeUnmount(({ cache }) => {
         cache.disposables.disposeAll()
     }),
+    beforeUnload(({ values }) => ({
+        enabled: () => values.hasPendingWork,
+        message: 'You have unsaved changes. Are you sure you want to leave?',
+    })),
 ])

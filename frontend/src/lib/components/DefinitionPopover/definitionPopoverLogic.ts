@@ -28,6 +28,7 @@ export enum DefinitionPopoverState {
 export interface DefinitionPopoverLogicProps {
     /* String type accounts for types with `TaxonomicFilterGroupType.GroupsPrefix` prefix */
     type: TaxonomicFilterGroupType | string
+    selectedItemMeta?: Record<string, any> | null
     /* Callback to update specific item in in-memory list */
     updateRemoteItem?: (item: TaxonomicDefinitionTypes) => void
     onCancel?: () => void
@@ -40,8 +41,12 @@ export interface DefinitionPopoverLogicProps {
 export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
     props({} as DefinitionPopoverLogicProps),
     path(['lib', 'components', 'DefinitionPanel', 'definitionPopoverLogic']),
-    actions(({ values }) => ({
-        setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item, isDataWarehouse: values.isDataWarehouse }),
+    actions(({ values, props }) => ({
+        setDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({
+            item,
+            isDataWarehouse: values.isDataWarehouse,
+            selectedItemMeta: props.selectedItemMeta,
+        }),
         setLocalDefinition: (item: Partial<TaxonomicDefinitionTypes>) => ({ item }),
         setPopoverState: (state: DefinitionPopoverState) => ({ state }),
         handleCancel: true,
@@ -108,7 +113,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
             },
         ],
     })),
-    reducers({
+    reducers(() => ({
         state: [
             DefinitionPopoverState.View as DefinitionPopoverState,
             {
@@ -118,28 +123,36 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
         localDefinition: [
             {} as Partial<TaxonomicDefinitionTypes>,
             {
-                setDefinition: (_, { item, isDataWarehouse }) => {
+                setDefinition: (_, { item, isDataWarehouse, selectedItemMeta }) => {
                     if (isDataWarehouse && 'fields' in item) {
                         // Pre-populate the data warehouse table settings for insights
                         const warehouseItem = item as DataWarehouseTableForInsight
+                        const isMatchingSelectedItem =
+                            selectedItemMeta &&
+                            (selectedItemMeta.table_name === warehouseItem.name ||
+                                selectedItemMeta.id === warehouseItem.name ||
+                                selectedItemMeta.name === warehouseItem.name)
+                        const hydratedWarehouseItem = isMatchingSelectedItem
+                            ? ({ ...warehouseItem, ...selectedItemMeta } as DataWarehouseTableForInsight)
+                            : { ...warehouseItem }
 
-                        if (!('id_field' in item)) {
-                            const idField = Object.values(warehouseItem.fields).find((n) => n.name === 'id')
+                        if (hydratedWarehouseItem.id_field == null) {
+                            const idField = Object.values(hydratedWarehouseItem.fields).find((n) => n.name === 'id')
                             if (idField) {
-                                warehouseItem['id_field'] = idField.name
+                                hydratedWarehouseItem.id_field = idField.name
                             }
                         }
 
-                        if (!('distinct_id_field' in item)) {
+                        if (hydratedWarehouseItem.distinct_id_field == null) {
                             const distinctIdField =
-                                Object.values(warehouseItem.fields).find((n) => n.name === 'distinct_id') ??
-                                Object.values(warehouseItem.fields).find((n) => n.name === 'id')
+                                Object.values(hydratedWarehouseItem.fields).find((n) => n.name === 'distinct_id') ??
+                                Object.values(hydratedWarehouseItem.fields).find((n) => n.name === 'id')
                             if (distinctIdField) {
-                                warehouseItem['distinct_id_field'] = distinctIdField.name
+                                hydratedWarehouseItem.distinct_id_field = distinctIdField.name
                             }
                         }
 
-                        if (!('timestamp_field' in item)) {
+                        if (hydratedWarehouseItem.timestamp_field == null) {
                             const timestampKeys = [
                                 'created',
                                 'created_at',
@@ -148,18 +161,19 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                                 'updated_at',
                                 'updatedAt',
                             ]
-                            const timestampNameField = Object.values(warehouseItem.fields).find((n) =>
+                            const timestampNameField = Object.values(hydratedWarehouseItem.fields).find((n) =>
                                 timestampKeys.includes(n.name)
                             )
-                            const timestampTypeField = Object.values(warehouseItem.fields).find(
+                            const timestampTypeField = Object.values(hydratedWarehouseItem.fields).find(
                                 (n) => n.type == 'datetime' || n.type == 'date'
                             )
                             if (timestampNameField || timestampTypeField) {
-                                warehouseItem['timestamp_field'] = timestampNameField?.name || timestampTypeField?.name
+                                hydratedWarehouseItem.timestamp_field =
+                                    timestampNameField?.name || timestampTypeField?.name
                             }
                         }
 
-                        return warehouseItem
+                        return hydratedWarehouseItem
                     }
 
                     return item
@@ -171,7 +185,7 @@ export const definitionPopoverLogic = kea<definitionPopoverLogicType>([
                     }) as Partial<TaxonomicDefinitionTypes>,
             },
         ],
-    }),
+    })),
     selectors({
         type: [() => [(_, props) => props.type], (type) => type],
         hideView: [() => [(_, props) => props.hideView], (hideView) => hideView ?? false],

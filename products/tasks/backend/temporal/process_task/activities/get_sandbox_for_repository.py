@@ -1,3 +1,4 @@
+import shlex
 import logging
 from dataclasses import dataclass
 
@@ -54,11 +55,6 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             snapshot_lookup_timer.set_used_snapshot(used_snapshot)
         increment_snapshot_usage(used_snapshot)
 
-        if used_snapshot:
-            emit_agent_log(ctx.run_id, "info", f"Found existing environment for {ctx.repository}")
-        else:
-            emit_agent_log(ctx.run_id, "debug", f"Creating environment from base image for {ctx.repository}")
-
         try:
             task = Task.objects.select_related("created_by").get(id=ctx.task_id)
         except Task.DoesNotExist as e:
@@ -93,11 +89,27 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         if settings.SANDBOX_LLM_GATEWAY_URL:
             environment_variables["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
 
+        # Check for resume snapshot (takes priority over integration-level snapshots)
+        resume_snapshot_ext_id = (ctx.state or {}).get("snapshot_external_id")
+        if resume_snapshot_ext_id:
+            used_snapshot = True
+            resume_from_run_id = (ctx.state or {}).get("resume_from_run_id", "")
+            if resume_from_run_id:
+                environment_variables["POSTHOG_RESUME_RUN_ID"] = resume_from_run_id
+
+        if resume_snapshot_ext_id:
+            emit_agent_log(ctx.run_id, "info", f"Resuming environment from snapshot for {ctx.repository}")
+        elif used_snapshot:
+            emit_agent_log(ctx.run_id, "info", f"Found existing environment for {ctx.repository}")
+        else:
+            emit_agent_log(ctx.run_id, "debug", f"Creating environment from base image for {ctx.repository}")
+
         config = SandboxConfig(
             name=get_sandbox_name_for_task(ctx.task_id),
             template=SandboxTemplate.DEFAULT_BASE,
             environment_variables=environment_variables,
-            snapshot_id=str(snapshot.id) if snapshot else None,
+            snapshot_external_id=resume_snapshot_ext_id,
+            snapshot_id=str(snapshot.id) if snapshot and not resume_snapshot_ext_id else None,
             metadata={"task_id": ctx.task_id},
         )
 
@@ -111,6 +123,40 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             if clone_result.exit_code != 0:
                 sandbox.destroy()
                 raise RuntimeError(f"Failed to clone repository {ctx.repository}: {clone_result.stderr}")
+
+        if ctx.branch:
+            emit_agent_log(ctx.run_id, "info", f"Checking out branch {ctx.branch}")
+            org, repo = ctx.repository.lower().split("/")
+            repo_path = f"/tmp/workspace/repos/{org}/{repo}"
+
+            # For snapshot-based sandboxes, update the remote URL with the fresh token
+            # since the snapshotted .git/config may contain an expired token.
+            if used_snapshot and github_token:
+                update_remote = (
+                    f"cd {shlex.quote(repo_path)} && "
+                    f"git remote set-url origin https://x-access-token:{shlex.quote(github_token)}@github.com/{shlex.quote(ctx.repository)}.git"
+                )
+                update_result = sandbox.execute(update_remote, timeout_seconds=30)
+                if update_result.exit_code != 0:
+                    logger.warning(
+                        "Failed to update remote URL for snapshot",
+                        extra={"branch": ctx.branch, "stderr": update_result.stderr},
+                    )
+
+            fetch_and_checkout = (
+                f"cd {shlex.quote(repo_path)} && "
+                f"git fetch --depth 1 origin -- {shlex.quote(ctx.branch)} && "
+                f"git checkout -B {shlex.quote(ctx.branch)} FETCH_HEAD"
+            )
+            try:
+                result = sandbox.execute(fetch_and_checkout, timeout_seconds=5 * 60)
+            except Exception:
+                sandbox.destroy()
+                raise
+            if result.exit_code != 0:
+                sandbox.destroy()
+                logger.warning("Branch checkout failed", extra={"branch": ctx.branch, "stderr": result.stderr})
+                raise RuntimeError(f"Failed to checkout branch {ctx.branch}")
 
         credentials = sandbox.get_connect_credentials()
 

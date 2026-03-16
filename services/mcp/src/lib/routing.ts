@@ -31,8 +31,9 @@ const AUTH_SERVER_REDIRECTS: AuthRedirect[] = [
 
 export function matchAuthServerRedirect(pathname: string): AuthRedirect | undefined {
     return AUTH_SERVER_REDIRECTS.find(
-        (route) =>
-            ('match' in route && pathname === route.match) || ('prefix' in route && pathname.startsWith(route.prefix))
+        (redirect) =>
+            ('match' in redirect && pathname === redirect.match) ||
+            ('prefix' in redirect && pathname.startsWith(redirect.prefix))
     )
 }
 

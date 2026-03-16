@@ -204,10 +204,11 @@ jobs:
             - name: Create versioned release
               env:
                   GH_TOKEN: ${{ github.token }}
+                  RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
-                  gh release create "${{ steps.version.outputs.tag }}" \
+                  gh release create "$RELEASE_TAG" \
                       products/posthog_ai/dist/skills.zip \
-                      --title "Agent skills ${{ steps.version.outputs.tag }}" \
+                      --title "Agent skills $RELEASE_TAG" \
                       --notes "Build from ${{ github.sha }}" \
                       --target "${{ github.sha }}" \
                       --latest=false
@@ -215,17 +216,18 @@ jobs:
             - name: Update latest release
               env:
                   GH_TOKEN: ${{ github.token }}
+                  RELEASE_TAG: ${{ steps.version.outputs.tag }}
               run: |
                   if gh release view agent-skills-latest &>/dev/null; then
                       gh release upload agent-skills-latest \
                           products/posthog_ai/dist/skills.zip --clobber
                       gh release edit agent-skills-latest \
-                          --notes "Latest build — same as ${{ steps.version.outputs.tag }}"
+                          --notes "Latest build — same as $RELEASE_TAG"
                   else
                       gh release create agent-skills-latest \
                           products/posthog_ai/dist/skills.zip \
                           --title "Agent skills (Latest)" \
-                          --notes "Latest build — same as ${{ steps.version.outputs.tag }}" \
+                          --notes "Latest build — same as $RELEASE_TAG" \
                           --target "${{ github.sha }}" \
                           --latest=false
                   fi

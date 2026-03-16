@@ -13,6 +13,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
@@ -77,6 +78,8 @@ interface InsightMetaProps extends Pick<
     | 'placement'
     | 'surveyOpportunity'
 > {
+    /** Called when the user mousedowns on the card meta (drag handle) in view mode to enter edit mode. */
+    onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     tile?: DashboardTile<QueryBasedInsightModel>
     insight: QueryBasedInsightModel
     areDetailsShown?: boolean
@@ -109,6 +112,7 @@ export function InsightMeta({
     moreButtons,
     placement,
     surveyOpportunity,
+    onDragHandleMouseDown,
 }: InsightMetaProps): JSX.Element {
     const { short_id, name, dashboards, next_allowed_client_refresh: nextAllowedClientRefresh } = insight
     const { insightProps, insightFeedback } = useValues(insightLogic)
@@ -206,6 +210,7 @@ export function InsightMeta({
                 areDetailsShown={areDetailsShown}
                 detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
                 topHeading={null}
+                onMouseDown={onDragHandleMouseDown}
                 content={
                     <InsightMetaContent
                         link={undefined}
@@ -239,6 +244,7 @@ export function InsightMeta({
             setAreDetailsShown={setAreDetailsShown}
             areDetailsShown={areDetailsShown}
             detailsTooltip="Show insight details, such as creator, last edit, and applied filters."
+            onMouseDown={onDragHandleMouseDown}
             topHeading={
                 showCompactHeading ? <TopHeading {...topHeadingProps} showInsightType={!showCompactTile} /> : null
             }
@@ -284,7 +290,9 @@ export function InsightMeta({
                     : undefined
             }
             metaDetails={
-                <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+                showDetailsControls ? (
+                    <InsightDetails query={insight.query} footerInfo={insight} variablesOverride={variablesOverride} />
+                ) : null
             }
             samplingFactor={samplingFactor}
             moreButtons={
@@ -381,7 +389,25 @@ export function InsightMeta({
                                 />
                             )}
                             {removeFromDashboard && (
-                                <LemonButton status="danger" onClick={removeFromDashboard} fullWidth>
+                                <LemonButton
+                                    status="danger"
+                                    onClick={() =>
+                                        LemonDialog.open({
+                                            title: 'Remove from dashboard',
+                                            description:
+                                                'Are you sure you want to remove this insight from the dashboard?',
+                                            primaryButton: {
+                                                children: 'Remove from dashboard',
+                                                status: 'danger',
+                                                onClick: removeFromDashboard,
+                                            },
+                                            secondaryButton: {
+                                                children: 'Cancel',
+                                            },
+                                        })
+                                    }
+                                    fullWidth
+                                >
                                     Remove from dashboard
                                 </LemonButton>
                             )}

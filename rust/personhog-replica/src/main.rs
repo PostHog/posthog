@@ -30,6 +30,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 idle_timeout: config.idle_timeout(),
                 test_before_acquire: true,
                 statement_timeout_ms: config.statement_timeout(),
+                ..Default::default()
             };
 
             // Create primary pool

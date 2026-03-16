@@ -82,9 +82,10 @@ export class PersonPropertyService {
             otherUpdates.is_identified = true
         }
 
-        // Update last_seen_at if the event timestamp (rounded to hour) is newer
-        // and the event hasn't explicitly opted out of updates with $update_person_last_seen_at=false
-        if (this.context.eventProperties['$update_person_last_seen_at'] !== false) {
+        if (
+            this.context.shouldUpdateLastSeenAt &&
+            this.context.eventProperties['$update_person_last_seen_at'] !== false
+        ) {
             const roundedTimestamp = this.context.timestamp.startOf('hour')
             if (!person.last_seen_at || roundedTimestamp > person.last_seen_at) {
                 otherUpdates.last_seen_at = roundedTimestamp

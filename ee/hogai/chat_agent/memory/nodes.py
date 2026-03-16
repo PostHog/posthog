@@ -30,7 +30,7 @@ from posthog.schema import (
     QueryStatusResponse,
 )
 
-from posthog.event_usage import report_user_action
+from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.ai.event_taxonomy_query_runner import EventTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.sync import database_sync_to_async
@@ -105,7 +105,10 @@ class MemoryInitializerContextMixin(AssistantContextMixin):
             runner = EventTaxonomyQueryRunner(
                 team=self._team, query=EventTaxonomyQuery(event=event, properties=[property])
             )
-            return runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            return runner.run(
+                ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS,
+                analytics_props={"source": EventSource.POSTHOG_AI},
+            )
 
         return await database_sync_to_async(run_query, thread_sensitive=False)()
 

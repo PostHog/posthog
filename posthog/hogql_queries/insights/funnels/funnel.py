@@ -66,6 +66,11 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             if property not in self._extra_event_properties:
                 self._extra_event_properties.append(property)
 
+        # When aggregating by non person property (e.g. session_id)
+        # add the person_id so we can later fetch the person data
+        if self._is_session_aggregation() and "person_id" not in self._extra_event_fields:
+            self._extra_event_fields.append("person_id")
+
     def conversion_window_limit(self) -> int:
         return int(
             self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds()
@@ -156,6 +161,12 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             assert isinstance(self.context.breakdown, list)
             prop_arg = f"""[empty(prop) ? [{",".join(["''"] * len(self.context.breakdown))}] : prop]"""
 
+        person_id_select = ""
+        if self._is_session_aggregation():
+            # person is already merged with the overrides in the inner query
+            # so we should be safe to pick any of the person_ids
+            person_id_select = "any(person_id) as person_id,"
+
         inner_select = parse_select(
             f"""
             SELECT
@@ -181,6 +192,7 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
                 af_tuple.3 as timings,
                 {self.matched_event_arrays_selects()}
                 af_tuple.5 as steps_bitfield,
+                {person_id_select}
                 aggregation_target
             FROM {{inner_event_query}}
             GROUP BY aggregation_target
@@ -395,6 +407,8 @@ class FunnelUDF(FunnelUDFMixin, FunnelBase):
             *self._get_timestamp_outer_select(),
             *([ast.Field(chain=[field]) for field in extra_fields or []]),
         ]
+        if self._is_session_aggregation():
+            select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])))
         select_from = ast.JoinExpr(table=self._inner_aggregation_query())
         where = self._get_funnel_person_step_condition()
         order_by = [ast.OrderExpr(expr=ast.Field(chain=["aggregation_target"]))]

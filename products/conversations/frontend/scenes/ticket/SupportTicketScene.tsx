@@ -31,6 +31,7 @@ import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
+import { TicketActivityPanel } from './TicketActivityPanel'
 
 export const scene: SceneExport<{ ticketId: string }> = {
     component: SupportTicketScene,
@@ -342,6 +343,9 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </LemonButton>
                         </div>
                     </LemonCard>
+
+                    {/* Activity History Panel */}
+                    {ticket?.id && <TicketActivityPanel ticketId={ticket.id} />}
 
                     {ticket?.channel_source === 'widget' && (
                         <>

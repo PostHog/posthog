@@ -34,6 +34,7 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
     _handle_null_columns_with_definitions,
     normalize_table_column_names,
 )
+from posthog.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka import KafkaBatchProducer, SyncTypeLiteral
 from posthog.temporal.data_imports.pipelines.pipeline_v3.metrics import (
     get_batches_produced_metric,
@@ -361,6 +362,10 @@ class PipelineV3(Generic[ResumableData]):
         await finalize_desc_sort_incremental_value(
             self._resource, self._schema, self._last_incremental_field_value, self._logger, log_prefix="V3 Pipeline: "
         )
+
+        if not self._schema.initial_sync_complete:
+            await self._logger.adebug("V3 Pipeline: Setting initial_sync_complete on schema")
+            await set_initial_sync_complete(schema_id=self._schema.id, team_id=self._job.team_id)
 
         await self._logger.ainfo(
             f"V3 Pipeline: Extraction complete",

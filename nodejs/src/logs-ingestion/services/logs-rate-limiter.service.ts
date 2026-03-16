@@ -1,6 +1,8 @@
-import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
-import { LogsIngestionConsumerConfig } from '~/types'
+import { Histogram } from 'prom-client'
 
+import { RedisV2, getRedisPipelineResults } from '~/common/redis/redis-v2'
+
+import { LogsIngestionConsumerConfig } from '../config'
 import { LogsIngestionMessage } from '../types'
 
 /** Convert milliseconds to seconds */
@@ -8,6 +10,12 @@ const msToSeconds = (ms: number): number => Math.round(ms / 1000)
 
 /** Convert bytes to kilobytes (rounded up) */
 const bytesToKb = (bytes: number): number => Math.ceil(bytes / 1000)
+
+export const logsMessageLagHistogram = new Histogram({
+    name: 'logs_rate_limiter_message_lag_seconds',
+    help: 'Lag between message observed timestamp and wall clock time (seconds)',
+    buckets: [-60, 0, 1, 5, 10, 30, 60, 300, 600, 1800, 3600],
+})
 
 export type LogsRateLimiterConfig = Pick<
     LogsIngestionConsumerConfig,
@@ -179,9 +187,16 @@ export class LogsRateLimiterService {
     public async filterMessages(messages: LogsIngestionMessage[]): Promise<FilteredMessages> {
         // Group messages by team to calculate total cost per team (only for teams with rate limiting enabled)
         const teamCosts = new Map<number, number>()
-        const teamTimestamps = new Map<number, number>()
+        const teamOldestTimestamps = new Map<number, number>()
 
         for (const message of messages) {
+            const messageTimestamp = this.getTimestampFromMessage(message)
+
+            const existing = teamOldestTimestamps.get(message.teamId)
+            if (existing === undefined || messageTimestamp < existing) {
+                teamOldestTimestamps.set(message.teamId, messageTimestamp)
+            }
+
             if (!this.isRateLimitingEnabledForTeam(message.teamId)) {
                 continue
             }
@@ -189,11 +204,12 @@ export class LogsRateLimiterService {
             // Cost is in KB (uncompressed bytes / 1000)
             const costKb = bytesToKb(message.bytesUncompressed)
             teamCosts.set(message.teamId, currentCost + costKb)
+        }
 
-            // Store the timestamp for this team (use the first message's timestamp)
-            if (!teamTimestamps.has(message.teamId)) {
-                teamTimestamps.set(message.teamId, this.getTimestampFromMessage(message))
-            }
+        // Track how far behind wall clock the messages are (using oldest per team for worst-case lag)
+        const nowSeconds = msToSeconds(Date.now())
+        for (const [, timestamp] of teamOldestTimestamps) {
+            logsMessageLagHistogram.observe(nowSeconds - timestamp)
         }
 
         // Check rate limits for all teams
@@ -201,7 +217,7 @@ export class LogsRateLimiterService {
             Array.from(teamCosts.entries()).map(([teamId, cost]) => [
                 teamId.toString(),
                 cost,
-                teamTimestamps.get(teamId) ?? msToSeconds(Date.now()),
+                teamOldestTimestamps.get(teamId) ?? msToSeconds(Date.now()),
             ])
         )
 

@@ -128,7 +128,7 @@ function formatDateRange(startDate: dayjs.Dayjs, endDate: dayjs.Dayjs): string {
 }
 
 export function getFormattedDate(input?: string | number, options?: FormattedDateOptions): string {
-    const defaultOptions = {
+    const defaultOptions: FormattedDateOptions = {
         interval: 'day',
         timezone: 'UTC',
         weekStartDay: 0, // Default to Sunday

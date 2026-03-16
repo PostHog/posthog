@@ -10,10 +10,15 @@ class SignalSourceConfig(UUIDModel):
     class SourceProduct(models.TextChoices):
         SESSION_REPLAY = "session_replay", "Session replay"
         LLM_ANALYTICS = "llm_analytics", "LLM analytics"
+        GITHUB = "github", "GitHub"
+        LINEAR = "linear", "Linear"
+        ZENDESK = "zendesk", "Zendesk"
 
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
         EVALUATION = "evaluation", "Evaluation"
+        ISSUE = "issue", "Issue"
+        TICKET = "ticket", "Ticket"
 
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="signal_source_configs")
     source_product = models.CharField(max_length=100, choices=SourceProduct.choices)

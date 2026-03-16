@@ -92,6 +92,7 @@ async fn setup_analytics_router_with_restriction(
         vec![Restriction {
             restriction_type,
             scope: RestrictionScope::AllEvents,
+            args: None,
         }],
     );
     service.update(manager).await;
@@ -135,6 +136,7 @@ struct ExpectedEvent<'a> {
     force_overflow: bool,
     skip_person_processing: bool,
     redirect_to_dlq: bool,
+    redirect_to_topic: Option<String>,
     // Properties to verify in the event data
     expected_properties: Option<Value>,
 }
@@ -174,6 +176,10 @@ fn assert_event(event: &ProcessedEvent, expected: &ExpectedEvent) {
     assert_eq!(
         event.metadata.redirect_to_dlq, expected.redirect_to_dlq,
         "redirect_to_dlq mismatch"
+    );
+    assert_eq!(
+        event.metadata.redirect_to_topic, expected.redirect_to_topic,
+        "redirect_to_topic mismatch"
     );
 
     // Assert properties in event data
@@ -257,6 +263,7 @@ async fn test_analytics_redirect_to_dlq_restriction() {
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: true,
+            redirect_to_topic: None,
             expected_properties: None,
         },
     );
@@ -298,6 +305,7 @@ async fn test_analytics_force_overflow_restriction() {
             force_overflow: true,
             skip_person_processing: false,
             redirect_to_dlq: false,
+            redirect_to_topic: None,
             expected_properties: None,
         },
     );
@@ -341,6 +349,7 @@ async fn test_analytics_skip_person_processing_restriction() {
             force_overflow: false,
             skip_person_processing: true,
             redirect_to_dlq: false,
+            redirect_to_topic: None,
             expected_properties: None,
         },
     );
@@ -385,6 +394,111 @@ async fn test_analytics_restriction_does_not_apply_to_other_tokens() {
             force_overflow: false,
             skip_person_processing: false,
             redirect_to_dlq: false,
+            redirect_to_topic: None,
+            expected_properties: None,
+        },
+    );
+}
+
+async fn setup_analytics_router_with_redirect_to_topic(
+    token: &str,
+    topic: &str,
+) -> (Router, CapturingSink) {
+    let liveness = HealthRegistry::new("analytics_redirect_topic_tests");
+    let sink = CapturingSink::new();
+    let sink_clone = sink.clone();
+    let timesource = FixedTime {
+        time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
+            .expect("Invalid fixed time format")
+            .with_timezone(&Utc),
+    };
+    let redis = Arc::new(MockRedisClient::new());
+
+    let mut cfg = DEFAULT_CONFIG.clone();
+    cfg.capture_mode = CaptureMode::Events;
+
+    let quota_limiter =
+        CaptureQuotaLimiter::new(&cfg, redis.clone(), Duration::from_secs(60 * 60 * 24 * 7));
+
+    let service = EventRestrictionService::new(CaptureMode::Events, Duration::from_secs(300));
+
+    let mut manager = RestrictionManager::new();
+    manager.restrictions.insert(
+        token.to_string(),
+        vec![Restriction {
+            restriction_type: RestrictionType::RedirectToTopic,
+            scope: RestrictionScope::AllEvents,
+            args: Some(json!({"topic": topic})),
+        }],
+    );
+    service.update(manager).await;
+
+    let router = router(
+        timesource,
+        liveness,
+        sink,
+        redis,
+        None, // global_rate_limiter_token_distinctid
+        None, // global_rate_limiter_token
+        quota_limiter,
+        TokenDropper::default(),
+        Some(service),
+        false,
+        CaptureMode::Events,
+        String::from("capture-analytics"),
+        None,
+        25 * 1024 * 1024,
+        false,
+        1_i64,
+        false,
+        0.0_f32,
+        26_214_400,
+        None,
+        Some(10),
+        None,
+        256, // body_read_chunk_size_kb
+    );
+
+    (router, sink_clone)
+}
+
+#[tokio::test]
+async fn test_analytics_redirect_to_topic_restriction() {
+    let restricted_token = "phc_restricted_redirect_topic_token";
+    let target_topic = "custom_events_topic";
+    let (router, sink) =
+        setup_analytics_router_with_redirect_to_topic(restricted_token, target_topic).await;
+    let test_client = TestClient::new(router);
+
+    let payload = json!({
+        "token": restricted_token,
+        "event": "$pageview",
+        "distinct_id": "test_user"
+    });
+
+    let response = test_client
+        .post("/capture")
+        .header("Content-Type", "application/json")
+        .header("X-Forwarded-For", "127.0.0.1")
+        .body(payload.to_string())
+        .send()
+        .await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+
+    let events = sink.get_events().await;
+    assert_eq!(events.len(), 1);
+    assert_event(
+        &events[0],
+        &ExpectedEvent {
+            token: restricted_token,
+            distinct_id: "test_user",
+            event_name: "$pageview",
+            data_type: DataType::AnalyticsMain,
+            force_overflow: false,
+            skip_person_processing: false,
+            redirect_to_dlq: false,
+            redirect_to_topic: Some(target_topic.to_string()),
             expected_properties: None,
         },
     );

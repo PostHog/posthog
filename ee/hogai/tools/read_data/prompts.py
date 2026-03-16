@@ -59,6 +59,21 @@ Retrieves and optionally retrieves data for an existing insight by its ID.
 - The user wants to see or discuss a specific saved insight.
 - You need to understand what an existing insight shows.
 
+# Notebook
+
+Retrieves a saved notebook by its short ID. Returns the notebook content as simplified markdown with embedded insight and session replay references.
+
+## Use this when:
+- The user wants to read, review, or discuss an existing saved notebook.
+- You need to understand the content of a notebook before updating or extending it.
+- The user refers to a notebook by its short ID.
+
+## Parameters:
+- notebook_id: The short ID of the notebook.
+
+## Output format:
+The notebook content is returned as simplified markdown. Insight visualizations are represented as `<insight>` tags with their query definition. Session replays are represented as `<session_replay>` tags with the session ID.
+
 # Feature flag
 
 Retrieves a feature flag by its numeric ID or key (slug).

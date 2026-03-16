@@ -48,7 +48,7 @@ describe('Documentation', { concurrent: false }, () => {
                 query: 'feature flags',
             })
 
-            expect(result.content[0].text).toBe('Error: INKEEP_API_KEY is not configured.')
+            expect(result.content[0]!.text).toBe('Error: INKEEP_API_KEY is not configured.')
         })
 
         it.skip('should search documentation with valid query', async () => {
@@ -56,9 +56,9 @@ describe('Documentation', { concurrent: false }, () => {
                 query: 'feature flags',
             })
 
-            expect(result.content[0].type).toBe('text')
-            expect(result.content[0].text).toBeTruthy()
-            expect(result.content[0].text.length).toBeGreaterThan(0)
+            expect(result.content[0]!.type).toBe('text')
+            expect(result.content[0]!.text).toBeTruthy()
+            expect(result.content[0]!.text.length).toBeGreaterThan(0)
         })
 
         it.skip('should search for analytics documentation', async () => {
@@ -66,9 +66,9 @@ describe('Documentation', { concurrent: false }, () => {
                 query: 'analytics events tracking',
             })
 
-            expect(result.content[0].type).toBe('text')
-            expect(result.content[0].text).toBeTruthy()
-            expect(result.content[0].text.length).toBeGreaterThan(0)
+            expect(result.content[0]!.type).toBe('text')
+            expect(result.content[0]!.text).toBeTruthy()
+            expect(result.content[0]!.text.length).toBeGreaterThan(0)
         })
 
         it.skip('should handle empty query results', async () => {
@@ -76,8 +76,8 @@ describe('Documentation', { concurrent: false }, () => {
                 query: 'zxcvbnmasdfghjklqwertyuiop123456789',
             })
 
-            expect(result.content[0].type).toBe('text')
-            expect(result.content[0].text).toBeTruthy()
+            expect(result.content[0]!.type).toBe('text')
+            expect(result.content[0]!.text).toBeTruthy()
         })
     })
 

@@ -16,7 +16,7 @@ import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
 import uniqBy from 'lodash.uniqby'
 import posthog from 'posthog-js'
-import { Layout, Layouts } from 'react-grid-layout'
+import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
@@ -70,6 +70,7 @@ import {
     ProjectTreeRef,
     QueryBasedInsightModel,
     TextModel,
+    TileLayout,
 } from '~/types'
 
 import { getResponseBytes, sortDayJsDates } from '../insights/utils'
@@ -136,6 +137,16 @@ export enum RefreshDashboardItemsAction {
 
 // to stop kea typegen getting confused
 export type DashboardTileLayoutUpdatePayload = Pick<DashboardTile, 'id' | 'layouts'>
+
+const tileLayoutsFromDashboard = (
+    dashboard: DashboardType<QueryBasedInsightModel> | null | undefined
+): Record<number, DashboardTile['layouts']> => {
+    const tileIdToLayouts: Record<number, DashboardTile['layouts']> = {}
+    dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
+        tileIdToLayouts[tile.id] = tile.layouts
+    })
+    return tileIdToLayouts
+}
 
 export const dashboardLogic = kea<dashboardLogicType>([
     path(['scenes', 'dashboard', 'dashboardLogic']),
@@ -247,11 +258,19 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
         /** Set the dashboard mode, see DashboardMode for details. */
         setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
+        /** Pending name/description during edit mode — only persisted on save, cleared on cancel. */
+        setPendingName: (name: string) => ({ name }),
+        setPendingDescription: (description: string) => ({ description }),
+        clearPendingMetadata: true,
+        /** Optimistic pin/unpin toggle. */
+        togglePinned: true,
+        /** Open/close the Terraform export modal. */
+        setTerraformModalOpen: (open: boolean) => ({ open }),
 
         /**
          * Dashboard layout & tiles.
          */
-        updateLayouts: (layouts: Layouts) => ({ layouts }),
+        updateLayouts: (layouts: ResponsiveLayouts) => ({ layouts }),
         updateContainerWidth: (containerWidth: number, columns: number) => ({ containerWidth, columns }),
         updateTileColor: (tileId: number, color: InsightColor | null) => ({ tileId, color }),
         toggleTileDescription: (tileId: number) => ({ tileId }),
@@ -383,6 +402,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         const dashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
+                                ...(values.pendingName !== null ? { name: values.pendingName } : {}),
+                                ...(values.pendingDescription !== null
+                                    ? { description: values.pendingDescription }
+                                    : {}),
                                 filters: values.effectiveEditBarFilters,
                                 variables: values.effectiveDashboardVariableOverrides,
                                 breakdown_colors: values.temporaryBreakdownColors,
@@ -536,14 +559,13 @@ export const dashboardLogic = kea<dashboardLogicType>([
         dashboardLayouts: [
             {} as Record<DashboardTile['id'], DashboardTile['layouts']>,
             {
-                loadDashboardSuccess: (_, { dashboard }) => {
-                    const tileIdToLayouts: Record<number, DashboardTile['layouts']> = {}
-                    dashboard?.tiles.forEach((tile: DashboardTile<QueryBasedInsightModel>) => {
-                        tileIdToLayouts[tile.id] = tile.layouts
-                    })
-
-                    return tileIdToLayouts
-                },
+                loadDashboardSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
+                loadDashboardMetadataSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
+                saveEditModeChangesSuccess: (_, { dashboard }) => tileLayoutsFromDashboard(dashboard),
+                receiveTileFromStream: (state, { tile }) => ({
+                    ...state,
+                    [tile.id]: tile.layouts,
+                }),
             },
         ],
         temporaryBreakdownColors: [
@@ -765,6 +787,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 setDashboardMode: (_, { mode }) => mode,
             },
         ],
+        pendingName: [
+            null as string | null,
+            {
+                setPendingName: (_, { name }) => name,
+                clearPendingMetadata: () => null,
+                // Clear once the single save PATCH confirms — avoids flicker where
+                // display briefly shows the old dashboard.name before the response
+                saveEditModeChangesSuccess: () => null,
+            },
+        ],
+        pendingDescription: [
+            null as string | null,
+            {
+                setPendingDescription: (_, { description }) => description,
+                clearPendingMetadata: () => null,
+                saveEditModeChangesSuccess: () => null,
+            },
+        ],
         loadLayoutFromServerOnPreview: [
             false,
             {
@@ -819,6 +859,21 @@ export const dashboardLogic = kea<dashboardLogicType>([
             null as number | 'new' | null,
             {
                 setTextTileId: (_, { textTileId }) => textTileId,
+            },
+        ],
+
+        isPinned: [
+            false,
+            {
+                loadDashboardSuccess: (_, { dashboard }) => !!dashboard?.pinned,
+                togglePinned: (state) => !state,
+            },
+        ],
+
+        terraformModalOpen: [
+            false,
+            {
+                setTerraformModalOpen: (_, { open }) => open,
             },
         ],
 
@@ -1274,14 +1329,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         layouts: [(s) => [s.tiles], (tiles) => calculateLayouts(tiles)],
-        layout: [(s) => [s.layouts, s.sizeKey], (layouts, sizeKey) => (sizeKey ? layouts[sizeKey] : undefined)],
+        layout: [
+            (s) => [s.layouts, s.sizeKey],
+            (layouts: ResponsiveLayouts, sizeKey: DashboardLayoutSize | undefined) =>
+                sizeKey ? layouts[sizeKey] : undefined,
+        ],
         layoutForItem: [
             (s) => [s.layout],
-            (layout) => {
-                const layoutForItem: Record<string, Layout> = {}
+            (layout: TileLayout[] | undefined) => {
+                const layoutForItem: Record<string, TileLayout> = {}
                 if (layout) {
                     for (const obj of layout) {
-                        layoutForItem[obj.i] = obj
+                        if (obj.i) {
+                            layoutForItem[obj.i] = obj
+                        }
                     }
                 }
                 return layoutForItem
@@ -1298,15 +1359,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
             },
         ],
         breadcrumbs: [
-            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad],
-            (dashboard, error404, dashboardFailedToLoad): Breadcrumb[] => {
+            (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, router.selectors.searchParams],
+            (dashboard, error404, dashboardFailedToLoad, searchParams): Breadcrumb[] => {
+                const backUrl = searchParams.backUrl as string | undefined
+                const backName = searchParams.backName as string | undefined
                 return [
-                    {
-                        key: Scene.Dashboards,
-                        name: 'Dashboards',
-                        path: urls.dashboards(),
-                        iconType: 'dashboard',
-                    },
+                    backUrl
+                        ? {
+                              key: backUrl,
+                              name: backName || 'Back',
+                              path: backUrl,
+                              iconType: 'dashboard',
+                          }
+                        : {
+                              key: Scene.Dashboards,
+                              name: 'Dashboards',
+                              path: urls.dashboards(),
+                              iconType: 'dashboard',
+                          },
                     {
                         key: [Scene.Dashboard, dashboard?.id || 'new'],
                         name: dashboard?.id
@@ -1417,6 +1487,16 @@ export const dashboardLogic = kea<dashboardLogicType>([
         },
     })),
     listeners(({ actions, values, cache, props, sharedListeners }) => ({
+        togglePinned: () => {
+            if (values.dashboard) {
+                // Reducers have already run, so values.isPinned reflects the desired new state.
+                if (values.isPinned) {
+                    dashboardsModel.actions.pinDashboard(values.dashboard.id, DashboardEventSource.SceneCommonButtons)
+                } else {
+                    dashboardsModel.actions.unpinDashboard(values.dashboard.id, DashboardEventSource.SceneCommonButtons)
+                }
+            }
+        },
         setAnalysisRating: ({ rating }) => {
             posthog.capture('dashboard refresh ai analysis feedback', {
                 rating: rating === 'up' ? 'thumbs_up' : 'thumbs_down',
@@ -1763,7 +1843,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
 
                 // update last refresh time, only if we've forced a blocking refresh of the dashboard
                 // and all tiles were refreshed
-                if (forceRefresh && tilesAbortedCount === 0) {
+                if (forceRefresh && tilesAbortedCount === 0 && tilesErroredCount === 0) {
                     actions.updateDashboardLastRefresh(dayjs())
                 }
 
@@ -1839,12 +1919,20 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 eventUsageLogic.actions.reportDashboardPropertiesChanged(values.dashboard)
             }
         },
+        saveEditModeChangesSuccess: ({ dashboard }) => {
+            if (dashboard) {
+                // Sync the saved dashboard (including any name/description changes) to
+                // dashboardsModel so the sidebar and other global views stay up to date
+                dashboardsModel.actions.updateDashboardSuccess(dashboard)
+            }
+        },
         setDashboardMode: async ({ mode, source }) => {
             if (mode === DashboardMode.Edit && source !== DashboardEventSource.DashboardHeaderDiscardChanges) {
                 clearDOMTextSelection()
-                lemonToast.info('Now editing the dashboard – save to persist changes')
+                lemonToast.info('Now editing the dashboard – press E or click Save to persist changes')
             } else if (source === DashboardEventSource.DashboardHeaderDiscardChanges) {
-                // cancel edit mode changesdashboardLogi
+                // cancel edit mode changes — discard pending name/description without saving
+                actions.clearPendingMetadata()
 
                 // reset filters to that before previewing
                 actions.resetIntermittentFilters()
@@ -1876,6 +1964,8 @@ export const dashboardLogic = kea<dashboardLogicType>([
                     source === DashboardEventSource.SceneCommonButtons)
             ) {
                 // save edit mode changes when exiting via Save button or E key/Edit layout button
+                // Pending name/description are included in the saveEditModeChanges PATCH
+                // to avoid a race between two concurrent PATCHes to the same endpoint.
                 actions.saveEditModeChanges()
             }
 

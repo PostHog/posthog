@@ -408,8 +408,11 @@ class TestConversation(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_422_UNPROCESSABLE_ENTITY)
 
-    def test_cancel_idle_conversation_noop(self):
-        """Test that canceling an idle conversation is a no-op."""
+    @patch("ee.hogai.core.executor.AgentExecutor.cancel_workflow")
+    def test_cancel_idle_conversation_still_cleans_up(self, mock_cancel):
+        """Test that canceling an idle conversation still attempts cleanup,
+        because queued workflows may be running even when status is IDLE
+        (during the transition between main and queued workflows)."""
         conversation = Conversation.objects.create(
             user=self.user,
             team=self.team,
@@ -423,9 +426,7 @@ class TestConversation(APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
-        conversation.refresh_from_db()
-        # Status should remain idle
-        self.assertEqual(conversation.status, Conversation.Status.IDLE)
+        mock_cancel.assert_called_once()
 
     def test_cancel_nonexistent_conversation(self):
         """Test canceling a conversation that doesn't exist."""
@@ -666,26 +667,22 @@ class TestConversation(APIBaseTest):
                 self.assertIn("beta", response_data["detail"])
 
     @override_settings(DEBUG=False)
-    def test_research_rate_limit_applies_to_existing_research_conversations(self):
-        """Test that research rate limits apply to existing deep research conversations."""
-        # Create an existing DEEP_RESEARCH conversation
-        conversation = Conversation.objects.create(
-            user=self.user, team=self.team, type=Conversation.Type.DEEP_RESEARCH, status=Conversation.Status.IDLE
-        )
-
+    def test_research_rate_limit_applies_to_new_research_conversations(self):
+        """Test that research rate limits apply to new DEEP_RESEARCH conversations (before conversion)."""
         with patch(
             "ee.hogai.core.executor.AgentExecutor.astream",
             return_value=_async_generator(),
         ):
             with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
-                # First 3 requests should succeed
+                # First 3 new research conversations should succeed (3/minute limit)
                 for i in range(3):
                     response = self.client.post(
                         f"/api/environments/{self.team.id}/conversations/",
                         {
                             "content": f"test query {i}",
                             "trace_id": str(uuid.uuid4()),
-                            "conversation": str(conversation.id),
+                            "conversation": str(uuid.uuid4()),
+                            "agent_mode": AgentMode.RESEARCH.value,
                         },
                     )
                     self.assertEqual(response.status_code, status.HTTP_200_OK, f"Request {i} should succeed")
@@ -696,11 +693,11 @@ class TestConversation(APIBaseTest):
                     {
                         "content": "test query 4",
                         "trace_id": str(uuid.uuid4()),
-                        "conversation": str(conversation.id),
+                        "conversation": str(uuid.uuid4()),
+                        "agent_mode": AgentMode.RESEARCH.value,
                     },
                 )
                 self.assertEqual(response.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
-                # Check that the response contains the research-specific message
                 response_data = response.json()
                 self.assertIn("Research mode", response_data["detail"])
 
@@ -924,6 +921,138 @@ class TestConversation(APIBaseTest):
                 self.assertIsInstance(workflow_inputs, ResearchAgentWorkflowInputs)
                 # Even without impersonation, research mode is non-billable
                 self.assertEqual(workflow_inputs.is_agent_billable, False)
+
+    def test_deep_research_converts_to_assistant_on_followup_message(self):
+        """Test that an idle DEEP_RESEARCH conversation converts to ASSISTANT when user sends a follow-up."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.DEEP_RESEARCH,
+            status=Conversation.Status.IDLE,
+        )
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_astream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "follow-up question",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(conversation.id),
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                conversation.refresh_from_db()
+                self.assertEqual(conversation.type, Conversation.Type.ASSISTANT)
+
+                call_args = mock_astream.call_args
+                workflow_class = call_args[0][0]
+                self.assertEqual(workflow_class, ChatAgentWorkflow)
+
+                workflow_inputs = call_args[0][1]
+                self.assertIsInstance(workflow_inputs, ChatAgentWorkflowInputs)
+
+    def test_deep_research_stays_research_when_not_idle(self):
+        """Test that an in-progress DEEP_RESEARCH conversation stays as research."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.DEEP_RESEARCH,
+            status=Conversation.Status.IN_PROGRESS,
+        )
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_astream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": None,
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(conversation.id),
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                conversation.refresh_from_db()
+                self.assertEqual(conversation.type, Conversation.Type.DEEP_RESEARCH)
+
+                workflow_class = mock_astream.call_args[0][0]
+                self.assertEqual(workflow_class, ResearchAgentWorkflow)
+
+    def test_deep_research_stays_research_when_resume_payload_present(self):
+        """Test that an idle DEEP_RESEARCH conversation stays as research when resume_payload is present (auto-rejecting approval)."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.DEEP_RESEARCH,
+            status=Conversation.Status.IDLE,
+        )
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ) as mock_astream:
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                response = self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "new question",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(conversation.id),
+                        "resume_payload": {"action": "reject"},
+                    },
+                )
+
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+                conversation.refresh_from_db()
+                self.assertEqual(conversation.type, Conversation.Type.DEEP_RESEARCH)
+
+                workflow_class = mock_astream.call_args[0][0]
+                self.assertEqual(workflow_class, ResearchAgentWorkflow)
+
+    @override_settings(DEBUG=False)
+    def test_converted_conversation_rate_limits_as_regular(self):
+        """Test that after conversion from DEEP_RESEARCH to ASSISTANT, _is_research_request returns False."""
+        conversation = Conversation.objects.create(
+            user=self.user,
+            team=self.team,
+            type=Conversation.Type.DEEP_RESEARCH,
+            status=Conversation.Status.IDLE,
+        )
+
+        with patch(
+            "ee.hogai.core.executor.AgentExecutor.astream",
+            return_value=_async_generator(),
+        ):
+            with patch("ee.api.conversation.StreamingHttpResponse", side_effect=self._create_mock_streaming_response):
+                # First message converts DEEP_RESEARCH → ASSISTANT
+                self.client.post(
+                    f"/api/environments/{self.team.id}/conversations/",
+                    {
+                        "content": "follow-up",
+                        "trace_id": str(uuid.uuid4()),
+                        "conversation": str(conversation.id),
+                    },
+                )
+
+                conversation.refresh_from_db()
+                self.assertEqual(conversation.type, Conversation.Type.ASSISTANT)
+
+                # Subsequent messages should not be rate-limited as research
+                viewset = ConversationViewSet()
+                viewset.team = self.team
+                mock_request = type("Request", (), {"data": {"conversation": str(conversation.id)}})()
+                self.assertFalse(viewset._is_research_request(mock_request))
 
     def test_chat_mode_uses_chat_agent_workflow(self):
         """Test that non-research modes use ChatAgentWorkflow."""

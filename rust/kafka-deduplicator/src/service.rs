@@ -23,6 +23,7 @@ use crate::{
     config::Config,
     kafka::{PartitionRouterConfig, PartitionWorkerConfig},
     rebalance_tracker::RebalanceTracker,
+    rocksdb::store::init_shared_resources,
     store::DeduplicationStoreConfig,
     store_manager::{CleanupTaskHandle, StoreManager},
 };
@@ -89,12 +90,17 @@ impl KafkaDeduplicatorService {
         // Validate configuration
         config.validate().with_context(|| format!("Configuration validation failed for service with consumer topic '{}' and group '{}'", config.kafka_consumer_topic, config.kafka_consumer_group))?;
 
+        // Build RocksDB config from env overrides and initialize shared resources
+        let rocksdb_config = config.build_rocksdb_config();
+        init_shared_resources(&rocksdb_config);
+
         // Create store configuration
         let store_config = DeduplicationStoreConfig {
             path: config.store_path_buf(),
             max_capacity: config
                 .parse_storage_capacity()
                 .context("Failed to parse max_store_capacity")?,
+            rocksdb: rocksdb_config,
         };
 
         // Create rebalance coordinator first (other components depend on it)

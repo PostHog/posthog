@@ -210,6 +210,7 @@ export function ActionsLineGraph({
             legend={legend}
             hideAnnotations={inSharedMode}
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
+            onDateRangeZoom={context?.onDateRangeZoom}
             onClick={
                 context?.onDataPointClick ||
                 (showPersonsModal && !isMultiSeriesFormula(formula) && !hasDataWarehouseSeries)

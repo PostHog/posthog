@@ -71,10 +71,13 @@ jobs:
                             text: ":eyes: <${{ github.event.pull_request.html_url }}|#${{ github.event.pull_request.number }} ${{ steps.meta.outputs.title }}>\nby ${{ steps.meta.outputs.author }}"
 
             - name: Save Slack message info
+              env:
+                  SLACK_CHANNEL_ID: ${{ steps.slack.outputs.channel_id }}
+                  SLACK_TS: ${{ steps.slack.outputs.ts }}
               run: |
                   echo '{}' | jq \
-                    --arg channel "${{ steps.slack.outputs.channel_id }}" \
-                    --arg ts "${{ steps.slack.outputs.ts }}" \
+                    --arg channel "$SLACK_CHANNEL_ID" \
+                    --arg ts "$SLACK_TS" \
                     '{channel: $channel, ts: $ts}' > .priority-review-slack
 
             - name: Cache Slack message info

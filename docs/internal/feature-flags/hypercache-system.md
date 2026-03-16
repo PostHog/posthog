@@ -344,8 +344,11 @@ FLAGS_CACHE_VERIFICATION_GRACE_PERIOD_MINUTES=5  # Skip recently updated flags
 Scheduled tasks only maintain existing caches. For initial population or schema migrations, use the management command:
 
 ```bash
-python manage.py warm_flags_cache [--invalidate-first]
+python manage.py warm_flags_cache [--invalidate-first] [--team-ids ID1 ID2 ...]
 ```
+
+By default, the command warms caches only for teams that have ever had a feature flag (using `config.get_teams_queryset()`). This includes teams whose flags have all been soft-deleted (so the cache correctly contains an empty flags list). Teams that have never had any feature flags are skipped to avoid unnecessary database queries and Redis writes.
+When `--team-ids` is provided, those specific teams are warmed regardless of the config scoping.
 
 ## Signal handlers
 
@@ -413,6 +416,7 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.example.com"]
 - `posthog/storage/hypercache.py` - Core HyperCache implementation
 - `posthog/models/feature_flag/local_evaluation.py` - Local evaluation caching
 - `posthog/models/feature_flag/flags_cache.py` - Flags cache, signal handlers, verification
+- `posthog/storage/hypercache_manager.py` - Batch management operations (warm, invalidate, stats)
 - `posthog/caching/flags_redis_cache.py` - Dual-write pattern for dedicated Redis
 - `posthog/models/remote_config.py` - Remote config caching
 - `posthog/models/team/team_caching.py` - Team authentication caching

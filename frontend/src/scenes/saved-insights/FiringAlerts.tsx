@@ -58,6 +58,7 @@ export function FiringAlerts(): JSX.Element {
                 description: 'No alerts are currently firing.',
                 buttonText: 'View all alerts',
                 buttonTo: urls.savedInsights(SavedInsightsTabs.Alerts),
+                buttonDataAttr: 'firing-alerts-empty-view-all',
             }}
             items={firingAlerts.slice(0, 5)}
             renderRow={(alert: AlertType) => <AlertRow key={alert.id} alert={alert} />}
