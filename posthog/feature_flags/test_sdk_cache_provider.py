@@ -115,7 +115,7 @@ class TestSDKClientIntegration(SimpleTestCase):
         mock_hypercache = MagicMock()
         mock_hypercache.get_from_cache.return_value = SAMPLE_FLAGS
         provider = HyperCacheFlagProvider(team_id=2)
-        provider._hypercache = mock_hypercache  # type: ignore[assignment]
+        provider._hypercache = mock_hypercache
 
         client = self._make_client(provider)
 
@@ -125,7 +125,6 @@ class TestSDKClientIntegration(SimpleTestCase):
             mock_api.assert_not_called()
 
         assert len(client.feature_flags) == 2
-        assert client.feature_flags_by_key is not None
         assert client.feature_flags_by_key["beta-feature"]["active"] is True
         assert client.group_type_mapping == {"0": "company", "1": "project"}
         assert client.cohorts == {"10": {"properties": [{"key": "plan", "value": "enterprise"}]}}
@@ -134,7 +133,7 @@ class TestSDKClientIntegration(SimpleTestCase):
         mock_hypercache = MagicMock()
         mock_hypercache.get_from_cache.return_value = None
         provider = HyperCacheFlagProvider(team_id=2)
-        provider._hypercache = mock_hypercache  # type: ignore[assignment]
+        provider._hypercache = mock_hypercache
 
         client = self._make_client(provider)
 
@@ -146,7 +145,7 @@ class TestSDKClientIntegration(SimpleTestCase):
     def test_sdk_skips_api_when_cache_empty_but_flags_already_loaded(self):
         mock_hypercache = MagicMock()
         provider = HyperCacheFlagProvider(team_id=2)
-        provider._hypercache = mock_hypercache  # type: ignore[assignment]
+        provider._hypercache = mock_hypercache
 
         client = self._make_client(provider)
 
@@ -169,14 +168,13 @@ class TestSDKClientIntegration(SimpleTestCase):
     def test_sdk_picks_up_flag_changes_on_next_poll(self):
         mock_hypercache = MagicMock()
         provider = HyperCacheFlagProvider(team_id=2)
-        provider._hypercache = mock_hypercache  # type: ignore[assignment]
+        provider._hypercache = mock_hypercache
 
         client = self._make_client(provider)
 
         # Initial load
         mock_hypercache.get_from_cache.return_value = SAMPLE_FLAGS
         client._load_feature_flags()
-        assert client.feature_flags_by_key is not None
         assert client.feature_flags_by_key["beta-feature"]["active"] is True
 
         # Flag changed in HyperCache (e.g., toggled off via Django admin)
@@ -190,7 +188,6 @@ class TestSDKClientIntegration(SimpleTestCase):
         mock_hypercache.get_from_cache.return_value = updated_flags
         client._load_feature_flags()
 
-        assert client.feature_flags_by_key is not None
         assert client.feature_flags_by_key["beta-feature"]["active"] is False
         assert len(client.feature_flags) == 1
 
@@ -198,7 +195,7 @@ class TestSDKClientIntegration(SimpleTestCase):
         mock_hypercache = MagicMock()
         mock_hypercache.get_from_cache.side_effect = Exception("Redis down")
         provider = HyperCacheFlagProvider(team_id=2)
-        provider._hypercache = mock_hypercache  # type: ignore[assignment]
+        provider._hypercache = mock_hypercache
 
         client = self._make_client(provider)
 
