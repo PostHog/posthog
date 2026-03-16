@@ -237,7 +237,7 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                         params.page = String(page)
                     }
                     const queryString = new URLSearchParams(params).toString()
-                    const url = `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim/logs${queryString ? `?${queryString}` : ''}`
+                    const url = `api/organizations/${values.currentOrganizationId}/domains/${domainId}/scim/logs${queryString ? `?${queryString}` : ''}`
                     const response = await api.get(url)
                     await breakpoint()
                     return response
