@@ -74,11 +74,11 @@ def forward_pending_user_message(run_id: str) -> None:
 
 
 def _enqueue_pending_delivery_failure_relay(task_run: Any, user_message_ts: str | None, error: str | None) -> None:
-    from products.tasks.backend.temporal.client import execute_twig_agent_relay_workflow
+    from products.tasks.backend.temporal.client import execute_posthog_code_agent_relay_workflow
 
     error_suffix = f" ({error})" if error else ""
     try:
-        execute_twig_agent_relay_workflow(
+        execute_posthog_code_agent_relay_workflow(
             run_id=str(task_run.id),
             text=f"I couldn't deliver your follow-up to the agent{error_suffix}. Please try again.",
             user_message_ts=user_message_ts,
@@ -89,7 +89,7 @@ def _enqueue_pending_delivery_failure_relay(task_run: Any, user_message_ts: str 
 
 
 def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, command_result_data: Any) -> None:
-    from products.tasks.backend.temporal.client import execute_twig_agent_relay_workflow
+    from products.tasks.backend.temporal.client import execute_posthog_code_agent_relay_workflow
 
     reply_text = _extract_assistant_text_from_command_result(
         command_result_data
@@ -102,7 +102,7 @@ def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, com
         reply_text = "I processed your message but couldn't fetch the reply text. Check the task logs for details."
 
     try:
-        execute_twig_agent_relay_workflow(
+        execute_posthog_code_agent_relay_workflow(
             run_id=str(task_run.id),
             text=reply_text,
             user_message_ts=user_message_ts,

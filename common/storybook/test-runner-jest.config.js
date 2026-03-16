@@ -15,6 +15,7 @@ module.exports = {
     // Merge upstream reporters (includes jest-junit when --junit is passed)
     // with jest-image-snapshot's outdated snapshot reporter
     reporters: [...(baseConfig.reporters || ['default']), 'jest-image-snapshot/src/outdated-snapshot-reporter.js'],
+    testTimeout: 60000,
     testEnvironment: './test-runner-jest-environment.js',
     snapshotResolver: './test-snapshot-resolver.js',
     testPathIgnorePatterns: ['/node_modules/', '/rust/cymbal/tests/snapshots/'],

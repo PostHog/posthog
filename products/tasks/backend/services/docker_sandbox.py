@@ -85,14 +85,16 @@ class DockerSandbox:
         return result
 
     @staticmethod
-    def _get_local_twig_packages() -> tuple[str, str, str] | None:
+    def _get_local_posthog_code_packages() -> tuple[str, str, str] | None:
         """
-        Get paths to local twig packages for development builds.
+        Get paths to local PostHog Code packages for development builds.
 
-        Configure via LOCAL_TWIG_MONOREPO_ROOT pointing to the twig monorepo root.
+        Configure via LOCAL_POSTHOG_CODE_MONOREPO_ROOT pointing to the PostHog Code monorepo root.
         Returns tuple of (agent_path, shared_path, git_path) or None if not configured.
         """
-        monorepo_root = os.environ.get("LOCAL_TWIG_MONOREPO_ROOT")
+        monorepo_root = os.environ.get(
+            "LOCAL_POSTHOG_CODE_MONOREPO_ROOT", os.environ.get("LOCAL_TWIG_MONOREPO_ROOT", "")
+        )
         if not monorepo_root or not os.path.isdir(monorepo_root):
             return None
 
@@ -111,7 +113,7 @@ class DockerSandbox:
 
         if missing:
             raise SandboxProvisionError(
-                f"LOCAL_TWIG_MONOREPO_ROOT is set but required packages not found: {', '.join(missing)}",
+                f"LOCAL_POSTHOG_CODE_MONOREPO_ROOT is set but required packages not found: {', '.join(missing)}",
                 {"monorepo_root": monorepo_root, "missing": missing},
                 cause=RuntimeError(f"Missing packages: {', '.join(missing)}"),
             )
@@ -142,8 +144,8 @@ class DockerSandbox:
 
     @staticmethod
     def _build_local_image(agent_path: str, shared_path: str, git_path: str) -> None:
-        """Build the local sandbox image with local twig packages."""
-        logger.info("Building posthog-sandbox-base-local image with local twig packages...")
+        """Build the local sandbox image with local PostHog Code packages."""
+        logger.info("Building posthog-sandbox-base-local image with local PostHog Code packages...")
         dockerfile_path = os.path.join(
             settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-local"
         )
@@ -180,7 +182,7 @@ class DockerSandbox:
 
     @staticmethod
     def _ensure_image_exists(template: SandboxTemplate) -> str:
-        """Build the sandbox image, using local packages if LOCAL_TWIG_MONOREPO_ROOT is set."""
+        """Build the sandbox image, using local packages if LOCAL_POSTHOG_CODE_MONOREPO_ROOT is set."""
         if template == SandboxTemplate.NOTEBOOK_BASE:
             dockerfile_path = os.path.join(
                 settings.BASE_DIR, "products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook"
@@ -193,7 +195,7 @@ class DockerSandbox:
         )
         DockerSandbox._build_image_if_needed(DEFAULT_IMAGE_NAME, dockerfile_path)
 
-        local_packages = DockerSandbox._get_local_twig_packages()
+        local_packages = DockerSandbox._get_local_posthog_code_packages()
         if local_packages:
             agent_path, shared_path, git_path = local_packages
             DockerSandbox._build_local_image(agent_path, shared_path, git_path)
@@ -562,7 +564,9 @@ class DockerSandbox:
         branch: str | None = None,
         mcp_servers_arg: str = "",
     ) -> str:
-        env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        env_prefix = (
+            f"env POSTHOG_CODE_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        )
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         return (
             f"cd /scripts && "

@@ -21,25 +21,25 @@ def _safe_react(client: Any, channel: str, timestamp: str, name: str) -> None:
             raise
 
 
-TWIG_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
-TWIG_SLACK_PICKER_TIMEOUT_MINUTES = 15
-TWIG_SLACK_MENTION_PICKER_GUIDANCE = (
+POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS = 10 * 60
+POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES = 15
+POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE = (
     "Please select the repository for this task. "
     "Or @mention me again and include the exact repository as `org/repo`. "
-    'You can also add routing rules with `@Twig rules add "description" [org/repo]`.'
+    'You can also add routing rules with `@PostHog Code rules add "description" [org/repo]`.'
 )
-TWIG_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this routing rule."
+POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE = "Select the repository for this routing rule."
 
 
 @dataclass
-class TwigSlackMentionWorkflowInputs:
+class PostHogCodeSlackMentionWorkflowInputs:
     event: dict[str, Any]
     integration_id: int
     slack_team_id: str
 
 
 @dataclass
-class TwigSlackRepoDecisionData:
+class PostHogCodeSlackRepoDecisionData:
     mode: str
     repository: str | None
     reason: str
@@ -47,13 +47,13 @@ class TwigSlackRepoDecisionData:
 
 
 @dataclass
-class TwigRulesCommandResult:
+class PostHogCodeRulesCommandResult:
     status: str  # "not_a_command" | "handled" | "needs_picker"
     pending_rule_text: str | None = None
 
 
-@workflow.defn(name="twig-slack-mention-processing")
-class TwigSlackMentionWorkflow(PostHogWorkflow):
+@workflow.defn(name="posthog-code-slack-mention-processing")
+class PostHogCodeSlackMentionWorkflow(PostHogWorkflow):
     def __init__(self) -> None:
         self._selected_repo: str | None = None
 
@@ -63,12 +63,12 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
             self._selected_repo = repository
 
     @staticmethod
-    def parse_inputs(inputs: list[str]) -> TwigSlackMentionWorkflowInputs:
+    def parse_inputs(inputs: list[str]) -> PostHogCodeSlackMentionWorkflowInputs:
         loaded = json.loads(inputs[0])
-        return TwigSlackMentionWorkflowInputs(**loaded)
+        return PostHogCodeSlackMentionWorkflowInputs(**loaded)
 
     @workflow.run
-    async def run(self, inputs: TwigSlackMentionWorkflowInputs) -> None:
+    async def run(self, inputs: PostHogCodeSlackMentionWorkflowInputs) -> None:
         event = inputs.event
         channel = event.get("channel")
         thread_ts = event.get("thread_ts") or event.get("ts")
@@ -78,8 +78,8 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
             return
 
         try:
-            followup_handled = await _execute_twig_activity(
-                forward_twig_followup_activity,
+            followup_handled = await _execute_posthog_code_activity(
+                forward_posthog_code_followup_activity,
                 inputs,
                 channel,
                 thread_ts,
@@ -90,14 +90,14 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
             if followup_handled:
                 return
 
-            user_id = await _execute_twig_activity(
-                resolve_twig_slack_user_activity, inputs, channel, thread_ts, slack_user_id
+            user_id = await _execute_posthog_code_activity(
+                resolve_posthog_code_slack_user_activity, inputs, channel, thread_ts, slack_user_id
             )
             if not user_id:
                 return
 
-            rules_result = await _execute_twig_activity(
-                handle_twig_rules_command_activity,
+            rules_result = await _execute_posthog_code_activity(
+                handle_posthog_code_rules_command_activity,
                 inputs,
                 channel,
                 thread_ts,
@@ -107,30 +107,32 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
             if rules_result.status == "handled":
                 return
             if rules_result.status == "needs_picker":
-                await _execute_twig_activity(
-                    post_twig_repo_picker_activity,
+                await _execute_posthog_code_activity(
+                    post_posthog_code_repo_picker_activity,
                     inputs,
                     channel,
                     thread_ts,
                     slack_user_id,
                     event,
                     workflow.info().workflow_id,
-                    TWIG_SLACK_RULES_ADD_PICKER_GUIDANCE,
+                    POSTHOG_CODE_SLACK_RULES_ADD_PICKER_GUIDANCE,
                 )
                 try:
                     await workflow.wait_condition(
                         lambda: self._selected_repo is not None,
-                        timeout=timedelta(minutes=TWIG_SLACK_PICKER_TIMEOUT_MINUTES),
+                        timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
                     )
                 except TimeoutError:
-                    await _execute_twig_activity(post_twig_picker_timeout_activity, inputs, channel, thread_ts)
+                    await _execute_posthog_code_activity(
+                        post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                    )
                     return
 
                 if not self._selected_repo:
                     return
 
-                await _execute_twig_activity(
-                    create_twig_routing_rule_activity,
+                await _execute_posthog_code_activity(
+                    create_posthog_code_routing_rule_activity,
                     inputs,
                     channel,
                     thread_ts,
@@ -140,8 +142,8 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
                 )
                 return
 
-            thread_messages = await _execute_twig_activity(
-                collect_twig_thread_messages_activity,
+            thread_messages = await _execute_posthog_code_activity(
+                collect_posthog_code_thread_messages_activity,
                 inputs,
                 channel,
                 thread_ts,
@@ -149,8 +151,8 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
             if not thread_messages:
                 return
 
-            decision = await _execute_twig_activity(
-                select_twig_repository_activity,
+            decision = await _execute_posthog_code_activity(
+                select_posthog_code_repository_activity,
                 inputs,
                 event.get("text", ""),
                 thread_messages,
@@ -160,33 +162,37 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
 
             if decision.mode == "picker":
                 if decision.reason == "no_repos":
-                    await _execute_twig_activity(post_twig_no_repos_activity, inputs, channel, thread_ts)
+                    await _execute_posthog_code_activity(
+                        post_posthog_code_no_repos_activity, inputs, channel, thread_ts
+                    )
                     return
 
-                await _execute_twig_activity(
-                    post_twig_repo_picker_activity,
+                await _execute_posthog_code_activity(
+                    post_posthog_code_repo_picker_activity,
                     inputs,
                     channel,
                     thread_ts,
                     slack_user_id,
                     event,
                     workflow.info().workflow_id,
-                    TWIG_SLACK_MENTION_PICKER_GUIDANCE,
+                    POSTHOG_CODE_SLACK_MENTION_PICKER_GUIDANCE,
                 )
                 try:
                     await workflow.wait_condition(
                         lambda: self._selected_repo is not None,
-                        timeout=timedelta(minutes=TWIG_SLACK_PICKER_TIMEOUT_MINUTES),
+                        timeout=timedelta(minutes=POSTHOG_CODE_SLACK_PICKER_TIMEOUT_MINUTES),
                     )
                 except TimeoutError:
-                    await _execute_twig_activity(post_twig_picker_timeout_activity, inputs, channel, thread_ts)
+                    await _execute_posthog_code_activity(
+                        post_posthog_code_picker_timeout_activity, inputs, channel, thread_ts
+                    )
                     return
 
                 if not self._selected_repo:
                     return
 
-                await _execute_twig_activity(
-                    create_twig_task_for_repo_activity,
+                await _execute_posthog_code_activity(
+                    create_posthog_code_task_for_repo_activity,
                     inputs,
                     channel,
                     thread_ts,
@@ -202,8 +208,8 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
             if not repository:
                 return
 
-            await _execute_twig_activity(
-                create_twig_task_for_repo_activity,
+            await _execute_posthog_code_activity(
+                create_posthog_code_task_for_repo_activity,
                 inputs,
                 channel,
                 thread_ts,
@@ -214,26 +220,26 @@ class TwigSlackMentionWorkflow(PostHogWorkflow):
                 repository,
             )
         except Exception:
-            await _execute_twig_activity(
-                post_twig_internal_error_activity,
+            await _execute_posthog_code_activity(
+                post_posthog_code_internal_error_activity,
                 inputs,
                 channel,
                 thread_ts,
             )
 
 
-async def _execute_twig_activity(activity_fn: Any, *args: Any) -> Any:
+async def _execute_posthog_code_activity(activity_fn: Any, *args: Any) -> Any:
     return await workflow.execute_activity(
         activity_fn,
         args=args,
-        start_to_close_timeout=timedelta(seconds=TWIG_SLACK_MENTION_TIMEOUT_SECONDS),
+        start_to_close_timeout=timedelta(seconds=POSTHOG_CODE_SLACK_MENTION_TIMEOUT_SECONDS),
         retry_policy=RetryPolicy(maximum_attempts=3),
     )
 
 
 @activity.defn
-def resolve_twig_slack_user_activity(
-    inputs: TwigSlackMentionWorkflowInputs,
+def resolve_posthog_code_slack_user_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
@@ -244,7 +250,7 @@ def resolve_twig_slack_user_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-twig",
+        kind="slack-posthog-code",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -253,24 +259,24 @@ def resolve_twig_slack_user_activity(
 
 
 @activity.defn
-def handle_twig_rules_command_activity(
-    inputs: TwigSlackMentionWorkflowInputs,
+def handle_posthog_code_rules_command_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
     user_id: int,
-) -> TwigRulesCommandResult:
+) -> PostHogCodeRulesCommandResult:
     from posthog.models.integration import Integration, SlackIntegration
 
     from products.slack_app.backend.api import _parse_rules_command
 
     command = _parse_rules_command(inputs.event.get("text", ""))
     if not command:
-        return TwigRulesCommandResult(status="not_a_command")
+        return PostHogCodeRulesCommandResult(status="not_a_command")
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-twig",
+        kind="slack-posthog-code",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -281,7 +287,7 @@ def handle_twig_rules_command_activity(
         _handle_rules_list(slack, integration, channel, thread_ts)
     elif command.action == "add":
         if not command.repository:
-            return TwigRulesCommandResult(status="needs_picker", pending_rule_text=command.rule_text)
+            return PostHogCodeRulesCommandResult(status="needs_picker", pending_rule_text=command.rule_text)
         _handle_rules_add(slack, integration, channel, thread_ts, user_id, command.rule_text or "", command.repository)
     elif command.action == "remove":
         _handle_rules_remove(slack, integration, channel, thread_ts, command.rule_number)
@@ -292,7 +298,7 @@ def handle_twig_rules_command_activity(
     elif command.action == "default_clear":
         _handle_default_repo_clear(slack, integration, channel, thread_ts, user_id)
 
-    return TwigRulesCommandResult(status="handled")
+    return PostHogCodeRulesCommandResult(status="handled")
 
 
 def _handle_help(slack: Any, channel: str, thread_ts: str) -> None:
@@ -301,15 +307,15 @@ def _handle_help(slack: Any, channel: str, thread_ts: str) -> None:
         thread_ts=thread_ts,
         text=(
             "*Available commands:*\n\n"
-            "`@Twig <task description>` — Create a task for the agent to work on\n"
-            "`@Twig rules list` — Show all routing rules\n"
-            '`@Twig rules add "description" org/repo` — Add a routing rule\n'
-            '`@Twig rules add "description"` — Add a routing rule (pick repo from list)\n'
-            "`@Twig rules remove <number>` — Remove a routing rule by number\n"
-            "`@Twig default repo set org/repo` — Set your default repository for this channel\n"
-            "`@Twig default repo show` — Show your default repository for this channel\n"
-            "`@Twig default repo clear` — Clear your default repository for this channel\n"
-            "`@Twig help` — Show this message\n\n"
+            "`@PostHog Code <task description>` — Create a task for the agent to work on\n"
+            "`@PostHog Code rules list` — Show all routing rules\n"
+            '`@PostHog Code rules add "description" org/repo` — Add a routing rule\n'
+            '`@PostHog Code rules add "description"` — Add a routing rule (pick repo from list)\n'
+            "`@PostHog Code rules remove <number>` — Remove a routing rule by number\n"
+            "`@PostHog Code default repo set org/repo` — Set your default repository for this channel\n"
+            "`@PostHog Code default repo show` — Show your default repository for this channel\n"
+            "`@PostHog Code default repo clear` — Clear your default repository for this channel\n"
+            "`@PostHog Code help` — Show this message\n\n"
             "You can also reply in an active thread to send follow-up messages to the agent."
         ),
     )
@@ -323,7 +329,7 @@ def _handle_rules_list(slack: Any, integration: Any, channel: str, thread_ts: st
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text='No routing rules configured. Add one with `@Twig rules add "description" [org/repo]`. Omit the repo to pick from a list.',
+            text='No routing rules configured. Add one with `@PostHog Code rules add "description" [org/repo]`. Omit the repo to pick from a list.',
         )
         return
 
@@ -400,7 +406,7 @@ def _handle_rules_remove(
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text="Please provide a valid rule number. Use `@Twig rules list` to see current rules.",
+            text="Please provide a valid rule number. Use `@PostHog Code rules list` to see current rules.",
         )
         return
 
@@ -409,7 +415,7 @@ def _handle_rules_remove(
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text=f"Rule #{rule_number} does not exist. There are {len(rules)} rule(s). Use `@Twig rules list` to see them.",
+            text=f"Rule #{rule_number} does not exist. There are {len(rules)} rule(s). Use `@PostHog Code rules list` to see them.",
         )
         return
 
@@ -484,7 +490,7 @@ def _handle_default_repo_show(
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
-            text="No default repository set for this channel. Use `@Twig default repo set org/repo` to set one.",
+            text="No default repository set for this channel. Use `@PostHog Code default repo set org/repo` to set one.",
         )
 
 
@@ -518,8 +524,8 @@ def _handle_default_repo_clear(
 
 
 @activity.defn
-def collect_twig_thread_messages_activity(
-    inputs: TwigSlackMentionWorkflowInputs,
+def collect_posthog_code_thread_messages_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
     thread_ts: str,
 ) -> list[dict[str, str]]:
@@ -529,7 +535,7 @@ def collect_twig_thread_messages_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-twig",
+        kind="slack-posthog-code",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -539,20 +545,20 @@ def collect_twig_thread_messages_activity(
 
 
 @activity.defn
-def select_twig_repository_activity(
-    inputs: TwigSlackMentionWorkflowInputs,
+def select_posthog_code_repository_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
     event_text: str,
     thread_messages: list[dict[str, str]],
     user_id: int | None = None,
     channel: str = "",
-) -> TwigSlackRepoDecisionData:
+) -> PostHogCodeSlackRepoDecisionData:
     from posthog.models.integration import Integration
 
     from products.slack_app.backend.api import _get_full_repo_names, select_repository
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-twig",
+        kind="slack-posthog-code",
         integration_id=inputs.slack_team_id,
     )
     all_repos = _get_full_repo_names(integration)
@@ -564,7 +570,7 @@ def select_twig_repository_activity(
         user_id=user_id,
         channel=channel,
     )
-    return TwigSlackRepoDecisionData(
+    return PostHogCodeSlackRepoDecisionData(
         mode=decision.mode,
         repository=decision.repository,
         reason=decision.reason,
@@ -573,12 +579,14 @@ def select_twig_repository_activity(
 
 
 @activity.defn
-def post_twig_no_repos_activity(inputs: TwigSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
+def post_posthog_code_no_repos_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
+) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-twig",
+        kind="slack-posthog-code",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -593,8 +601,8 @@ def post_twig_no_repos_activity(inputs: TwigSlackMentionWorkflowInputs, channel:
 
 
 @activity.defn
-def post_twig_repo_picker_activity(
-    inputs: TwigSlackMentionWorkflowInputs,
+def post_posthog_code_repo_picker_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
@@ -608,7 +616,7 @@ def post_twig_repo_picker_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-twig",
+        kind="slack-posthog-code",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -622,14 +630,14 @@ def post_twig_repo_picker_activity(
         event_text=event.get("text", ""),
         user_message_ts=event.get("ts"),
         guidance=guidance,
-        action_id="twig_repo_select",
+        action_id="posthog_code_repo_select",
         workflow_id=workflow_id,
     )
 
 
 @activity.defn
-def create_twig_task_for_repo_activity(
-    inputs: TwigSlackMentionWorkflowInputs,
+def create_posthog_code_task_for_repo_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
@@ -651,7 +659,7 @@ def create_twig_task_for_repo_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-twig",
+        kind="slack-posthog-code",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -677,7 +685,7 @@ def create_twig_task_for_repo_activity(
         if permalink_resp.get("ok"):
             slack_thread_url = permalink_resp["permalink"]
     except Exception:
-        log.warning("twig_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
+        log.warning("posthog_code_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
 
     # 1. Create task + run WITHOUT starting the workflow
     try:
@@ -695,7 +703,7 @@ def create_twig_task_for_repo_activity(
         )
     except Exception as e:
         log.exception(
-            "twig_task_creation_failed",
+            "posthog_code_task_creation_failed",
             error=str(e),
             team_id=integration.team_id,
             channel=channel,
@@ -708,11 +716,11 @@ def create_twig_task_for_repo_activity(
                 text="Sorry, I ran into an internal error creating the task. Please try again in a minute.",
             )
         except Exception:
-            log.warning("twig_error_notification_failed", channel=channel, thread_ts=thread_ts)
+            log.warning("posthog_code_error_notification_failed", channel=channel, thread_ts=thread_ts)
         return
 
     log.info(
-        "twig_task_created",
+        "posthog_code_task_created",
         team_id=integration.team_id,
         repository=repository,
         channel=channel,
@@ -749,8 +757,8 @@ def create_twig_task_for_repo_activity(
 
 
 @activity.defn
-def create_twig_routing_rule_activity(
-    inputs: TwigSlackMentionWorkflowInputs,
+def create_posthog_code_routing_rule_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
     thread_ts: str,
     user_id: int,
@@ -768,7 +776,7 @@ def create_twig_routing_rule_activity(
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-twig",
+        kind="slack-posthog-code",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
@@ -776,7 +784,7 @@ def create_twig_routing_rule_activity(
     all_repos = _get_full_repo_names(integration)
     matched_repo = _extract_explicit_repo(repository, all_repos)
     if not matched_repo:
-        log.warning("twig_rules_add_repo_no_longer_connected", repo=repository, team_id=integration.team_id)
+        log.warning("posthog_code_rules_add_repo_no_longer_connected", repo=repository, team_id=integration.team_id)
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
@@ -806,8 +814,8 @@ def create_twig_routing_rule_activity(
 
 
 @activity.defn
-def forward_twig_followup_activity(
-    inputs: TwigSlackMentionWorkflowInputs,
+def forward_posthog_code_followup_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs,
     channel: str,
     thread_ts: str,
     slack_user_id: str,
@@ -836,21 +844,21 @@ def forward_twig_followup_activity(
             thread_ts=thread_ts,
         )
     except SlackThreadTaskMapping.DoesNotExist:
-        log.info("twig_followup_not_handled", channel=channel, thread_ts=thread_ts)
+        log.info("posthog_code_followup_not_handled", channel=channel, thread_ts=thread_ts)
         return False
 
     task_run = mapping.task_run
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-twig",
+        kind="slack-posthog-code",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
 
     if slack_user_id != mapping.mentioning_slack_user_id:
         log.info(
-            "twig_followup_unauthorized_actor",
+            "posthog_code_followup_unauthorized_actor",
             channel=channel,
             thread_ts=thread_ts,
             expected=mapping.mentioning_slack_user_id,
@@ -878,7 +886,7 @@ def forward_twig_followup_activity(
 
     sandbox_url = (task_run.state or {}).get("sandbox_url")
     if not sandbox_url:
-        log.info("twig_followup_sandbox_not_ready", channel=channel, thread_ts=thread_ts)
+        log.info("posthog_code_followup_sandbox_not_ready", channel=channel, thread_ts=thread_ts)
         slack.client.chat_postMessage(
             channel=channel,
             thread_ts=thread_ts,
@@ -905,7 +913,7 @@ def forward_twig_followup_activity(
 
     if not result.success:
         log.warning(
-            "twig_followup_forwarding_failed",
+            "posthog_code_followup_forwarding_failed",
             channel=channel,
             thread_ts=thread_ts,
             error=result.error,
@@ -970,7 +978,7 @@ def forward_twig_followup_activity(
         mentioning_slack_user_id=mapping.mentioning_slack_user_id,
     )
 
-    log.info("twig_followup_forwarded", channel=channel, thread_ts=thread_ts, task_run_id=str(task_run.id))
+    log.info("posthog_code_followup_forwarded", channel=channel, thread_ts=thread_ts, task_run_id=str(task_run.id))
     return True
 
 
@@ -978,7 +986,7 @@ def _resume_task_with_new_run(
     mapping: Any,
     previous_run: Any,
     slack: Any,
-    inputs: "TwigSlackMentionWorkflowInputs",
+    inputs: "PostHogCodeSlackMentionWorkflowInputs",
     channel: str,
     thread_ts: str,
     slack_user_id: str,
@@ -1049,7 +1057,7 @@ def _resume_task_with_new_run(
         )
     except Exception:
         log.exception(
-            "twig_resume_workflow_start_failed",
+            "posthog_code_resume_workflow_start_failed",
             channel=channel,
             thread_ts=thread_ts,
             task_id=str(mapping.task.id),
@@ -1075,7 +1083,7 @@ def _resume_task_with_new_run(
     )
 
     log.info(
-        "twig_task_resumed",
+        "posthog_code_task_resumed",
         channel=channel,
         thread_ts=thread_ts,
         task_id=str(mapping.task.id),
@@ -1263,29 +1271,33 @@ def _parse_iso_datetime(value: Any) -> datetime | None:
 
 
 @activity.defn
-def post_twig_picker_timeout_activity(inputs: TwigSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
+def post_posthog_code_picker_timeout_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
+) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-twig",
+        kind="slack-posthog-code",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
     slack.client.chat_postMessage(
         channel=channel,
         thread_ts=thread_ts,
-        text="Repository selection expired. Please mention Twig again to retry.",
+        text="Repository selection expired. Please mention PostHog Code again to retry.",
     )
 
 
 @activity.defn
-def post_twig_internal_error_activity(inputs: TwigSlackMentionWorkflowInputs, channel: str, thread_ts: str) -> None:
+def post_posthog_code_internal_error_activity(
+    inputs: PostHogCodeSlackMentionWorkflowInputs, channel: str, thread_ts: str
+) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
-        kind="slack-twig",
+        kind="slack-posthog-code",
         integration_id=inputs.slack_team_id,
     )
     slack = SlackIntegration(integration)
