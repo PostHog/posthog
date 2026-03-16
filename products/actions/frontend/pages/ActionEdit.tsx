@@ -11,7 +11,6 @@ import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { SceneTags } from 'lib/components/Scenes/SceneTags'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
 import ViewRecordingsPlaylistButton from 'lib/components/ViewRecordingButton/ViewRecordingsPlaylistButton'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -19,7 +18,7 @@ import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -68,9 +67,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
     }, [loadedAction, action, setAction])
     const { tags } = useValues(tagsModel)
     const { addProductIntentForCrossSell } = useActions(teamLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
-    const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     // Check if user can edit this action
     const canEdit = userHasAccess(AccessControlResourceType.Action, AccessControlLevel.Editor, action.user_access_level)
@@ -166,7 +163,7 @@ export function ActionEdit({ action: loadedAction, id, actionLoading }: ActionEd
                                 data-attr={`${RESOURCE_TYPE}-view-recordings`}
                             />
                         )}
-                        {actionId && hasMultipleProjects && interProjectTransfersEnabled && (
+                        {actionId && canCopyToProject && (
                             <ButtonPrimitive
                                 menuItem
                                 onClick={() => router.actions.push(urls.resourceTransfer('Action', actionId))}
