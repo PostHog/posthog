@@ -49,12 +49,14 @@ function parseToolDefinition(filePath) {
 
     if (parsed?.tools) {
         for (const tool of Object.values(parsed.tools)) {
-            if (tool?.operation) {
-                operationIds.add(tool.operation)
-                const excludeParams = tool.exclude_params ?? []
-                if (excludeParams.length > 0) {
-                    schemaExclusions.set(tool.operation, excludeParams)
-                }
+            if (!tool?.enabled || !tool?.operation) {
+                continue
+            }
+
+            operationIds.add(tool.operation)
+            const excludeParams = tool.exclude_params ?? []
+            if (excludeParams.length > 0) {
+                schemaExclusions.set(tool.operation, excludeParams)
             }
         }
     }
@@ -201,19 +203,19 @@ if (definitions.length === 0) {
 const fullSchema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'))
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-orval-'))
 const outputDirs = []
-let totalOps = 0
+let totalEnabledOps = 0
 
 for (const def of definitions) {
     const { operationIds, schemaExclusions } = parseToolDefinition(def.filePath)
     if (operationIds.size === 0) {
         continue
     }
-    totalOps += operationIds.size
+    totalEnabledOps += operationIds.size
 
-    let filtered = filterSchemaByOperationIds(fullSchema, operationIds)
+    let filtered = filterSchemaByOperationIds(fullSchema, operationIds, { includeResponseSchemas: false })
 
     // Annotate title for easier debugging
-    filtered.info.title = `${fullSchema.info?.title ?? 'API'} - MCP ${operationIds.size} ops`
+    filtered.info.title = `${fullSchema.info?.title ?? 'API'} - MCP ${operationIds.size} enabled ops`
 
     filtered = stripNullDefaults(filtered)
     stripUuidFormat(filtered)
@@ -224,7 +226,9 @@ for (const def of definitions) {
 
     try {
         const outDir = runOrval(def.moduleName, filtered, tmpDir)
-        console.log(`   ✓ ${def.moduleName}: ${pathCount} paths, ${schemaCount} schemas (${operationIds.size} ops)`)
+        console.log(
+            `   ✓ ${def.moduleName}: ${pathCount} paths, ${schemaCount} schemas (${operationIds.size} enabled ops)`
+        )
         outputDirs.push(outDir)
     } catch (err) {
         console.error(`   ✗ ${def.moduleName}: Orval failed — ${err.message}`)
@@ -233,7 +237,7 @@ for (const def of definitions) {
 }
 
 fs.rmSync(tmpDir, { recursive: true, force: true })
-console.log(`MCP Orval: ${outputDirs.length} module(s), ${totalOps} operations total`)
+console.log(`MCP Orval: ${outputDirs.length} module(s), ${totalEnabledOps} enabled operations total`)
 
 if (outputDirs.length > 0) {
     const generatedFiles = outputDirs.map((d) => path.join(d, 'api.ts'))

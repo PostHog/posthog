@@ -5,11 +5,15 @@ from django.core.exceptions import EmptyResultSet
 from django.db import connections, models, router, transaction
 from django.db.models import F, Q
 
+import structlog
+
 from posthog.models.utils import UUIDT
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from ..team import Team
 from .missing_person import uuidFromDistinctId
+
+logger = structlog.get_logger(__name__)
 
 MAX_LIMIT_DISTINCT_IDS = 2500
 
@@ -271,6 +275,18 @@ class Person(models.Model):
         original_person = Person.objects.get(team_id=self.team_id, pk=self.pk)
         distinct_ids = original_person.distinct_ids
         original_person_version = original_person.version or 0
+
+        logger.info(
+            "split_person queried person",
+            person_id=self.pk,
+            person_uuid=str(original_person.uuid),
+            team_id=self.team_id,
+            version=original_person_version,
+            distinct_ids_count=len(distinct_ids),
+            main_distinct_id=main_distinct_id,
+            max_splits=max_splits,
+        )
+
         if not main_distinct_id:
             self.properties = {}
             self.save()
@@ -280,8 +296,17 @@ class Person(models.Model):
             # Split the last N distinct_ids of the list
             distinct_ids = distinct_ids[-1 * max_splits :]
 
-        for distinct_id in distinct_ids:
-            if not distinct_id == main_distinct_id:
+        ids_to_split = [did for did in distinct_ids if did != main_distinct_id]
+        logger.info(
+            "split_person will split distinct_ids",
+            person_id=self.pk,
+            team_id=self.team_id,
+            main_distinct_id=main_distinct_id,
+            ids_to_split_count=len(ids_to_split),
+        )
+
+        for distinct_id in ids_to_split:
+            try:
                 db_alias = router.db_for_write(PersonDistinctId) or "default"
                 with transaction.atomic(using=db_alias):
                     pdi = PersonDistinctId.objects.select_for_update().get(person=self, distinct_id=distinct_id)
@@ -313,6 +338,14 @@ class Person(models.Model):
                 create_person(
                     team_id=self.team_id, uuid=str(person.uuid), version=person.version, created_at=person.created_at
                 )
+            except Exception:
+                logger.exception(
+                    "split_person failed to split distinct_id",
+                    person_id=self.pk,
+                    team_id=self.team_id,
+                    distinct_id=distinct_id,
+                )
+                raise
 
 
 class PersonDistinctId(models.Model):
