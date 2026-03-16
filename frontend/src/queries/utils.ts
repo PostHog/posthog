@@ -482,7 +482,9 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     return undefined
 }
 
-export const getSeries = (query: InsightQueryNode): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] | undefined => {
+export const getSeries = (
+    query: InsightQueryNode
+): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode>)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     }
