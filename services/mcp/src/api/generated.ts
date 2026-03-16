@@ -12069,11 +12069,21 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    export type ErrorTrackingGroupingRuleIssue = {[key: string]: string} | null | null;
+
     export interface ErrorTrackingGroupingRule {
       readonly id: string;
       filters: unknown;
       readonly assignee: string;
-      readonly issue: string;
+      /**
+       * Issue linked to this rule
+       * @nullable
+       */
+      readonly issue: ErrorTrackingGroupingRuleIssue;
       /**
        * @minimum -2147483648
        * @maximum 2147483647
@@ -20603,11 +20613,21 @@ export namespace Schemas {
       readonly external_url?: string;
     }
 
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    export type PatchedErrorTrackingGroupingRuleIssue = {[key: string]: string} | null | null;
+
     export interface PatchedErrorTrackingGroupingRule {
       readonly id?: string;
       filters?: unknown;
       readonly assignee?: string;
-      readonly issue?: string;
+      /**
+       * Issue linked to this rule
+       * @nullable
+       */
+      readonly issue?: PatchedErrorTrackingGroupingRuleIssue;
       /**
        * @minimum -2147483648
        * @maximum 2147483647

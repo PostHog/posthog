@@ -2,20 +2,17 @@ import { useActions } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { truncate } from 'lib/utils'
+
 import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
 import { ErrorTrackingRule } from './types'
 
-const MAX_MESSAGE_LENGTH = 200
-
 export function DisabledRuleBanner({ rule, onClose }: { rule: ErrorTrackingRule; onClose?: () => void }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelLogic)
     const rawMessage = rule.disabled_data ? (rule.disabled_data as Record<string, any>).message : null
-    const message =
-        rawMessage && rawMessage.length > MAX_MESSAGE_LENGTH
-            ? rawMessage.slice(0, MAX_MESSAGE_LENGTH) + '…'
-            : rawMessage
+    const message = rawMessage ? truncate(rawMessage, 200) : null
 
     return (
         <LemonBanner

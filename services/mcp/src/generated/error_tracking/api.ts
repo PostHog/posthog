@@ -589,7 +589,7 @@ export const ErrorTrackingGroupingRulesListResponse = zod.object({
             id: zod.string().optional(),
             filters: zod.unknown(),
             assignee: zod.string().optional(),
-            issue: zod.string().optional(),
+            issue: zod.record(zod.string(), zod.string()).nullish().describe('Issue linked to this rule'),
             order_key: zod
                 .number()
                 .min(errorTrackingGroupingRulesListResponseResultsItemOrderKeyMin)
@@ -637,7 +637,7 @@ export const ErrorTrackingGroupingRulesRetrieveResponse = zod.object({
     id: zod.string().optional(),
     filters: zod.unknown(),
     assignee: zod.string().optional(),
-    issue: zod.string().optional(),
+    issue: zod.record(zod.string(), zod.string()).nullish().describe('Issue linked to this rule'),
     order_key: zod
         .number()
         .min(errorTrackingGroupingRulesRetrieveResponseOrderKeyMin)
@@ -675,7 +675,7 @@ export const ErrorTrackingGroupingRulesUpdateResponse = zod.object({
     id: zod.string().optional(),
     filters: zod.unknown(),
     assignee: zod.string().optional(),
-    issue: zod.string().optional(),
+    issue: zod.record(zod.string(), zod.string()).nullish().describe('Issue linked to this rule'),
     order_key: zod
         .number()
         .min(errorTrackingGroupingRulesUpdateResponseOrderKeyMin)
@@ -714,7 +714,7 @@ export const ErrorTrackingGroupingRulesPartialUpdateResponse = zod.object({
     id: zod.string().optional(),
     filters: zod.unknown(),
     assignee: zod.string().optional(),
-    issue: zod.string().optional(),
+    issue: zod.record(zod.string(), zod.string()).nullish().describe('Issue linked to this rule'),
     order_key: zod
         .number()
         .min(errorTrackingGroupingRulesPartialUpdateResponseOrderKeyMin)

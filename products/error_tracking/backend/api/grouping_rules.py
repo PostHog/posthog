@@ -1,5 +1,8 @@
+from typing import Optional
+
 import structlog
 import posthoganalytics
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.response import Response
 
@@ -31,7 +34,10 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
             return {"type": "role", "id": obj.role_id}
         return None
 
-    def get_issue(self, obj):
+    @extend_schema_field(
+        serializers.DictField(child=serializers.CharField(), allow_null=True, help_text="Issue linked to this rule")
+    )
+    def get_issue(self, obj) -> Optional[dict]:
         issue_map = self.context.get("issue_map", {})
         issue = issue_map.get(str(obj.id))
         if issue:

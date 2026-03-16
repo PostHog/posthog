@@ -121,11 +121,21 @@ export interface PaginatedErrorTrackingFingerprintListApi {
     results: ErrorTrackingFingerprintApi[]
 }
 
+/**
+ * Issue linked to this rule
+ * @nullable
+ */
+export type ErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null | null
+
 export interface ErrorTrackingGroupingRuleApi {
     readonly id: string
     filters: unknown
     readonly assignee: string
-    readonly issue: string
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    readonly issue: ErrorTrackingGroupingRuleApiIssue
     /**
      * @minimum -2147483648
      * @maximum 2147483647
@@ -145,11 +155,21 @@ export interface PaginatedErrorTrackingGroupingRuleListApi {
     results: ErrorTrackingGroupingRuleApi[]
 }
 
+/**
+ * Issue linked to this rule
+ * @nullable
+ */
+export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null | null
+
 export interface PatchedErrorTrackingGroupingRuleApi {
     readonly id?: string
     filters?: unknown
     readonly assignee?: string
-    readonly issue?: string
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    readonly issue?: PatchedErrorTrackingGroupingRuleApiIssue
     /**
      * @minimum -2147483648
      * @maximum 2147483647
