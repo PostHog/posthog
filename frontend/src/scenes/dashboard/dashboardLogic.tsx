@@ -1457,7 +1457,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         breadcrumbs: [
             (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, router.selectors.searchParams],
-            (dashboard, error404, dashboardFailedToLoad, searchParams): Breadcrumb[] => {
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                error404: boolean,
+                dashboardFailedToLoad: boolean,
+                searchParams: Record<string, any>
+            ): Breadcrumb[] => {
                 const backUrl = searchParams.backUrl as string | undefined
                 const backName = searchParams.backName as string | undefined
                 return [
@@ -2075,8 +2080,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (mode || source) {
-                const zoomAtToggle = values.layoutZoom ?? null
-                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source, zoomAtToggle)
+                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source)
             }
 
             if (mode !== DashboardMode.Edit) {
