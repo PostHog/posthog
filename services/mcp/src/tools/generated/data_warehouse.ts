@@ -6,11 +6,14 @@ import {
     WarehouseSavedQueriesCreateBody,
     WarehouseSavedQueriesDestroyParams,
     WarehouseSavedQueriesListQueryParams,
+    WarehouseSavedQueriesMaterializeCreateBody,
     WarehouseSavedQueriesMaterializeCreateParams,
     WarehouseSavedQueriesPartialUpdateBody,
     WarehouseSavedQueriesPartialUpdateParams,
     WarehouseSavedQueriesRetrieveParams,
+    WarehouseSavedQueriesRevertMaterializationCreateBody,
     WarehouseSavedQueriesRevertMaterializationCreateParams,
+    WarehouseSavedQueriesRunCreateBody,
     WarehouseSavedQueriesRunCreateParams,
     WarehouseSavedQueriesRunHistoryRetrieveParams,
 } from '@/generated/data_warehouse/api'
@@ -145,7 +148,7 @@ const warehouseSavedQueriesDestroy = (): ToolBase<typeof WarehouseSavedQueriesDe
 
 const WarehouseSavedQueriesMaterializeCreateSchema = WarehouseSavedQueriesMaterializeCreateParams.omit({
     project_id: true,
-})
+}).extend(WarehouseSavedQueriesMaterializeCreateBody.shape)
 
 const warehouseSavedQueriesMaterializeCreate = (): ToolBase<
     typeof WarehouseSavedQueriesMaterializeCreateSchema,
@@ -155,9 +158,26 @@ const warehouseSavedQueriesMaterializeCreate = (): ToolBase<
     schema: WarehouseSavedQueriesMaterializeCreateSchema,
     handler: async (context: Context, params: z.infer<typeof WarehouseSavedQueriesMaterializeCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.edited_history_id !== undefined) {
+            body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.soft_update !== undefined) {
+            body['soft_update'] = params.soft_update
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
             path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/materialize/`,
+            body,
         })
         return {
             ...(result as any),
@@ -167,7 +187,9 @@ const warehouseSavedQueriesMaterializeCreate = (): ToolBase<
 })
 
 const WarehouseSavedQueriesRevertMaterializationCreateSchema =
-    WarehouseSavedQueriesRevertMaterializationCreateParams.omit({ project_id: true })
+    WarehouseSavedQueriesRevertMaterializationCreateParams.omit({ project_id: true }).extend(
+        WarehouseSavedQueriesRevertMaterializationCreateBody.shape
+    )
 
 const warehouseSavedQueriesRevertMaterializationCreate = (): ToolBase<
     typeof WarehouseSavedQueriesRevertMaterializationCreateSchema,
@@ -180,9 +202,26 @@ const warehouseSavedQueriesRevertMaterializationCreate = (): ToolBase<
         params: z.infer<typeof WarehouseSavedQueriesRevertMaterializationCreateSchema>
     ) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.edited_history_id !== undefined) {
+            body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.soft_update !== undefined) {
+            body['soft_update'] = params.soft_update
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
             path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/revert_materialization/`,
+            body,
         })
         return {
             ...(result as any),
@@ -191,7 +230,9 @@ const warehouseSavedQueriesRevertMaterializationCreate = (): ToolBase<
     },
 })
 
-const WarehouseSavedQueriesRunCreateSchema = WarehouseSavedQueriesRunCreateParams.omit({ project_id: true })
+const WarehouseSavedQueriesRunCreateSchema = WarehouseSavedQueriesRunCreateParams.omit({ project_id: true }).extend(
+    WarehouseSavedQueriesRunCreateBody.shape
+)
 
 const warehouseSavedQueriesRunCreate = (): ToolBase<
     typeof WarehouseSavedQueriesRunCreateSchema,
@@ -201,9 +242,26 @@ const warehouseSavedQueriesRunCreate = (): ToolBase<
     schema: WarehouseSavedQueriesRunCreateSchema,
     handler: async (context: Context, params: z.infer<typeof WarehouseSavedQueriesRunCreateSchema>) => {
         const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.deleted !== undefined) {
+            body['deleted'] = params.deleted
+        }
+        if (params.name !== undefined) {
+            body['name'] = params.name
+        }
+        if (params.query !== undefined) {
+            body['query'] = params.query
+        }
+        if (params.edited_history_id !== undefined) {
+            body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.soft_update !== undefined) {
+            body['soft_update'] = params.soft_update
+        }
         const result = await context.api.request<Schemas.DataWarehouseSavedQuery>({
             method: 'POST',
             path: `/api/projects/${projectId}/warehouse_saved_queries/${params.id}/run/`,
+            body,
         })
         return {
             ...(result as any),
