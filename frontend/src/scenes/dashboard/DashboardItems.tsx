@@ -28,6 +28,9 @@ import { DashboardTextItem } from './items/DashboardTextItem'
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
 const DRAG_AUTO_SCROLL_SPEED = 50
 
+const BASE_ROW_HEIGHT = 80
+const BASE_MARGIN: [number, number] = [16, 16]
+
 export function DashboardItems(): JSX.Element {
     const {
         dashboard,
@@ -47,6 +50,7 @@ export function DashboardItems(): JSX.Element {
         dataColorThemeId,
         canEditDashboard,
     } = useValues(dashboardLogic)
+    const { layoutZoom = 1 } = useValues(dashboardLogic)
     const {
         updateLayouts,
         updateContainerWidth,
@@ -103,6 +107,13 @@ export function DashboardItems(): JSX.Element {
         !!dashboard && canEditDashboard && dashboardMode !== DashboardMode.Edit && !isMobileView && isEditablePlacement
 
     const showDashboardGrid = useFeatureFlag('DASHBOARD_GRID')
+    const showLayoutZoom = useFeatureFlag('DASHBOARD_LAYOUT_ZOOM')
+    const isLayoutZoomToggled = dashboardMode === DashboardMode.Edit && showLayoutZoom && layoutZoom !== 1
+
+    const effectiveZoom = dashboardMode === DashboardMode.Edit && showLayoutZoom ? layoutZoom : 1
+    const rowHeight = BASE_ROW_HEIGHT * effectiveZoom
+    const spacingFactor = effectiveZoom < 1 ? 0.9 : 1
+    const margin = BASE_MARGIN.map((m) => m * spacingFactor) as [number, number]
 
     return (
         <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
@@ -118,8 +129,8 @@ export function DashboardItems(): JSX.Element {
                         <GridBackground
                             width={gridWrapperWidth}
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
-                            rowHeight={80}
-                            margin={[16, 16]}
+                            rowHeight={rowHeight}
+                            margin={margin}
                             containerPadding={[0, 0]}
                             rows="auto"
                             height={gridWrapperWidth} // rough heuristic; RGL will grow as needed
@@ -137,12 +148,12 @@ export function DashboardItems(): JSX.Element {
                             bounded: true,
                         }}
                         resizeConfig={{
-                            enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
+                            enabled: dashboardMode === DashboardMode.Edit && !isMobileView && !isLayoutZoomToggled,
                             handles: ['s', 'e', 'se', 'n', 'w', 'nw', 'ne', 'sw'],
                         }}
                         layouts={layouts as Partial<Record<DashboardLayoutSize, Layout>>}
-                        rowHeight={80}
-                        margin={[16, 16]}
+                        rowHeight={rowHeight}
+                        margin={margin}
                         containerPadding={[0, 0]}
                         onLayoutChange={(_, newLayouts) => {
                             if (dashboardMode === DashboardMode.Edit) {
@@ -237,7 +248,10 @@ export function DashboardItems(): JSX.Element {
                             const commonTileProps = {
                                 dashboardId: dashboard?.id,
                                 showResizeHandles:
-                                    dashboardMode === DashboardMode.Edit && !isMobileView && isEditablePlacement,
+                                    dashboardMode === DashboardMode.Edit &&
+                                    !isMobileView &&
+                                    isEditablePlacement &&
+                                    !isLayoutZoomToggled,
                                 canEnterEditModeFromEdge,
                                 onEnterEditModeFromEdge: canEnterEditModeFromEdge
                                     ? () => setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardEdgeHover)
@@ -319,7 +333,6 @@ export function DashboardItems(): JSX.Element {
                                         dataColorThemeId={dataColorThemeId}
                                         surveyOpportunity={tile.id === bestSurveyOpportunityFunnel?.id}
                                         {...commonTileProps}
-                                        // NOTE: ReactGridLayout additionally injects its resize handles as `children`!
                                     />
                                 )
                             }
