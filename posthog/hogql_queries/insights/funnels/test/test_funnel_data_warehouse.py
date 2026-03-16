@@ -196,38 +196,6 @@ class TestFunnelDataWarehouse(ClickhouseTestMixin, BaseTest):
         assert results[0]["count"] == 5
         assert results[1]["count"] == 1
 
-    def test_funnels_data_warehouse_with_funnels_node(self):
-        table_name = self.setup_data_warehouse()
-
-        funnels_query = FunnelsQuery(
-            kind="FunnelsQuery",
-            dateRange=DateRange(date_from="2025-11-01"),
-            series=[
-                FunnelsDataWarehouseNode(
-                    id=table_name,
-                    table_name=table_name,
-                    id_field="uuid",
-                    aggregation_target_field="user_id",
-                    timestamp_field="created",
-                ),
-                FunnelsDataWarehouseNode(
-                    id=table_name,
-                    table_name=table_name,
-                    id_field="uuid",
-                    aggregation_target_field="user_id",
-                    timestamp_field="created",
-                ),
-            ],
-        )
-
-        with freeze_time("2025-11-07"):
-            runner = FunnelsQueryRunner(query=funnels_query, team=self.team, just_summarize=True)
-            response = runner.calculate()
-
-        results = response.results
-        assert results[0]["count"] == 5
-        assert results[1]["count"] == 1
-
     @snapshot_clickhouse_queries
     def test_funnels_data_warehouse_and_regular_nodes(self):
         table_name = self.setup_data_warehouse()
