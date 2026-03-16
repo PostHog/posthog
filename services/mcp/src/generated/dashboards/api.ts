@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const DashboardsListParams = zod.object({
+export const DashboardsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,13 +16,13 @@ export const DashboardsListParams = zod.object({
         ),
 })
 
-export const DashboardsListQueryParams = zod.object({
+export const DashboardsListQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const DashboardsCreateParams = zod.object({
+export const DashboardsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -30,7 +30,7 @@ export const DashboardsCreateParams = zod.object({
         ),
 })
 
-export const DashboardsCreateQueryParams = zod.object({
+export const DashboardsCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -38,7 +38,7 @@ export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
-export const DashboardsCreateBody = zod
+export const DashboardsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(dashboardsCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
@@ -68,7 +68,7 @@ export const DashboardsCreateBody = zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-export const DashboardsRetrieveParams = zod.object({
+export const DashboardsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -77,11 +77,11 @@ export const DashboardsRetrieveParams = zod.object({
         ),
 })
 
-export const DashboardsRetrieveQueryParams = zod.object({
+export const DashboardsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsPartialUpdateParams = zod.object({
+export const DashboardsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -90,7 +90,7 @@ export const DashboardsPartialUpdateParams = zod.object({
         ),
 })
 
-export const DashboardsPartialUpdateQueryParams = zod.object({
+export const DashboardsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
@@ -98,7 +98,7 @@ export const dashboardsPartialUpdateBodyNameMax = 400
 
 export const dashboardsPartialUpdateBodyDeleteInsightsDefault = false
 
-export const DashboardsPartialUpdateBody = zod
+export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
@@ -131,7 +131,7 @@ export const DashboardsPartialUpdateBody = zod
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const DashboardsDestroyParams = zod.object({
+export const DashboardsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -140,11 +140,11 @@ export const DashboardsDestroyParams = zod.object({
         ),
 })
 
-export const DashboardsDestroyQueryParams = zod.object({
+export const DashboardsDestroyQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsReorderTilesCreateParams = zod.object({
+export const DashboardsReorderTilesCreateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this dashboard.'),
     project_id: zod
         .string()
@@ -153,11 +153,11 @@ export const DashboardsReorderTilesCreateParams = zod.object({
         ),
 })
 
-export const DashboardsReorderTilesCreateQueryParams = zod.object({
+export const DashboardsReorderTilesCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['json', 'txt']).optional(),
 })
 
-export const DashboardsReorderTilesCreateBody = zod.object({
+export const DashboardsReorderTilesCreateBody = /* @__PURE__ */ zod.object({
     tile_order: zod
         .array(zod.number())
         .min(1)
