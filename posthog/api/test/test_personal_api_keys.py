@@ -541,13 +541,13 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.scopes = ["feature_flag:read"]
         self.key.save()
 
-    def test_allows_legacy_api_key_to_access_all(self):
+    def test_rejects_null_scopes_as_no_access(self):
         self.key.scopes = None
         self.key.save()
-        response = self._do_request("/api/users/@me/")
-        assert response.status_code == status.HTTP_200_OK
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_rejects_empty_scopes_list_as_not_legacy(self):
+    def test_rejects_empty_scopes_list_as_no_access(self):
         self.key.scopes = []
         self.key.save()
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")

@@ -2202,7 +2202,7 @@ class TestUserPersonalAPIKeyTeamLookup(TestCase):
             label="Unscoped Key 2",
             user=user,
             scoped_teams=[],  # Empty list = unscoped
-            scopes=None,  # No scopes = access to everything
+            scopes=["*"],  # All scopes
             secure_value=hash_key_value(token_value2),
             mask_value=mask_key_value(token_value2),
         )

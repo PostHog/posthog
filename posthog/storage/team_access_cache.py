@@ -142,9 +142,7 @@ def _load_team_access_tokens(team_token: KeyType) -> dict[str, Any] | HyperCache
                         (Q(scoped_teams__isnull=True) | Q(scoped_teams=[]))
                         & (
                             # AND either no scope restriction OR has feature flag read/write or all access
-                            Q(scopes__isnull=True)
-                            | Q(scopes=[])
-                            | Q(scopes__contains=["feature_flag:read"])
+                            Q(scopes__contains=["feature_flag:read"])
                             | Q(scopes__contains=["feature_flag:write"])
                             | Q(scopes__contains=["*"])
                         )
