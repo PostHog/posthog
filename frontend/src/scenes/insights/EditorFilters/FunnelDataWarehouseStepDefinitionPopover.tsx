@@ -16,7 +16,7 @@ import {
 } from './funnelDataWarehouseStepDefinitionPopoverLogic'
 
 const EDITABLE_FIELD_EXPLANATIONS: Record<FunnelFieldKey, string> = {
-    distinct_id_field: 'Used to match people or groups across funnel steps.',
+    aggregation_target_field: 'Used to match people or groups across funnel steps.',
     timestamp_field: 'Used to order step timing and apply the funnel date range.',
     id_field: 'Used as the unique row ID to detect missing or duplicate records.',
 }

@@ -124,7 +124,7 @@ export function FunnelsQuerySteps({ insightProps }: EditorFilterProps): JSX.Elem
                             label: 'Timestamp',
                         },
                         {
-                            key: 'distinct_id_field',
+                            key: 'aggregation_target_field',
                             label: 'Aggregation target',
                             allowHogQL: true,
                         },
