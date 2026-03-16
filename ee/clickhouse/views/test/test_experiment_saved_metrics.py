@@ -216,6 +216,39 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 0)
         self.assertEqual(ExperimentToSavedMetric.objects.filter(experiment_id=exp_id).count(), 0)
 
+    def test_update_saved_metric_tags(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Experiment saved metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+                "tags": ["tag1"],
+            },
+            format="json",
+        )
+
+        saved_metric_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["tags"], ["tag1"])
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}",
+            {
+                "tags": ["tag2", "tag3"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertCountEqual(update_response.json()["tags"], ["tag2", "tag3"])
+
     def test_create_saved_metric_with_experiment_metric(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiment_saved_metrics/",
