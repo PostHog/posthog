@@ -37,6 +37,10 @@ function PostHogLogo({ size = 16 }: { size?: number }): ReactElement {
 }
 
 export function AppErrorState({ message }: { message: string }): ReactElement {
+    useEffect(() => {
+        console.error('[PostHog MCP App] AppErrorState:', message)
+    }, [message])
+
     return (
         <div
             style={{
@@ -131,6 +135,12 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
         data && typeof data === 'object' && '_posthogUrl' in data
             ? ((data as Record<string, unknown>)._posthogUrl as string | undefined)
             : undefined
+
+    useEffect(() => {
+        if (error) {
+            console.error('[PostHog MCP App] AppWrapper error:', error.message, error)
+        }
+    }, [error])
 
     const hasContent = !error && isConnected && data
 

@@ -397,7 +397,16 @@ export const DashboardsRetrieveResponse = zod
                     .nullish(),
             })
             .optional(),
+        last_accessed_at: zod.string().datetime({}).nullish(),
         last_viewed_at: zod.string().datetime({}).nullish(),
+        is_shared: zod.boolean().optional(),
+        deleted: zod.boolean().optional(),
+        creation_mode: zod
+            .enum(['default', 'template', 'duplicate', 'unlisted'])
+            .describe(
+                '* `default` - Default\n* `template` - Template\n* `duplicate` - Duplicate\n* `unlisted` - Unlisted (product-embedded)'
+            )
+            .optional(),
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         variables: zod.record(zod.string(), zod.unknown()).nullish(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
@@ -409,7 +418,13 @@ export const DashboardsRetrieveResponse = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
+        effective_restriction_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
+        effective_privilege_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
         user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
+        access_control_version: zod.string().optional(),
+        last_refresh: zod.string().datetime({}).nullish(),
+        persisted_filters: zod.record(zod.string(), zod.unknown()).nullish(),
+        persisted_variables: zod.record(zod.string(), zod.unknown()).nullish(),
         team_id: zod.number().optional(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -425,6 +440,7 @@ export const DashboardsRetrieveResponse = zod
             .boolean()
             .default(dashboardsRetrieveResponseDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -450,6 +466,8 @@ export const DashboardsUpdateBody = zod
         name: zod.string().max(dashboardsUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        last_accessed_at: zod.string().datetime({}).nullish(),
+        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -459,6 +477,7 @@ export const DashboardsUpdateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
+        last_refresh: zod.string().datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -472,6 +491,7 @@ export const DashboardsUpdateBody = zod
             .boolean()
             .default(dashboardsUpdateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -526,7 +546,16 @@ export const DashboardsUpdateResponse = zod
                     .nullish(),
             })
             .optional(),
+        last_accessed_at: zod.string().datetime({}).nullish(),
         last_viewed_at: zod.string().datetime({}).nullish(),
+        is_shared: zod.boolean().optional(),
+        deleted: zod.boolean().optional(),
+        creation_mode: zod
+            .enum(['default', 'template', 'duplicate', 'unlisted'])
+            .describe(
+                '* `default` - Default\n* `template` - Template\n* `duplicate` - Duplicate\n* `unlisted` - Unlisted (product-embedded)'
+            )
+            .optional(),
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         variables: zod.record(zod.string(), zod.unknown()).nullish(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
@@ -538,7 +567,13 @@ export const DashboardsUpdateResponse = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
+        effective_restriction_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
+        effective_privilege_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
         user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
+        access_control_version: zod.string().optional(),
+        last_refresh: zod.string().datetime({}).nullish(),
+        persisted_filters: zod.record(zod.string(), zod.unknown()).nullish(),
+        persisted_variables: zod.record(zod.string(), zod.unknown()).nullish(),
         team_id: zod.number().optional(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -554,6 +589,7 @@ export const DashboardsUpdateResponse = zod
             .boolean()
             .default(dashboardsUpdateResponseDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -655,7 +691,16 @@ export const DashboardsPartialUpdateResponse = zod
                     .nullish(),
             })
             .optional(),
+        last_accessed_at: zod.string().datetime({}).nullish(),
         last_viewed_at: zod.string().datetime({}).nullish(),
+        is_shared: zod.boolean().optional(),
+        deleted: zod.boolean().optional(),
+        creation_mode: zod
+            .enum(['default', 'template', 'duplicate', 'unlisted'])
+            .describe(
+                '* `default` - Default\n* `template` - Template\n* `duplicate` - Duplicate\n* `unlisted` - Unlisted (product-embedded)'
+            )
+            .optional(),
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         variables: zod.record(zod.string(), zod.unknown()).nullish(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
@@ -667,7 +712,13 @@ export const DashboardsPartialUpdateResponse = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
+        effective_restriction_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
+        effective_privilege_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
         user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
+        access_control_version: zod.string().optional(),
+        last_refresh: zod.string().datetime({}).nullish(),
+        persisted_filters: zod.record(zod.string(), zod.unknown()).nullish(),
+        persisted_variables: zod.record(zod.string(), zod.unknown()).nullish(),
         team_id: zod.number().optional(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -683,6 +734,7 @@ export const DashboardsPartialUpdateResponse = zod
             .boolean()
             .default(dashboardsPartialUpdateResponseDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -728,6 +780,8 @@ export const DashboardsAnalyzeRefreshResultCreateBody = zod
         name: zod.string().max(dashboardsAnalyzeRefreshResultCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        last_accessed_at: zod.string().datetime({}).nullish(),
+        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -737,6 +791,7 @@ export const DashboardsAnalyzeRefreshResultCreateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
+        last_refresh: zod.string().datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -750,6 +805,7 @@ export const DashboardsAnalyzeRefreshResultCreateBody = zod
             .boolean()
             .default(dashboardsAnalyzeRefreshResultCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -775,6 +831,8 @@ export const DashboardsMoveTilePartialUpdateBody = zod
         name: zod.string().max(dashboardsMoveTilePartialUpdateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        last_accessed_at: zod.string().datetime({}).nullish(),
+        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -784,6 +842,7 @@ export const DashboardsMoveTilePartialUpdateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
+        last_refresh: zod.string().datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -797,6 +856,7 @@ export const DashboardsMoveTilePartialUpdateBody = zod
             .boolean()
             .default(dashboardsMoveTilePartialUpdateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -871,7 +931,16 @@ export const DashboardsReorderTilesCreateResponse = zod
                     .nullish(),
             })
             .optional(),
+        last_accessed_at: zod.string().datetime({}).nullish(),
         last_viewed_at: zod.string().datetime({}).nullish(),
+        is_shared: zod.boolean().optional(),
+        deleted: zod.boolean().optional(),
+        creation_mode: zod
+            .enum(['default', 'template', 'duplicate', 'unlisted'])
+            .describe(
+                '* `default` - Default\n* `template` - Template\n* `duplicate` - Duplicate\n* `unlisted` - Unlisted (product-embedded)'
+            )
+            .optional(),
         filters: zod.record(zod.string(), zod.unknown()).optional(),
         variables: zod.record(zod.string(), zod.unknown()).nullish(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
@@ -883,7 +952,13 @@ export const DashboardsReorderTilesCreateResponse = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
+        effective_restriction_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
+        effective_privilege_level: zod.union([zod.literal(21), zod.literal(37)]).optional(),
         user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
+        access_control_version: zod.string().optional(),
+        last_refresh: zod.string().datetime({}).nullish(),
+        persisted_filters: zod.record(zod.string(), zod.unknown()).nullish(),
+        persisted_variables: zod.record(zod.string(), zod.unknown()).nullish(),
         team_id: zod.number().optional(),
         quick_filter_ids: zod
             .array(zod.string())
@@ -899,6 +974,7 @@ export const DashboardsReorderTilesCreateResponse = zod
             .boolean()
             .default(dashboardsReorderTilesCreateResponseDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -928,6 +1004,8 @@ export const DashboardsSnapshotCreateBody = zod
         name: zod.string().max(dashboardsSnapshotCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        last_accessed_at: zod.string().datetime({}).nullish(),
+        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -937,6 +1015,7 @@ export const DashboardsSnapshotCreateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
+        last_refresh: zod.string().datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -950,6 +1029,7 @@ export const DashboardsSnapshotCreateBody = zod
             .boolean()
             .default(dashboardsSnapshotCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -990,6 +1070,8 @@ export const DashboardsCreateFromTemplateJsonCreateBody = zod
         name: zod.string().max(dashboardsCreateFromTemplateJsonCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        last_accessed_at: zod.string().datetime({}).nullish(),
+        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -999,6 +1081,7 @@ export const DashboardsCreateFromTemplateJsonCreateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
+        last_refresh: zod.string().datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -1012,6 +1095,7 @@ export const DashboardsCreateFromTemplateJsonCreateBody = zod
             .boolean()
             .default(dashboardsCreateFromTemplateJsonCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 
@@ -1041,6 +1125,8 @@ export const DashboardsCreateUnlistedDashboardCreateBody = zod
         name: zod.string().max(dashboardsCreateUnlistedDashboardCreateBodyNameMax).nullish(),
         description: zod.string().optional(),
         pinned: zod.boolean().optional(),
+        last_accessed_at: zod.string().datetime({}).nullish(),
+        deleted: zod.boolean().optional(),
         breakdown_colors: zod.unknown().optional().describe('Custom color mapping for breakdown values.'),
         data_color_theme_id: zod.number().nullish().describe('ID of the color theme used for chart visualizations.'),
         tags: zod.array(zod.unknown()).optional(),
@@ -1050,6 +1136,7 @@ export const DashboardsCreateUnlistedDashboardCreateBody = zod
                 '* `21` - Everyone in the project can edit\n* `37` - Only those invited to this dashboard can edit'
             )
             .optional(),
+        last_refresh: zod.string().datetime({}).nullish(),
         quick_filter_ids: zod
             .array(zod.string())
             .nullish()
@@ -1063,6 +1150,7 @@ export const DashboardsCreateUnlistedDashboardCreateBody = zod
             .boolean()
             .default(dashboardsCreateUnlistedDashboardCreateBodyDeleteInsightsDefault)
             .describe('When deleting, also delete insights that are only on this dashboard.'),
+        _create_in_folder: zod.string().optional(),
     })
     .describe('Serializer mixin that handles tags for objects.')
 

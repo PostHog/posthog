@@ -10,6 +10,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import { Link } from 'lib/lemon-ui/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
+import { cn } from 'lib/utils/css-classes'
 import { AiChatListItem } from 'scenes/max/components/List/AiChatListItem'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
@@ -50,7 +51,13 @@ interface ConversationGroup {
     items: Conversation[]
 }
 
-export function NavTabChat(): JSX.Element {
+export function NavTabChat({
+    inPanel = false,
+    onItemClick,
+}: {
+    inPanel?: boolean
+    onItemClick?: () => void
+}): JSX.Element {
     const { conversationHistory, conversationHistoryLoading, currentConversationId } = useValues(maxGlobalLogic)
     const [inputValue, setInputValue] = useState('')
 
@@ -81,17 +88,21 @@ export function NavTabChat(): JSX.Element {
                 onInputValueChange={setInputValue}
             >
                 <div className="flex flex-col h-full min-h-0">
-                    <div className="flex items-center gap-1 p-2 shrink-0">
+                    <div className={cn('flex items-center gap-1 p-2 shrink-0', inPanel && 'p-1')}>
                         <label
                             htmlFor="nav-search-chats"
-                            className="input-like flex items-center flex-1 px-1 gap-1 group h-[30px]"
+                            className={cn(
+                                'input-like flex items-center flex-1 px-1 gap-1 group h-[30px]',
+                                inPanel && 'bg-fill-input'
+                            )}
                         >
-                            <IconSearch className="size-3 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
+                            <IconSearch className="size-4 text-tertiary group-focus-within:text-primary w-4 shrink-0" />
                             <Combobox.Input
                                 id="nav-search-chats"
                                 placeholder="Chat history"
                                 aria-label="Chat history"
                                 className="w-full text-sm bg-transparent border-none focus:outline-none focus:ring-0 transition-[width] duration-100 h-[30px]"
+                                autoFocus={inPanel}
                             />
                             {inputValue && (
                                 <ButtonPrimitive
@@ -150,6 +161,7 @@ export function NavTabChat(): JSX.Element {
                                                                             router.actions.push(
                                                                                 AiChatListItem.getHref(conversation.id)
                                                                             )
+                                                                            onItemClick?.()
                                                                         }}
                                                                         render={
                                                                             <Link

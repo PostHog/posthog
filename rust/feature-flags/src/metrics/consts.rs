@@ -82,10 +82,6 @@ pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_tot
 // Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
 
-// Personal API key hash mode used for successful authentication
-// Labels: hash_mode (sha256, pbkdf2)
-pub const PERSONAL_API_KEY_HASH_MODE_COUNTER: &str = "personal_api_key_hash_mode_total";
-
 // Request-level timeout (tower TimeoutLayer killed the request before completion)
 pub const FLAG_REQUEST_TIMEOUT_COUNTER: &str = "flags_request_timeout_total";
 

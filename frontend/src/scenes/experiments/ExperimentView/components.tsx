@@ -1,9 +1,20 @@
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 import { useEffect, useState } from 'react'
 import { TextMorph } from 'torph/react'
 
-import { IconCopy, IconEye, IconFlask, IconPause, IconPlay, IconPlusSmall, IconRefresh } from '@posthog/icons'
+import {
+    IconArchive,
+    IconCopy,
+    IconEye,
+    IconFlask,
+    IconPause,
+    IconPlay,
+    IconPlusSmall,
+    IconRefresh,
+    IconTrash,
+} from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -29,6 +40,7 @@ import { IconAreaChart } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
+import { projectLogic } from 'scenes/projectLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { QuickSurveyType } from 'scenes/surveys/quick-create/types'
 import { QuickSurveyModal } from 'scenes/surveys/QuickSurveyModal'
@@ -61,6 +73,7 @@ import {
 
 import { CONCLUSION_DISPLAY_CONFIG, EXPERIMENT_VARIANT_MULTIPLE } from '../constants'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
+import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
 import { getExperimentStatusColor, getExperimentStatusLabel } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -293,6 +306,7 @@ export function PageHeaderCustom(): JSX.Element {
         updateExperiment,
         setHogfettiTrigger,
     } = useActions(experimentLogic)
+    const { currentProjectId } = useValues(projectLogic)
     const { openFinishExperimentModal, openPauseExperimentModal, openResumeExperimentModal } = useActions(modalsLogic)
     const [duplicateModalOpen, setDuplicateModalOpen] = useState(false)
     const [surveyModalOpen, setSurveyModalOpen] = useState(false)
@@ -305,6 +319,22 @@ export function PageHeaderCustom(): JSX.Element {
 
     const exposureCohortId = experiment?.exposure_cohort
 
+    const canEdit = userHasAccess(
+        AccessControlResourceType.Experiment,
+        AccessControlLevel.Editor,
+        experiment.user_access_level
+    )
+    const canArchive = canEdit && canArchiveExperiment(experiment)
+    const canDelete = canEdit
+
+    const handleArchive = (): void => confirmArchiveExperiment(() => archiveExperiment())
+    const handleDelete = (): void =>
+        confirmDeleteExperiment({
+            projectId: currentProjectId,
+            experiment,
+            onDelete: () => router.actions.push(urls.experiments()),
+        })
+
     return (
         <>
             <SceneTitleSection
@@ -316,11 +346,7 @@ export function PageHeaderCustom(): JSX.Element {
                 isLoading={experimentLoading}
                 onNameChange={(name) => updateExperiment({ name })}
                 onDescriptionChange={(description) => updateExperiment({ description })}
-                canEdit={userHasAccess(
-                    AccessControlResourceType.Experiment,
-                    AccessControlLevel.Editor,
-                    experiment.user_access_level
-                )}
+                canEdit={canEdit}
                 renameDebounceMs={0}
                 saveOnBlur
                 actions={
@@ -337,40 +363,10 @@ export function PageHeaderCustom(): JSX.Element {
                                 </LemonButton>
                             </div>
                         )}
-                        {experiment && isExperimentLaunched && (
-                            <div className="flex flex-row gap-2">
-                                {isExperimentStopped && (
-                                    <LemonButton
-                                        type="secondary"
-                                        status="danger"
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: 'Archive this experiment?',
-                                                content: (
-                                                    <div className="text-sm text-secondary">
-                                                        This action will move the experiment to the archived tab. It can
-                                                        be restored at any time.
-                                                    </div>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Archive',
-                                                    type: 'primary',
-                                                    onClick: () => archiveExperiment(),
-                                                    size: 'small',
-                                                },
-                                                secondaryButton: {
-                                                    children: 'Cancel',
-                                                    type: 'tertiary',
-                                                    size: 'small',
-                                                },
-                                            })
-                                        }}
-                                        size="small"
-                                    >
-                                        <b>Archive</b>
-                                    </LemonButton>
-                                )}
-                            </div>
+                        {canArchive && (
+                            <LemonButton type="secondary" status="danger" onClick={handleArchive} size="small">
+                                <b>Archive</b>
+                            </LemonButton>
                         )}
                         {experiment && isExperimentRunning && !isExperimentStopped && (
                             <>
@@ -481,6 +477,25 @@ export function PageHeaderCustom(): JSX.Element {
 
                                 <ResetButton />
                             </>
+                        )}
+
+                        <LemonDivider />
+
+                        {canArchive && (
+                            <ButtonPrimitive menuItem data-attr="archive-experiment" onClick={handleArchive}>
+                                <IconArchive /> Archive experiment
+                            </ButtonPrimitive>
+                        )}
+
+                        {canDelete && (
+                            <ButtonPrimitive
+                                variant="danger"
+                                menuItem
+                                data-attr="delete-experiment"
+                                onClick={handleDelete}
+                            >
+                                <IconTrash /> Delete experiment
+                            </ButtonPrimitive>
                         )}
 
                         <PauseExperimentModal />

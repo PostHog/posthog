@@ -280,6 +280,27 @@ actions: PostgresTable = PostgresTable(
     },
 )
 
+annotations: PostgresTable = PostgresTable(
+    name="annotations",
+    postgres_table_name="posthog_annotation",
+    access_scope="annotation",
+    fields={
+        "id": IntegerDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "content": StringDatabaseField(name="content", nullable=True),
+        "scope": StringDatabaseField(name="scope"),
+        "creation_type": StringDatabaseField(name="creation_type"),
+        "date_marker": DateTimeDatabaseField(name="date_marker", nullable=True),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "dashboard_item_id": IntegerDatabaseField(name="dashboard_item_id", nullable=True),
+        "dashboard_id": IntegerDatabaseField(name="dashboard_id", nullable=True),
+        "created_by_id": IntegerDatabaseField(name="created_by_id", nullable=True),
+        "created_at": DateTimeDatabaseField(name="created_at", nullable=True),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 hog_flows: PostgresTable = PostgresTable(
     name="hog_flows",
     postgres_table_name="posthog_hogflow",
@@ -389,6 +410,7 @@ class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "actions": TableNode(name="actions", table=actions),
+        "annotations": TableNode(name="annotations", table=annotations),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),

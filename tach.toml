@@ -335,3 +335,8 @@ layer = "non_isolated"
 path = "products.tracing"
 depends_on = ["posthog"]
 layer = "products"
+
+[[modules]]
+path = "products.metrics"
+depends_on = ["posthog"]
+layer = "products"

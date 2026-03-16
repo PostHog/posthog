@@ -11,6 +11,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import (
     Action,
+    Annotation,
     Cohort,
     Dashboard,
     Experiment,
@@ -84,6 +85,10 @@ def _create_action(team: Team, label: str) -> Action:
 
 def _create_cohort(team: Team, label: str) -> Cohort:
     return Cohort.objects.create(team=team, name=f"cohort_{label}")
+
+
+def _create_annotation(team: Team, label: str) -> Annotation:
+    return Annotation.objects.create(team=team, content=f"annotation_{label}")
 
 
 def _create_cohort_calculation_history(team: Team, label: str) -> CohortCalculationHistory:
@@ -188,6 +193,7 @@ def _create_team(team: Team, label: str) -> Team:
 
 SYSTEM_TABLE_FACTORIES = [
     ("actions", _create_action),
+    ("annotations", _create_annotation),
     ("cohorts", _create_cohort),
     ("cohort_calculation_history", _create_cohort_calculation_history),
     ("dashboards", _create_dashboard),
