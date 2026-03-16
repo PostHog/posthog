@@ -7201,8 +7201,8 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
         ).calculate()
 
-        self.assertEqual(1, len(response.results))
-        self.assertEqual(expected_count, response.results[0]["count"])
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == expected_count
 
     @parameterized.expand(
         [
@@ -7239,12 +7239,15 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             BreakdownFilter(breakdown="$browser", breakdown_type=BreakdownType.EVENT),
         )
 
-        # Should return exactly 1 breakdown group (Chrome, from the filter)
-        self.assertEqual(len(response.results), 1)
-        self.assertEqual(response.results[0]["breakdown_value"], "Chrome")
+        # Should return exactly 1 breakdown group (Chrome, from the event property filter).
+        # The filter restricts to Chrome-only events, so only the Chrome breakdown group appears.
         # Session duration values are 0 since test events lack real session data,
-        # but getting 1 result with the correct breakdown proves the filter propagated
-        self.assertEqual(response.results[0]["count"], 0.0)
+        # but getting exactly 1 result with the correct breakdown proves the filter propagated
+        # through the session WHERE clause extractor without crashing or being dropped.
+        assert len(response.results) == 1
+        assert response.results[0]["breakdown_value"] == "Chrome"
+        assert response.results[0]["count"] == 0.0
+        assert len(response.results[0]["data"]) == 12  # 12 days from Jan 9 to Jan 20
 
     @parameterized.expand(
         [
@@ -7290,5 +7293,5 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
             [EventsNode(event="$pageview")],
         )
 
-        self.assertEqual(1, len(response.results))
-        self.assertEqual(expected_count, response.results[0]["count"])
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == expected_count

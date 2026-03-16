@@ -5512,9 +5512,9 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         result = FunnelsQueryRunner(query=query, team=self.team).calculate().results
 
         # Step 1: both users entered with /home
-        self.assertEqual(result[0]["count"], 2)
+        assert result[0]["count"] == 2
         # Step 2: only user_both continued to /pricing
-        self.assertEqual(result[1]["count"], 1)
+        assert result[1]["count"] == 1
 
     @parameterized.expand(
         [
@@ -5575,25 +5575,30 @@ class TestFOSSFunnelUDF(ClickhouseTestMixin, APIBaseTest):
         )
         response = FunnelsQueryRunner(query=query, team=self.team).calculate()
 
-        # Should have at least one breakdown group
-        self.assertGreater(len(response.results), 0)
+        assert len(response.results) > 0
 
         # Each breakdown group is a list of steps
         first_group = response.results[0]
-        self.assertIsInstance(first_group, list)
-        self.assertEqual(len(first_group), 2)
+        assert isinstance(first_group, list)
+        assert len(first_group) == 2
 
         # Step 1: user entered funnel
-        self.assertEqual(first_group[0]["count"], 1)
-        self.assertEqual(first_group[0]["order"], 0)
+        assert first_group[0]["count"] == 1
+        assert first_group[0]["order"] == 0
 
         # Step 2: user converted
-        self.assertEqual(first_group[1]["count"], 1)
-        self.assertEqual(first_group[1]["order"], 1)
+        assert first_group[1]["count"] == 1
+        assert first_group[1]["order"] == 1
 
-        # Breakdown value should be present and non-empty
+        # Breakdown value should be present and correctly typed.
+        # The boxing bug caused GROUP breakdown values to be raw strings instead of lists.
         bv = first_group[0]["breakdown_value"]
-        self.assertIsNotNone(bv)
+        assert bv is not None
         if breakdown_type in (BreakdownType.EVENT, BreakdownType.PERSON):
-            # These types box the value into a list
-            self.assertIsInstance(bv, list, f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}")
+            assert isinstance(bv, list), f"Expected boxed breakdown_value for {breakdown_type}, got {type(bv)}"
+        elif breakdown_type == BreakdownType.GROUP:
+            # Group breakdowns currently return unboxed strings — this documents the
+            # existing behavior. If boxing is fixed for groups, update to assert list.
+            assert isinstance(bv, (str, list)), f"Unexpected breakdown_value type for GROUP: {type(bv)}"
+            if isinstance(bv, str):
+                assert len(bv) > 0, "GROUP breakdown_value should not be empty"

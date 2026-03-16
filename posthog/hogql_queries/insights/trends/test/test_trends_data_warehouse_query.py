@@ -724,8 +724,13 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
 
         # 3 of 5 rows have timestamps in range (2023-01-01, 2023-01-02, 2023-01-04)
         # 2 rows have 1970-01-01 which is outside the date range
-        total = sum(r["count"] for r in response.results)
-        self.assertEqual(total, 3)
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == 3
+        # Verify the specific days that have data
+        days_with_data = [
+            (day, count) for day, count in zip(response.results[0]["days"], response.results[0]["data"]) if count > 0
+        ]
+        assert days_with_data == [("2023-01-01", 1), ("2023-01-02", 1), ("2023-01-04", 1)]
 
     @parameterized.expand(
         [
@@ -788,5 +793,5 @@ class TestTrendsDataWarehouseQuery(ClickhouseTestMixin, BaseTest):
         with freeze_time("2023-01-07"):
             response = TrendsQueryRunner(team=self.team, query=trends_query).calculate()
 
-        total = sum(r["count"] for r in response.results)
-        self.assertEqual(total, expected_count)
+        assert len(response.results) == 1
+        assert response.results[0]["count"] == expected_count

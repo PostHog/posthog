@@ -1,3 +1,5 @@
+import re
+
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 
@@ -64,20 +66,18 @@ class TestPersonQuery(ClickhouseTestMixin, APIBaseTest):
         sql, params = person_query.get_query()
 
         # When person property filters are present (causing prefiltering), the cohort INNER JOIN
-        # should be inside the prefiltering subquery, not at the top level
-        assert "AND id IN" in sql, "Expected a prefiltering subquery"
+        # should be inside the prefiltering subquery, not at the top level.
+        # Extract the prefiltering subquery using regex to avoid brittle index-based parsing.
+        prefiltering_match = re.search(r"AND id IN\s*\((.*?)\)\s*(?:GROUP BY|$)", sql, re.DOTALL)
+        assert prefiltering_match is not None, "Expected a prefiltering subquery (AND id IN (...))"
 
-        # The INNER JOIN for the cohort should appear inside the prefiltering subquery
-        prefiltering_start = sql.index("AND id IN")
-        prefiltering_end = sql.index(")", prefiltering_start + len("AND id IN ("))
-        prefiltering_subquery = sql[prefiltering_start:prefiltering_end]
+        prefiltering_subquery = prefiltering_match.group(1)
         assert "INNER JOIN" in prefiltering_subquery, (
             "Expected the cohort INNER JOIN to be inside the prefiltering subquery"
         )
 
-        # The top-level query should NOT have the cohort INNER JOIN (it was moved into prefiltering)
-        top_level_sql = sql[:prefiltering_start] + sql[sql.index(")", prefiltering_end) :]
-        # Count INNER JOINs outside the prefiltering subquery — should be 0
+        # The top-level query (outside the prefiltering subquery) should NOT have the cohort join
+        top_level_sql = sql[: prefiltering_match.start()] + sql[prefiltering_match.end() :]
         assert "INNER JOIN" not in top_level_sql, "Expected no top-level INNER JOIN when prefiltering is active"
 
         # Execute the query and verify the correct number of results
