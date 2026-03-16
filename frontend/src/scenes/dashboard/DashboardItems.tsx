@@ -70,6 +70,7 @@ export function DashboardItems(): JSX.Element {
         : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
+    const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
 
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
@@ -91,6 +92,29 @@ export function DashboardItems(): JSX.Element {
     })
 
     const { width, containerRef, mounted } = useContainerWidth()
+
+    useEffect(() => {
+        if (!mounted || !containerRef.current) {
+            return
+        }
+
+        const element = containerRef.current
+        const observer = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                if (entry.target === element) {
+                    setContainerHeight(entry.contentRect.height)
+                }
+            }
+        })
+
+        // Set initial height
+        setContainerHeight(element.clientHeight)
+        observer.observe(element)
+
+        return () => {
+            observer.disconnect()
+        }
+    }, [mounted, containerRef])
     const isMobileView = width && width <= BREAKPOINTS['sm']
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
@@ -121,7 +145,7 @@ export function DashboardItems(): JSX.Element {
                             margin={[16, 16]}
                             containerPadding={[0, 0]}
                             rows="auto"
-                            height={containerRef.current?.clientHeight} // rough heuristic; RGL will grow as needed
+                            height={containerHeight} // kept in sync via ResizeObserver
                             color="var(--color-bg-surface-secondary)"
                         />
                     )}
