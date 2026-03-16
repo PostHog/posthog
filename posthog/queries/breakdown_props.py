@@ -32,6 +32,7 @@ from posthog.queries.util import PersonPropertiesMode, alias_poe_mode_for_legacy
 from posthog.session_recordings.queries.session_query import SessionQuery
 
 ALL_USERS_COHORT_ID = 0
+# Keep in sync with NOT_IN_COHORT_ID in frontend/src/scenes/insights/utils.tsx
 NOT_IN_COHORT_ID = 2**52
 
 
