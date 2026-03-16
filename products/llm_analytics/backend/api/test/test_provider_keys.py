@@ -395,6 +395,74 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         self.assertEqual(response.data["results"][0]["id"], str(key2.id))
         self.assertEqual(response.data["results"][1]["id"], str(key1.id))
 
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_creating_key_auto_assigns_to_trial_evaluations(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.OK, None)
+
+        # Create two evals on trial (no provider_key) for OpenAI
+        mc1 = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        mc2 = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        # And one for a different provider that should NOT be touched
+        mc_anthropic = LLMModelConfiguration.objects.create(
+            team=self.team, provider="anthropic", model="claude-haiku-4-5"
+        )
+
+        Evaluation.objects.create(
+            team=self.team,
+            name="Eval 1",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            model_configuration=mc1,
+        )
+        Evaluation.objects.create(
+            team=self.team,
+            name="Eval 2",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            model_configuration=mc2,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "openai", "name": "My Key", "api_key": "sk-test-key-12345"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        new_key = LLMProviderKey.objects.get(id=response.data["id"])
+
+        mc1.refresh_from_db()
+        mc2.refresh_from_db()
+        mc_anthropic.refresh_from_db()
+
+        self.assertEqual(mc1.provider_key, new_key)
+        self.assertEqual(mc2.provider_key, new_key)
+        self.assertIsNone(mc_anthropic.provider_key)
+
+    @patch("products.llm_analytics.backend.api.provider_keys.validate_provider_key")
+    def test_creating_invalid_key_does_not_auto_assign(self, mock_validate):
+        mock_validate.return_value = (LLMProviderKey.State.INVALID, "Bad key")
+
+        mc = LLMModelConfiguration.objects.create(team=self.team, provider="openai", model="gpt-5-mini")
+        Evaluation.objects.create(
+            team=self.team,
+            name="Eval",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "test"},
+            output_type="boolean",
+            model_configuration=mc,
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/llm_analytics/provider_keys/",
+            {"provider": "openai", "name": "Bad Key", "api_key": "sk-bad-key-12345"},
+        )
+        # Key creation fails validation
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        mc.refresh_from_db()
+        self.assertIsNone(mc.provider_key)
+
 
 class TestLLMProviderKeyValidationViewSet(APIBaseTest):
     def test_unauthenticated_user_cannot_validate(self):

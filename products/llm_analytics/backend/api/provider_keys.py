@@ -102,10 +102,20 @@ class LLMProviderKeySerializer(serializers.ModelSerializer):
 
         instance = super().create(validated_data)
 
-        if set_as_active and instance.state == LLMProviderKey.State.OK:
-            config, _ = EvaluationConfig.objects.get_or_create(team=team)
-            config.active_provider_key = instance
-            config.save(update_fields=["active_provider_key", "updated_at"])
+        if instance.state == LLMProviderKey.State.OK:
+            if set_as_active:
+                config, _ = EvaluationConfig.objects.get_or_create(team=team)
+                config.active_provider_key = instance
+                config.save(update_fields=["active_provider_key", "updated_at"])
+
+            # Auto-assign this key to evaluations that were created on the
+            # trial tier for the same provider so they seamlessly graduate
+            # to BYOK without the user having to reconfigure each one.
+            LLMModelConfiguration.objects.filter(
+                team=team,
+                provider=instance.provider,
+                provider_key__isnull=True,
+            ).update(provider_key=instance)
 
         return instance
 

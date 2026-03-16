@@ -4,6 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.conf import settings
+from django.db import models
 
 import structlog
 import temporalio
@@ -265,10 +266,14 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
     model_configuration = evaluation.get("model_configuration")
 
     def _get_legacy_provider_key() -> LLMProviderKey | None:
-        """Legacy fallback for evaluations without model_configuration."""
+        """Legacy fallback for evaluations without model_configuration.
+
+        Checks active_provider_key first (explicit team-level setting), then
+        falls back to _resolve_provider_key which prefers BYOK over trial.
+        """
         config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
 
-        # Check if team has active BYOK key
+        # Check if team has an explicitly set active BYOK key
         if config.active_provider_key:
             key = config.active_provider_key
             if key.state == LLMProviderKey.State.OK:
@@ -282,16 +287,8 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
                 non_retryable=True,
             )
 
-        # No active key - check trial quota
-        if config.trial_evals_used >= config.trial_eval_limit:
-            raise ApplicationError(
-                f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
-                {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
-                non_retryable=True,
-            )
-
-        # Trial mode - no provider key, use PostHog defaults
-        return None
+        # No explicit active key — resolve dynamically (legacy is always openai)
+        return _resolve_provider_key("openai")
 
     def _get_provider_key_by_id(key_id: str) -> LLMProviderKey:
         """Fetch a specific provider key by ID, validating team ownership."""
@@ -313,15 +310,35 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
                 non_retryable=True,
             )
 
-    def _check_trial_quota() -> None:
-        """Check if trial quota is available for PostHog key usage."""
+    def _resolve_provider_key(provider: str) -> LLMProviderKey | None:
+        """Resolve the best available key for a provider.
+
+        Prefers a BYOK key when one exists so the team's own key is always
+        used over the trial quota. Falls back to trial if no BYOK key is
+        available, and raises if trial is also exhausted.
+        """
+        # Prefer BYOK key for this provider — avoids consuming trial quota.
+        # Order by most recently used, with never-used keys last.
+        byok_key = (
+            LLMProviderKey.objects.filter(team_id=team_id, provider=provider, state=LLMProviderKey.State.OK)
+            .order_by(models.F("last_used_at").desc(nulls_last=True))
+            .first()
+        )
+        if byok_key:
+            byok_key.last_used_at = timezone.now()
+            byok_key.save(update_fields=["last_used_at"])
+            return byok_key
+
+        # No BYOK key — fall back to trial quota
         config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
-        if config.trial_evals_used >= config.trial_eval_limit:
-            raise ApplicationError(
-                f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
-                {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
-                non_retryable=True,
-            )
+        if config.trial_evals_used < config.trial_eval_limit:
+            return None
+
+        raise ApplicationError(
+            f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
+            {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
+            non_retryable=True,
+        )
 
     # Determine provider, model, and key based on model_configuration
     if model_configuration:
@@ -332,9 +349,8 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
         if provider_key_id:
             provider_key = await database_sync_to_async(_get_provider_key_by_id)(provider_key_id)
         else:
-            # Using PostHog key - check trial quota
-            await database_sync_to_async(_check_trial_quota)()
-            provider_key = None
+            # No explicit key pinned — resolve dynamically (BYOK preferred over trial)
+            provider_key = await database_sync_to_async(_resolve_provider_key)(provider)
     else:
         # TODO(llma): Remove after migration completes - legacy evals without model_configuration
         provider = "openai"

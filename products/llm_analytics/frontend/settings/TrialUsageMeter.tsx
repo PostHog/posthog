@@ -7,9 +7,15 @@ import { urls } from 'scenes/urls'
 import { EvaluationConfig, llmProviderKeysLogic } from './llmProviderKeysLogic'
 
 export function TrialUsageMeter({ showSettingsLink = false }: { showSettingsLink?: boolean }): JSX.Element | null {
-    const { evaluationConfig } = useValues(llmProviderKeysLogic)
+    const { evaluationConfig, providerKeys } = useValues(llmProviderKeysLogic)
 
-    if (!evaluationConfig || evaluationConfig.active_provider_key) {
+    if (!evaluationConfig) {
+        return null
+    }
+
+    // Hide when the team has any healthy BYOK key — they've graduated from trial
+    const hasHealthyByokKey = providerKeys.some((key) => key.state === 'ok')
+    if (hasHealthyByokKey) {
         return null
     }
 

@@ -13,7 +13,9 @@ from temporalio.exceptions import ApplicationError
 from posthog.models import Organization, Team
 
 from products.llm_analytics.backend.llm.errors import StructuredOutputParseError
+from products.llm_analytics.backend.models.evaluation_config import EvaluationConfig
 from products.llm_analytics.backend.models.evaluations import Evaluation
+from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
 from .run_evaluation import (
     BooleanEvalResult,
@@ -460,6 +462,231 @@ class TestRunEvaluationWorkflow:
 
             assert exc_info.value.non_retryable is True
             assert exc_info.value.details[0] == {"error_type": "parse_error"}
+
+
+class TestDynamicKeyResolution:
+    """When no explicit provider_key_id is set on an evaluation, the runtime
+    resolves the best available key: BYOK preferred over trial."""
+
+    def _make_evaluation(self, evaluation_obj, team, model_configuration=None):
+        evaluation = {
+            "id": str(evaluation_obj.id),
+            "name": "Test Evaluation",
+            "evaluation_type": "llm_judge",
+            "evaluation_config": {"prompt": "Is this accurate?"},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": team.id,
+        }
+        if model_configuration is not None:
+            evaluation["model_configuration"] = model_configuration
+        return evaluation
+
+    def _make_event_data(self, team):
+        return create_mock_event_data(
+            team.id,
+            properties={
+                "$ai_input": [{"role": "user", "content": "test"}],
+                "$ai_output_choices": [{"role": "assistant", "content": "response"}],
+            },
+        )
+
+    def _mock_llm_client(self):
+        return patch("posthog.temporal.llm_analytics.run_evaluation.Client")
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_byok_key_preferred_over_trial_even_when_trial_available(self, setup_data):
+        team = setup_data["team"]
+
+        byok_key = await sync_to_async(LLMProviderKey.objects.create)(
+            team=team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+        )
+
+        evaluation = self._make_evaluation(
+            setup_data["evaluation"],
+            team,
+            model_configuration={"provider": "openai", "model": "gpt-5-mini", "provider_key_id": None},
+        )
+
+        with self._mock_llm_client() as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="Good")
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
+
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=self._make_event_data(team))
+            )
+
+            assert result["is_byok"] is True
+            assert result["key_id"] == str(byok_key.id)
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_falls_back_to_trial_when_no_byok_key_for_provider(self, setup_data):
+        team = setup_data["team"]
+
+        # BYOK key exists but for a different provider
+        await sync_to_async(LLMProviderKey.objects.create)(
+            team=team,
+            provider="anthropic",
+            name="Anthropic Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-ant-test"},
+        )
+
+        evaluation = self._make_evaluation(
+            setup_data["evaluation"],
+            team,
+            model_configuration={"provider": "openai", "model": "gpt-5-mini", "provider_key_id": None},
+        )
+
+        with self._mock_llm_client() as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="Good")
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
+
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=self._make_event_data(team))
+            )
+
+            # No OpenAI BYOK key, so falls back to trial
+            assert result["is_byok"] is False
+            assert result["key_id"] is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_trial_exhausted_with_byok_key_uses_byok(self, setup_data):
+        team = setup_data["team"]
+
+        byok_key = await sync_to_async(LLMProviderKey.objects.create)(
+            team=team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+        )
+
+        config, _ = await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+        config.trial_evals_used = 100
+        await sync_to_async(config.save)(update_fields=["trial_evals_used"])
+
+        evaluation = self._make_evaluation(
+            setup_data["evaluation"],
+            team,
+            model_configuration={"provider": "openai", "model": "gpt-5-mini", "provider_key_id": None},
+        )
+
+        with self._mock_llm_client() as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="Good")
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
+
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=self._make_event_data(team))
+            )
+
+            assert result["is_byok"] is True
+            assert result["key_id"] == str(byok_key.id)
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_trial_exhausted_without_byok_key_raises(self, setup_data):
+        team = setup_data["team"]
+
+        config, _ = await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+        config.trial_evals_used = 100
+        await sync_to_async(config.save)(update_fields=["trial_evals_used"])
+
+        evaluation = self._make_evaluation(
+            setup_data["evaluation"],
+            team,
+            model_configuration={"provider": "openai", "model": "gpt-5-mini", "provider_key_id": None},
+        )
+
+        with pytest.raises(ApplicationError, match="Trial evaluation limit"):
+            await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=self._make_event_data(team))
+            )
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_unhealthy_byok_keys_skipped_falls_back_to_trial(self, setup_data):
+        team = setup_data["team"]
+
+        await sync_to_async(LLMProviderKey.objects.create)(
+            team=team,
+            provider="openai",
+            name="Bad Key",
+            state=LLMProviderKey.State.INVALID,
+            encrypted_config={"api_key": "sk-bad"},
+        )
+
+        evaluation = self._make_evaluation(
+            setup_data["evaluation"],
+            team,
+            model_configuration={"provider": "openai", "model": "gpt-5-mini", "provider_key_id": None},
+        )
+
+        with self._mock_llm_client() as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="Good")
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
+
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=self._make_event_data(team))
+            )
+
+            # Unhealthy BYOK key skipped, falls back to trial
+            assert result["is_byok"] is False
+            assert result["key_id"] is None
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_legacy_path_prefers_byok_over_trial(self, setup_data):
+        team = setup_data["team"]
+
+        byok_key = await sync_to_async(LLMProviderKey.objects.create)(
+            team=team,
+            provider="openai",
+            name="My Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-test"},
+        )
+
+        # Legacy evaluation (no model_configuration)
+        evaluation = self._make_evaluation(setup_data["evaluation"], team)
+
+        with self._mock_llm_client() as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="Good")
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
+
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=self._make_event_data(team))
+            )
+
+            assert result["is_byok"] is True
+            assert result["key_id"] == str(byok_key.id)
 
 
 class TestExecuteHogEvalActivity:
