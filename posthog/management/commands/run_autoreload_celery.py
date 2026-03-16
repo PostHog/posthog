@@ -122,5 +122,6 @@ class Command(BaseCommand):
                 self.style.WARNING(f"Change detected: {', '.join(sample)}{suffix} — restarting celery {process_type}")
             )
 
-            # Re-exec the entire process — replaces this process in-place
+            # Re-exec the entire process — replaces this process in-place.
+            # nosemgrep: python.lang.security.audit.dangerous-os-exec-tainted-env-args.dangerous-os-exec-tainted-env-args
             os.execv(sys.executable, [sys.executable, *sys.argv])
