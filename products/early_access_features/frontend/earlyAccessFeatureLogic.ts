@@ -231,21 +231,38 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     })),
     listeners(({ actions, values }) => ({
         saveEarlyAccessFeatureFailure: ({ error: rawError }) => {
-            // kea-loaders types error as string, but at runtime it's an ApiError instance.
-            // ApiError copies exceptions_hog fields to top-level properties:
-            //   error.detail = "This field may not be blank."
-            //   error.attr = "name"
+            // kea-loaders types error as string, but at runtime it's an ApiError instance
+            // with .data containing the raw API response from exceptions_hog:
+            //   { type: "validation_error", code: "blank", detail: "...", attr: "name" }
             if (typeof rawError === 'object' && rawError !== null) {
                 const error = rawError as Record<string, unknown>
-                const attr = error.attr ?? (error.data as Record<string, unknown> | undefined)?.attr
-                const detail =
-                    (error.detail as string) ?? ((error.data as Record<string, unknown> | undefined)?.detail as string)
+
+                // Try every known location for the field name and detail message.
+                // ApiError stores the raw response body in .data, and also copies
+                // some fields (.detail, .attr) to top-level properties.
+                const data =
+                    typeof error.data === 'object' && error.data !== null
+                        ? (error.data as Record<string, unknown>)
+                        : undefined
+
+                // Log the error structure to help debug if field names still don't show
+                console.warn('[EAF] saveEarlyAccessFeatureFailure error shape:', {
+                    keys: Object.keys(error),
+                    attr: error.attr,
+                    detail: error.detail,
+                    dataKeys: data ? Object.keys(data) : 'no data',
+                    dataAttr: data?.attr,
+                    dataDetail: data?.detail,
+                })
+
+                const attr = error.attr || data?.attr
+                const detail = error.detail || data?.detail
                 if (attr && detail) {
-                    lemonToast.error(`${identifierToHuman(String(attr))}: ${detail}`)
+                    lemonToast.error(`${identifierToHuman(String(attr))}: ${String(detail)}`)
                     return
                 }
                 if (detail) {
-                    lemonToast.error(detail)
+                    lemonToast.error(String(detail))
                     return
                 }
             }
