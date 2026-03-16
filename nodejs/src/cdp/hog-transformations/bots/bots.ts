@@ -1,10 +1,44 @@
 import fs from 'fs'
+import ipaddr from 'ipaddr.js'
 import path from 'path'
 
-export const KNOWN_BOT_IP_LIST = fs
+const rawBotIpLines = fs
     .readFileSync(path.join(__dirname, '../../../../', 'assets', 'bot-ips.txt'), 'utf8')
     .split('\n')
     .map((line) => line.trim())
+    .filter((line) => line.length > 0)
+
+export const KNOWN_BOT_IP_SET = new Set<string>()
+export const KNOWN_BOT_CIDR_IPV4_RANGES: [ipaddr.IPv4, number][] = []
+export const KNOWN_BOT_CIDR_IPV6_RANGES: [ipaddr.IPv6, number][] = []
+
+for (const entry of rawBotIpLines) {
+    if (entry.includes('/')) {
+        try {
+            const [parsedAddr, prefixLength] = ipaddr.parseCIDR(entry)
+            if (parsedAddr.kind() === 'ipv4') {
+                KNOWN_BOT_CIDR_IPV4_RANGES.push([parsedAddr as ipaddr.IPv4, prefixLength])
+            } else {
+                KNOWN_BOT_CIDR_IPV6_RANGES.push([parsedAddr as ipaddr.IPv6, prefixLength])
+            }
+        } catch {
+            // skip malformed CIDR entries
+        }
+    } else {
+        KNOWN_BOT_IP_SET.add(entry)
+        // Also store a normalized representation so semantically-equal IPs
+        // with different textual forms (especially IPv6) can be matched
+        try {
+            const parsed = ipaddr.parse(entry)
+            const normalized = parsed.toNormalizedString()
+            if (normalized !== entry) {
+                KNOWN_BOT_IP_SET.add(normalized)
+            }
+        } catch {
+            // skip normalization for malformed exact IP entries
+        }
+    }
+}
 
 export const KNOWN_BOT_UA_LIST = [
     'bot',
