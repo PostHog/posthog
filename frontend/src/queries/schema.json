@@ -18490,7 +18490,8 @@
                     "$ref": "#/definitions/InsightsThresholdBounds"
                 },
                 "type": {
-                    "$ref": "#/definitions/InsightThresholdType"
+                    "$ref": "#/definitions/InsightThresholdType",
+                    "description": "Whether bounds are compared as absolute values or as percentage change from the previous interval."
                 }
             },
             "required": ["type"],
@@ -18977,9 +18978,11 @@
             "additionalProperties": false,
             "properties": {
                 "lower": {
+                    "description": "Alert fires when the value drops below this number.",
                     "type": "number"
                 },
                 "upper": {
+                    "description": "Alert fires when the value exceeds this number.",
                     "type": "number"
                 }
             },
@@ -33602,10 +33605,12 @@
             "additionalProperties": false,
             "properties": {
                 "check_ongoing_interval": {
+                    "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones.",
                     "type": "boolean"
                 },
                 "series_index": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Zero-based index of the series in the insight's query to monitor."
                 },
                 "type": {
                     "const": "TrendsAlertConfig",

@@ -5795,7 +5795,10 @@ class InsightThreshold(BaseModel):
     )
     bounds: InsightsThresholdBounds | None = None
     type: InsightThresholdType = Field(
-        description="Whether bounds are compared as absolute values or as percentage change from the previous interval."
+        ...,
+        description=(
+            "Whether bounds are compared as absolute values or as percentage change from the previous interval."
+        ),
     )
 
 
@@ -7181,9 +7184,12 @@ class TrendsAlertConfig(BaseModel):
     )
     check_ongoing_interval: bool | None = Field(
         default=None,
-        description="When true, evaluate the current (still incomplete) time interval in addition to completed ones.",
+        description=("When true, evaluate the current (still incomplete) time interval in addition to completed ones."),
     )
-    series_index: int = Field(description="Zero-based index of the series in the insight's query to monitor.")
+    series_index: int = Field(
+        ...,
+        description="Zero-based index of the series in the insight's query to monitor.",
+    )
     type: Literal["TrendsAlertConfig"] = "TrendsAlertConfig"
 
 

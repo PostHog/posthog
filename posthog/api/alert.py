@@ -108,6 +108,13 @@ class AlertSubscriptionSerializer(serializers.ModelSerializer):
         return data
 
 
+@extend_schema_field(
+    {
+        "type": "string",
+        "nullable": True,
+        "description": "Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.",
+    }
+)
 class RelativeDateTimeField(serializers.DateTimeField):
     def to_internal_value(self, data):
         return data
