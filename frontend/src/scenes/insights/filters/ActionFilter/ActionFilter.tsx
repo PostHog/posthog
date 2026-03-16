@@ -275,7 +275,6 @@ export const ActionFilter = React.forwardRef<HTMLDivElement, ActionFilterProps>(
                                                 ? hideDeleteBtn(filter, index)
                                                 : hideDeleteBtn
                                         }
-                                        hideRename={hideRename}
                                         hasBreakdown={!!filters.breakdown}
                                         mathAvailability={mathAvailability}
                                         groupTitle={isFunnelsFilter(filters) ? 'Any of the events below' : undefined}

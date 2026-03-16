@@ -47,7 +47,6 @@ interface ActionFilterGroupProps {
     disabled?: boolean
     readOnly?: boolean
     hideDeleteBtn?: boolean
-    hideRename?: boolean
     hasBreakdown: boolean
     showSeriesIndicator?: boolean
     seriesIndicatorType?: 'alpha' | 'numeric'
@@ -70,7 +69,6 @@ export function ActionFilterGroup({
     sortable,
     disabled = false,
     readOnly = false,
-    hideRename = false,
     hasBreakdown,
     showSeriesIndicator,
     seriesIndicatorType = 'alpha',
@@ -256,21 +254,19 @@ export function ActionFilterGroup({
 
                     {!readOnly && (
                         <div className="flex shrink-0 gap-1">
-                            {!hideRename && (
-                                <Tooltip title="Rename group series">
-                                    <LemonButton
-                                        size="small"
-                                        icon={<IconPencil />}
-                                        onClick={() => {
-                                            if (groupFilter) {
-                                                selectFilter(groupFilter)
-                                                showModal()
-                                            }
-                                        }}
-                                        data-attr={`group-filter-rename-${index}`}
-                                    />
-                                </Tooltip>
-                            )}
+                            <Tooltip title="Rename group series">
+                                <LemonButton
+                                    size="small"
+                                    icon={<IconPencil />}
+                                    onClick={() => {
+                                        if (groupFilter) {
+                                            selectFilter(groupFilter)
+                                            showModal()
+                                        }
+                                    }}
+                                    data-attr={`group-filter-rename-${index}`}
+                                />
+                            </Tooltip>
                             <Tooltip title="Remove group">
                                 <LemonButton
                                     size="small"
