@@ -11,6 +11,7 @@ from posthog.models.file_system.file_system import FileSystem
 from posthog.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from posthog.models.team.team import Team
 from posthog.models.user import User
+from posthog.tasks.hog_functions import refresh_affected_hog_functions
 
 from common.hogvm.python.operation import HOGQL_BYTECODE_VERSION
 
@@ -338,8 +339,6 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             mock_delay.assert_not_called()
 
     def test_cohort_refresh_finds_affected_teams_and_recompiles(self):
-        from posthog.tasks.hog_functions import refresh_affected_hog_functions
-
         cohort = Cohort.objects.create(
             team=self.team,
             name="Internal users",
@@ -383,8 +382,6 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         assert "%@posthog.com%" not in new_bytecode
 
     def test_cohort_refresh_skips_unrelated_teams(self):
-        from posthog.tasks.hog_functions import refresh_affected_hog_functions
-
         cohort = Cohort.objects.create(
             team=self.team,
             name="Unrelated cohort",
@@ -418,8 +415,6 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
         assert json.dumps(hog_function.filters["bytecode"]) == original_bytecode
 
     def test_cohort_refresh_handles_deleted_cohort(self):
-        from posthog.tasks.hog_functions import refresh_affected_hog_functions
-
         cohort = Cohort.objects.create(
             team=self.team,
             name="Internal users",
