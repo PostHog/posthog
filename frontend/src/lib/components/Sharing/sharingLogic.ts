@@ -38,6 +38,7 @@ const defaultSharingSettings = {
     noHeader: false,
     showInspector: false,
     hideExtraDetails: false,
+    allowAutoRefresh: true,
 }
 
 const propsToApiParams = async (
