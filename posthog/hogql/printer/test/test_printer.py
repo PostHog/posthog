@@ -4646,3 +4646,172 @@ class TestPostgresPrinter(BaseTest):
     def test_except_all(self):
         result = self._select("select 1 as id except all select 2 as id")
         self.assertIn("EXCEPT ALL", result)
+
+    # -- ClickHouse → Postgres function translation tests --
+
+    @parameterized.expand(
+        [
+            # Renames
+            ("ifNull", "ifNull(1, 2)", "COALESCE(1, 2)"),
+            ("replaceAll", "replaceAll('abc', 'a', 'z')", "REPLACE('abc', 'a', 'z')"),
+            ("replaceRegexpAll", "replaceRegexpAll('abc', 'a', 'z')", "REGEXP_REPLACE('abc', 'a', 'z')"),
+            ("toTypeName", "toTypeName(1)", "pg_typeof(1)"),
+            ("now", "now()", "NOW()"),
+            ("any", "any(event)", "MIN(events.event)"),
+            ("startsWith", "startsWith('hello', 'he')", "starts_with('hello', 'he')"),
+            ("rand", "rand()", "random()"),
+            ("generateSeries", "generateSeries(1, 10, 1)", "generate_series(1, 10, 1)"),
+            # Type conversions
+            ("toDate", "toDate('2024-01-01')", "CAST('2024-01-01' AS DATE)"),
+            ("toDateTime", "toDateTime('2024-01-01')", "CAST('2024-01-01' AS TIMESTAMP)"),
+            ("toDateTime_tz", "toDateTime('2024-01-01', 'UTC')", "CAST('2024-01-01' AS TIMESTAMP)"),
+            ("toString", "toString(123)", "CAST(123 AS TEXT)"),
+            ("toInt", "toInt(3.14)", "CAST(3.14 AS BIGINT)"),
+            ("toFloat", "toFloat(1)", "CAST(1 AS DOUBLE PRECISION)"),
+            ("toFloatOrZero", "toFloatOrZero('1.5')", "CAST('1.5' AS DOUBLE PRECISION)"),
+            ("toFloatOrDefault", "toFloatOrDefault('1.5')", "CAST('1.5' AS DOUBLE PRECISION)"),
+            ("toIntOrZero", "toIntOrZero('42')", "CAST('42' AS BIGINT)"),
+            ("toBool", "toBool(1)", "CAST(1 AS BOOLEAN)"),
+            ("toUUID", "toUUID('abc')", "CAST('abc' AS UUID)"),
+            ("toDecimal", "toDecimal(1, 2)", "CAST(1 AS DECIMAL)"),
+            ("toDateTime64", "toDateTime64('2024-01-01', 3)", "CAST('2024-01-01' AS TIMESTAMP)"),
+            # Date extraction
+            ("toYear", "toYear(now())", "EXTRACT(YEAR FROM NOW())"),
+            ("toQuarter", "toQuarter(now())", "EXTRACT(QUARTER FROM NOW())"),
+            ("toMonth", "toMonth(now())", "EXTRACT(MONTH FROM NOW())"),
+            ("toDayOfMonth", "toDayOfMonth(now())", "EXTRACT(DAY FROM NOW())"),
+            ("toDayOfWeek", "toDayOfWeek(now())", "EXTRACT(ISODOW FROM NOW())"),
+            ("toDayOfYear", "toDayOfYear(now())", "EXTRACT(DOY FROM NOW())"),
+            ("toHour", "toHour(now())", "EXTRACT(HOUR FROM NOW())"),
+            ("toMinute", "toMinute(now())", "EXTRACT(MINUTE FROM NOW())"),
+            ("toSecond", "toSecond(now())", "EXTRACT(SECOND FROM NOW())"),
+            ("toISOWeek", "toISOWeek(now())", "EXTRACT(WEEK FROM NOW())"),
+            ("toISOYear", "toISOYear(now())", "EXTRACT(ISOYEAR FROM NOW())"),
+            ("toUnixTimestamp", "toUnixTimestamp(now())", "CAST(EXTRACT(EPOCH FROM NOW()) AS BIGINT)"),
+            ("toYYYYMM", "toYYYYMM(now())", "CAST(TO_CHAR(NOW(), 'YYYYMM') AS INTEGER)"),
+            ("toYYYYMMDD", "toYYYYMMDD(now())", "CAST(TO_CHAR(NOW(), 'YYYYMMDD') AS INTEGER)"),
+            ("toYYYYMMDDhhmmss", "toYYYYMMDDhhmmss(now())", "CAST(TO_CHAR(NOW(), 'YYYYMMDDHH24MISS') AS BIGINT)"),
+            # Date truncation (toStartOf* tested separately in test_to_start_of_*)
+            ("toMonday", "toMonday(now())", "CAST(DATE_TRUNC('week', NOW()) AS DATE)"),
+            (
+                "toLastDayOfMonth",
+                "toLastDayOfMonth(now())",
+                "CAST((DATE_TRUNC('month', NOW()) + INTERVAL '1 month' - INTERVAL '1 day') AS DATE)",
+            ),
+            (
+                "toLastDayOfWeek",
+                "toLastDayOfWeek(now())",
+                "CAST((DATE_TRUNC('week', NOW()) + INTERVAL '6 day') AS DATE)",
+            ),
+            # Date generators
+            ("today", "today()", "CURRENT_DATE"),
+            ("yesterday", "yesterday()", "(CURRENT_DATE - INTERVAL '1 day')"),
+            # Intervals
+            ("toIntervalSecond", "toIntervalSecond(60)", "(60 * INTERVAL '1 second')"),
+            ("toIntervalMinute", "toIntervalMinute(30)", "(30 * INTERVAL '1 minute')"),
+            ("toIntervalHour", "toIntervalHour(3)", "(3 * INTERVAL '1 hour')"),
+            ("toIntervalDay", "toIntervalDay(7)", "(7 * INTERVAL '1 day')"),
+            ("toIntervalWeek", "toIntervalWeek(2)", "(2 * INTERVAL '1 week')"),
+            ("toIntervalMonth", "toIntervalMonth(6)", "(6 * INTERVAL '1 month')"),
+            ("toIntervalQuarter", "toIntervalQuarter(1)", "(1 * INTERVAL '3 month')"),
+            ("toIntervalYear", "toIntervalYear(1)", "(1 * INTERVAL '1 year')"),
+            # Date arithmetic
+            ("addDays", "addDays(now(), 7)", "(NOW() + 7 * INTERVAL '1 day')"),
+            ("addHours", "addHours(now(), 3)", "(NOW() + 3 * INTERVAL '1 hour')"),
+            ("addMonths", "addMonths(now(), 1)", "(NOW() + 1 * INTERVAL '1 month')"),
+            ("addYears", "addYears(now(), 2)", "(NOW() + 2 * INTERVAL '1 year')"),
+            ("subtractDays", "subtractDays(now(), 7)", "(NOW() - 7 * INTERVAL '1 day')"),
+            ("subtractMonths", "subtractMonths(now(), 3)", "(NOW() - 3 * INTERVAL '1 month')"),
+            (
+                "dateDiff",
+                "dateDiff('day', now(), now())",
+                "DATE_PART('day', CAST(NOW() AS TIMESTAMP) - CAST(NOW() AS TIMESTAMP))",
+            ),
+            # Conditional
+            ("if", "if(1, 'yes', 'no')", "CASE WHEN 1 THEN 'yes' ELSE 'no' END"),
+            ("multiIf", "multiIf(1, 'a', 0, 'b', 'c')", "CASE WHEN 1 THEN 'a' WHEN 0 THEN 'b' ELSE 'c' END"),
+            # Null/empty
+            ("empty", "empty('test')", "('test' IS NULL OR 'test' = '')"),
+            ("notEmpty", "notEmpty('test')", "('test' IS NOT NULL AND 'test' != '')"),
+            ("isNull", "isNull(1)", "(1 IS NULL)"),
+            ("isNotNull", "isNotNull(1)", "(1 IS NOT NULL)"),
+            ("assumeNotNull", "assumeNotNull(1)", "1"),
+            ("toNullable", "toNullable(1)", "1"),
+            # JSON
+            ("JSONExtractInt", "JSONExtractInt('{}', 'key')", "CAST(json_extract_path_text('{}', 'key') AS INTEGER)"),
+            (
+                "JSONExtractFloat",
+                "JSONExtractFloat('{}', 'key')",
+                "CAST(json_extract_path_text('{}', 'key') AS DOUBLE PRECISION)",
+            ),
+            ("JSONExtractBool", "JSONExtractBool('{}', 'key')", "CAST(json_extract_path_text('{}', 'key') AS BOOLEAN)"),
+            (
+                "JSONExtractUInt",
+                "JSONExtractUInt('{}', 'key')",
+                "CAST(json_extract_path_text('{}', 'key') AS INTEGER)",
+            ),
+            # String
+            ("match", "match('hello', 'h.*o')", "('hello' ~ 'h.*o')"),
+            ("splitByString", "splitByString(',', 'a,b,c')", "STRING_TO_ARRAY('a,b,c', ',')"),
+            ("splitByChar", "splitByChar(',', 'a,b,c')", "STRING_TO_ARRAY('a,b,c', ',')"),
+            ("endsWith", "endsWith('hello', 'lo')", "(RIGHT('hello', LENGTH('lo')) = 'lo')"),
+            ("replaceOne", "replaceOne('abc', 'a', 'z')", "REGEXP_REPLACE('abc', 'a', 'z')"),
+            ("replaceRegexpOne", "replaceRegexpOne('abc', 'a+', 'z')", "REGEXP_REPLACE('abc', 'a+', 'z')"),
+            # Math
+            ("e", "e()", "exp(1)"),
+            ("log2", "log2(8)", "log(2, 8)"),
+            # Aggregation
+            ("uniq", "uniq(1)", "COUNT(DISTINCT 1)"),
+            ("uniqExact", "uniqExact(1)", "COUNT(DISTINCT 1)"),
+            # Case-insensitive function lookup
+            ("now_uppercase", "NOW()", "NOW()"),
+            ("count_uppercase", "COUNT(event)", "count(events.event)"),
+            ("if_uppercase", "IF(1, 2, 3)", "CASE WHEN 1 THEN 2 ELSE 3 END"),
+        ]
+    )
+    def test_clickhouse_functions_translate_to_postgres(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("countIf_1arg", "countIf(1)", "count(*) FILTER (WHERE 1)"),
+            ("countIf_2arg", "countIf(event, 1)", "count(events.event) FILTER (WHERE 1)"),
+            ("sumIf", "sumIf(1, 1)", "sum(1) FILTER (WHERE 1)"),
+            ("avgIf", "avgIf(1, 1)", "avg(1) FILTER (WHERE 1)"),
+            ("minIf", "minIf(1, 1)", "min(1) FILTER (WHERE 1)"),
+            ("maxIf", "maxIf(1, 1)", "max(1) FILTER (WHERE 1)"),
+            ("anyIf", "anyIf(1, 1)", "MIN(1) FILTER (WHERE 1)"),
+            ("uniqIf", "uniqIf(1, 1)", "COUNT(DISTINCT 1) FILTER (WHERE 1)"),
+            ("uniqExactIf", "uniqExactIf(1, 1)", "COUNT(DISTINCT 1) FILTER (WHERE 1)"),
+            ("groupArrayIf", "groupArrayIf(1, 1)", "ARRAY_AGG(1) FILTER (WHERE 1)"),
+        ]
+    )
+    def test_if_combinator_functions(self, _name: str, expr: str, expected: str):
+        self.assertEqual(self._expr(expr), expected)
+
+    @parameterized.expand(
+        [
+            ("argMax", "argMax(1, 2)"),
+            ("argMin", "argMin(1, 2)"),
+            ("range", "range(1, 10)"),
+        ]
+    )
+    def test_unmapped_clickhouse_functions_raise_error(self, _name: str, expr: str):
+        with self.assertRaises(QueryError) as ctx:
+            self._expr(expr)
+        self.assertIn("not supported in the Postgres dialect", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            ("count", "count()"),
+            ("sum", "sum(1)"),
+            ("abs", "abs(1)"),
+            ("lower", "lower('x')"),
+            ("coalesce", "coalesce(1, 2)"),
+            ("row_number", "row_number()"),
+            ("greatest", "greatest(1, 2)"),
+        ]
+    )
+    def test_standard_sql_functions_pass_through(self, _name: str, expr: str):
+        result = self._expr(expr)
+        self.assertIsNotNone(result)

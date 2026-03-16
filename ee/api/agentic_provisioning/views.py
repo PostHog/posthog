@@ -15,6 +15,7 @@ from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
 
+import requests
 import structlog
 import posthoganalytics
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -28,7 +29,6 @@ from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, find_oauth
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
-from posthog.security.outbound_proxy import external_requests
 from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
@@ -95,7 +95,7 @@ POSTHOG_PARENT_SERVICE: dict[str, Any] = {
 def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
     """Fetch product catalog from billing. Returns None on failure."""
     try:
-        res = external_requests.get(
+        res = requests.get(
             f"{BILLING_SERVICE_URL}/api/products-v2",
             params={"plan": "standard"},
         )

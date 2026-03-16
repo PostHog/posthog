@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Result;
-use axum::async_trait;
+use async_trait::async_trait;
 use chrono::Utc;
 use rdkafka::{
     admin::{AdminClient, AdminOptions, NewTopic, TopicReplication},

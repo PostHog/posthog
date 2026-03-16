@@ -69,6 +69,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'profile',
     'email',
     'introspection',
+    'annotation:read',
+    'annotation:write',
     'action:read',
     'action:write',
     'cohort:read',
@@ -94,6 +96,7 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'llm_prompt:write',
     'logs:read',
     'organization:read',
+    'organization:write',
     'project:read',
     'property_definition:read',
     'query:read',
@@ -102,4 +105,5 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'user:read',
     'warehouse_table:read',
     'warehouse_view:read',
+    'warehouse_view:write',
 ] as const

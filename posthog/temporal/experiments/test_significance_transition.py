@@ -11,6 +11,13 @@ from posthog.models.experiment import Experiment, ExperimentMetricResult
 from posthog.models.feature_flag import FeatureFlag
 from posthog.temporal.experiments.activities import _check_significance_transition
 
+METRIC_DICT = {
+    "uuid": "metric-123",
+    "metric_type": "mean",
+    "source": {"kind": "EventsNode", "event": "$pageview"},
+    "goal_direction": "increase",
+}
+
 
 def _make_result(significant_variants: list[str]) -> dict:
     variants = []
@@ -20,9 +27,14 @@ def _make_result(significant_variants: list[str]) -> dict:
                 "key": key,
                 "significant": key in significant_variants,
                 "chance_to_win": 0.99 if key in significant_variants else 0.01,
+                "sum": 477.0 if key == "test" else 268.0,
+                "number_of_samples": 1000,
             }
         )
-    return {"variant_results": variants}
+    return {
+        "variant_results": variants,
+        "baseline": {"key": "control", "sum": 268.0, "number_of_samples": 1000},
+    }
 
 
 @pytest.mark.django_db
@@ -38,6 +50,7 @@ class TestCheckSignificanceTransition(BaseTest):
             name="Test Experiment",
             feature_flag=flag,
             start_date=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+            metrics=[METRIC_DICT],
         )
 
     @parameterized.expand(
@@ -98,7 +111,10 @@ class TestCheckSignificanceTransition(BaseTest):
             assert event.properties["experiment_name"] == "Test Experiment"
             assert event.properties["metric_uuid"] == metric_uuid
             assert event.properties["variant_key"] == "test"
-            assert event.properties["experiment_url"] == f"/project/{self.team.pk}/experiments/{experiment.id}"
+            assert event.properties["goal_direction"] == "increase"
+            assert event.properties["chance_to_win"] == "99%"
+            assert event.properties["relative_change"] == "(+78%)"
+            assert event.properties["experiment_url"] == f"/experiments/{experiment.id}"
         else:
             mock_produce.assert_not_called()
 
@@ -129,3 +145,38 @@ class TestCheckSignificanceTransition(BaseTest):
             or mock_produce.call_args[0][1]
         )
         assert event.properties["variant_key"] == "control"
+
+    @patch("posthog.temporal.experiments.activities.produce_internal_event")
+    def test_metric_name_fallback_to_event_name(self, mock_produce: MagicMock) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="test-flag-2",
+            created_by=self.user,
+        )
+        experiment = Experiment.objects.create(
+            team=self.team,
+            name="Unnamed Metric Experiment",
+            feature_flag=flag,
+            start_date=datetime(2024, 1, 1, tzinfo=ZoneInfo("UTC")),
+            metrics=[
+                {
+                    "uuid": "metric-456",
+                    "metric_type": "mean",
+                    "source": {"kind": "EventsNode", "event": "purchase_completed"},
+                    "goal_direction": "increase",
+                }
+            ],
+        )
+
+        result_dict = _make_result(["test"])
+        _check_significance_transition(
+            experiment, "metric-456", "fp", result_dict, datetime(2024, 1, 10, tzinfo=ZoneInfo("UTC"))
+        )
+
+        mock_produce.assert_called_once()
+        event = (
+            mock_produce.call_args.kwargs.get("event")
+            or mock_produce.call_args[1].get("event")
+            or mock_produce.call_args[0][1]
+        )
+        assert event.properties["metric_name"] == "purchase_completed"
