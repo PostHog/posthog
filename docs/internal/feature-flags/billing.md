@@ -88,11 +88,12 @@ Both Django's `/api/feature_flag/local_evaluation` and Rust's `/flags/definition
 {
   "type": "quota_limited",
   "code": "payment_required",
-  "detail": "You have exceeded your feature flag request quota"
+  "detail": "You have exceeded your feature flag request quota",
+  "attr": null
 }
 ```
 
-The Rust endpoint checks `FeatureFlagsLimiter.is_limited(token)` before fetching the cache. Requests that result in a 304 (ETag match) skip billing, matching Django's behavior.
+The Rust endpoint checks `FeatureFlagsLimiter.is_limited(token)` before the ETag comparison and cache fetch. If the quota is exceeded, all requests (including conditional ones) return HTTP 402 — no 304 is issued while a team is over quota. Requests that pass the quota check but result in a 304 (ETag match) are not counted toward billing usage, matching Django's behavior.
 
 ### SDK tracking
 
