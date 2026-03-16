@@ -12,6 +12,7 @@ from posthog.models.utils import generate_random_token_personal, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import RecordingDeletedError
+from posthog.session_recordings.session_recording_v2_service import RecordingBlock
 
 
 class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest):
@@ -97,9 +98,27 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         mock_blocks = [
-            MagicMock(url="s3://bucket/key0?range=bytes=0-100"),
-            MagicMock(url="s3://bucket/key1?range=bytes=101-200"),
-            MagicMock(url="s3://bucket/key2?range=bytes=201-300"),
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="key1",
+                start_byte=101,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
+            RecordingBlock(
+                key="key2",
+                start_byte=201,
+                end_byte=300,
+                start_timestamp="2024-01-01T00:02:00Z",
+                end_timestamp="2024-01-01T00:03:00Z",
+            ),
         ]
         mock_list_blocks.return_value = mock_blocks
 
@@ -120,9 +139,9 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         assert mock_storage.fetch_block.call_count == 2
         call_args_list = mock_storage.fetch_block.await_args_list
-        assert call_args_list[0].args == ("s3://bucket/key0?range=bytes=0-100", session_id, self.team.pk)
+        assert call_args_list[0].args == ("key0", 0, 100, session_id, self.team.id)
         assert call_args_list[0].kwargs.get("decompress") is True
-        assert call_args_list[1].args == ("s3://bucket/key1?range=bytes=101-200", session_id, self.team.pk)
+        assert call_args_list[1].args == ("key1", 101, 200, session_id, self.team.id)
         assert call_args_list[1].kwargs.get("decompress") is True
 
     @parameterized.expand(
@@ -149,7 +168,15 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         session_id = str(uuid7())
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
-        mock_list_blocks.return_value = [MagicMock(url="http://test.com/block0")]
+        mock_list_blocks.return_value = [
+            RecordingBlock(
+                key="block0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+        ]
 
         url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key={start_key}&end_blob_key={end_key}"
 
@@ -270,8 +297,20 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         # Mock only 2 blocks available (indices 0 and 1)
         mock_blocks = [
-            MagicMock(url="http://test.com/block0"),
-            MagicMock(url="http://test.com/block1"),
+            RecordingBlock(
+                key="block0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="block1",
+                start_byte=0,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
         ]
         mock_list_blocks.return_value = mock_blocks
 
@@ -441,8 +480,20 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         mock_blocks = [
-            MagicMock(url="s3://bucket/key0?range=bytes=0-100"),
-            MagicMock(url="s3://bucket/key1?range=bytes=101-200"),
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="key1",
+                start_byte=101,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
         ]
         mock_list_blocks.return_value = mock_blocks
 
@@ -486,7 +537,15 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
-        mock_blocks = [MagicMock(url="s3://bucket/key0?range=bytes=0-100")]
+        mock_blocks = [
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+        ]
         mock_list_blocks.return_value = mock_blocks
 
         mock_storage = MagicMock()
@@ -519,8 +578,20 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         mock_blocks = [
-            MagicMock(url="s3://bucket/key0?range=bytes=0-100"),
-            MagicMock(url="s3://bucket/key1?range=bytes=101-200"),
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="key1",
+                start_byte=101,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
         ]
         mock_list_blocks.return_value = mock_blocks
 
@@ -562,9 +633,27 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         mock_blocks = [
-            MagicMock(url="s3://bucket/key0?range=bytes=0-100"),
-            MagicMock(url="s3://bucket/key1?range=bytes=101-200"),
-            MagicMock(url="s3://bucket/key2?range=bytes=201-300"),
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="key1",
+                start_byte=101,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
+            RecordingBlock(
+                key="key2",
+                start_byte=201,
+                end_byte=300,
+                start_timestamp="2024-01-01T00:02:00Z",
+                end_timestamp="2024-01-01T00:03:00Z",
+            ),
         ]
         mock_list_blocks.return_value = mock_blocks
 
@@ -638,9 +727,27 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         mock_blocks = [
-            MagicMock(url="s3://bucket/key0?range=bytes=0-100"),
-            MagicMock(url="s3://bucket/key1?range=bytes=101-200"),
-            MagicMock(url="s3://bucket/key2?range=bytes=201-300"),
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="key1",
+                start_byte=101,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
+            RecordingBlock(
+                key="key2",
+                start_byte=201,
+                end_byte=300,
+                start_timestamp="2024-01-01T00:02:00Z",
+                end_timestamp="2024-01-01T00:03:00Z",
+            ),
         ]
         mock_list_blocks.return_value = mock_blocks
 
@@ -661,9 +768,9 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         assert mock_storage.fetch_block.call_count == 2
         call_args_list = mock_storage.fetch_block.await_args_list
-        assert call_args_list[0].args == ("s3://bucket/key0?range=bytes=0-100", session_id, self.team.pk)
+        assert call_args_list[0].args == ("key0", 0, 100, session_id, self.team.id)
         assert call_args_list[0].kwargs.get("decompress") is True
-        assert call_args_list[1].args == ("s3://bucket/key1?range=bytes=101-200", session_id, self.team.pk)
+        assert call_args_list[1].args == ("key1", 101, 200, session_id, self.team.id)
         assert call_args_list[1].kwargs.get("decompress") is True
 
     @parameterized.expand(
@@ -695,8 +802,20 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         mock_blocks = [
-            MagicMock(url="s3://bucket/key0?range=bytes=0-100"),
-            MagicMock(url="s3://bucket/key1?range=bytes=101-200"),
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="key1",
+                start_byte=101,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
         ]
         mock_list_blocks.return_value = mock_blocks
 
@@ -740,7 +859,15 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
-        mock_blocks = [MagicMock(url="s3://bucket/key0?range=bytes=0-100")]
+        mock_blocks = [
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+        ]
         mock_list_blocks.return_value = mock_blocks
 
         mock_storage = MagicMock()
@@ -778,9 +905,27 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
         mock_blocks = [
-            MagicMock(url="s3://bucket/key0?range=bytes=0-100"),
-            MagicMock(url="s3://bucket/key1?range=bytes=101-200"),
-            MagicMock(url="s3://bucket/key2?range=bytes=201-300"),
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            ),
+            RecordingBlock(
+                key="key1",
+                start_byte=101,
+                end_byte=200,
+                start_timestamp="2024-01-01T00:01:00Z",
+                end_timestamp="2024-01-01T00:02:00Z",
+            ),
+            RecordingBlock(
+                key="key2",
+                start_byte=201,
+                end_byte=300,
+                start_timestamp="2024-01-01T00:02:00Z",
+                end_timestamp="2024-01-01T00:03:00Z",
+            ),
         ]
         mock_list_blocks.return_value = mock_blocks
 
@@ -853,7 +998,15 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
-        mock_list_blocks.return_value = [MagicMock(url="s3://bucket/key0?range=bytes=0-100")]
+        mock_list_blocks.return_value = [
+            RecordingBlock(
+                key="key0",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+        ]
 
         mock_storage = MagicMock()
         mock_storage.fetch_block = AsyncMock(

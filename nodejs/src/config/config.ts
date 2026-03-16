@@ -143,8 +143,6 @@ export function getDefaultConfig(): PluginsServerConfig {
         EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: 3000, // 3 seconds
         EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: 10000, // 10 seconds
         EXTERNAL_REQUEST_CONNECTIONS: 500, // 500 connections
-        OUTBOUND_PROXY_URL: '',
-        OUTBOUND_PROXY_ENABLED: false,
         DROP_EVENTS_BY_TOKEN_DISTINCT_ID: '',
         SKIP_PERSONS_PROCESSING_BY_TOKEN_DISTINCT_ID: '',
         RELOAD_PLUGIN_JITTER_MAX_MS: 60000,
@@ -300,6 +298,11 @@ export function getDefaultConfig(): PluginsServerConfig {
         SESSION_RECORDING_V2_S3_TIMEOUT_MS: isDevEnv() ? 120000 : 30000,
         SESSION_RECORDING_KMS_ENDPOINT: undefined,
         SESSION_RECORDING_DYNAMODB_ENDPOINT: undefined,
+        CLICKHOUSE_HOST: 'localhost',
+        CLICKHOUSE_DATABASE: 'default',
+        CLICKHOUSE_USER: 'default',
+        CLICKHOUSE_PASSWORD: undefined,
+        CLICKHOUSE_SECURE: false,
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,

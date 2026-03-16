@@ -1334,6 +1334,7 @@ fn create_flag_with_deps(
         payloads: None,
         super_groups: None,
         holdout_groups: None,
+        holdout: None,
     };
 
     for dep_id in dependencies {
