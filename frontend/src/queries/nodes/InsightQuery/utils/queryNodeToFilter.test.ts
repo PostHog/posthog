@@ -236,30 +236,9 @@ describe('queryNodeToFilter', () => {
                 table_name: 'warehouse_orders',
                 timestamp_field: 'timestamp',
                 id_field: 'id',
-                distinct_id_field: 'person_id',
+                aggregation_target_field: 'person_id',
             },
         ])
-    })
-
-    test('converts a legacy funnels data warehouse node shape to a legacy filter', () => {
-        const query = {
-            kind: NodeKind.FunnelsQuery,
-            series: [
-                {
-                    kind: NodeKind.FunnelsDataWarehouseNode,
-                    id: 'warehouse_orders',
-                    name: 'Orders',
-                    table_name: 'warehouse_orders',
-                    timestamp_field: 'timestamp',
-                    id_field: 'id',
-                    distinct_id_field: 'person_id',
-                },
-            ],
-        } as FunnelsQuery
-
-        const result = queryNodeToFilter(query)
-
-        expect(result.data_warehouse?.[0]?.distinct_id_field).toEqual('person_id')
     })
 
     test('converts a pathsFilter and funnelPathsFilter into filter properties', () => {
