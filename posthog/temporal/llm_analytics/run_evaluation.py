@@ -343,6 +343,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
         )
 
     # Determine provider, model, and key based on model_configuration
+    provider_key: LLMProviderKey | None
     if model_configuration:
         provider = model_configuration["provider"]
         model = model_configuration["model"]
