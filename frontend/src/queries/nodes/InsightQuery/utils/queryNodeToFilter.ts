@@ -96,9 +96,7 @@ export const seriesNodeToFilter = (
                   table_name: node.table_name,
                   id_field: node.id_field,
                   timestamp_field: node.timestamp_field,
-                  distinct_id_field:
-                      node.aggregation_target_field ||
-                      (node as FunnelsDataWarehouseNode & { distinct_id_field?: string }).distinct_id_field,
+                  aggregation_target_field: node.aggregation_target_field,
               }
             : {}),
         ...(isLifecycleDataWarehouseNode(node)
