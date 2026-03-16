@@ -42,6 +42,8 @@ interface ChartCellProps {
     isLastRow?: boolean
     isSecondary?: boolean
     onTimeseriesClick?: () => void
+    /** Extra suffix to disambiguate SVG gradient IDs (e.g. breakdown value) */
+    gradientSuffix?: string
 }
 
 export function ChartCell({
@@ -54,6 +56,7 @@ export function ChartCell({
     isLastRow = false,
     isSecondary = false,
     onTimeseriesClick,
+    gradientSuffix,
 }: ChartCellProps): JSX.Element {
     const colors = useChartColors()
     const scale = useAxisScale(axisRange, VIEW_BOX_WIDTH, SVG_EDGE_MARGIN)
@@ -64,6 +67,8 @@ export function ChartCell({
     const delta = getDelta(variantResult)
     const hasEnoughData = !!interval
     const validationFailureType = getValidationFailureType(variantResult)
+
+    const gradientId = `gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${variantResult.key}${gradientSuffix ? `-${gradientSuffix}` : ''}`
 
     // Position calculations
     const viewBoxHeight = CHART_CELL_VIEW_BOX_HEIGHT
@@ -121,9 +126,7 @@ export function ChartCell({
                                 metric={metric}
                                 isSignificant={isSignificant(variantResult)}
                                 isBayesian={isBayesianResult(variantResult)}
-                                gradientId={`gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
-                                    variantResult.key
-                                }`}
+                                gradientId={gradientId}
                             />
 
                             {/* Render violin plot for Bayesian or rectangular bar for Frequentist */}
@@ -131,9 +134,7 @@ export function ChartCell({
                                 <>
                                     <path
                                         d={generateViolinPath(x1, x2, y, barHeightPercent, deltaX)}
-                                        fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
-                                            variantResult.key
-                                        })`}
+                                        fill={`url(#${gradientId})`}
                                         opacity={CHART_BAR_OPACITY}
                                         style={{
                                             cursor: isClickable ? 'pointer' : 'default',
@@ -162,9 +163,7 @@ export function ChartCell({
                                         y={y}
                                         width={x2 - x1}
                                         height={barHeightPercent}
-                                        fill={`url(#gradient-${isSecondary ? 'secondary' : 'primary'}-${metricUuid ? metricUuid.slice(-8) : 'default'}-${
-                                            variantResult.key
-                                        })`}
+                                        fill={`url(#${gradientId})`}
                                         opacity={CHART_BAR_OPACITY}
                                         rx={3}
                                         ry={3}
