@@ -11,6 +11,8 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hasFormErrors, toParams } from 'lib/utils'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { addProjectIdIfMissing } from 'lib/utils/router-utils'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
+import { dispatchChangeRequestCreated } from 'scenes/approvals/utils'
 import { billingLogic } from 'scenes/billing/billingLogic'
 import {
     hasMultipleVariantsActive,
@@ -1228,7 +1230,6 @@ export const experimentLogic = kea<experimentLogicType>([
                 id: flagId,
                 payload: { active: isActive },
             })
-
             actions.loadExperiment({ triggeredBy: 'config_change' })
         },
         createExperiment: async ({ draft, folder }) => {
@@ -1251,9 +1252,10 @@ export const experimentLogic = kea<experimentLogicType>([
             if (!minimumDetectableEffect) {
                 eventUsageLogic.actions.reportExperimentInsightLoadFailed()
                 actions.setCreateExperimentLoading(false)
-                return lemonToast.error(
+                lemonToast.error(
                     'Failed to load insight. Experiment cannot be saved without this value. Try changing the experiment goal.'
                 )
+                return
             }
 
             let response: Experiment | null = null
@@ -1415,13 +1417,11 @@ export const experimentLogic = kea<experimentLogicType>([
         pauseExperiment: async () => {
             await actions.setFeatureFlagActive(false)
             actions.closePauseExperimentModal()
-            lemonToast.success('The feature flag has been disabled')
             values.experiment && eventUsageLogic.actions.reportExperimentPaused(values.experiment)
         },
         resumeExperiment: async () => {
             await actions.setFeatureFlagActive(true)
             actions.closeResumeExperimentModal()
-            lemonToast.success('The feature flag has been enabled')
             values.experiment && eventUsageLogic.actions.reportExperimentResumed(values.experiment)
         },
         archiveExperiment: async () => {
@@ -1474,6 +1474,13 @@ export const experimentLogic = kea<experimentLogicType>([
                         triggered_by: triggeredBy ?? 'manual',
                         force_refresh: !!forceRefresh,
                         refresh_id: refreshId,
+                        experiment_duration_hours: values.experiment?.start_date
+                            ? Math.round(
+                                  (Date.now() - new Date(values.experiment.start_date).getTime()) / (1000 * 60 * 60)
+                              )
+                            : null,
+                        experiment_status: values.experiment?.status ?? null,
+                        total_metrics_count: primaryCount + secondaryCount,
                     }
                 )
 
@@ -1567,8 +1574,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 ;[0, 400, 800].forEach((delay) => setTimeout(trigger, delay))
             }
         },
-        finishExperimentFailure: ({ error }) => {
-            lemonToast.error(error)
+        finishExperimentFailure: ({ error, errorObject }) => {
+            if (errorObject?.status !== 409) {
+                lemonToast.error(error)
+            }
             actions.closeFinishExperimentModal()
         },
         updateExperimentVariantImages: async ({ variantPreviewMediaIds }) => {
@@ -2155,10 +2164,24 @@ export const experimentLogic = kea<experimentLogicType>([
                     const currentFlagFilters = values.experiment.feature_flag?.filters
                     const newFilters = transformFiltersForWinningVariant(currentFlagFilters, selectedVariantKey)
 
-                    await api.update(
-                        `api/projects/${values.currentProjectId}/feature_flags/${values.experiment.feature_flag?.id}`,
-                        { filters: newFilters }
-                    )
+                    try {
+                        await api.update(
+                            `api/projects/${values.currentProjectId}/feature_flags/${values.experiment.feature_flag?.id}`,
+                            { filters: newFilters }
+                        )
+                    } catch (e: any) {
+                        if (e.status === 409 && e.data?.change_request_id) {
+                            showApprovalRequiredToast(
+                                e.data.change_request_id,
+                                'end this experiment and roll out the winning variant'
+                            )
+                            dispatchChangeRequestCreated({
+                                resourceType: 'feature_flag',
+                                resourceId: values.experiment.feature_flag?.id ?? '',
+                            })
+                        }
+                        throw e
+                    }
 
                     return null
                 },

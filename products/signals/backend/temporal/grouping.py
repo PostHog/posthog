@@ -14,7 +14,6 @@ from django.utils import timezone
 import numpy as np
 import structlog
 import temporalio
-from asgiref.sync import sync_to_async
 from pydantic import BaseModel, Field
 from temporalio import workflow
 from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
@@ -23,13 +22,13 @@ from temporalio.workflow import ParentClosePolicy
 from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.api.embedding_worker import async_generate_embedding, emit_embedding_request
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
 from products.signals.backend.models import SignalReport
+from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
 from products.signals.backend.temporal.summary import (
     FetchSignalsForReportInput,
@@ -140,7 +139,7 @@ async def fetch_signal_type_examples_activity(input: FetchSignalTypeExamplesInpu
             GROUP BY source_product, source_type
         """
 
-        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
+        result = await execute_hogql_query_with_retry(
             query_type="SignalsFetchTypeExamples",
             query=query,
             team=team,
@@ -334,7 +333,7 @@ async def run_signal_semantic_search_activity(input: RunSignalSemanticSearchInpu
             LIMIT {limit}
         """
 
-        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
+        result = await execute_hogql_query_with_retry(
             query_type="SignalsRunEmbeddingQuery",
             query=query,
             team=team,
@@ -965,11 +964,12 @@ async def wait_for_signal_in_clickhouse_activity(input: WaitForClickHouseInput) 
     for attempt in range(max_attempts):
         temporalio.activity.heartbeat(attempt)
 
-        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
+        result = await execute_hogql_query_with_retry(
             query_type="SignalsWaitForClickHouse",
             query=query,
             team=team,
             placeholders=placeholders,
+            heartbeat_fn=temporalio.activity.heartbeat,
         )
 
         if result.results and result.results[0][0] >= expected_count:

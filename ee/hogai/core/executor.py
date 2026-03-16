@@ -7,6 +7,7 @@ from uuid import uuid4
 from django.conf import settings
 
 import structlog
+import posthoganalytics
 from prometheus_client import Histogram
 from temporalio.client import WorkflowExecutionStatus, WorkflowHandle
 from temporalio.common import WorkflowIDConflictPolicy, WorkflowIDReusePolicy
@@ -99,6 +100,7 @@ class AgentExecutor:
                 raise Exception(f"Workflow failed to start within timeout: {self._workflow_id}")
 
         except Exception as e:
+            posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
             logger.exception("Error starting workflow", error=e)
             yield self._failure_message()
             return
@@ -202,6 +204,7 @@ class AgentExecutor:
                 if message:
                     yield message
         except Exception as e:
+            posthoganalytics.capture_exception(e, properties={"tag": "max_ai"})
             logger.exception("Error streaming conversation", error=e)
             yield self._failure_message()
 

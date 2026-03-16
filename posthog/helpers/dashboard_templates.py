@@ -879,6 +879,63 @@ def create_group_type_mapping_detail_dashboard(group_type_mapping, user) -> Dash
     return dashboard
 
 
+def create_data_ops_dashboard(team, user) -> Dashboard:
+    """
+    Creates the default data ops overview dashboard for a team.
+    Seeded with a starter tile — users can add more to track sync health, row counts, etc.
+    """
+    dashboard = Dashboard.objects.create(
+        name="Data ops overview",
+        description="Your data ops overview. Add insights to track sync health, row counts, and anything else you care about.",
+        team=team,
+        created_by=user,
+        creation_mode="template",
+    )
+
+    _create_tile_for_insight(
+        dashboard,
+        name="Events ingested",
+        description="",
+        query={
+            "kind": "InsightVizNode",
+            "source": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "math": "total",
+                        "name": "All events",
+                        "event": None,
+                    }
+                ],
+                "version": 2,
+                "interval": "hour",
+                "dateRange": {
+                    "date_to": None,
+                    "date_from": "-24h",
+                    "explicitDate": False,
+                },
+                "trendsFilter": {"display": "BoldNumber"},
+                "compareFilter": {"compare": True, "compare_to": "-1w"},
+            },
+        },
+        layouts={
+            "sm": {
+                "h": 3,
+                "w": 2,
+                "x": 0,
+                "y": 0,
+                "minH": 1,
+                "minW": 1,
+            },
+        },
+        color=None,
+        user=user,
+    )
+
+    return dashboard
+
+
 def _get_feature_flag_total_volume_insight_description(feature_flag_key: str) -> str:
     return f"Shows the number of total calls made on feature flag with key: {feature_flag_key}"
 

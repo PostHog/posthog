@@ -1,4 +1,4 @@
-import { Layouts } from 'react-grid-layout'
+import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -85,11 +85,11 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
     return results
 }
 
-export const layoutsByTile = (layouts: Layouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
+export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
     const itemLayouts: Record<string, Record<DashboardLayoutSize, TileLayout>> = {}
 
     Object.entries(layouts).forEach(([col, layout]) => {
-        layout.forEach((layoutItem) => {
+        layout?.forEach((layoutItem) => {
             const i = String(layoutItem.i)
             if (!itemLayouts[i]) {
                 itemLayouts[i] = {} as Record<DashboardLayoutSize, TileLayout>

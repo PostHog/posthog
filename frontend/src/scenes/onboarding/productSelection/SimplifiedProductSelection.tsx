@@ -69,7 +69,8 @@ const DIRECTION_CHANGE_BOOST = 12
 // ─── Carousel hook ──────────────────────────────────────────────────────────
 function useCarousel(
     itemCount: number,
-    onSettle: (index: number) => void
+    onSettle: (index: number) => void,
+    initialIndex: number = 0
 ): {
     position: number
     isDragging: boolean
@@ -81,17 +82,17 @@ function useCarousel(
     stepTo: (direction: number) => void
     goToIndex: (index: number) => void
 } {
-    const [position, setPosition] = useState(0)
+    const [position, setPosition] = useState(initialIndex)
     const [isDragging, setIsDragging] = useState(false)
     const [isNauseous, setIsNauseous] = useState(false)
     const [isAnimating, setIsAnimating] = useState(false)
 
-    const posRef = useRef(0)
+    const posRef = useRef(initialIndex)
     const velRef = useRef(0)
     const targetRef = useRef<number | null>(null)
     const draggingRef = useRef(false)
     const rafRef = useRef(0)
-    const settledRef = useRef<number | null>(0)
+    const settledRef = useRef<number | null>(initialIndex)
     const animatingRef = useRef(false)
     const agitationRef = useRef(0)
     const lastVelSignRef = useRef(0)
@@ -344,7 +345,7 @@ export function SimplifiedProductSelection(): JSX.Element {
     )
 
     const { position, isDragging, isNauseous, activeIndex, hadDragMovement, handlePointerDown, stepTo, goToIndex } =
-        useCarousel(allProducts.length, handleSettle)
+        useCarousel(allProducts.length, handleSettle, initialIndex)
 
     // Track when the user triggers the nauseous hedgehog (spin for fun)
     useEffect(() => {

@@ -70,32 +70,18 @@ describe('TextCard', () => {
     })
 
     describe('resize handles', () => {
-        it('shows three handles when showResizeHandles and canResizeWidth are true', () => {
+        it('shows all 8 handles when showResizeHandles is true', () => {
             const { container } = render(
-                <TextCard
-                    textTile={makeTextTile()}
-                    placement={DashboardPlacement.Dashboard}
-                    showResizeHandles={true}
-                    canResizeWidth={true}
-                />
+                <TextCard textTile={makeTextTile()} placement={DashboardPlacement.Dashboard} showResizeHandles={true} />
             )
 
-            const handles = container.querySelectorAll('.handle')
-            expect(handles.length).toBe(3)
-        })
+            const horizontalHandles = container.querySelectorAll('.handle.horizontal')
+            const verticalHandles = container.querySelectorAll('.handle.vertical')
+            const cornerHandles = container.querySelectorAll('.handle.corner')
 
-        it('shows one handle when showResizeHandles is true but canResizeWidth is false', () => {
-            const { container } = render(
-                <TextCard
-                    textTile={makeTextTile()}
-                    placement={DashboardPlacement.Dashboard}
-                    showResizeHandles={true}
-                    canResizeWidth={false}
-                />
-            )
-
-            const handles = container.querySelectorAll('.handle')
-            expect(handles.length).toBe(1)
+            expect(horizontalHandles.length).toBe(2)
+            expect(verticalHandles.length).toBe(2)
+            expect(cornerHandles.length).toBe(4)
         })
     })
 })

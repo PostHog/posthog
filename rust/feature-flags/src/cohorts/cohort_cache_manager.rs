@@ -259,6 +259,7 @@ mod tests {
             errors_calculating: 0,
             groups: serde_json::json!({}),
             created_by_id: None,
+            cohort_type: None,
         }
     }
 
@@ -743,6 +744,7 @@ mod tests {
             errors_calculating: 0,
             groups: serde_json::json!({}),
             created_by_id: None,
+            cohort_type: None,
         };
         cohort_cache.cache.insert(1, vec![test_cohort]).await;
         // Moka caches update internal stats lazily - sync ensures stats are current
@@ -1103,6 +1105,7 @@ mod tests {
                         errors_calculating: 0,
                         groups: serde_json::json!({}),
                         created_by_id: None,
+                        cohort_type: None,
                     }])
                 }
             }

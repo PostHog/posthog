@@ -225,7 +225,7 @@ class PostgresSource(SimpleSource[PostgresSourceConfig], SSHTunnelMixin, Validat
             return valid_host, host_errors
 
         try:
-            self.get_schemas(config, team_id)
+            self.get_schemas(config, team_id, names=[schema_name] if schema_name else None)
         except SSLRequiredError as e:
             return False, str(e)
         except OperationalError as e:

@@ -130,6 +130,7 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "CodeInviteRedemption",
         "EndpointVersion",
         "ErrorTrackingIssueAssignment",
+        "FeatureFlagEvaluationContext",
         "Run",
         "RunSnapshot",
         "TicketAssignment",
@@ -142,7 +143,9 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str]]:
         "RemoteConfig",
         "TeamConversationsSlackConfig",
         "TeamCustomerAnalyticsConfig",
+        "TeamDefaultEvaluationContext",
         "TeamDefaultEvaluationTag",
+        "TeamDataWarehouseConfig",
         "TeamMarketingAnalyticsConfig",
         "TeamRevenueAnalyticsConfig",
         # --- User preferences with no IDOR risk (read own data only) ---
