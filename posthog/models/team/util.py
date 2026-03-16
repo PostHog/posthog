@@ -132,6 +132,43 @@ def delete_batch_exports(team_ids: list[int]):
             )
 
 
+def delete_data_modeling_schedules(team_ids: list[int]) -> None:
+    """Delete Temporal schedules for data modeling saved queries in deleted teams.
+
+    Django CASCADE deletes the DataWarehouseSavedQuery records but doesn't
+    call revert_materialization(), leaving orphaned Temporal schedules.
+    """
+    import temporalio.service
+
+    from posthog.temporal.common.schedule import delete_schedule
+
+    from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+
+    saved_queries = DataWarehouseSavedQuery.objects.filter(
+        team_id__in=team_ids,
+        deleted=False,
+        sync_frequency_interval__isnull=False,
+    )
+
+    if not saved_queries.exists():
+        return
+
+    temporal = sync_connect()
+
+    for saved_query in saved_queries:
+        try:
+            delete_schedule(temporal, schedule_id=str(saved_query.id))
+        except temporalio.service.RPCError as e:
+            if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
+                logger.warning(
+                    "Data modeling schedule not found during team deletion",
+                    schedule_id=str(saved_query.id),
+                    team_id=saved_query.team_id,
+                )
+                continue
+            raise
+
+
 can_enable_actor_on_events = False
 
 
