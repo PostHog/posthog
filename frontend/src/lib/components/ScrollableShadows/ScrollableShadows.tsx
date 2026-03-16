@@ -86,7 +86,7 @@ export const ScrollableShadows = React.forwardRef<HTMLDivElement, ScrollableShad
                           : undefined
                 }
             >
-                <ScrollArea.Content>{children}</ScrollArea.Content>
+                <ScrollArea.Content className="min-w-0">{children}</ScrollArea.Content>
             </ScrollArea.Viewport>
         </ScrollArea.Root>
     )
