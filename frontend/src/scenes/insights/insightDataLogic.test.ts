@@ -95,6 +95,21 @@ describe('insightDataLogic', () => {
                 .toDispatchActions(['syncQueryFromProps'])
                 .toMatchValues({ query: trendsQuery })
         })
+
+        it('does not dispatch syncQueryFromProps when query is unchanged', async () => {
+            const adHocProps = {
+                dashboardItemId: 'new-AdHoc.InsightViz.test-node' as any,
+                query: stepsQuery,
+            }
+
+            const adHocLogic = insightDataLogic(adHocProps)
+            adHocLogic.mount()
+
+            // Rebuild with same query
+            insightDataLogic({ ...adHocProps, query: { ...stepsQuery } })
+
+            await expectLogic(adHocLogic).toNotHaveDispatchedActions(['syncQueryFromProps'])
+        })
     })
 
     describe('reacts when the insight changes', () => {

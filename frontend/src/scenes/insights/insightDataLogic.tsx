@@ -316,6 +316,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
         },
     })),
     propsChanged(({ actions, props, values }) => {
+        // Uses syncQueryFromProps (not setQuery) to avoid triggering the
+        // insightVizDataLogic.setQuery listener which would loop back via props.setQuery.
         if (props.query) {
             try {
                 if (!objectsEqual(props.query, values.query)) {
