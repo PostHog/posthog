@@ -9,7 +9,17 @@ from django.test import TestCase
 from parameterized import parameterized
 
 from posthog.models.organization import OrganizationMembership
-from posthog.models.remote_config import organization_membership_deleted, user_saved
+from posthog.models.personal_api_key import PersonalAPIKey
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
+from posthog.models.remote_config import (
+    organization_membership_deleted,
+    organization_membership_saved,
+    personal_api_key_deleted,
+    personal_api_key_saved,
+    project_secret_api_key_deleted,
+    project_secret_api_key_saved,
+    user_saved,
+)
 from posthog.models.user import User
 
 
@@ -66,15 +76,17 @@ class TestUserSavedSignalHandler(TestCase):
         user_saved(sender=User, instance=mock_user, created=False)
 
         # Verify debug message was logged
-        mock_logger.debug.assert_called_once_with("User 42 saved but is_active unchanged, skipping cache update")
+        mock_logger.debug.assert_called_once_with(
+            "User saved but is_active unchanged, skipping cache update", user_id=42
+        )
 
         # Verify transaction.on_commit was not called
         mock_on_commit.assert_not_called()
 
-    @patch("posthog.tasks.team_access_cache_tasks.warm_user_teams_cache_sync")
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_user_tokens_sync")
     @patch("django.db.transaction.on_commit")
-    def test_user_deactivated_uses_sync_cache_update(self, mock_on_commit, mock_sync_func):
-        """Test that user deactivation uses SYNC cache update for immediate revocation (security-critical)."""
+    def test_user_deactivated_uses_sync_invalidation(self, mock_on_commit, mock_sync_func):
+        """Test that user deactivation uses SYNC invalidation for immediate revocation (security-critical)."""
 
         # Create mock user with is_active change (deactivation: True -> False)
         mock_user = MagicMock()
@@ -95,10 +107,10 @@ class TestUserSavedSignalHandler(TestCase):
         # Verify that the SYNC function was called (not the Celery task)
         mock_sync_func.assert_called_once_with(42)
 
-    @patch("posthog.tasks.team_access_cache_tasks.warm_user_teams_cache_task")
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_user_tokens_task")
     @patch("django.db.transaction.on_commit")
-    def test_user_activated_uses_async_cache_update(self, mock_on_commit, mock_task):
-        """Test that user activation uses ASYNC cache update via Celery (no security concern)."""
+    def test_user_activated_uses_async_invalidation(self, mock_on_commit, mock_task):
+        """Test that user activation uses ASYNC invalidation via Celery (no security concern)."""
 
         # Create mock user with is_active change (activation: False -> True)
         mock_user = MagicMock()
@@ -159,7 +171,7 @@ class TestOrganizationMembershipDeletedSignalHandler(TestCase):
         # Verify transaction.on_commit was called (update was scheduled)
         mock_on_commit.assert_called_once()
 
-    @patch("posthog.tasks.team_access_cache_tasks.warm_organization_teams_cache_task")
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_user_tokens_task")
     @patch("django.db.transaction.on_commit")
     def test_organization_membership_deleted_uses_transaction_on_commit(self, mock_on_commit, mock_task):
         """Test that organization_membership_deleted uses transaction.on_commit to enqueue Celery task."""
@@ -180,7 +192,7 @@ class TestOrganizationMembershipDeletedSignalHandler(TestCase):
         on_commit_lambda()
 
         # Verify that the Celery task would be enqueued after transaction commits
-        mock_task.delay.assert_called_once_with("test-org-uuid", 42, "removed from organization")
+        mock_task.delay.assert_called_once_with(42)
 
     @patch("django.db.transaction.on_commit")
     def test_organization_membership_deleted_handles_none_user(self, mock_on_commit):
@@ -197,5 +209,230 @@ class TestOrganizationMembershipDeletedSignalHandler(TestCase):
         except Exception as e:
             self.fail(f"organization_membership_deleted raised an exception with None user: {e}")
 
-        # Should still schedule the task
+        # Should skip scheduling when user_id is None
+        mock_on_commit.assert_not_called()
+
+
+class TestPersonalApiKeySavedSignalHandler(TestCase):
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_personal_api_key_cache_task")
+    @patch("django.db.transaction.on_commit")
+    def test_schedules_invalidation_on_save(self, mock_on_commit, mock_task):
+        instance = MagicMock(secure_value="sha256$abc123", user_id=42)
+        instance._old_secure_value = None
+        personal_api_key_saved(sender=PersonalAPIKey, instance=instance, created=False)
+
         mock_on_commit.assert_called_once()
+        on_commit_lambda = mock_on_commit.call_args[0][0]
+        on_commit_lambda()
+
+        mock_task.delay.assert_called_once_with("sha256$abc123", 42)
+
+    @patch("django.db.transaction.on_commit")
+    def test_skips_invalidation_on_create(self, mock_on_commit):
+        instance = MagicMock(secure_value="sha256$new_key", user_id=42)
+        instance._old_secure_value = None
+        personal_api_key_saved(sender=PersonalAPIKey, instance=instance, created=True)
+
+        # Newly created keys are not cached yet; nothing to invalidate.
+        mock_on_commit.assert_not_called()
+
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_personal_api_key_cache_task")
+    @patch("django.db.transaction.on_commit")
+    def test_schedules_invalidation_for_old_and_new_value_when_key_rolled(self, mock_on_commit, mock_task):
+        instance = MagicMock(secure_value="sha256$new_value", user_id=42)
+        instance._old_secure_value = "sha256$old_value"
+        personal_api_key_saved(sender=PersonalAPIKey, instance=instance, created=False)
+
+        assert mock_on_commit.call_count == 2
+        for call in mock_on_commit.call_args_list:
+            call[0][0]()
+
+        mock_task.delay.assert_any_call("sha256$new_value", 42)
+        mock_task.delay.assert_any_call("sha256$old_value", 42)
+
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_personal_api_key_cache_task")
+    @patch("django.db.transaction.on_commit")
+    def test_skips_old_value_invalidation_when_unchanged(self, mock_on_commit, mock_task):
+        instance = MagicMock(secure_value="sha256$same_value", user_id=42)
+        instance._old_secure_value = "sha256$same_value"
+        personal_api_key_saved(sender=PersonalAPIKey, instance=instance, created=False)
+
+        # Only one on_commit call (for current value), not two (no old value invalidation)
+        mock_on_commit.assert_called_once()
+        on_commit_lambda = mock_on_commit.call_args[0][0]
+        on_commit_lambda()
+
+        mock_task.delay.assert_called_once_with("sha256$same_value", 42)
+
+    @parameterized.expand(
+        [
+            (["last_used_at"], False, "last_used_at only"),
+            (["label"], False, "label only"),
+            (["last_used_at", "label"], False, "last_used_at and label"),
+            (["last_used_at", "secure_value"], True, "last_used_at and secure_value"),
+            (["scopes"], True, "scopes only"),
+            (["scoped_teams"], True, "scoped_teams only"),
+            (["scoped_organizations"], True, "scoped_organizations only"),
+            (["label", "scopes"], True, "label and scopes"),
+        ]
+    )
+    @patch("django.db.transaction.on_commit")
+    def test_update_fields_cache_relevant_guard(self, update_fields, should_schedule, description, mock_on_commit):
+        instance = MagicMock(secure_value="sha256$abc123", user_id=42)
+        instance._old_secure_value = None
+        personal_api_key_saved(sender=PersonalAPIKey, instance=instance, created=False, update_fields=update_fields)
+
+        if should_schedule:
+            mock_on_commit.assert_called_once()
+        else:
+            mock_on_commit.assert_not_called()
+
+    @patch("django.db.transaction.on_commit")
+    def test_skips_when_no_secure_value(self, mock_on_commit):
+        instance = MagicMock(secure_value=None, user_id=42)
+        instance._old_secure_value = None
+        personal_api_key_saved(sender=PersonalAPIKey, instance=instance, created=False)
+
+        mock_on_commit.assert_not_called()
+
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_personal_api_key_cache_task")
+    @patch("django.db.transaction.on_commit")
+    def test_task_failure_propagates(self, mock_on_commit, mock_task):
+        mock_task.delay.side_effect = Exception("Redis down")
+        instance = MagicMock(secure_value="sha256$abc123", user_id=42)
+        instance._old_secure_value = None
+        personal_api_key_saved(sender=PersonalAPIKey, instance=instance, created=False)
+
+        mock_on_commit.assert_called_once()
+        on_commit_callback = mock_on_commit.call_args[0][0]
+        with self.assertRaises(Exception, msg="Redis down"):
+            on_commit_callback()
+
+
+class TestPersonalApiKeyDeletedSignalHandler(TestCase):
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_personal_api_key_cache_task")
+    @patch("django.db.transaction.on_commit")
+    def test_schedules_invalidation_on_delete(self, mock_on_commit, mock_task):
+        instance = MagicMock(secure_value="sha256$abc123", user_id=42)
+        personal_api_key_deleted(sender=PersonalAPIKey, instance=instance)
+
+        mock_on_commit.assert_called_once()
+        on_commit_lambda = mock_on_commit.call_args[0][0]
+        on_commit_lambda()
+
+        mock_task.delay.assert_called_once_with("sha256$abc123", 42)
+
+    @patch("django.db.transaction.on_commit")
+    def test_skips_when_no_secure_value(self, mock_on_commit):
+        instance = MagicMock(secure_value=None, user_id=42)
+        personal_api_key_deleted(sender=PersonalAPIKey, instance=instance)
+
+        mock_on_commit.assert_not_called()
+
+
+class TestProjectSecretApiKeySavedSignalHandler(TestCase):
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_secret_token_cache_task")
+    @patch("django.db.transaction.on_commit")
+    def test_schedules_invalidation_on_update(self, mock_on_commit, mock_task):
+        instance = MagicMock(secure_value="sha256$abc123")
+        instance._old_secure_value = None
+        project_secret_api_key_saved(sender=ProjectSecretAPIKey, instance=instance, created=False)
+
+        mock_on_commit.assert_called_once()
+        on_commit_lambda = mock_on_commit.call_args[0][0]
+        on_commit_lambda()
+
+        mock_task.delay.assert_called_once_with("sha256$abc123")
+
+    @patch("django.db.transaction.on_commit")
+    def test_skips_invalidation_on_create(self, mock_on_commit):
+        instance = MagicMock(secure_value="sha256$new_key")
+        instance._old_secure_value = None
+        project_secret_api_key_saved(sender=ProjectSecretAPIKey, instance=instance, created=True)
+
+        mock_on_commit.assert_not_called()
+
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_secret_token_cache_task")
+    @patch("django.db.transaction.on_commit")
+    def test_schedules_invalidation_for_old_and_new_value_when_key_rolled(self, mock_on_commit, mock_task):
+        instance = MagicMock(secure_value="sha256$new_value")
+        instance._old_secure_value = "sha256$old_value"
+        project_secret_api_key_saved(sender=ProjectSecretAPIKey, instance=instance, created=False)
+
+        assert mock_on_commit.call_count == 2
+        for call in mock_on_commit.call_args_list:
+            call[0][0]()
+
+        mock_task.delay.assert_any_call("sha256$new_value")
+        mock_task.delay.assert_any_call("sha256$old_value")
+
+    @parameterized.expand(
+        [
+            (["last_used_at"], False, "last_used_at only"),
+            (["label"], False, "label only"),
+            (["secure_value"], True, "secure_value only"),
+            (["scopes"], True, "scopes only"),
+            (["label", "scopes"], True, "label and scopes"),
+        ]
+    )
+    @patch("django.db.transaction.on_commit")
+    def test_update_fields_cache_relevant_guard(self, update_fields, should_schedule, description, mock_on_commit):
+        instance = MagicMock(secure_value="sha256$abc123")
+        instance._old_secure_value = None
+        project_secret_api_key_saved(
+            sender=ProjectSecretAPIKey, instance=instance, created=False, update_fields=update_fields
+        )
+
+        if should_schedule:
+            mock_on_commit.assert_called_once()
+        else:
+            mock_on_commit.assert_not_called()
+
+
+class TestProjectSecretApiKeyDeletedSignalHandler(TestCase):
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_secret_token_cache_task")
+    @patch("django.db.transaction.on_commit")
+    def test_schedules_invalidation_on_delete(self, mock_on_commit, mock_task):
+        instance = MagicMock(secure_value="sha256$abc123")
+        project_secret_api_key_deleted(sender=ProjectSecretAPIKey, instance=instance)
+
+        mock_on_commit.assert_called_once()
+        on_commit_lambda = mock_on_commit.call_args[0][0]
+        on_commit_lambda()
+
+        mock_task.delay.assert_called_once_with("sha256$abc123")
+
+    @patch("django.db.transaction.on_commit")
+    def test_skips_when_no_secure_value(self, mock_on_commit):
+        instance = MagicMock(secure_value=None)
+        project_secret_api_key_deleted(sender=ProjectSecretAPIKey, instance=instance)
+
+        mock_on_commit.assert_not_called()
+
+
+class TestOrganizationMembershipSavedSignalHandler(TestCase):
+    @patch("posthog.tasks.team_access_cache_tasks.invalidate_user_tokens_task")
+    @patch("django.db.transaction.on_commit")
+    def test_schedules_invalidation_on_create(self, mock_on_commit, mock_task):
+        instance = MagicMock(user_id=42)
+        organization_membership_saved(sender=OrganizationMembership, instance=instance, created=True)
+
+        mock_on_commit.assert_called_once()
+        on_commit_lambda = mock_on_commit.call_args[0][0]
+        on_commit_lambda()
+
+        mock_task.delay.assert_called_once_with(42)
+
+    @patch("django.db.transaction.on_commit")
+    def test_skips_on_update(self, mock_on_commit):
+        instance = MagicMock(user_id=42)
+        organization_membership_saved(sender=OrganizationMembership, instance=instance, created=False)
+
+        mock_on_commit.assert_not_called()
+
+    @patch("django.db.transaction.on_commit")
+    def test_skips_when_user_id_is_none(self, mock_on_commit):
+        instance = MagicMock(user_id=None)
+        organization_membership_saved(sender=OrganizationMembership, instance=instance, created=True)
+
+        mock_on_commit.assert_not_called()

@@ -144,10 +144,12 @@ def clear_team_metadata_cache_on_delete(sender: type[Team], instance: Team, **kw
 def clear_project_secret_api_key_cache_on_delete(sender: type[Team], instance: Team, **kwargs: Any) -> None:
     """Clear project secret API key caches when a Team is deleted."""
     from posthog.models.project_secret_api_key import invalidate_project_secret_api_key_cache
+    from posthog.tasks.team_access_cache_tasks import invalidate_secret_token_cache_task
 
     for key in instance.project_secret_api_keys.all():
         if key.secure_value:
             invalidate_project_secret_api_key_cache(key.secure_value)
+            invalidate_secret_token_cache_task.delay(key.secure_value)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
