@@ -80,6 +80,12 @@ pub struct CheckpointConfig {
     /// This includes listing checkpoints, downloading metadata, and downloading all files.
     /// Should be less than kafka max.poll.interval.ms to prevent consumer group kicks.
     pub checkpoint_partition_import_timeout: Duration,
+
+    /// Maximum age of a local metadata.json before the local store is considered stale
+    /// and the service falls back to S3 import. Separate from checkpoint_import_window_hours
+    /// (the S3 listing window): local staleness must be tighter because if a pod was down
+    /// for longer than this, another pod likely consumed the partition and local data is behind.
+    pub local_checkpoint_max_staleness: Duration,
 }
 
 impl Default for CheckpointConfig {
@@ -108,6 +114,7 @@ impl Default for CheckpointConfig {
             max_concurrent_checkpoint_file_downloads: 1000,
             max_concurrent_checkpoint_file_uploads: 1000,
             checkpoint_partition_import_timeout: Duration::from_secs(240),
+            local_checkpoint_max_staleness: Duration::from_secs(7200),
         }
     }
 }
