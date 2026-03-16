@@ -57,7 +57,7 @@ jobs:
 
                     # Trusted bots that are allowed to run in update mode
                     # Add bot usernames here to allow snapshot auto-updates on their PRs
-                    TRUSTED_BOTS=("mendral-app[bot]")
+                    TRUSTED_BOTS=("mendral-app[bot]" "cursor[bot]")
 
                     IS_TRUSTED=false
                     for bot in "${TRUSTED_BOTS[@]}"; do
@@ -69,13 +69,13 @@ jobs:
 
                     if [[ "$IS_TRUSTED" == "true" ]]; then
                       echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::Trusted bot '$AUTHOR' - running in UPDATE mode"
+                      echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
                     elif [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
                       echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "::notice::Running in CHECK mode - snapshots must match exactly"
+                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
                       echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::Running in UPDATE mode - snapshots can be updated"
+                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
                     fi
                   fi
 

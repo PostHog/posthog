@@ -175,10 +175,10 @@ jobs:
                       echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
                     elif [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
                       echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "::notice::Running in CHECK mode - snapshots must match exactly"
+                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
                       echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::Running in UPDATE mode - snapshots can be updated"
+                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
                     fi
                   fi
 
@@ -205,7 +205,6 @@ jobs:
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ needs.changes.outputs.oldest_supported }}
-                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
                   (
