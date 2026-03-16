@@ -1,4 +1,4 @@
-import { actions, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, kea as keaBuild, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -24,11 +24,12 @@ export interface RuleModalLogicFactoryOptions<T extends ErrorTrackingBaseRule> {
 }
 
 /**
- * Returns an array of kea builder plugins for a rule modal logic.
- * Consumers should wrap this with `kea([...createRuleModalLogicBuilder(opts)])`.
+ * Creates a kea logic for a rule modal. The `kea` import is aliased to `keaBuild`
+ * to prevent kea-typegen from processing this factory (which causes an infinite loop).
+ * Consumer type files are manually maintained.
  */
 // eslint-disable-next-line @typescript-eslint/explicit-function-return-type
-export function createRuleModalLogicBuilder<T extends ErrorTrackingBaseRule>(options: RuleModalLogicFactoryOptions<T>) {
+export function createRuleModalLogic<T extends ErrorTrackingBaseRule>(options: RuleModalLogicFactoryOptions<T>) {
     const {
         ruleType,
         emptyRule,
@@ -39,7 +40,7 @@ export function createRuleModalLogicBuilder<T extends ErrorTrackingBaseRule>(opt
         extraSelectors,
     } = options
 
-    return [
+    return keaBuild([
         props({}),
         path(logicPath),
 
@@ -163,5 +164,5 @@ export function createRuleModalLogicBuilder<T extends ErrorTrackingBaseRule>(opt
             ],
             ...extraSelectors,
         }),
-    ]
+    ])
 }

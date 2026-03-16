@@ -33,6 +33,7 @@ function createNewRule(ruleType: ErrorTrackingRuleType, order_key: number): Erro
                 disabled_data: null,
                 filters: { type: FilterLogicalOperator.Or, values: [] },
                 order_key,
+                sampling_rate: 1.0,
             }
         default:
             throw new Error(`Unsupported rule type: ${ruleType}`)

@@ -1,8 +1,6 @@
-import { kea } from 'kea'
-
 import { FilterLogicalOperator } from '~/types'
 
-import { createRuleModalLogicBuilder } from '../rules/ruleModalLogicFactory'
+import { createRuleModalLogic } from '../rules/ruleModalLogicFactory'
 import { ErrorTrackingGroupingRule, ErrorTrackingRuleType } from '../rules/types'
 import type { groupingRuleModalLogicType } from './groupingRuleModalLogicType'
 
@@ -16,17 +14,15 @@ function emptyRule(orderKey: number = 0): ErrorTrackingGroupingRule {
     }
 }
 
-export const groupingRuleModalLogic = kea<groupingRuleModalLogicType>([
-    ...createRuleModalLogicBuilder<ErrorTrackingGroupingRule>({
-        ruleType: ErrorTrackingRuleType.Grouping,
-        emptyRule,
-        logicPath: [
-            'products',
-            'error_tracking',
-            'scenes',
-            'ErrorTrackingConfigurationScene',
-            'grouping_rules',
-            'groupingRuleModalLogic',
-        ],
-    }),
-])
+export const groupingRuleModalLogic = createRuleModalLogic<ErrorTrackingGroupingRule>({
+    ruleType: ErrorTrackingRuleType.Grouping,
+    emptyRule,
+    logicPath: [
+        'products',
+        'error_tracking',
+        'scenes',
+        'ErrorTrackingConfigurationScene',
+        'grouping_rules',
+        'groupingRuleModalLogic',
+    ],
+}) as unknown as typeof groupingRuleModalLogicType
