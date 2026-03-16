@@ -26,6 +26,19 @@ impl HasEventName for SpanEvent {
     }
 }
 
+impl HasEventName for &SpanEvent {
+    fn event_name(&self) -> &str {
+        &self.event_name
+    }
+
+    fn has_property(&self, key: &str) -> bool {
+        self.properties
+            .as_object()
+            .map(|m| m.contains_key(key))
+            .unwrap_or(false)
+    }
+}
+
 fn any_value_to_json(value: &any_value::Value) -> Value {
     match value {
         any_value::Value::StringValue(s) => Value::String(s.clone()),

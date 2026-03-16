@@ -124,12 +124,9 @@ pub async fn otel_handler(
     let restrictions = match &state.event_restriction_service {
         Some(service) => {
             let now_ts = state.timesource.current_time().timestamp();
-            match filtering::check_restrictions(service, &token, now_ts, &span_events).await {
-                Some(applied) => applied,
-                None => {
-                    return Err(non_retryable_rejection("event restricted"));
-                }
-            }
+            filtering::check_restrictions(service, &token, now_ts, &span_events)
+                .await
+                .map_err(|_| non_retryable_rejection("event restricted"))?
         }
         None => Default::default(),
     };

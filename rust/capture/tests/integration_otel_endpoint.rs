@@ -99,20 +99,11 @@ fn make_span(
     }
 }
 
+#[derive(Default)]
 struct TestClientOptions {
     redis: Option<Arc<MockRedisClient>>,
     event_restriction_service: Option<EventRestrictionService>,
     quota_limiter: Option<CaptureQuotaLimiter>,
-}
-
-impl Default for TestClientOptions {
-    fn default() -> Self {
-        Self {
-            redis: None,
-            event_restriction_service: None,
-            quota_limiter: None,
-        }
-    }
 }
 
 fn make_test_client(sink: &CapturingSink) -> TestClient {

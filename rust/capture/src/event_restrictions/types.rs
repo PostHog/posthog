@@ -478,6 +478,105 @@ mod tests {
     }
 
     #[test]
+    fn test_applied_restrictions_merge_defaults() {
+        let a = AppliedRestrictions::default();
+        let b = AppliedRestrictions::default();
+        let merged = a.merge(b);
+        assert!(merged.is_empty());
+        assert!(!merged.should_drop());
+        assert!(!merged.force_overflow());
+        assert!(!merged.skip_person_processing());
+        assert!(!merged.redirect_to_dlq());
+        assert!(merged.redirect_to_topic().is_none());
+    }
+
+    #[test]
+    fn test_applied_restrictions_merge_should_drop_propagates() {
+        for (left, right) in [(true, false), (false, true), (true, true)] {
+            let a = AppliedRestrictions {
+                should_drop: left,
+                ..Default::default()
+            };
+            let b = AppliedRestrictions {
+                should_drop: right,
+                ..Default::default()
+            };
+            assert!(a.merge(b).should_drop());
+        }
+    }
+
+    #[test]
+    fn test_applied_restrictions_merge_boolean_flags_or() {
+        let a = AppliedRestrictions {
+            force_overflow: true,
+            ..Default::default()
+        };
+        let b = AppliedRestrictions {
+            skip_person_processing: true,
+            redirect_to_dlq: true,
+            ..Default::default()
+        };
+        let merged = a.merge(b);
+        assert!(merged.force_overflow());
+        assert!(merged.skip_person_processing());
+        assert!(merged.redirect_to_dlq());
+    }
+
+    #[test]
+    fn test_applied_restrictions_merge_redirect_to_topic_first_wins() {
+        let a = AppliedRestrictions {
+            redirect_to_topic: Some("topic_a".to_string()),
+            ..Default::default()
+        };
+        let b = AppliedRestrictions {
+            redirect_to_topic: Some("topic_b".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(a.merge(b).redirect_to_topic(), Some("topic_a"));
+    }
+
+    #[test]
+    fn test_applied_restrictions_merge_redirect_to_topic_from_right() {
+        let a = AppliedRestrictions::default();
+        let b = AppliedRestrictions {
+            redirect_to_topic: Some("topic_b".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(a.merge(b).redirect_to_topic(), Some("topic_b"));
+    }
+
+    #[test]
+    fn test_applied_restrictions_merge_accumulates_all_flags() {
+        let merged = AppliedRestrictions::default()
+            .merge(AppliedRestrictions {
+                should_drop: true,
+                ..Default::default()
+            })
+            .merge(AppliedRestrictions {
+                force_overflow: true,
+                ..Default::default()
+            })
+            .merge(AppliedRestrictions {
+                skip_person_processing: true,
+                ..Default::default()
+            })
+            .merge(AppliedRestrictions {
+                redirect_to_dlq: true,
+                ..Default::default()
+            })
+            .merge(AppliedRestrictions {
+                redirect_to_topic: Some("final_topic".to_string()),
+                ..Default::default()
+            });
+
+        assert!(merged.should_drop());
+        assert!(merged.force_overflow());
+        assert!(merged.skip_person_processing());
+        assert!(merged.redirect_to_dlq());
+        assert_eq!(merged.redirect_to_topic(), Some("final_topic"));
+    }
+
+    #[test]
     fn test_restriction_set_redirect_topic_last_wins() {
         let mut set = RestrictionSet::new();
         set.insert_redirect_to_topic("first_topic".to_string());

@@ -23,8 +23,7 @@ pub async fn check_quota(
     token: &str,
     span_events: &[SpanEvent],
 ) -> Result<(), QuotaOutcome> {
-    // Build lightweight wrappers to satisfy HasEventName without consuming the spans
-    let refs: Vec<SpanEventRef> = span_events.iter().map(SpanEventRef).collect();
+    let refs: Vec<&SpanEvent> = span_events.iter().collect();
     let count = refs.len();
 
     match limiter.check_and_filter(token, refs).await {
@@ -47,13 +46,13 @@ pub async fn check_quota(
 /// reject the entire batch. Non-drop flags are OR'd across all spans — if any span triggers
 /// a flag, it applies to the whole batch.
 ///
-/// Returns `None` if any span has a drop restriction (entire batch should be rejected).
+/// Returns `Err(())` if any span has a drop restriction (entire batch should be rejected).
 pub async fn check_restrictions(
     service: &EventRestrictionService,
     token: &str,
     now_ts: i64,
     span_events: &[SpanEvent],
-) -> Option<AppliedRestrictions> {
+) -> Result<AppliedRestrictions, ()> {
     let mut merged = AppliedRestrictions::default();
 
     for span in span_events {
@@ -69,10 +68,10 @@ pub async fn check_restrictions(
 
     if merged.should_drop() {
         report_dropped_events("otel_restriction_drop", span_events.len() as u64);
-        return None;
+        return Err(());
     }
 
-    Some(merged)
+    Ok(merged)
 }
 
 /// Build ProcessedEvents from SpanEvents, applying restriction flags uniformly to all events.
@@ -132,17 +131,4 @@ pub fn build_events(
     }
 
     Ok(processed)
-}
-
-/// Lightweight wrapper around a borrowed SpanEvent for quota limiting.
-struct SpanEventRef<'a>(&'a SpanEvent);
-
-impl common_types::HasEventName for SpanEventRef<'_> {
-    fn event_name(&self) -> &str {
-        &self.0.event_name
-    }
-
-    fn has_property(&self, key: &str) -> bool {
-        self.0.has_property(key)
-    }
 }
