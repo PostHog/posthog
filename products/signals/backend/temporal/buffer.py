@@ -180,6 +180,16 @@ class BufferSignalsWorkflow:
             batch = safe_signals
 
             if not batch:
+                # Compact history even when no safe signals remain — without
+                # continue_as_new, repeated all-unsafe batches would grow
+                # Temporal history unboundedly.
+                if len(self._signal_buffer) < BUFFER_MAX_SIZE:
+                    workflow.continue_as_new(
+                        BufferSignalsInput(
+                            team_id=input.team_id,
+                            pending_signals=list(self._signal_buffer),
+                        )
+                    )
                 continue
 
             # Flush to S3
