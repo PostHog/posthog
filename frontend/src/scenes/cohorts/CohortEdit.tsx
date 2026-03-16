@@ -10,7 +10,6 @@ import { SceneAddToNotebookDropdownMenu } from 'lib/components/Scenes/InsightOrD
 import { SceneFile } from 'lib/components/Scenes/SceneFile'
 import { TZLabel } from 'lib/components/TZLabel'
 import { CohortTypeEnum, FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -23,7 +22,7 @@ import { cn } from 'lib/utils/css-classes'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -98,9 +97,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
-    const { currentOrganization } = useValues(organizationLogic)
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
-    const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
@@ -181,7 +178,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                             <IconCopy /> Duplicate as static cohort
                         </ButtonPrimitive>
 
-                        {!isNewCohort && hasMultipleProjects && interProjectTransfersEnabled && (
+                        {!isNewCohort && canCopyToProject && (
                             <ButtonPrimitive
                                 menuItem
                                 onClick={() => router.actions.push(urls.resourceTransfer('Cohort', cohort.id))}

@@ -14,13 +14,12 @@ import { SceneMetalyticsSummaryButton } from 'lib/components/Scenes/SceneMetalyt
 import { SceneShareButton } from 'lib/components/Scenes/SceneShareButton'
 import { SceneSubscribeButton } from 'lib/components/Scenes/SceneSubscribeButton'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 
 import { ScenePanelActionsSection } from '~/layout/scenes/SceneLayout'
@@ -48,9 +47,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
     const { push } = useActions(router)
     const { openAddToDashboardModal, openTerraformModal } = useActions(insightModalsLogic(insightLogicProps))
 
-    const { currentOrganization } = useValues(organizationLogic)
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
-    const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     const isSavedInsight = hasDashboardItemId && !!insight?.id && !!insight?.short_id
     const canExport = exportContext != null && insight.short_id != null
@@ -66,7 +63,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                 dataAttrKey={RESOURCE_TYPE}
                 onClick={() => duplicateInsight(insight as QueryBasedInsightModel, true)}
             />
-            {isSavedInsight && hasMultipleProjects && interProjectTransfersEnabled && (
+            {isSavedInsight && canCopyToProject && (
                 <ButtonPrimitive
                     menuItem
                     onClick={() => push(urls.resourceTransfer('Insight', insight.id!))}
