@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 
-import api from 'lib/api'
+import { IconPlusSmall, IconX } from '@posthog/icons'
+import { LemonButton } from '@posthog/lemon-ui'
+
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
+import { TaxonomicFilter } from 'lib/components/TaxonomicFilter/TaxonomicFilter'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { LemonInputSelect, LemonInputSelectOption } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
+import { Popover } from 'lib/lemon-ui/Popover'
 
 import { EventsQuery } from '~/queries/schema/schema-general'
-import { EventDefinition } from '~/types'
 
 interface EventsFilterProps {
     query: EventsQuery
@@ -15,58 +17,118 @@ interface EventsFilterProps {
 
 export function EventsFilter({ query, setQuery }: EventsFilterProps): JSX.Element {
     const events = query.events || []
-    const [options, setOptions] = useState<LemonInputSelectOption[]>([])
-    const [loading, setLoading] = useState(false)
-    const loadedRef = useRef(false)
+    const [adding, setAdding] = useState(false)
 
-    const loadEventDefinitions = useCallback(async (search?: string): Promise<void> => {
-        setLoading(true)
-        try {
-            const response = await api.eventDefinitions.list({
-                search: search || undefined,
-                limit: 50,
-            })
-            setOptions(
-                response.results.map((def: EventDefinition) => ({
-                    key: def.name,
-                    label: def.name,
-                    labelComponent: <PropertyKeyInfo value={def.name} type={TaxonomicFilterGroupType.Events} />,
-                }))
-            )
-            loadedRef.current = true
-        } catch {
-            setOptions([])
-        } finally {
-            setLoading(false)
+    const handleAddEvent = (value: string): void => {
+        if (value && !events.includes(value)) {
+            setQuery?.({ ...query, events: [...events, value] })
         }
-    }, [])
+        setAdding(false)
+    }
 
-    useEffect(() => {
-        void loadEventDefinitions()
-    }, [loadEventDefinitions])
+    const handleRemoveEvent = (index: number): void => {
+        const newEvents = events.filter((_, i) => i !== index)
+        setQuery?.({ ...query, events: newEvents.length > 0 ? newEvents : null })
+    }
+
+    const handleUpdateEvent = (index: number, value: string): void => {
+        if (value) {
+            const newEvents = [...events]
+            newEvents[index] = value
+            setQuery?.({ ...query, events: newEvents })
+        }
+    }
 
     return (
-        <LemonInputSelect
-            mode="multiple"
-            value={events}
-            onChange={(newEvents) => {
-                setQuery?.({ ...query, events: newEvents.length > 0 ? newEvents : null })
-            }}
-            onFocus={() => {
-                if (!loadedRef.current) {
-                    void loadEventDefinitions()
+        <div className="flex items-center gap-1 flex-wrap">
+            {events.map((event, index) => (
+                <EventChip
+                    key={`${event}-${index}`}
+                    event={event}
+                    selectedEvents={events}
+                    onUpdate={(value) => handleUpdateEvent(index, value)}
+                    onRemove={() => handleRemoveEvent(index)}
+                    disabled={!setQuery}
+                />
+            ))}
+            <Popover
+                visible={adding}
+                onClickOutside={() => setAdding(false)}
+                overlay={
+                    <TaxonomicFilter
+                        groupType={TaxonomicFilterGroupType.Events}
+                        value={undefined}
+                        onChange={(_group, value) => handleAddEvent(String(value))}
+                        taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                        excludedProperties={{ [TaxonomicFilterGroupType.Events]: [null] }}
+                        selectedProperties={{ [TaxonomicFilterGroupType.Events]: events }}
+                    />
                 }
-            }}
-            onInputChange={(value) => {
-                void loadEventDefinitions(value)
-            }}
-            disableFiltering
-            options={options}
-            placeholder="Filter by event"
-            loading={loading}
-            size="small"
-            disabled={!setQuery}
-            data-attr="events-filter-select"
-        />
+            >
+                <LemonButton
+                    icon={<IconPlusSmall />}
+                    size="small"
+                    type="secondary"
+                    onClick={() => setAdding(!adding)}
+                    disabledReason={!setQuery ? 'Cannot edit filters' : undefined}
+                    data-attr="events-filter-add-button"
+                >
+                    Select events
+                </LemonButton>
+            </Popover>
+        </div>
+    )
+}
+
+interface EventChipProps {
+    event: string
+    selectedEvents: string[]
+    onUpdate: (value: string) => void
+    onRemove: () => void
+    disabled?: boolean
+}
+
+function EventChip({ event, selectedEvents, onUpdate, onRemove, disabled }: EventChipProps): JSX.Element {
+    const [editing, setEditing] = useState(false)
+
+    return (
+        <Popover
+            visible={editing}
+            onClickOutside={() => setEditing(false)}
+            overlay={
+                <TaxonomicFilter
+                    groupType={TaxonomicFilterGroupType.Events}
+                    value={event}
+                    onChange={(_group, value) => {
+                        onUpdate(String(value))
+                        setEditing(false)
+                    }}
+                    taxonomicGroupTypes={[TaxonomicFilterGroupType.Events]}
+                    excludedProperties={{ [TaxonomicFilterGroupType.Events]: [null] }}
+                    selectedProperties={{ [TaxonomicFilterGroupType.Events]: selectedEvents }}
+                />
+            }
+        >
+            <span className="inline-flex items-center gap-0.5 bg-accent-highlight-secondary rounded px-1.5 py-0.5 text-sm max-w-full">
+                <button
+                    className="inline-flex items-center gap-0.5 cursor-pointer bg-transparent border-0 p-0"
+                    onClick={() => !disabled && setEditing(!editing)}
+                    type="button"
+                >
+                    <PropertyKeyInfo value={event} disablePopover type={TaxonomicFilterGroupType.Events} ellipsis />
+                </button>
+                {!disabled && (
+                    <LemonButton
+                        size="xsmall"
+                        icon={<IconX />}
+                        onClick={(e) => {
+                            e.stopPropagation()
+                            onRemove()
+                        }}
+                        className="p-0.5"
+                    />
+                )}
+            </span>
+        </Popover>
     )
 }
