@@ -32,10 +32,15 @@ export function EventsFilter({ query, setQuery }: EventsFilterProps): JSX.Elemen
     }
 
     const handleUpdateEvent = (index: number, value: string): void => {
-        if (value) {
-            const newEvents = [...events]
-            newEvents[index] = value
-            setQuery?.({ ...query, events: newEvents })
+        if (value && value !== events[index]) {
+            if (events.includes(value)) {
+                // Selected an already-added event, just remove the current one
+                handleRemoveEvent(index)
+            } else {
+                const newEvents = [...events]
+                newEvents[index] = value
+                setQuery?.({ ...query, events: newEvents })
+            }
         }
     }
 
