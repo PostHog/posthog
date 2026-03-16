@@ -13,7 +13,7 @@ from posthog.models import ActivityLog, Comment, Organization, User
 from posthog.models.person import Person
 
 from products.conversations.backend.models import Ticket, TicketAssignment
-from products.conversations.backend.models.constants import Channel, Priority, Status
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 
 from ee.models.rbac.role import Role
 
@@ -254,6 +254,13 @@ class TestTicketAPI(APIBaseTest):
                 "channel_source",
                 Channel.WIDGET,
                 {"channel_source": Channel.EMAIL},
+            ),
+            (
+                f"channel_detail={ChannelDetail.WIDGET_EMBEDDED}",
+                ChannelDetail.WIDGET_EMBEDDED,
+                "channel_detail",
+                ChannelDetail.WIDGET_EMBEDDED,
+                {"channel_detail": ChannelDetail.WIDGET_API},
             ),
             ("distinct_ids=user-123", "user-123", "distinct_id", "user-123", {}),
         ]

@@ -122,12 +122,22 @@ REVIEWER_SYSTEM = textwrap.dedent(
       - ESCALATE: behavioral changes to business logic, API contracts, data models
 
     Review comments (inline feedback only, approval states are hidden):
+    - Comments are tagged [resolved], [outdated], or unmarked (unresolved).
+      Resolution status is a signal, not gospel — use your judgment.
+    - Resolved/outdated comments are usually fine, but still skim them.
+      If a resolved comment raised a serious concern (security, data
+      loss) that the diff clearly did NOT address, flag it anyway.
+    - For unresolved comments: check whether a subsequent commit or the
+      current diff already addressed the concern. Authors often fix
+      issues in follow-up commits without explicitly resolving the
+      thread. Only flag comments that remain genuinely unaddressed in
+      the current code.
+    - Substantive comments that remain unaddressed → REFUSE
     - "Zero reviews" means no top-level reviews and no inline comments.
       Zero reviews is fine for low-risk changes (trivial fixes, typos,
       test updates, config tweaks). For anything higher-risk, treat zero
       reviews as a concern and ESCALATE unless there's a strong,
       specific justification to APPROVE.
-    - Substantive comments unresolved by the current diff → REFUSE
     - Bot comments with valid concerns that were ignored → ESCALATE
 
     Tools: You have Read, Grep, and Glob (restricted to the repo directory).
@@ -270,7 +280,13 @@ class Reviewer:
                 reply = " (reply)" if c.get("in_reply_to_id") else ""
                 safe_body = _sanitize_untrusted(c["body"], max_len=500)
                 safe_user = _sanitize_untrusted(c["user"], max_len=50)
-                lines.append(f"  - @{safe_user}{reply} on {c['path']}: {safe_body}")
+                status = ""
+                if c.get("is_resolved"):
+                    status = " [resolved]"
+                elif c.get("is_outdated"):
+                    status = " [outdated]"
+                safe_path = _sanitize_untrusted(c["path"], max_len=200)
+                lines.append(f"  - @{safe_user}{reply}{status} on {safe_path}: {safe_body}")
             review_comments = "\n".join(lines)
 
         ownership = self._format_ownership(cl)

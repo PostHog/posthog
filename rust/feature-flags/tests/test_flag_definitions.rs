@@ -170,10 +170,7 @@ async fn test_personal_api_key_authentication_invalid_key() {
     let body: Value = serde_json::from_str(&body_text).unwrap();
     assert_eq!(body["type"], "authentication_error");
     assert_eq!(body["code"], "authentication_failed");
-    assert_eq!(
-        body["detail"],
-        "Personal API key found in request Authorization header is invalid."
-    );
+    assert_eq!(body["detail"], "Personal API key is invalid.");
     assert_eq!(body["attr"], Value::Null);
 }
 
