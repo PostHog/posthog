@@ -2525,6 +2525,7 @@ dependencies = [
 name = "cymbal"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "aws-config",
  "aws-sdk-s3",
  "axum 0.7.9",
@@ -3193,6 +3194,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "assert-json-diff",
+ "async-trait",
  "axum 0.7.9",
  "axum-client-ip",
  "base64 0.22.1",
