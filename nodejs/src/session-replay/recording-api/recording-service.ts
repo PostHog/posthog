@@ -199,7 +199,6 @@ export class RecordingService {
                         team_id: teamId,
                         product: 'replay',
                         kind: 'recording_api_list_blocks',
-                        access_method: 'recording_api',
                     }),
                     max_execution_time: 30,
                     max_threads: 45,
