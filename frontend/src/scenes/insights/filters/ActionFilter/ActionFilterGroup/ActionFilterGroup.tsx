@@ -259,10 +259,8 @@ export function ActionFilterGroup({
                                     size="small"
                                     icon={<IconPencil />}
                                     onClick={() => {
-                                        if (groupFilter) {
-                                            selectFilter(groupFilter)
-                                            showModal()
-                                        }
+                                        selectFilter(groupFilter)
+                                        showModal()
                                     }}
                                     data-attr={`group-filter-rename-${index}`}
                                 />
