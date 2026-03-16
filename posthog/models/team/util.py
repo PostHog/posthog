@@ -5,6 +5,7 @@ from typing import Any
 import structlog
 
 from posthog.cache_utils import cache_for
+from posthog.exceptions_capture import capture_exception
 from posthog.models.async_migration import is_async_migration_complete
 from posthog.temporal.common.client import sync_connect
 
@@ -144,13 +145,14 @@ def delete_data_modeling_schedules(team_ids: list[int]) -> None:
 
     from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
-    saved_queries = DataWarehouseSavedQuery.objects.filter(
-        team_id__in=team_ids,
-        deleted=False,
-        sync_frequency_interval__isnull=False,
+    saved_queries = list(
+        DataWarehouseSavedQuery.objects.filter(
+            team_id__in=team_ids,
+            sync_frequency_interval__isnull=False,
+        ).exclude(deleted=True)  # as it's nullable
     )
 
-    if not saved_queries.exists():
+    if not saved_queries:
         return
 
     temporal = sync_connect()
@@ -166,7 +168,7 @@ def delete_data_modeling_schedules(team_ids: list[int]) -> None:
                     team_id=saved_query.team_id,
                 )
                 continue
-            raise
+            capture_exception(e)
 
 
 can_enable_actor_on_events = False
