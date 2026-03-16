@@ -22,12 +22,11 @@ function Trigger({ className }: { className?: string } = {}): JSX.Element {
             <ButtonPrimitive
                 iconOnly
                 className={cn(
-                    'absolute right-0',
+                    'group absolute right-0',
                     'translate-x-full opacity-0',
-                    'group-hover:translate-x-0 group-hover:opacity-100',
-                    'data-[state=open]:translate-x-0',
-                    'data-[state=open]:opacity-100',
-                    'transition-[opacity] duration-100 ease-initial',
+                    'group-hover:translate-x-0 group-hover:opacity-100 group-focus-within:translate-x-0 group-focus-within:opacity-100',
+                    'data-[state=open]:translate-x-0 data-[state=open]:opacity-100 focus-visible:translate-x-0 focus-visible:opacity-100',
+                    'transition-[opacity] duration-100 ease-initial -outline-offset-2',
                     className
                 )}
             >
@@ -79,7 +78,7 @@ function Content({
                 <span
                     className={cn(
                         'opacity-30 text-xs pr-1.5 transition-opacity duration-100',
-                        'group-hover:opacity-0 group-has-[[data-state=open]]:opacity-0'
+                        'group-hover:opacity-0 group-has-[[data-state=open]]:opacity-0 group-has-focus-within:opacity-0'
                     )}
                 >
                     {meta}
