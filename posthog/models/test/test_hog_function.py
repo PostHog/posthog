@@ -327,10 +327,30 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
                 }
             },
         )
-        # Team does NOT use cohort in test_account_filters
+        # Team uses person property filters, not a cohort
         self.team.test_account_filters = [
             {"type": "person", "key": "email", "operator": "not_icontains", "value": "@posthog.com"}
         ]
+        self.team.save()
+
+        with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
+            cohort.name = "Updated name"
+            cohort.save()
+            mock_delay.assert_not_called()
+
+    def test_cohort_save_signal_skips_when_different_cohort_in_test_filters(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+                }
+            },
+        )
+        # Team references a different cohort ID
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id + 9999}]
         self.team.save()
 
         with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
