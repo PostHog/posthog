@@ -1080,7 +1080,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             hog_function = HogFunction.objects.get(
                 team=self.team,
                 type="warehouse_source_webhook",
-                inputs__schema_ids__value__contains=[str(schema_ids[0])],
+                inputs__source_id__value=str(instance.pk),
             )
         except HogFunction.DoesNotExist:
             return Response(
