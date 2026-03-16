@@ -155,7 +155,7 @@ export const startupProgramLogic = kea<startupProgramLogicType>([
             defaults: {
                 type: values.isYC ? StartupProgramType.YC : StartupProgramType.Startup,
                 startup_domain: values.domainFromEmail || '',
-                organization_name: values.currentOrganization?.name || '',
+                organization_name: values.currentOrganization!.name,
                 organization_id: values.currentOrganizationId,
                 raised: undefined,
                 incorporation_date: undefined,

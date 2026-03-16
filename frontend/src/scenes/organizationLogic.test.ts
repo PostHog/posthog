@@ -50,7 +50,7 @@ describe('organizationLogic', () => {
         // but current_user is null for unauthenticated requests such as shared dashboards (see posthog/utils.py).
         // That is the real trigger for the async API load path.
         beforeEach(async () => {
-            window.POSTHOG_APP_CONTEXT = { current_user: undefined } as unknown as AppContext
+            window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
             initKeaTests()
             logic = organizationLogic()
             logic.mount()
