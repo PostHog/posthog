@@ -51,6 +51,9 @@ class PRData:
         return any(f.get("status") == "A" for f in self.files)
 
 
+_TRUSTED_ASSOCIATIONS = {"MEMBER", "OWNER", "COLLABORATOR"}
+
+
 def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     cmd = ["gh", "api", endpoint]
     if paginate:
@@ -62,6 +65,79 @@ def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     if result.returncode != 0:
         raise RuntimeError(f"gh api {endpoint} failed: {result.stderr.strip()}")
     return json.loads(result.stdout)
+
+
+def _gh_graphql(query: str) -> dict:
+    """Run a GraphQL query via gh api graphql."""
+    result = subprocess.run(
+        ["gh", "api", "graphql", "-f", f"query={query}"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"gh api graphql failed: {result.stderr.strip()}")
+    data = json.loads(result.stdout)
+    if "errors" in data:
+        raise RuntimeError(f"GraphQL errors: {data['errors']}")
+    return data
+
+
+def _fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
+    """Fetch review threads with resolution status via GraphQL.
+
+    Returns a flat list of comment dicts enriched with is_resolved and
+    is_outdated from their parent thread.
+    """
+    owner, name = repo.split("/", 1)
+    query = f"""
+    {{
+      repository(owner: "{owner}", name: "{name}") {{
+        pullRequest(number: {pr_number}) {{
+          reviewThreads(first: 100) {{
+            nodes {{
+              isResolved
+              isOutdated
+              path
+              line
+              comments(first: 50) {{
+                nodes {{
+                  author {{ login __typename }}
+                  authorAssociation
+                  body
+                  databaseId
+                  replyTo {{ databaseId }}
+                }}
+              }}
+            }}
+          }}
+        }}
+      }}
+    }}
+    """
+    data = _gh_graphql(query)
+    threads = data["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+
+    comments: list[dict] = []
+    for thread in threads:
+        for c in thread["comments"]["nodes"]:
+            assoc = c.get("authorAssociation", "")
+            is_bot = (c.get("author") or {}).get("__typename") == "Bot"
+            if assoc not in _TRUSTED_ASSOCIATIONS and assoc != "BOT" and not is_bot:
+                continue
+            reply_to = c.get("replyTo")
+            comments.append(
+                {
+                    "user": (c.get("author") or {}).get("login", "ghost"),
+                    "body": c.get("body", ""),
+                    "path": thread.get("path", ""),
+                    "line": thread.get("line"),
+                    "in_reply_to_id": reply_to["databaseId"] if reply_to else None,
+                    "is_resolved": thread["isResolved"],
+                    "is_outdated": thread["isOutdated"],
+                }
+            )
+    return comments
 
 
 def _git_diff_files(base_sha: str, head_sha: str, repo_root: Path) -> list[dict]:
@@ -123,7 +199,6 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     """Fetch PR data: metadata from API, file stats from local git."""
     pr = _gh_api(f"repos/{repo}/pulls/{pr_number}")
     reviews_raw = _gh_api(f"repos/{repo}/pulls/{pr_number}/reviews", paginate=True)
-    comments_raw = _gh_api(f"repos/{repo}/pulls/{pr_number}/comments", paginate=True)
 
     base_sha = pr["base"]["sha"]
     head_sha = pr["head"]["sha"]
@@ -132,6 +207,8 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
     git_root = repo_root or Path.cwd()
     ensure_commits(pr_number, head_sha, git_root)
     files = _git_diff_files(base_sha, head_sha, git_root)
+
+    review_comments = _fetch_review_threads(repo, pr_number)
 
     return PRData(
         number=pr_number,
@@ -152,21 +229,11 @@ def fetch_pr(pr_number: int, repo: str, repo_root: Path | None = None) -> PRData
                 "body": r.get("body", ""),
             }
             for r in reviews_raw
-            if r.get("author_association") in ("MEMBER", "OWNER", "COLLABORATOR", "BOT")
+            if r.get("author_association") in _TRUSTED_ASSOCIATIONS
+            or r.get("author_association") == "BOT"
             or r.get("user", {}).get("type") == "Bot"
         ],
-        review_comments=[
-            {
-                "user": c["user"]["login"],
-                "body": c.get("body", ""),
-                "path": c.get("path", ""),
-                "line": c.get("line"),
-                "in_reply_to_id": c.get("in_reply_to_id"),
-            }
-            for c in comments_raw
-            if c.get("author_association") in ("MEMBER", "OWNER", "COLLABORATOR", "BOT")
-            or c.get("user", {}).get("type") == "Bot"
-        ],
+        review_comments=review_comments,
         check_runs=check_runs_resp.get("check_runs", []),
     )
 
