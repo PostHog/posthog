@@ -17,7 +17,7 @@ import {
     CyclotronJobQueueSource,
 } from '../../types'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
-import { CyclotronJobQueuePostgres, CyclotronJobQueuePostgresShadow } from './job-queue-postgres'
+import { CyclotronJobQueuePostgres } from './job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
 import { sanitizeInvocationForPersistence } from './shared'
 
@@ -58,9 +58,6 @@ export class CyclotronJobQueue {
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueuePostgresV2: CyclotronJobQueuePostgresV2 | null = null
     private jobQueueKafka: CyclotronJobQueueKafka
-    private shadowPostgres: CyclotronJobQueuePostgresShadow | null = null
-    private shadowFailures = 0
-    private shadowCircuitOpenUntil = 0
 
     constructor(private config: PluginsServerConfig) {
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
@@ -73,18 +70,9 @@ export class CyclotronJobQueue {
             this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.config)
         }
 
-        if (this.config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED && this.config.CYCLOTRON_SHADOW_DATABASE_URL) {
-            const shadowConfig = {
-                ...this.config,
-                CYCLOTRON_DATABASE_URL: this.config.CYCLOTRON_SHADOW_DATABASE_URL,
-            }
-            this.shadowPostgres = new CyclotronJobQueuePostgresShadow(shadowConfig)
-        }
-
         logger.info('🔄', 'CyclotronJobQueue initialized', {
             producerMapping: this.producerMapping,
             producerTeamMapping: this.producerTeamMapping,
-            shadowWriteEnabled: !!this.shadowPostgres,
             v2Enabled: !!this.jobQueuePostgresV2,
         })
     }
@@ -133,15 +121,6 @@ export class CyclotronJobQueue {
         if (targets.has('kafka')) {
             await this.jobQueueKafka.startAsProducer()
         }
-
-        if (this.shadowPostgres) {
-            await this.shadowPostgres.startAsProducer().catch((err) => {
-                logger.warn('Shadow cyclotron producer failed to start, disabling shadow writes', {
-                    error: err.message,
-                })
-                this.shadowPostgres = null
-            })
-        }
     }
 
     public async start(
@@ -185,7 +164,6 @@ export class CyclotronJobQueue {
             this.jobQueuePostgres.stopProducer(),
             this.jobQueuePostgresV2?.stopProducer(),
             this.jobQueueKafka.stopProducer(),
-            this.shadowPostgres?.stopProducer(),
         ])
     }
 
@@ -261,27 +239,6 @@ export class CyclotronJobQueue {
             this.jobQueuePostgresV2?.queueInvocations(postgresV2Invocations),
             this.jobQueueKafka.queueInvocations(kafkaInvocations),
         ])
-
-        if (this.shadowPostgres && Date.now() >= this.shadowCircuitOpenUntil) {
-            const hogInvocations = sanitized.filter((x) => x.queue === 'hog')
-            if (!hogInvocations.length) {
-                return
-            }
-            void this.shadowPostgres
-                .queueInvocations(hogInvocations)
-                .then(() => {
-                    this.shadowFailures = 0
-                })
-                .catch((err) => {
-                    this.shadowFailures++
-                    if (this.shadowFailures >= 5) {
-                        this.shadowCircuitOpenUntil = Date.now() + 60_000
-                        this.shadowFailures = 0
-                        logger.warn('Shadow cyclotron circuit breaker opened')
-                    }
-                    logger.warn('Shadow cyclotron write failed', { error: err.message, stack: err.stack })
-                })
-        }
     }
 
     public async dequeueInvocations(invocations: CyclotronJobInvocation[]) {

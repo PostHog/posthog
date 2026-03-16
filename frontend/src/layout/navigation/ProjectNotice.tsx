@@ -48,7 +48,7 @@ export const NOTICES: Record<ProjectNoticeVariant, ((config: NoticeProps) => Pro
                             to={urls.project(altTeamForIngestion.id, urls.onboarding())}
                             data-attr="demo-project-alt-team-ingestion_link"
                         >
-                            onboarding wizard
+                            onboarding flow
                         </Link>{' '}
                         to get started with your own data.
                     </>
@@ -161,7 +161,7 @@ function NoEventsBanner({ className }: { className?: string }): JSX.Element {
                 }),
                 'data-attr': 'demo-warning-cta',
                 icon: <IconGear />,
-                children: 'Go to wizard',
+                children: 'Go to onboarding',
             }}
             onClose={() => closeProjectNotice('real_project_with_no_events')}
         >
@@ -173,7 +173,7 @@ function NoEventsBanner({ className }: { className?: string }): JSX.Element {
                 })}
                 data-attr="real_project_with_no_events-ingestion_link"
             >
-                onboarding wizard
+                onboarding flow
             </Link>{' '}
             or grab your project API key/HTML snippet from{' '}
             <Link to={urls.settings()} data-attr="real_project_with_no_events-settings">

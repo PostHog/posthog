@@ -10,7 +10,6 @@ from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models.query import Prefetch
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
@@ -34,8 +33,9 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.client.limit import get_events_list_rate_limiter
+from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Filter, Person, PersonDistinctId, PropertyDefinition
+from posthog.models import Element, Filter, Person, PropertyDefinition
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
@@ -397,13 +397,6 @@ class EventViewSet(
     def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
         distinct_ids = [event["distinct_id"] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-        persons = persons.prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=team.pk).order_by("id"),
-                to_attr="distinct_ids_cache",
-            )
-        )
         distinct_to_person: dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:
@@ -527,14 +520,13 @@ class EventViewSet(
                     search_value=query_params.value,
                     event_names=query_params.event_names or None,
                 ),
-                request=self.request,
             )
             execution_mode = (
                 ExecutionMode.CALCULATE_BLOCKING_ALWAYS
                 if force_refresh
                 else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
             )
-            result = runner.run(execution_mode)
+            result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(self.request))
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
             is_refreshing = (
                 isinstance(result, CachedPropertyValuesQueryResponse)

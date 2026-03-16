@@ -157,6 +157,7 @@ class TestBackwardsCompatibility:
         [
             ("twig", "posthog_code"),
             ("array", "posthog_code"),
+            ("slack-twig", "slack-posthog-code"),
         ],
     )
     def test_aliases_resolve_to_posthog_code(self, alias: str, target: str):
@@ -173,6 +174,10 @@ class TestBackwardsCompatibility:
 
     def test_array_alias_validates_to_posthog_code(self):
         assert validate_product("array") == "posthog_code"
+
+    def test_slack_twig_alias_resolves_to_slack_posthog_code(self):
+        assert get_product_config("slack-twig") is get_product_config("slack-posthog-code")
+        assert validate_product("slack-twig") == "slack-posthog-code"
 
 
 class TestValidateProduct:
@@ -196,6 +201,7 @@ class TestValidateProduct:
     def test_resolve_product_alias_returns_alias_target(self):
         assert resolve_product_alias("array") == "posthog_code"
         assert resolve_product_alias("twig") == "posthog_code"
+        assert resolve_product_alias("slack-twig") == "slack-posthog-code"
 
     def test_resolve_product_alias_returns_input_if_not_aliased(self):
         assert resolve_product_alias("wizard") == "wizard"

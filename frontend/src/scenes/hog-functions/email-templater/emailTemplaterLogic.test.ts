@@ -67,7 +67,11 @@ describe('emailTemplaterLogic - advanced fields', () => {
         }).toMatchValues({
             revealedAdvancedFields: ['replyTo'],
             visibleFields: expect.arrayContaining([expect.objectContaining({ key: 'replyTo' })]),
-            hiddenAdvancedFields: [expect.objectContaining({ key: 'preheader' })],
+            hiddenAdvancedFields: expect.arrayContaining([
+                expect.objectContaining({ key: 'cc' }),
+                expect.objectContaining({ key: 'bcc' }),
+                expect.objectContaining({ key: 'preheader' }),
+            ]),
         })
 
         // Revealing the same field again should not duplicate it
@@ -93,7 +97,11 @@ describe('emailTemplaterLogic - advanced fields', () => {
         await expectLogic(logic).toMatchValues({
             revealedAdvancedFields: ['replyTo'],
             visibleFields: expect.arrayContaining([expect.objectContaining({ key: 'replyTo' })]),
-            hiddenAdvancedFields: [expect.objectContaining({ key: 'preheader' })],
+            hiddenAdvancedFields: expect.arrayContaining([
+                expect.objectContaining({ key: 'cc' }),
+                expect.objectContaining({ key: 'bcc' }),
+                expect.objectContaining({ key: 'preheader' }),
+            ]),
         })
     })
 

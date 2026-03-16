@@ -2,6 +2,7 @@ import json
 import time
 from urllib.parse import urlencode
 
+import pytest
 from posthog.test.base import APIBaseTest
 
 from django.core.cache import cache
@@ -16,6 +17,7 @@ HMAC_SECRET = "test_hmac_secret"
 TEST_STRIPE_OAUTH_CLIENT_ID = "test_stripe_oauth_client_id"
 
 
+@pytest.mark.requires_secrets
 @override_settings(STRIPE_APP_SECRET_KEY=HMAC_SECRET, STRIPE_POSTHOG_OAUTH_CLIENT_ID=TEST_STRIPE_OAUTH_CLIENT_ID)
 class StripeProvisioningTestBase(APIBaseTest):
     def setUp(self):

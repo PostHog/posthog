@@ -49,6 +49,7 @@ class AgentMode(StrEnum):
     RESEARCH = "research"
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
+    SANDBOX = "sandbox"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -173,6 +174,7 @@ class AssistantEventType(StrEnum):
     NOTEBOOK = "notebook"
     UPDATE = "update"
     APPROVAL = "approval"
+    SANDBOX = "sandbox"
 
 
 class AssistantFormOption(BaseModel):
@@ -1812,6 +1814,8 @@ class FileSystemIconType(StrEnum):
     LINK = "link"
     LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
+    TRACING = "tracing"
+    METRICS = "metrics"
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
@@ -2255,7 +2259,7 @@ class IntegrationFilter(BaseModel):
 
 class IntegrationKind(StrEnum):
     SLACK = "slack"
-    SLACK_TWIG = "slack-twig"
+    SLACK_POSTHOG_CODE = "slack-posthog-code"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
@@ -2358,7 +2362,7 @@ class LinkedinAdsTableExclusions(StrEnum):
 
 
 class LinkedinAdsTableKeywords(StrEnum):
-    CAMPAIGNS = "campaigns"
+    CAMPAIGN_GROUPS = "campaign_groups"
 
 
 class LlmEvalSignalExtra(BaseModel):
@@ -2468,6 +2472,20 @@ class MarketingAnalyticsConstants(StrEnum):
     CONST_ = "const:"
 
 
+class MarketingAnalyticsDrillDownConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columnAlias: str
+    excludedBaseColumns: list[MarketingAnalyticsBaseColumns]
+
+
+class MarketingAnalyticsDrillDownLevel(StrEnum):
+    CHANNEL = "channel"
+    SOURCE = "source"
+    CAMPAIGN = "campaign"
+
+
 class MarketingAnalyticsOrderByEnum(StrEnum):
     ASC = "ASC"
     DESC = "DESC"
@@ -2502,13 +2520,13 @@ class MarketingIntegrationConfig2(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    campaignTableName: Literal["campaigns"] = "campaigns"
+    campaignTableName: Literal["campaign_groups"] = "campaign_groups"
     defaultSources: list[str] = Field(..., max_length=2, min_length=2)
     idField: Literal["id"] = "id"
     nameField: Literal["name"] = "name"
     primarySource: Literal["linkedin"] = "linkedin"
     sourceType: Literal["LinkedinAds"] = "LinkedinAds"
-    statsTableName: Literal["campaign_stats"] = "campaign_stats"
+    statsTableName: Literal["campaign_group_stats"] = "campaign_group_stats"
     tableExclusions: list[str] = Field(..., max_length=1, min_length=1)
     tableKeywords: list[str] = Field(..., max_length=1, min_length=1)
 
@@ -2517,8 +2535,9 @@ class ConversionActionTypes(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    fallback: list[str] = Field(..., max_length=14, min_length=14)
+    fallback: list[str] = Field(..., max_length=5, min_length=5)
     omni: list[str] = Field(..., max_length=5, min_length=5)
+    specific: list[str] = Field(..., max_length=9, min_length=9)
 
 
 class MarketingIntegrationConfig3(BaseModel):
@@ -2856,19 +2875,10 @@ class MaxProductInfo(BaseModel):
 
 class MetaAdsConversionFallbackActionTypes(StrEnum):
     PURCHASE = "purchase"
-    OFFSITE_CONVERSION_FB_PIXEL_PURCHASE = "offsite_conversion.fb_pixel_purchase"
-    APP_CUSTOM_EVENT_FB_MOBILE_PURCHASE = "app_custom_event.fb_mobile_purchase"
     LEAD = "lead"
-    OFFSITE_CONVERSION_FB_PIXEL_LEAD = "offsite_conversion.fb_pixel_lead"
-    ONSITE_CONVERSION_LEAD_GROUPED = "onsite_conversion.lead_grouped"
     COMPLETE_REGISTRATION = "complete_registration"
-    OFFSITE_CONVERSION_FB_PIXEL_COMPLETE_REGISTRATION = "offsite_conversion.fb_pixel_complete_registration"
-    APP_CUSTOM_EVENT_FB_MOBILE_COMPLETE_REGISTRATION = "app_custom_event.fb_mobile_complete_registration"
-    OFFSITE_COMPLETE_REGISTRATION_ADD_META_LEADS = "offsite_complete_registration_add_meta_leads"
     APP_INSTALL = "app_install"
-    MOBILE_APP_INSTALL = "mobile_app_install"
     SUBSCRIBE = "subscribe"
-    OFFSITE_CONVERSION_FB_PIXEL_SUBSCRIBE = "offsite_conversion.fb_pixel_subscribe"
 
 
 class MetaAdsConversionOmniActionTypes(StrEnum):
@@ -2877,6 +2887,18 @@ class MetaAdsConversionOmniActionTypes(StrEnum):
     OMNI_COMPLETE_REGISTRATION = "omni_complete_registration"
     OMNI_APP_INSTALL = "omni_app_install"
     OMNI_SUBSCRIBE = "omni_subscribe"
+
+
+class MetaAdsConversionSpecificActionTypes(StrEnum):
+    OFFSITE_CONVERSION_FB_PIXEL_PURCHASE = "offsite_conversion.fb_pixel_purchase"
+    APP_CUSTOM_EVENT_FB_MOBILE_PURCHASE = "app_custom_event.fb_mobile_purchase"
+    OFFSITE_CONVERSION_FB_PIXEL_LEAD = "offsite_conversion.fb_pixel_lead"
+    ONSITE_CONVERSION_LEAD_GROUPED = "onsite_conversion.lead_grouped"
+    OFFSITE_CONVERSION_FB_PIXEL_COMPLETE_REGISTRATION = "offsite_conversion.fb_pixel_complete_registration"
+    APP_CUSTOM_EVENT_FB_MOBILE_COMPLETE_REGISTRATION = "app_custom_event.fb_mobile_complete_registration"
+    OFFSITE_COMPLETE_REGISTRATION_ADD_META_LEADS = "offsite_complete_registration_add_meta_leads"
+    MOBILE_APP_INSTALL = "mobile_app_install"
+    OFFSITE_CONVERSION_FB_PIXEL_SUBSCRIBE = "offsite_conversion.fb_pixel_subscribe"
 
 
 class MetaAdsDefaultSources(StrEnum):
@@ -3289,6 +3311,8 @@ class ProductKey(StrEnum):
     TASKS = "tasks"
     TEAMS = "teams"
     TOOLBAR = "toolbar"
+    TRACING = "tracing"
+    METRICS = "metrics"
     USER_INTERVIEWS = "user_interviews"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
@@ -3450,6 +3474,7 @@ class QueryTiming(BaseModel):
 
 
 class QuickFilterContext(StrEnum):
+    DASHBOARDS = "dashboards"
     ERROR_TRACKING_ISSUE_FILTERS = "error-tracking-issue-filters"
     LOGS_FILTERS = "logs-filters"
 
@@ -5574,6 +5599,10 @@ class FileSystemImport(BaseModel):
     created_at: str | None = Field(
         default=None,
         description="Timestamp when file was added. Used to check persistence",
+    )
+    displayLabel: str | None = Field(
+        default=None,
+        description=("Display label override — when set, shown in the nav instead of the last segment of `path`"),
     )
     flag: str | None = None
     href: str | None = Field(default=None, description="Object's URL")
@@ -16174,6 +16203,10 @@ class HogQLQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    connectionId: str | None = Field(
+        default=None,
+        description=("Optional direct external data source id for running against a specific source"),
+    )
     explain: bool | None = None
     filters: HogQLFilters | None = None
     kind: Literal["HogQLQuery"] = "HogQLQuery"
@@ -16251,6 +16284,10 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
         default=None,
         description="Draft conversion goal that can be set in the UI without saving",
     )
+    drillDownLevel: MarketingAnalyticsDrillDownLevel | None = Field(
+        default=None,
+        description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
+    )
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
@@ -16294,6 +16331,10 @@ class MarketingAnalyticsTableQuery(BaseModel):
     draftConversionGoal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | None = Field(
         default=None,
         description="Draft conversion goal that can be set in the UI without saving",
+    )
+    drillDownLevel: MarketingAnalyticsDrillDownLevel | None = Field(
+        default=None,
+        description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     includeRevenue: bool | None = None
@@ -17119,6 +17160,10 @@ class ErrorTrackingQuery(BaseModel):
     searchQuery: str | None = None
     status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
     tags: QueryLogTags | None = None
+    useQueryV2: bool | None = Field(
+        default=None,
+        description=("Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)"),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
     withAggregations: bool | None = None

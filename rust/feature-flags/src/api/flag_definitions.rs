@@ -1,13 +1,17 @@
 use crate::{
-    api::{auth, errors::FlagError},
+    api::{
+        auth,
+        errors::{ClientFacingError, FlagError},
+    },
     flags::{
-        flag_analytics::increment_request_count, flag_request::FlagRequestType,
+        flag_analytics::{increment_request_count, is_billable_flag_key},
+        flag_request::FlagRequestType,
         flag_service::FlagService,
     },
     handler::types::Library,
     metrics::consts::{
-        FLAG_DEFINITIONS_CACHE_HIT_COUNTER, FLAG_DEFINITIONS_CACHE_MISS_COUNTER,
-        FLAG_DEFINITIONS_ETAG_COUNTER,
+        FLAG_DEFINITIONS_AUTH_COUNTER, FLAG_DEFINITIONS_CACHE_HIT_COUNTER,
+        FLAG_DEFINITIONS_CACHE_MISS_COUNTER, FLAG_DEFINITIONS_ETAG_COUNTER,
     },
     router::State as AppState,
     team::team_models::Team,
@@ -87,24 +91,13 @@ pub async fn flags_definitions(
     // Check rate limit for this team
     state.flag_definitions_limiter.check_rate_limit(team.id)?;
 
-    // Record usage for billing with library tracking
-    if !*state.config.skip_writes {
-        let library = Library::from_headers(&headers);
-        if let Err(e) = increment_request_count(
-            state.redis_client.clone(),
-            team.id,
-            1,
-            FlagRequestType::FlagDefinitions,
-            Some(library),
-        )
+    // Check billing quota — matches Django's DECIDE_FEATURE_FLAG_QUOTA_CHECK behavior
+    if state
+        .feature_flags_billing_limiter
+        .is_limited(&params.token)
         .await
-        {
-            inc(
-                "flag_request_redis_error",
-                &[("error".to_string(), e.to_string())],
-                1,
-            );
-        }
+    {
+        return Err(FlagError::ClientFacing(ClientFacingError::BillingLimit));
     }
 
     let client_etag = extract_etag_from_header(headers.get("if-none-match"));
@@ -136,6 +129,28 @@ pub async fn flags_definitions(
 
     // Retrieve cached response from HyperCache (always with cohorts)
     let cached_response = get_from_cache(&state, &team_key, team.id).await?;
+
+    // Record usage for billing, filtering out non-billable flags (surveys, product tours).
+    // Placed after the ETag/304 path intentionally: 304 responses skip billing,
+    // matching Django's /local_evaluation behavior.
+    if !*state.config.skip_writes && has_billable_flags(&cached_response) {
+        let library = Library::from_headers(&headers);
+        if let Err(e) = increment_request_count(
+            state.redis_client.clone(),
+            team.id,
+            1,
+            FlagRequestType::FlagDefinitions,
+            Some(library),
+        )
+        .await
+        {
+            inc(
+                "flag_request_redis_error",
+                &[("error".to_string(), e.to_string())],
+                1,
+            );
+        }
+    }
 
     Ok(ok_response_with_etag(
         cached_response,
@@ -351,20 +366,66 @@ async fn authenticate_flag_definitions(
     // Try team secret token first (from Authorization header only)
     // Secret tokens have priority over personal API keys
     if let Some(token) = auth::extract_team_secret_token(headers) {
-        return auth::validate_secret_api_token_for_team(state, &token, team.id).await;
+        let result = auth::validate_secret_api_token_for_team(state, &token, team.id).await;
+        if result.is_ok() {
+            inc(
+                FLAG_DEFINITIONS_AUTH_COUNTER,
+                &[("method".to_string(), "secret_api_key".to_string())],
+                1,
+            );
+        }
+        return result;
     }
 
     // Try personal API key (with scope validation)
     if let Some(key) = auth::extract_personal_api_key(headers)? {
-        return auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await;
+        let result = auth::validate_personal_api_key_with_scopes_for_team(state, &key, team).await;
+        if result.is_ok() {
+            inc(
+                FLAG_DEFINITIONS_AUTH_COUNTER,
+                &[("method".to_string(), "personal_api_key".to_string())],
+                1,
+            );
+        }
+        return result;
     }
 
     Err(FlagError::NoAuthenticationProvided)
 }
 
+/// Checks whether the cached flag definitions contain any billable flags.
+///
+/// Returns false if all flags are survey or product tour targeting flags,
+/// matching Django's `local_evaluation` billing filter. The cached response
+/// has a `"flags"` array where each entry has a `"key"` field.
+fn has_billable_flags(response: &Value) -> bool {
+    let Some(flags) = response.get("flags").and_then(|f| f.as_array()) else {
+        return false;
+    };
+
+    flags.iter().any(|flag| {
+        let key = flag.get("key").and_then(|k| k.as_str()).unwrap_or("");
+        is_billable_flag_key(key)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rstest::rstest;
+    use serde_json::json;
+
+    #[rstest]
+    #[case::regular_flags(json!({"flags": [{"key": "my-feature"}, {"key": "another-flag"}]}), true)]
+    #[case::only_survey_flags(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "survey-targeting-xyz"}]}), false)]
+    #[case::only_product_tour_flags(json!({"flags": [{"key": "product-tour-targeting-abc"}]}), false)]
+    #[case::mixed_survey_and_regular(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "my-feature"}]}), true)]
+    #[case::empty_flags_array(json!({"flags": []}), false)]
+    #[case::no_flags_key(json!({"cohorts": {}}), false)]
+    #[case::only_survey_and_tour_flags(json!({"flags": [{"key": "survey-targeting-abc"}, {"key": "product-tour-targeting-xyz"}]}), false)]
+    fn test_has_billable_flags(#[case] response: Value, #[case] expected: bool) {
+        assert_eq!(has_billable_flags(&response), expected);
+    }
 
     #[test]
     fn test_extract_etag_from_header_weak() {

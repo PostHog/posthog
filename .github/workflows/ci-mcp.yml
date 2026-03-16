@@ -34,7 +34,7 @@ jobs:
                         - 'products/**'
                         - 'ee/**/*'
                         - 'posthog/**/*'
-                        - '.github/workflows/mcp-ci.yml'
+                        - '.github/workflows/ci-mcp.yml'
                         - '.github/workflows/mcp-publish.yml'
     build:
         name: Build Package
@@ -74,7 +74,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Build package
               run: cd services/mcp && pnpm build
@@ -113,7 +113,7 @@ jobs:
                   cache: 'pnpm'
 
             - name: Install dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Run unit tests
               run: cd services/mcp && pnpm run test
@@ -226,7 +226,7 @@ jobs:
                   UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
             - name: Install Node dependencies
-              run: pnpm install --frozen-lockfile
+              run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
 
             - name: Set up needed files
               shell: bash

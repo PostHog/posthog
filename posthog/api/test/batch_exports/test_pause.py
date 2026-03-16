@@ -15,8 +15,9 @@ from posthog.api.test.batch_exports.operations import (
     unpause_batch_export,
     unpause_batch_export_ok,
 )
-from posthog.batch_exports.service import batch_export_delete_schedule
 from posthog.temporal.common.schedule import describe_schedule
+
+from products.batch_exports.backend.service import batch_export_delete_schedule
 
 pytestmark = [
     pytest.mark.django_db,
@@ -353,7 +354,7 @@ def test_unpause_can_trigger_a_backfill(client: HttpClient, temporal, organizati
 
     pause_batch_export_ok(client, team.pk, batch_export_id)
 
-    with patch("posthog.batch_exports.service.backfill_export") as mock_backfill:
+    with patch("products.batch_exports.backend.service.backfill_export") as mock_backfill:
         unpause_batch_export_ok(client, team.pk, batch_export_id, backfill=True)
 
     data = get_batch_export_ok(client, team.pk, batch_export_id)
