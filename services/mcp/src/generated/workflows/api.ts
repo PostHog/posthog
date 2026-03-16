@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const HogFlowsListParams = zod.object({
+export const HogFlowsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const HogFlowsListParams = zod.object({
         ),
 })
 
-export const HogFlowsListQueryParams = zod.object({
+export const HogFlowsListQueryParams = /* @__PURE__ */ zod.object({
     created_at: zod.string().datetime({}).optional(),
     created_by: zod.number().optional(),
     id: zod.string().optional(),
@@ -25,7 +25,7 @@ export const HogFlowsListQueryParams = zod.object({
     updated_at: zod.string().datetime({}).optional(),
 })
 
-export const HogFlowsRetrieveParams = zod.object({
+export const HogFlowsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog flow.'),
     project_id: zod
         .string()

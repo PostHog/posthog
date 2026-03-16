@@ -11,7 +11,7 @@ import * as zod from 'zod'
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsListParams = zod.object({
+export const AnnotationsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19,7 +19,7 @@ export const AnnotationsListParams = zod.object({
         ),
 })
 
-export const AnnotationsListQueryParams = zod.object({
+export const AnnotationsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
@@ -28,7 +28,7 @@ export const AnnotationsListQueryParams = zod.object({
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsCreateParams = zod.object({
+export const AnnotationsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -38,7 +38,7 @@ export const AnnotationsCreateParams = zod.object({
 
 export const annotationsCreateBodyContentMax = 8192
 
-export const AnnotationsCreateBody = zod.object({
+export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
     content: zod
         .string()
         .max(annotationsCreateBodyContentMax)
@@ -76,7 +76,7 @@ export const AnnotationsCreateBody = zod.object({
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsRetrieveParams = zod.object({
+export const AnnotationsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this annotation.'),
     project_id: zod
         .string()
@@ -88,7 +88,7 @@ export const AnnotationsRetrieveParams = zod.object({
 /**
  * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
  */
-export const AnnotationsPartialUpdateParams = zod.object({
+export const AnnotationsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this annotation.'),
     project_id: zod
         .string()
@@ -99,7 +99,7 @@ export const AnnotationsPartialUpdateParams = zod.object({
 
 export const annotationsPartialUpdateBodyContentMax = 8192
 
-export const AnnotationsPartialUpdateBody = zod.object({
+export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     content: zod
         .string()
         .max(annotationsPartialUpdateBodyContentMax)
@@ -137,7 +137,7 @@ export const AnnotationsPartialUpdateBody = zod.object({
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const AnnotationsDestroyParams = zod.object({
+export const AnnotationsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this annotation.'),
     project_id: zod
         .string()

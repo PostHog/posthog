@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const HogFunctionsListParams = zod.object({
+export const HogFunctionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const HogFunctionsListParams = zod.object({
         ),
 })
 
-export const HogFunctionsListQueryParams = zod.object({
+export const HogFunctionsListQueryParams = /* @__PURE__ */ zod.object({
     created_at: zod.string().datetime({}).optional(),
     created_by: zod.number().optional(),
     enabled: zod.boolean().optional(),
@@ -28,7 +28,7 @@ export const HogFunctionsListQueryParams = zod.object({
     updated_at: zod.string().datetime({}).optional(),
 })
 
-export const HogFunctionsCreateParams = zod.object({
+export const HogFunctionsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -54,7 +54,7 @@ export const hogFunctionsCreateBodyTemplateIdMax = 400
 export const hogFunctionsCreateBodyExecutionOrderMin = 0
 export const hogFunctionsCreateBodyExecutionOrderMax = 32767
 
-export const HogFunctionsCreateBody = zod.object({
+export const HogFunctionsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
         .union([
             zod
@@ -264,7 +264,7 @@ export const HogFunctionsCreateBody = zod.object({
         .describe('Execution priority for transformations. Lower values run first.'),
 })
 
-export const HogFunctionsRetrieveParams = zod.object({
+export const HogFunctionsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
         .string()
@@ -273,7 +273,7 @@ export const HogFunctionsRetrieveParams = zod.object({
         ),
 })
 
-export const HogFunctionsPartialUpdateParams = zod.object({
+export const HogFunctionsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
         .string()
@@ -300,7 +300,7 @@ export const hogFunctionsPartialUpdateBodyTemplateIdMax = 400
 export const hogFunctionsPartialUpdateBodyExecutionOrderMin = 0
 export const hogFunctionsPartialUpdateBodyExecutionOrderMax = 32767
 
-export const HogFunctionsPartialUpdateBody = zod.object({
+export const HogFunctionsPartialUpdateBody = /* @__PURE__ */ zod.object({
     type: zod
         .union([
             zod
@@ -513,7 +513,7 @@ export const HogFunctionsPartialUpdateBody = zod.object({
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const HogFunctionsDestroyParams = zod.object({
+export const HogFunctionsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
         .string()
@@ -522,7 +522,7 @@ export const HogFunctionsDestroyParams = zod.object({
         ),
 })
 
-export const HogFunctionsInvocationsCreateParams = zod.object({
+export const HogFunctionsInvocationsCreateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this hog function.'),
     project_id: zod
         .string()
@@ -567,7 +567,7 @@ export const hogFunctionsInvocationsCreateBodyConfigurationOneExecutionOrderMax 
 
 export const hogFunctionsInvocationsCreateBodyMockAsyncFunctionsDefault = true
 
-export const HogFunctionsInvocationsCreateBody = zod.object({
+export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
     configuration: zod
         .object({
             id: zod.string().optional(),
@@ -954,7 +954,7 @@ export const HogFunctionsInvocationsCreateBody = zod.object({
 /**
  * Update the execution order of multiple HogFunctions.
  */
-export const HogFunctionsRearrangePartialUpdateParams = zod.object({
+export const HogFunctionsRearrangePartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -962,7 +962,7 @@ export const HogFunctionsRearrangePartialUpdateParams = zod.object({
         ),
 })
 
-export const HogFunctionsRearrangePartialUpdateBody = zod.object({
+export const HogFunctionsRearrangePartialUpdateBody = /* @__PURE__ */ zod.object({
     orders: zod
         .record(zod.string(), zod.number())
         .optional()
