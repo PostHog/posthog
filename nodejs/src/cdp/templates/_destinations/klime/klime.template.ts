@@ -74,12 +74,6 @@ if (action == 'track') {
             traits[key] := value
         }
     }
-    if (empty(traits.email) and not empty(person.properties.email)) {
-        traits['email'] := person.properties.email
-    }
-    if (empty(traits.name) and not empty(person.properties.name)) {
-        traits['name'] := person.properties.name
-    }
     if (not empty(traits)) {
         payload['traits'] := traits
     }

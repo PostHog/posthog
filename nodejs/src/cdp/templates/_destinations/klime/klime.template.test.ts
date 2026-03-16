@@ -201,7 +201,7 @@ describe('klime template', () => {
         expect(parseBatchEvent(response).traits).toEqual({ email: 'legacy@klime.com', name: 'Legacy User' })
     })
 
-    it('hardcodes email and name from person when no mappings configured', async () => {
+    it('sends no traits when no mappings configured and include_all_properties is false', async () => {
         const response = await tester.invoke(
             { ...defaultInputs, action: 'identify' },
             {
@@ -218,7 +218,7 @@ describe('klime template', () => {
         )
 
         expect(response.error).toBeUndefined()
-        expect(parseBatchEvent(response).traits).toEqual({ email: 'fallback@klime.com', name: 'Fallback User' })
+        expect(parseBatchEvent(response).traits).toBeUndefined()
     })
 
     it('includes non-$ group_set properties for group', async () => {
