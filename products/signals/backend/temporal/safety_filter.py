@@ -98,10 +98,7 @@ Respond with valid JSON only:
 
 
 def _build_safety_filter_prompt(description: str) -> str:
-    return f"""SIGNAL TO REVIEW:
-<signal>
-{description}
-</signal>"""
+    return description
 
 
 @dataclass
