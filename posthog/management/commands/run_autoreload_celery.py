@@ -1,14 +1,12 @@
 import os
 import sys
 import threading
-from pathlib import Path
 from typing import Literal
 
+from django.conf import settings
 from django.core.management.base import BaseCommand
 
 from posthog.tasks.utils import CeleryQueue
-
-PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
 
 # Directories to watch for .py changes
 WATCH_DIRS = ["posthog", "ee", "products"]
@@ -59,7 +57,7 @@ class Command(BaseCommand):
 
         try:
             client = pywatchman.client(timeout=5)
-            result = client.query("watch-project", str(PROJECT_ROOT))
+            result = client.query("watch-project", settings.BASE_DIR)
             watch_root = result["watch"]
             relative_path = result.get("relative_path")
 
