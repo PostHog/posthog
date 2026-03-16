@@ -679,16 +679,6 @@
                 }
             ]
         },
-        "AnyEntityNode<never>": {
-            "anyOf": [
-                {
-                    "$ref": "#/definitions/EventsNode"
-                },
-                {
-                    "$ref": "#/definitions/ActionsNode"
-                }
-            ]
-        },
         "AnyFilterLike": {
             "anyOf": [
                 {
@@ -17012,7 +17002,7 @@
                                 "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
                             },
                             {
-                                "$ref": "#/definitions/GroupNodeWithoutDataWarehouse"
+                                "$ref": "#/definitions/GroupNode"
                             }
                         ]
                     },
@@ -17297,93 +17287,6 @@
             },
             "required": ["kind", "nodes", "operator"],
             "type": "object"
-        },
-        "GroupNode<never>": {
-            "additionalProperties": false,
-            "properties": {
-                "custom_name": {
-                    "type": "string"
-                },
-                "fixedProperties": {
-                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "kind": {
-                    "const": "GroupNode",
-                    "type": "string"
-                },
-                "limit": {
-                    "$ref": "#/definitions/integer"
-                },
-                "math": {
-                    "$ref": "#/definitions/MathType"
-                },
-                "math_group_type_index": {
-                    "enum": [0, 1, 2, 3, 4],
-                    "type": "number"
-                },
-                "math_hogql": {
-                    "type": "string"
-                },
-                "math_multiplier": {
-                    "type": "number"
-                },
-                "math_property": {
-                    "type": "string"
-                },
-                "math_property_revenue_currency": {
-                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
-                },
-                "math_property_type": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "nodes": {
-                    "description": "Entities to combine in this group",
-                    "items": {
-                        "$ref": "#/definitions/AnyEntityNode%3Cnever%3E"
-                    },
-                    "type": "array"
-                },
-                "operator": {
-                    "$ref": "#/definitions/FilterLogicalOperator",
-                    "description": "Group of entities combined with AND/OR operator"
-                },
-                "optionalInFunnel": {
-                    "type": "boolean"
-                },
-                "orderBy": {
-                    "description": "Columns to order by",
-                    "items": {
-                        "type": "string"
-                    },
-                    "type": "array"
-                },
-                "properties": {
-                    "description": "Properties configurable in the interface",
-                    "items": {
-                        "$ref": "#/definitions/AnyPropertyFilter"
-                    },
-                    "type": "array"
-                },
-                "response": {
-                    "type": "object"
-                },
-                "version": {
-                    "description": "version of the node, used for schema migrations",
-                    "type": "number"
-                }
-            },
-            "required": ["kind", "nodes", "operator"],
-            "type": "object"
-        },
-        "GroupNodeWithoutDataWarehouse": {
-            "$ref": "#/definitions/GroupNode%3Cnever%3E"
         },
         "GroupPropertyFilter": {
             "additionalProperties": false,

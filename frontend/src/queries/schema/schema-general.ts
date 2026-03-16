@@ -806,8 +806,6 @@ export interface GroupNode<WarehouseNode = DataWarehouseNode> extends EntityNode
     orderBy?: string[]
 }
 
-export type GroupNodeWithoutDataWarehouse = GroupNode<never>
-
 export interface QueryTiming {
     /** Key. Shortened to 'k' to save on data. */
     k: string
@@ -1542,7 +1540,7 @@ export interface FunnelsQuery extends InsightsQueryBase<FunnelsQueryResponse> {
     /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
     interval?: IntervalType
     /** Events and actions to include */
-    series: (AnyEntityNode<FunnelsDataWarehouseNode> | GroupNodeWithoutDataWarehouse)[]
+    series: (AnyEntityNode<FunnelsDataWarehouseNode> | GroupNode)[]
     /** Properties specific to the funnels insight */
     funnelsFilter?: FunnelsFilter
     /** Breakdown of the events and actions */
