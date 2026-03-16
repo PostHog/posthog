@@ -58,6 +58,10 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
 class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
+    name = serializers.CharField(
+        max_length=200,
+        help_text="The name of the early access feature.",
+    )
     payload = serializers.SerializerMethodField()
 
     class Meta:

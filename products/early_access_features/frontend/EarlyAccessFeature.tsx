@@ -215,21 +215,29 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                                         items: [
                                                             {
                                                                 label: 'Concept',
+                                                                tooltip:
+                                                                    'Users can opt in to register interest, but the feature flag will not be enabled for them.',
                                                                 onClick: () =>
                                                                     updateStage(EarlyAccessFeatureStage.Concept),
                                                             },
                                                             {
                                                                 label: 'Alpha',
+                                                                tooltip:
+                                                                    'Early testing. Opted-in users will have the feature flag enabled.',
                                                                 onClick: () =>
                                                                     updateStage(EarlyAccessFeatureStage.Alpha),
                                                             },
                                                             {
                                                                 label: 'Beta (default)',
+                                                                tooltip:
+                                                                    'Wider testing. Opted-in users will have the feature flag enabled.',
                                                                 onClick: () =>
                                                                     updateStage(EarlyAccessFeatureStage.Beta),
                                                             },
                                                             {
-                                                                label: 'General availability / Archived',
+                                                                label: 'General availability',
+                                                                tooltip:
+                                                                    'Feature becomes read-only. All opted-in users retain access.',
                                                                 onClick: () =>
                                                                     updateStage(
                                                                         EarlyAccessFeatureStage.GeneralAvailability
@@ -309,12 +317,19 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                     value: 'beta',
                                 },
                                 {
-                                    label: 'General availability / Archived',
+                                    label: 'General availability',
                                     value: 'general-availability',
                                 },
                             ]}
                         />
                         <SceneFile dataAttrKey={RESOURCE_TYPE} />
+                        <Link
+                            to="https://posthog.com/docs/feature-flags/early-access-feature-management"
+                            target="_blank"
+                            className="text-xs"
+                        >
+                            Learn more about early access features
+                        </Link>
                     </ScenePanelInfoSection>
 
                     <ScenePanelDivider />
@@ -353,7 +368,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                     </ScenePanelActionsSection>
                 </ScenePanel>
 
-                {earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && !isEditingFeature && (
+                {!isEditingFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Concept && (
                     <LemonBanner type="info">
                         The{' '}
                         <LemonTag type="default" className="uppercase">
@@ -362,6 +377,24 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         stage is for gathering interest. Users can opt in, but the feature flag will not be enabled
                         until you promote this feature to Alpha or later. This lets you gauge demand before releasing
                         any functionality.
+                    </LemonBanner>
+                )}
+                {!isEditingFeature &&
+                    (earlyAccessFeature.stage === EarlyAccessFeatureStage.Alpha ||
+                        earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta) && (
+                        <LemonBanner type="info">
+                            This feature is in{' '}
+                            <LemonTag type="warning" className="uppercase">
+                                {earlyAccessFeature.stage}
+                            </LemonTag>
+                            . Opted-in users have the feature flag enabled. When you change the stage, enrolled users
+                            will receive a notification event (<code>$feature_enrollment_update</code>).
+                        </LemonBanner>
+                    )}
+                {!isEditingFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability && (
+                    <LemonBanner type="success">
+                        This feature has been promoted to general availability and can no longer be edited. Opted-in
+                        users retain access via the feature flag.
                     </LemonBanner>
                 )}
                 <div className="flex-1 min-w-[20rem] max-w-prose">
@@ -426,7 +459,7 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                                             },
                                             {
                                                 value: 'general-availability',
-                                                label: 'General availability / Archived',
+                                                label: 'General availability',
                                             },
                                         ]}
                                     />
@@ -478,9 +511,17 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             showOptional
                             help={
                                 <>
-                                    Specify a valid JSON payload as a dictionary. This will be exposed by{' '}
-                                    <code>posthog-js</code> and can be used to customize your UI or behavior after the
-                                    user opts in to the feature.
+                                    This payload is delivered via the Early Access Features API and{' '}
+                                    <code>posthog-js</code> when users browse available features. It is{' '}
+                                    <strong>separate from the feature flag payload</strong>, which is returned during
+                                    flag evaluation. Use this for metadata like release notes or UI configuration that
+                                    your opt-in interface can display.{' '}
+                                    <Link
+                                        to="https://posthog.com/docs/feature-flags/early-access-feature-management"
+                                        target="_blank"
+                                    >
+                                        Learn more
+                                    </Link>
                                 </>
                             }
                         >
@@ -494,7 +535,10 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                             {earlyAccessFeature.payload && Object.keys(earlyAccessFeature.payload).length > 0 ? (
                                 <JSONEditorInput readOnly value={earlyAccessFeature.payload} />
                             ) : (
-                                <span className="text-secondary">No payload configured</span>
+                                <span className="text-secondary">
+                                    No payload configured. Payloads let you attach metadata (like release notes) that is
+                                    delivered to users via the Early Access Features API.
+                                </span>
                             )}
                         </div>
                     </div>
