@@ -324,6 +324,31 @@ pub async fn serve<F>(
         "Created team negative cache for invalid API tokens"
     );
 
+    // Auth token cache: read-through cache for secret + personal API key validation.
+    // Uses the flags Redis client for cache reads/writes and an in-memory negative cache
+    // to avoid repeated PG lookups for invalid tokens.
+    let auth_negative_cache = NegativeCache::new(
+        config.auth_negative_cache_capacity,
+        config.auth_negative_cache_ttl_seconds,
+    );
+    let auth_redis = dedicated_redis_client
+        .clone()
+        .unwrap_or_else(|| redis_client.clone());
+    let auth_token_cache = Arc::new(common_cache::ReadThroughCache::new(
+        auth_redis.clone(),
+        auth_redis,
+        common_cache::CacheConfig::with_ttl(
+            crate::api::auth::TOKEN_CACHE_PREFIX,
+            crate::api::auth::TOKEN_CACHE_TTL_SECONDS,
+        ),
+        Some(Arc::new(auth_negative_cache)),
+    ));
+    tracing::info!(
+        negative_cache_capacity = config.auth_negative_cache_capacity,
+        negative_cache_ttl_seconds = config.auth_negative_cache_ttl_seconds,
+        "Created auth token read-through cache"
+    );
+
     if *config.skip_writes {
         tracing::warn!(
             "SKIP_WRITES is enabled: all writes to PostgreSQL and Redis are disabled. \
@@ -361,6 +386,7 @@ pub async fn serve<F>(
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
+        auth_token_cache,
         config,
     );
 

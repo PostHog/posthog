@@ -1189,7 +1189,7 @@ impl TestContext {
         let pak_id = format!("test_pak_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let api_key_value = format!("phx_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
-        let secure_value = crate::api::auth::hash_personal_api_key(&api_key_value);
+        let secure_value = crate::api::auth::hash_token_value(&api_key_value);
 
         let mut conn = self.non_persons_writer.get_connection().await?;
 
@@ -1442,4 +1442,27 @@ impl TestContext {
         .await?;
         Ok(())
     }
+}
+
+/// Simulate Django signal-based auth cache invalidation for a personal API key.
+///
+/// In production, removing a user from an organization fires a Django signal that
+/// asynchronously deletes the token's Redis cache entry via Celery. Tests that
+/// modify org membership directly bypass those signals, so they must call this
+/// helper to keep the auth cache consistent.
+///
+/// NOTE: This deletes the token cache key (`posthog:auth_token:*`). Rust's
+/// in-memory negative cache is not cleared — tests going from invalid → valid
+/// state need a fresh server or must wait for the negative cache TTL to expire.
+pub async fn invalidate_personal_api_key_auth_cache(
+    redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
+    key_value: &str,
+) -> Result<(), Error> {
+    let token_hash = crate::api::auth::hash_token_value(key_value);
+    let cache_key = format!("{}{}", crate::api::auth::TOKEN_CACHE_PREFIX, token_hash);
+    redis_client
+        .del(cache_key)
+        .await
+        .map_err(|e| anyhow::anyhow!("Failed to delete auth cache key: {e}"))?;
+    Ok(())
 }

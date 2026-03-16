@@ -503,10 +503,10 @@ def _update_team_remote_config(team_id: int):
 
 @receiver(pre_save, sender=Team)
 def team_pre_save(sender, instance: "Team", **kwargs):
-    """Capture old api_token value before save for cache cleanup."""
-    from posthog.storage.team_access_cache_signal_handlers import capture_old_api_token
+    """Capture old secret token values before save for cache cleanup."""
+    from posthog.storage.team_access_cache_signal_handlers import capture_old_secret_tokens
 
-    capture_old_api_token(instance, **kwargs)
+    capture_old_secret_tokens(instance, **kwargs)
 
 
 @receiver(post_save, sender=Team)
@@ -594,64 +594,90 @@ def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppre
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
+@receiver(pre_save, sender=PersonalAPIKey)
+def personal_api_key_pre_save(sender, instance: "PersonalAPIKey", **kwargs):
+    """Capture old secure_value before save so post_save can invalidate the old cache entry."""
+    from posthog.storage.team_access_cache_signal_handlers import capture_old_pak_secure_value
+
+    capture_old_pak_secure_value(instance, **kwargs)
+
+
+def _schedule_pak_invalidation(secure_value: str, user_id: int) -> None:
+    """Schedule a Celery task to invalidate a PAK's auth cache entry after commit."""
+    from posthog.tasks.team_access_cache_tasks import invalidate_personal_api_key_cache_task
+
+    def _on_commit():
+        try:
+            invalidate_personal_api_key_cache_task.delay(secure_value, user_id)
+        except Exception as e:
+            capture_exception(e)
+            logger.exception("Failed to schedule PAK cache invalidation", user_id=user_id)
+
+    transaction.on_commit(_on_commit)
+
+
 @receiver(post_save, sender=PersonalAPIKey)
 def personal_api_key_saved(sender, instance: "PersonalAPIKey", created, **kwargs):
     """
-    Handle PersonalAPIKey save for team access cache invalidation.
+    Handle PersonalAPIKey save for per-token auth cache invalidation.
 
-    Skip cache updates for last_used_at field updates to avoid unnecessary cache warming
-    during authentication requests.
+    Skip cache updates for last_used_at field updates to avoid unnecessary
+    invalidation during authentication requests.
+
+    When secure_value changes in-place (key rolling), we also invalidate the old
+    hash — captured via pre_save — so the old token doesn't remain cached for
+    up to the 30-day TTL.
     """
     # Skip cache updates if only last_used_at is being updated
     update_fields = kwargs.get("update_fields")
     if update_fields is not None and set(update_fields) == {"last_used_at"}:
         return
 
-    # Capture user_id now (not the instance) for clean serialization to Celery
+    secure_value = instance.secure_value
     user_id = instance.user_id
+    old_secure_value = getattr(instance, "_old_secure_value", None)
 
-    from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_teams_cache_task
+    if secure_value:
+        _schedule_pak_invalidation(secure_value, user_id)
 
-    transaction.on_commit(lambda: warm_personal_api_key_teams_cache_task.delay(user_id))
+    if old_secure_value and old_secure_value != secure_value:
+        _schedule_pak_invalidation(old_secure_value, user_id)
 
 
 @receiver(post_delete, sender=PersonalAPIKey)
 def personal_api_key_deleted(sender, instance: "PersonalAPIKey", **kwargs):
     """
-    Handle PersonalAPIKey delete for team access cache invalidation.
+    Handle PersonalAPIKey delete for per-token auth cache invalidation.
     """
-    # Capture data now (not the instance) for clean serialization to Celery
+    secure_value = instance.secure_value
     user_id = instance.user_id
-    scoped_team_ids = list(instance.scoped_teams) if instance.scoped_teams else None
 
-    from posthog.tasks.team_access_cache_tasks import warm_personal_api_key_deleted_cache_task
-
-    transaction.on_commit(lambda: warm_personal_api_key_deleted_cache_task.delay(user_id, scoped_team_ids))
+    if secure_value:
+        _schedule_pak_invalidation(secure_value, user_id)
 
 
 @receiver(post_save, sender=User)
 def user_saved(sender, instance: "User", created, **kwargs):
     """
-    Handle User save for team access cache updates when is_active changes.
-
-    When a user's is_active status changes, their Personal API Keys need to be
-    added or removed from team authentication caches.
+    Handle User save for per-token auth cache invalidation when is_active changes.
 
     We track the original is_active value via User.from_db() to detect actual changes,
-    avoiding unnecessary cache warming on unrelated user saves.
+    avoiding unnecessary invalidation on unrelated user saves.
 
     Security consideration:
     - Deactivation (is_active: True → False): Cache invalidation runs SYNCHRONOUSLY
       to immediately revoke access. This prevents a race condition where a deactivated
       user could continue using their API keys during Celery queue delays.
-    - Activation (is_active: False → True): Cache warming runs ASYNCHRONOUSLY via Celery
-      since there's no security concern with a slight delay in granting access.
+    - Activation (is_active: False → True): Cache invalidation runs ASYNCHRONOUSLY via
+      Celery since a brief delay before the user can authenticate again is acceptable.
+      Note: Rust's in-memory negative cache (auth_negative_cache_ttl_seconds, default 5 min)
+      may continue rejecting the token per-pod until it expires — Python can only clear Redis keys.
     """
     original_is_active = getattr(instance, "_original_is_active", instance.is_active)
     is_active_changed = created or instance.is_active != original_is_active
 
     if not is_active_changed:
-        logger.debug(f"User {instance.id} saved but is_active unchanged, skipping cache update")
+        logger.debug("User saved but is_active unchanged, skipping cache update", user_id=instance.id)
         return
 
     # Update the snapshot to prevent double-fires if the same instance is saved again
@@ -661,58 +687,52 @@ def user_saved(sender, instance: "User", created, **kwargs):
     user_id = instance.id
 
     if instance.is_active:
-        # User activated - async is fine, no security concern with delay
-        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_task
+        # User activated — clear any stale positive-cache entries (e.g. cached org_ids) so
+        # the next request re-fetches from DB. Note: Rust's in-memory negative cache is
+        # unaffected; see the docstring above for the expected delay.
+        from posthog.tasks.team_access_cache_tasks import invalidate_user_tokens_task
 
-        transaction.on_commit(lambda: warm_user_teams_cache_task.delay(user_id))
+        transaction.on_commit(lambda: invalidate_user_tokens_task.delay(user_id))
     else:
-        # User deactivated - sync to immediately revoke access (security-critical)
-        from posthog.tasks.team_access_cache_tasks import warm_user_teams_cache_sync
+        # User deactivated — sync to immediately revoke access (security-critical)
+        from posthog.tasks.team_access_cache_tasks import invalidate_user_tokens_sync
 
-        transaction.on_commit(lambda: warm_user_teams_cache_sync(user_id))
+        transaction.on_commit(lambda: invalidate_user_tokens_sync(user_id))
 
 
 @receiver(post_save, sender=OrganizationMembership)
 def organization_membership_saved(sender, instance: "OrganizationMembership", created, **kwargs):
     """
-    Handle OrganizationMembership creation for team access cache updates.
+    Handle OrganizationMembership creation for per-token auth cache invalidation.
 
-    When a user is added to an organization, their unscoped personal API keys
-    should gain access to teams within that organization. This ensures
-    that the authentication cache is updated to reflect the new access rights.
-
-    Note: We intentionally only handle creation (created=True), not updates.
-    Changes to membership level (e.g., MEMBER → ADMIN) don't affect API key
-    access - Personal API keys grant access based on organization membership
-    existence, not role level.
+    When a user is added to an organization, invalidate their cached tokens so
+    the next request re-fetches from DB with updated org membership. Only handles
+    creation — role changes (MEMBER → ADMIN) don't affect API key access.
     """
     if created:
-        # Capture data now (not the instance) for clean serialization to Celery
-        organization_id = str(instance.organization_id)
         user_id = instance.user_id
 
-        from posthog.tasks.team_access_cache_tasks import warm_organization_teams_cache_task
+        if not user_id:
+            return
 
-        transaction.on_commit(
-            lambda: warm_organization_teams_cache_task.delay(organization_id, user_id, "added to organization")
-        )
+        from posthog.tasks.team_access_cache_tasks import invalidate_user_tokens_task
+
+        transaction.on_commit(lambda: invalidate_user_tokens_task.delay(user_id))
 
 
 @receiver(post_delete, sender=OrganizationMembership)
 def organization_membership_deleted(sender, instance: "OrganizationMembership", **kwargs):
     """
-    Handle OrganizationMembership deletion for team access cache invalidation.
+    Handle OrganizationMembership deletion for per-token auth cache invalidation.
 
-    When a user is removed from an organization, their unscoped personal API keys
-    should no longer have access to teams within that organization. This ensures
-    that the authentication cache is updated to reflect the change in access rights.
+    When a user is removed from an organization, invalidate their cached tokens
+    so org_ids are re-fetched from DB on next auth attempt.
     """
-    # Capture data now (not the instance) for clean serialization to Celery
-    organization_id = str(instance.organization_id)
     user_id = instance.user_id
 
-    from posthog.tasks.team_access_cache_tasks import warm_organization_teams_cache_task
+    if not user_id:
+        return
 
-    transaction.on_commit(
-        lambda: warm_organization_teams_cache_task.delay(organization_id, user_id, "removed from organization")
-    )
+    from posthog.tasks.team_access_cache_tasks import invalidate_user_tokens_task
+
+    transaction.on_commit(lambda: invalidate_user_tokens_task.delay(user_id))
