@@ -65,6 +65,56 @@ import { InstructionsModal } from './InstructionsModal'
 
 const RESOURCE_TYPE = 'early-access-feature'
 
+const ACTIVE_STAGES = new Set([
+    EarlyAccessFeatureStage.Alpha,
+    EarlyAccessFeatureStage.Beta,
+    EarlyAccessFeatureStage.GeneralAvailability,
+])
+
+function StageTransitionWarning({
+    from,
+    to,
+}: {
+    from: EarlyAccessFeatureStage | null
+    to: EarlyAccessFeatureStage
+}): JSX.Element | null {
+    if (!from || from === to) {
+        return null
+    }
+
+    const wasActive = ACTIVE_STAGES.has(from)
+    const willBeActive = ACTIVE_STAGES.has(to)
+
+    if (to === EarlyAccessFeatureStage.GeneralAvailability) {
+        return (
+            <LemonBanner type="warning" className="mt-2">
+                Promoting to general availability is permanent. The feature becomes read-only and the feature flag stays
+                enabled for all opted-in users.
+            </LemonBanner>
+        )
+    }
+
+    if (!wasActive && willBeActive) {
+        return (
+            <LemonBanner type="warning" className="mt-2">
+                This will enable the feature flag for all opted-in users. They will gain access to the feature when you
+                save.
+            </LemonBanner>
+        )
+    }
+
+    if (wasActive && !willBeActive) {
+        return (
+            <LemonBanner type="warning" className="mt-2">
+                This will disable the feature flag for opted-in users. They will lose access to the feature when you
+                save.
+            </LemonBanner>
+        )
+    }
+
+    return null
+}
+
 export const scene: SceneExport<EarlyAccessFeatureLogicProps> = {
     component: EarlyAccessFeature,
     logic: earlyAccessFeatureLogic,
@@ -442,28 +492,34 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         <b>Stage</b>
                         <div>
                             {isEditingFeature ? (
-                                <LemonField name="stage">
-                                    <LemonSelect
-                                        options={[
-                                            {
-                                                value: 'concept',
-                                                label: 'Concept',
-                                            },
-                                            {
-                                                value: 'alpha',
-                                                label: 'Alpha',
-                                            },
-                                            {
-                                                value: 'beta',
-                                                label: 'Beta',
-                                            },
-                                            {
-                                                value: 'general-availability',
-                                                label: 'General availability',
-                                            },
-                                        ]}
+                                <>
+                                    <LemonField name="stage">
+                                        <LemonSelect
+                                            options={[
+                                                {
+                                                    value: 'concept',
+                                                    label: 'Concept',
+                                                },
+                                                {
+                                                    value: 'alpha',
+                                                    label: 'Alpha',
+                                                },
+                                                {
+                                                    value: 'beta',
+                                                    label: 'Beta',
+                                                },
+                                                {
+                                                    value: 'general-availability',
+                                                    label: 'General availability',
+                                                },
+                                            ]}
+                                        />
+                                    </LemonField>
+                                    <StageTransitionWarning
+                                        from={originalEarlyAccessFeatureStage}
+                                        to={earlyAccessFeature.stage}
                                     />
-                                </LemonField>
+                                </>
                             ) : (
                                 <LemonTag
                                     type={
