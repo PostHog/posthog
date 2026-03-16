@@ -567,6 +567,15 @@ export function ProjectTree({
                     return <>Create a new {nameNode}</>
                 }
 
+                if (root === 'data-and-people://' || root === 'project://' || root === 'shortcuts://') {
+                    const key = item.record?.sceneKey
+                    const description = sceneConfigurations[key]?.description
+                    if (description) {
+                        return <>{description}</>
+                    }
+                    return undefined
+                }
+
                 return undefined
             }}
             renderItemIcon={(item) => {

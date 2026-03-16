@@ -1694,6 +1694,8 @@ jobs:
               env:
                   OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
                   ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+                  OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+                  FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
               run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
 
             - name: Upload test results
