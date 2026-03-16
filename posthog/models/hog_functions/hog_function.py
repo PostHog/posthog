@@ -276,14 +276,12 @@ def cohort_saved(sender, instance, **kwargs):
     # Deletion is handled separately: the cohort API prevents deleting cohorts
     # that are referenced in test_account_filters.
     team = instance.team
-    if not team.test_account_filters or not any(
+    if team.test_account_filters and any(
         f.get("type") == "cohort" for f in team.test_account_filters if isinstance(f, dict)
     ):
-        return
+        from posthog.tasks.hog_functions import refresh_affected_hog_functions
 
-    from posthog.tasks.hog_functions import refresh_affected_hog_functions
-
-    refresh_affected_hog_functions.delay(cohort_id=instance.id)
+        refresh_affected_hog_functions.delay(cohort_id=instance.id)
 
 
 @mutable_receiver([post_save, post_delete], sender=HogFunction)
