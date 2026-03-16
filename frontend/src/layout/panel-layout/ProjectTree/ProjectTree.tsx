@@ -571,15 +571,9 @@ export function ProjectTree({
                     const key = item.record?.sceneKey
                     const description = sceneConfigurations[key]?.description
                     if (description) {
-                        return (
-                            <>
-                                {nameNode}
-                                <br />
-                                {description}
-                            </>
-                        )
+                        return <>{description}</>
                     }
-                    return nameNode
+                    return undefined
                 }
 
                 return undefined
