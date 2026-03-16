@@ -9,6 +9,11 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.printer.base import HogQLPrinter
+from posthog.hogql.printer.postgres_functions import (
+    POSTGRES_FUNCTION_HANDLERS,
+    POSTGRES_FUNCTION_RENAMES,
+    POSTGRES_PASSTHROUGH_FUNCTIONS,
+)
 
 
 class PostgresPrinter(HogQLPrinter):
@@ -65,7 +70,23 @@ class PostgresPrinter(HogQLPrinter):
 
         # No function call validation for postgres
         args = [self.visit(arg) for arg in node.args]
-        return f"{node.name}({', '.join(args)})"
+
+        # Complex handlers: structural transforms (CAST, CASE, EXTRACT, etc.)
+        handler = POSTGRES_FUNCTION_HANDLERS.get(node.name)
+        if handler is not None:
+            return handler(args)
+
+        # Simple renames: just swap the function name
+        pg_name = POSTGRES_FUNCTION_RENAMES.get(node.name, node.name)
+
+        # If the name wasn't renamed and isn't a known passthrough, it's unsupported
+        if pg_name == node.name and node.name not in POSTGRES_PASSTHROUGH_FUNCTIONS:
+            raise QueryError(
+                f"Function '{node.name}' is not supported in the Postgres dialect. "
+                f"It may only be available in ClickHouse."
+            )
+
+        return f"{pg_name}({', '.join(args)})"
 
     def _visit_to_start_of_call(self, node: ast.Call) -> str:
         if len(node.args) == 0:

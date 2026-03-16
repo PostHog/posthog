@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Any, Literal
 
-from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 
 from drf_spectacular.utils import extend_schema
@@ -21,10 +21,8 @@ from posthog.hogql_queries.experiments.experiment_metric_fingerprint import comp
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
-from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.experiment import Experiment, ExperimentHoldout
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
@@ -147,33 +145,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return data
 
     def validate_saved_metrics_ids(self, value):
-        if value is None:
-            return value
-
-        # check value is valid json list with id and optionally metadata param
-        if not isinstance(value, list):
-            raise ValidationError("Saved metrics must be a list")
-
-        for saved_metric in value:
-            if not isinstance(saved_metric, dict):
-                raise ValidationError("Saved metric must be an object")
-            if "id" not in saved_metric:
-                raise ValidationError("Saved metric must have an id")
-            if "metadata" in saved_metric and not isinstance(saved_metric["metadata"], dict):
-                raise ValidationError("Metadata must be an object")
-
-            # metadata is optional, but if it exists, should have type key
-            # TODO: extend with other metadata keys when known
-            if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
-                raise ValidationError("Metadata must have a type key")
-
-        # check if all saved metrics exist and belong to the same team
-        saved_metrics = ExperimentSavedMetric.objects.filter(
-            id__in=[saved_metric["id"] for saved_metric in value], team_id=self.context["team_id"]
-        )
-        if saved_metrics.count() != len(value):
-            raise ValidationError("Saved metric does not exist or does not belong to this project")
-
+        ExperimentService.validate_saved_metrics_ids(value, self.context["team_id"])
         return value
 
     def validate(self, data):
@@ -471,89 +443,28 @@ class EnterpriseExperimentsViewSet(
         except ValueError:
             return Response({"error": "Invalid limit or offset"}, status=400)
 
-        queryset = FeatureFlag.objects.filter(team__project_id=self.project_id)
-
-        # Filter for multivariate flags with at least 2 variants and first variant is "control"
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-        queryset = queryset.extra(
-            where=[
-                """
-                jsonb_array_length(filters->'multivariate'->'variants') >= 2
-                AND filters->'multivariate'->'variants'->0->>'key' = 'control'
-                """
-            ]
-        )
-
-        # Exclude survey targeting flags (same as regular feature flag list endpoint)
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
         excluded_flag_ids = survey_flag_ids | set(product_tour_internal_targeting_flags)
-        queryset = queryset.exclude(id__in=excluded_flag_ids)
 
-        # Apply search filter
-        search = request.query_params.get("search")
-        if search:
-            queryset = queryset.filter(Q(key__icontains=search) | Q(name__icontains=search))
-
-        # Apply active filter
-        active = request.query_params.get("active")
-        if active is not None:
-            queryset = queryset.filter(active=active.lower() == "true")
-
-        # Apply created_by filter
-        created_by_id = request.query_params.get("created_by_id")
-        if created_by_id:
-            queryset = queryset.filter(created_by_id=created_by_id)
-
-        # Apply evaluation_runtime filter
-        evaluation_runtime = request.query_params.get("evaluation_runtime")
-        if evaluation_runtime:
-            queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
-
-        # Apply has_evaluation_tags filter
-        has_evaluation_tags = request.query_params.get("has_evaluation_tags")
-        if has_evaluation_tags is not None:
-            filter_value = has_evaluation_tags.lower() in ("true", "1", "yes")
-            queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
-            if filter_value:
-                queryset = queryset.filter(eval_tag_count__gt=0)
-            else:
-                queryset = queryset.filter(eval_tag_count=0)
-
-        # Ordering
-        order = request.query_params.get("order")
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-created_at")
-
-        # Prefetch related data to avoid N+1 queries (same as regular feature flag list)
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                "experiment_set", queryset=Experiment.objects.filter(deleted=False), to_attr="_active_experiments"
-            ),
-            "features",
-            "analytics_dashboards",
-            "surveys_linked_flag",
-            Prefetch(
-                "flag_evaluation_contexts",
-                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
-            ),
-            Prefetch(
-                "team__cohort_set",
-                queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
-                to_attr="available_cohorts",
-            ),
-        ).select_related("created_by", "last_modified_by")
-
-        total_count = queryset.count()
-        results = queryset[offset : offset + limit]
+        service = ExperimentService(team=self.team, user=request.user)
+        eligible_feature_flags = service.get_eligible_feature_flags(
+            limit=limit,
+            offset=offset,
+            excluded_flag_ids=excluded_flag_ids,
+            search=request.query_params.get("search"),
+            active=request.query_params.get("active"),
+            created_by_id=request.query_params.get("created_by_id"),
+            order=request.query_params.get("order"),
+            evaluation_runtime=request.query_params.get("evaluation_runtime"),
+            has_evaluation_tags=request.query_params.get("has_evaluation_tags"),
+        )
 
         # Serialize using the standard FeatureFlagSerializer
         serializer = FeatureFlagSerializer(
-            results,
+            eligible_feature_flags["results"],
             many=True,
             context=self.get_serializer_context(),
         )
@@ -561,7 +472,7 @@ class EnterpriseExperimentsViewSet(
         return Response(
             {
                 "results": serializer.data,
-                "count": total_count,
+                "count": eligible_feature_flags["count"],
             }
         )
 

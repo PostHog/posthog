@@ -1,0 +1,34 @@
+# aiohttp.ClientSession defaults to trust_env=False, which silently bypasses
+# HTTP_PROXY / HTTPS_PROXY env vars. External calls must set trust_env=True
+# so they route through the proxy. Internal service-to-service calls that
+# intentionally bypass the proxy should add a nosemgrep comment.
+rules:
+    - id: aiohttp-missing-trust-env
+      pattern-either:
+          - patterns:
+                - pattern: aiohttp.ClientSession(...)
+                - pattern-not: aiohttp.ClientSession(..., trust_env=True, ...)
+          - patterns:
+                - pattern: ClientSession(...)
+                - pattern-not: ClientSession(..., trust_env=True, ...)
+                - pattern-inside: |
+                      from aiohttp import ClientSession
+                      ...
+      message: |
+          `aiohttp.ClientSession` defaults to `trust_env=False`, which bypasses
+          `HTTP_PROXY`/`HTTPS_PROXY` env vars. Pass `trust_env=True` for external
+          calls so they route through the proxy. For internal service-to-service
+          calls that must bypass the proxy, add `# nosemgrep: aiohttp-missing-trust-env`
+          on the line before with a brief reason.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: security
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          exclude:
+              - '**/.semgrep/**'
+              - '**/test/**'
+              - '**/tests/**'
+              - '**/test_*.py'

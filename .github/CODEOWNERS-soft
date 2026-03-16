@@ -220,6 +220,7 @@ package-lock.json @PostHog/team-devex
 mypy.ini @PostHog/team-devex
 posthog/management/migration_analysis/ @PostHog/team-devex
 common/hogli/ @PostHog/team-devex
+tach.toml @PostHog/team-devex
 bin/ @PostHog/team-devex
 CODEOWNERS-soft @PostHog/team-devex
 CODEOWNERS @PostHog/team-devex
@@ -230,5 +231,6 @@ AGENTS.md @PostHog/team-devex
 .claude/agents/ingestion/ @PostHog/team-ingestion
 .agents/skills/ingestion-*/ @PostHog/team-ingestion
 .claude/skills/ingestion-*/ @PostHog/team-ingestion
+tools/pr-approval-agent/ @PostHog/team-devex
 greptile.json @PostHog/team-devex
 docs/published/developing-locally.md @PostHog/team-devex
