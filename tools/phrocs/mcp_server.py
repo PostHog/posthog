@@ -35,7 +35,7 @@ def _socket_path() -> str:
     both sides agree on the path without any runtime coordination.
     """
     real = os.path.realpath(os.getcwd())
-    digest = hashlib.sha1(real.encode()).hexdigest()[:8]
+    digest = hashlib.sha256(real.encode()).hexdigest()[:8]
     return f"/tmp/phrocs-{digest}.sock"
 
 

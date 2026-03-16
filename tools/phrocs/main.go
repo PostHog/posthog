@@ -91,9 +91,8 @@ func main() {
 		_ = os.Remove(socketPath)
 	}()
 	go func() {
-		if err := ipc.Serve(ln, mgr); err != nil {
-			// Accept returns an error when the listener is closed on exit; ignore it.
-		}
+		// Accept returns an error when the listener is closed on exit; ignore it.
+		_ = ipc.Serve(ln, mgr)
 	}()
 
 	if _, err := p.Run(); err != nil {

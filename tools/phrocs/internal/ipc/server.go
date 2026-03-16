@@ -22,7 +22,7 @@ package ipc
 
 import (
 	"bufio"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -47,7 +47,7 @@ func SocketPathFor(dir string) string {
 	if err != nil {
 		abs = real
 	}
-	sum := sha1.Sum([]byte(abs))
+	sum := sha256.Sum256([]byte(abs))
 	return "/tmp/phrocs-" + hex.EncodeToString(sum[:4]) + ".sock"
 }
 
