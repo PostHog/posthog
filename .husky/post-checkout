@@ -8,7 +8,7 @@
 [ -f .git ] || exit 0
 
 # Bootstrap husky + lint-staged so pre-commit hooks work in worktrees
-if [ ! -d node_modules/.package-lock.json ] && command -v pnpm &> /dev/null; then
+if [ ! -d node_modules/.pnpm ] && command -v pnpm &> /dev/null; then
     echo "husky: worktree detected, bootstrapping with pnpm install --frozen-lockfile --filter=. ..."
     pnpm install --frozen-lockfile --filter=.
 fi
