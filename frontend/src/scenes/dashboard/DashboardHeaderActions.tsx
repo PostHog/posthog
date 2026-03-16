@@ -110,7 +110,9 @@ export function ViewModeActions(): JSX.Element {
                 icon={<IconShare fontSize="16" />}
                 tooltip="Share"
                 tooltipPlacement="top"
-            />
+            >
+                Share
+            </LemonButton>
             <AccessControlAction
                 resourceType={AccessControlResourceType.Dashboard}
                 minAccessLevel={AccessControlLevel.Editor}
