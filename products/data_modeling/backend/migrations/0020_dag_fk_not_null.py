@@ -36,13 +36,14 @@ class Migration(migrations.Migration):
                         "ALTER TABLE posthog_datamodelingnode"
                         " ADD CONSTRAINT node_dag_fk_id_not_null CHECK (dag_fk_id IS NOT NULL) NOT VALID;"
                         " ALTER TABLE posthog_datamodelingnode VALIDATE CONSTRAINT node_dag_fk_id_not_null;"
-                        " ALTER TABLE posthog_datamodelingnode ALTER COLUMN dag_fk_id SET NOT NULL; -- not-null-ignore"
+                        " ALTER TABLE posthog_datamodelingnode ALTER COLUMN dag_fk_id SET NOT NULL;"
                         " ALTER TABLE posthog_datamodelingnode DROP CONSTRAINT node_dag_fk_id_not_null;"
                         " ALTER TABLE posthog_datamodelingedge"
                         " ADD CONSTRAINT edge_dag_fk_id_not_null CHECK (dag_fk_id IS NOT NULL) NOT VALID;"
                         " ALTER TABLE posthog_datamodelingedge VALIDATE CONSTRAINT edge_dag_fk_id_not_null;"
-                        " ALTER TABLE posthog_datamodelingedge ALTER COLUMN dag_fk_id SET NOT NULL; -- not-null-ignore"
+                        " ALTER TABLE posthog_datamodelingedge ALTER COLUMN dag_fk_id SET NOT NULL;"
                         " ALTER TABLE posthog_datamodelingedge DROP CONSTRAINT edge_dag_fk_id_not_null;"
+                        " -- not-null-ignore: ran sanity checks to confirm this is safe"
                     ),
                     reverse_sql=(
                         "ALTER TABLE posthog_datamodelingnode ALTER COLUMN dag_fk_id DROP NOT NULL;"
