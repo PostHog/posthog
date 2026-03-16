@@ -83,6 +83,7 @@ class TestExternalTicketAPI(BaseTest):
         self.assertEqual(data["status"], "new")
         self.assertIsNone(data["priority"])
         self.assertEqual(data["channel_source"], "widget")
+        self.assertIsNone(data["channel_detail"])
         self.assertEqual(data["distinct_id"], "user-ext-123")
         self.assertEqual(data["message_count"], 0)
         self.assertIsNone(data["last_message_at"])

@@ -153,6 +153,7 @@ export function Nav(): JSX.Element {
                                     <span>Search</span> <RenderKeybind keybind={[keyBinds.search]} />
                                 </>
                             }
+                            tooltipPlacement={isLayoutNavCollapsed ? 'right' : undefined}
                             onClick={() => toggleCommand()}
                         >
                             <IconSearch className="size-4 text-secondary" />

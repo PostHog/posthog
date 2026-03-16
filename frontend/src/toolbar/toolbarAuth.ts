@@ -1,3 +1,5 @@
+import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
+
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 
 type OAuthTokens = { access_token: string; refresh_token: string; expires_in: number }
@@ -22,7 +24,9 @@ export async function refreshOAuthTokens(
             })
 
             if (!response.ok) {
-                throw new Error(`Refresh failed: ${response.status}`)
+                const err = new Error(`Refresh failed: ${response.status}`)
+                captureToolbarException(err, 'token_refresh')
+                throw err
             }
 
             return await response.json()
@@ -59,7 +63,8 @@ export async function withTokenRefresh(
         }
         toolbarConfigLogic.actions.setOAuthTokens(tokens.access_token, tokens.refresh_token, clientId)
         return await retryRequest(tokens.access_token)
-    } catch {
+    } catch (e) {
+        captureToolbarException(e, 'token_refresh_retry')
         toolbarConfigLogic.actions.tokenExpired()
         return response
     }
