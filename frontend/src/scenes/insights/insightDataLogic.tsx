@@ -78,6 +78,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
 
     actions({
         setQuery: (query: Node | null) => ({ query }),
+        syncQueryFromProps: (query: Node | null) => ({ query }),
         toggleQueryEditorPanel: true,
         toggleDebugPanel: true,
         cancelChanges: true,
@@ -88,6 +89,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             null as Node | null,
             {
                 setQuery: (_, { query }) => query,
+                syncQueryFromProps: (_, { query }) => query,
             },
         ],
         showQueryEditor: [
@@ -314,6 +316,20 @@ export const insightDataLogic = kea<insightDataLogicType>([
         },
     })),
     propsChanged(({ actions, props, values }) => {
+        // Uses syncQueryFromProps (not setQuery) to avoid triggering the
+        // insightVizDataLogic.setQuery listener which would loop back via props.setQuery.
+        // Guard must match propsQuery selector (only ad-hoc insights receive query via props).
+        if (props.dashboardItemId?.startsWith('new-AdHoc.') && props.query) {
+            try {
+                if (!objectsEqual(props.query, values.query)) {
+                    actions.syncQueryFromProps(props.query)
+                }
+            } catch {
+                actions.syncQueryFromProps(props.query)
+            }
+            return
+        }
+
         if (!props.cachedInsight?.query) {
             return
         }

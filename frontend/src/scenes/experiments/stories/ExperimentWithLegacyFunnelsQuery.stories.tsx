@@ -18,9 +18,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_WITH_FUNNELS_QUERY.id),
-        testOptions: {
-            waitForSelector: '[data-attr="metrics-chart-tick-labels"]',
-        },
     },
     decorators: [
         mswDecorator({
@@ -51,4 +48,4 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 // Small delay to ensure charts render completely
-export const ExperimentWithLegacyFunnelsQuery: Story = { play: makeDelay(1000) }
+export const ExperimentWithLegacyFunnelsQuery: Story = { play: makeDelay(500) }

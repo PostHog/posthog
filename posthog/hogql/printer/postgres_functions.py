@@ -311,6 +311,15 @@ POSTGRES_FUNCTION_HANDLERS: dict[str, Callable[[list[str]], str]] = {
 }
 
 
+# Case-insensitive lookup maps — keys lowercased for matching against node.name.lower().
+# HogQL allows case-insensitive function calls (NOW(), Count(), etc.) but preserves
+# the user's original casing in node.name, so the Postgres printer needs these.
+POSTGRES_FUNCTION_HANDLERS_LOWER: dict[str, Callable[[list[str]], str]] = {
+    k.lower(): v for k, v in POSTGRES_FUNCTION_HANDLERS.items()
+}
+POSTGRES_FUNCTION_RENAMES_LOWER: dict[str, str] = {k.lower(): v for k, v in POSTGRES_FUNCTION_RENAMES.items()}
+
+
 # Standard SQL functions that work unchanged in both Postgres and DuckDB.
 # Any ClickHouse function NOT in handlers, renames, or this set raises a compile-time error.
 POSTGRES_PASSTHROUGH_FUNCTIONS: frozenset[str] = frozenset(

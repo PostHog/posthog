@@ -72,6 +72,7 @@ export type LinkProps = Pick<React.HTMLProps<HTMLAnchorElement>, 'target' | 'cla
      */
     buttonProps?: Omit<ButtonPrimitiveProps, 'tooltip' | 'tooltipDocLink' | 'tooltipPlacement' | 'children'>
 
+    /** @deprecated WARNING, tooltip prop on Link breaks the auto-show of subsequent tooltips. Use Tooltip component instead for long lists that require tooltips. */
     tooltip?: TooltipProps['title']
     tooltipDocLink?: TooltipProps['docLink']
     tooltipPlacement?: TooltipProps['placement']
