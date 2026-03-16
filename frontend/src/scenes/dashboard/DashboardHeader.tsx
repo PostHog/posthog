@@ -19,9 +19,8 @@ export const DASHBOARD_CANNOT_EDIT_MESSAGE =
     "You don't have edit permissions for this dashboard. Ask a dashboard collaborator with edit access to add you."
 
 export function DashboardHeader(): JSX.Element | null {
-    const { dashboard, dashboardLoading, dashboardMode, canEditDashboard, pendingName, pendingDescription } =
-        useValues(dashboardLogic)
-    const { setDashboardMode, loadDashboard, setPendingName, setPendingDescription } = useActions(dashboardLogic)
+    const { dashboard, dashboardLoading, dashboardMode, canEditDashboard } = useValues(dashboardLogic)
+    const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { updateDashboard } = useActions(dashboardsModel)
 
     if (!dashboard && !dashboardLoading) {
@@ -39,29 +38,18 @@ export function DashboardHeader(): JSX.Element | null {
             <DashboardScenePanel />
 
             <SceneTitleSection
-                name={pendingName ?? dashboard?.name}
-                description={pendingDescription ?? dashboard?.description}
+                name={dashboard?.name}
+                description={dashboard?.description}
                 resourceType={{
                     type: sceneConfigurations[Scene.Dashboard].iconType || 'default_icon_type',
                 }}
-                onNameChange={(value) => {
-                    if (dashboardMode === DashboardMode.Edit) {
-                        setPendingName(value)
-                    } else {
-                        updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })
-                    }
-                }}
-                onDescriptionChange={(value) => {
-                    if (dashboardMode === DashboardMode.Edit) {
-                        setPendingDescription(value)
-                    } else {
-                        updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
-                    }
-                }}
+                onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
+                onDescriptionChange={(value) =>
+                    updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
+                }
                 markdown
                 canEdit={canEditDashboard}
                 isLoading={dashboardLoading}
-                forceEdit={dashboardMode === DashboardMode.Edit}
                 saveOnBlur
                 renameDebounceMs={0}
                 maxToolProps={

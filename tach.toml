@@ -313,6 +313,10 @@ depends_on = [
     "posthog",
 ]
 layer = "products"
+interfaces = [
+    "products.visual_review.backend.facade",
+    "products.visual_review.backend.presentation.views",
+]
 
 [[modules]]
 path = "products.web_analytics"
@@ -335,8 +339,16 @@ layer = "non_isolated"
 path = "products.tracing"
 depends_on = ["posthog"]
 layer = "products"
+interfaces = [
+    "products.tracing.backend.facade",
+    "products.tracing.backend.presentation.views",
+]
 
 [[modules]]
 path = "products.metrics"
 depends_on = ["posthog"]
 layer = "products"
+interfaces = [
+    "products.metrics.backend.facade",
+    "products.metrics.backend.presentation.views",
+]

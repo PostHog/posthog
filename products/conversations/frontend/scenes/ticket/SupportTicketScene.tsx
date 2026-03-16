@@ -251,7 +251,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex justify-between">
                                     <span className="text-muted-alt">Channel</span>
                                     <span className="capitalize">
-                                        <ChannelsTag channel={ticket.channel_source} />
+                                        <ChannelsTag channel={ticket.channel_source} detail={ticket.channel_detail} />
                                     </span>
                                 </div>
                             )}

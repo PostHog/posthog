@@ -134,6 +134,7 @@ export function DashboardItems(): JSX.Element {
                             enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
                             handle: '.CardMeta,.TextCard__body',
                             cancel: 'a,table,button,input,.Popover',
+                            bounded: true,
                         }}
                         resizeConfig={{
                             enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
