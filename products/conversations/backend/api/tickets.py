@@ -48,7 +48,7 @@ from products.conversations.backend.events import (
     capture_ticket_status_changed,
 )
 from products.conversations.backend.models import Ticket, TicketAssignment
-from products.conversations.backend.models.constants import Channel, Priority, Status
+from products.conversations.backend.models.constants import Channel, ChannelDetail, Priority, Status
 from products.conversations.backend.services.ai_suggest import NoMessagesError, suggest_reply
 
 from ee.models.rbac.role import Role
@@ -97,6 +97,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "id",
             "ticket_number",
             "channel_source",
+            "channel_detail",
             "distinct_id",
             "status",
             "priority",
@@ -124,6 +125,7 @@ class TicketSerializer(TaggedItemSerializerMixin, serializers.ModelSerializer):
             "id",
             "ticket_number",
             "channel_source",
+            "channel_detail",
             "distinct_id",
             "created_at",
             "message_count",
@@ -177,6 +179,10 @@ class TicketViewSet(TaggedItemViewSetMixin, TeamAndOrgViewSetMixin, viewsets.Mod
         channel_source = self.request.query_params.get("channel_source")
         if channel_source and channel_source in [c.value for c in Channel]:
             queryset = queryset.filter(channel_source=channel_source)
+
+        channel_detail = self.request.query_params.get("channel_detail")
+        if channel_detail and channel_detail in [d.value for d in ChannelDetail]:
+            queryset = queryset.filter(channel_detail=channel_detail)
 
         assignee = self.request.query_params.get("assignee")
         if assignee:

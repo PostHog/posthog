@@ -4772,12 +4772,13 @@ const api = {
         async jobs(
             sourceId: ExternalDataSource['id'],
             before: string | null,
-            after: string | null
+            after: string | null,
+            schemas?: string[]
         ): Promise<ExternalDataJob[]> {
             return await new ApiRequest()
                 .externalDataSource(sourceId)
                 .withAction('jobs')
-                .withQueryString({ before, after })
+                .withQueryString(toParams({ before, after, schemas }, true))
                 .get()
         },
         async updateRevenueAnalyticsConfig(

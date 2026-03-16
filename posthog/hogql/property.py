@@ -37,6 +37,8 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.database.models import BooleanDatabaseField
+from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.parser import parse_expr
@@ -278,6 +280,15 @@ def _handle_bool_values(value: ValueT, expr: ast.Expr, property: Property, team:
             if value == "false":
                 value = False
 
+        return value
+
+    elif property.type == "session":
+        field_definition = LAZY_SESSIONS_FIELDS.get(property.key)
+        if isinstance(field_definition, BooleanDatabaseField):
+            if value == "true":
+                return True
+            if value == "false":
+                return False
         return value
 
     else:
