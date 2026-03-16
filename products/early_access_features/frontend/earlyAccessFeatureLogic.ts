@@ -241,8 +241,10 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                     .join('\n')
                 if (fieldErrors) {
                     lemonToast.error(fieldErrors)
+                    return
                 }
             }
+            lemonToast.error(error?.detail ?? 'Could not save early access feature.')
         },
         saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }) => {
             lemonToast.success('Early access feature saved')
@@ -260,10 +262,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             LemonDialog.open({
                 title: 'Promote to general availability?',
                 description:
-                    'This action is permanent. Once promoted:\n\n' +
-                    '\u2022 The feature becomes read-only and can no longer be edited.\n' +
-                    '\u2022 Opted-in users retain their feature flag access.\n' +
-                    '\u2022 Enrolled users will receive a stage change notification event.',
+                    'This action is permanent. Once promoted, the feature becomes read-only, opted-in users retain their feature flag access, and enrolled users will receive a stage change notification event.',
                 primaryButton: {
                     children: 'Promote to GA',
                     type: 'primary',
