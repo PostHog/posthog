@@ -231,15 +231,15 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     })),
     listeners(({ actions, values }) => ({
         saveEarlyAccessFeatureFailure: ({ error: rawError }) => {
-            // kea-loaders types error as string, but at runtime it's an ApiError object.
-            // The exceptions_hog handler formats validation errors as:
-            //   error.data = { detail: "...", attr: "name", type: "validation_error", code: "blank" }
-            //   error.detail = "..." (copied from data.detail by ApiError constructor)
+            // kea-loaders types error as string, but at runtime it's an ApiError instance.
+            // ApiError copies exceptions_hog fields to top-level properties:
+            //   error.detail = "This field may not be blank."
+            //   error.attr = "name"
             if (typeof rawError === 'object' && rawError !== null) {
                 const error = rawError as Record<string, unknown>
-                const data = error.data as Record<string, unknown> | undefined
-                const attr = data?.attr
-                const detail = (error.detail as string) ?? (data?.detail as string)
+                const attr = error.attr ?? (error.data as Record<string, unknown> | undefined)?.attr
+                const detail =
+                    (error.detail as string) ?? ((error.data as Record<string, unknown> | undefined)?.detail as string)
                 if (attr && detail) {
                     lemonToast.error(`${identifierToHuman(String(attr))}: ${detail}`)
                     return
