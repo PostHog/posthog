@@ -11,6 +11,7 @@ from posthog.test.base import (
 )
 
 from parameterized import parameterized
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
