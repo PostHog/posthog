@@ -144,19 +144,12 @@ impl ReadThroughCache {
         format!("{}{}", self.config.cache_prefix, key)
     }
 
-    /// Get a value from Redis cache, refreshing the TTL on hit when configured
+    /// Get a value from Redis cache
     async fn get_from_redis<V>(&self, cache_key: &str) -> Result<V, CustomRedisError>
     where
         V: for<'de> Deserialize<'de>,
     {
-        let serialized_value = match self.config.ttl_seconds {
-            Some(ttl) => {
-                self.redis_reader
-                    .getex(cache_key.to_string(), ttl)
-                    .await?
-            }
-            None => self.redis_reader.get(cache_key.to_string()).await?,
-        };
+        let serialized_value = self.redis_reader.get(cache_key.to_string()).await?;
         let value = serde_json::from_str(&serialized_value).map_err(|e| {
             CustomRedisError::ParseError(format!("Failed to deserialize cached value: {e}"))
         })?;
@@ -395,7 +388,7 @@ mod tests {
         let mut reader = MockRedisClient::new();
         reader.get_ret("test:key1", Ok(serialized));
 
-        let cache = setup_cache(reader.clone(), MockRedisClient::new(), None);
+        let cache = setup_cache(reader, MockRedisClient::new(), None);
 
         let result = cache
             .get_or_load(&"key1", |_key| async {
@@ -408,47 +401,6 @@ mod tests {
         assert_eq!(result.source, CacheSource::PositiveCache);
         assert!(result.was_cached());
         assert!(!result.invoked_loader());
-
-        // Cache has a TTL, so reads should use GETEX to refresh expiry
-        let calls = reader.get_calls();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].op, "getex");
-        assert_eq!(calls[0].key, "test:key1");
-    }
-
-    #[tokio::test]
-    async fn test_positive_cache_hit_without_ttl_uses_get() {
-        let data = TestData {
-            id: 1,
-            name: "test".to_string(),
-        };
-        let serialized = serde_json::to_string(&data).unwrap();
-
-        let mut reader = MockRedisClient::new();
-        reader.get_ret("perm:key1", Ok(serialized));
-
-        let config = CacheConfig::permanent("perm:");
-        let cache = ReadThroughCache::new(
-            Arc::new(reader.clone()),
-            Arc::new(MockRedisClient::new()),
-            config,
-            None,
-        );
-
-        let result = cache
-            .get_or_load(&"key1", |_key| async {
-                Ok::<Option<TestData>, String>(None)
-            })
-            .await
-            .unwrap();
-
-        assert_eq!(result.value, Some(data));
-        assert_eq!(result.source, CacheSource::PositiveCache);
-
-        // No TTL configured, so reads should use plain GET
-        let calls = reader.get_calls();
-        assert_eq!(calls.len(), 1);
-        assert_eq!(calls[0].op, "get");
     }
 
     #[tokio::test]

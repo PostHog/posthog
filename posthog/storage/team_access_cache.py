@@ -4,7 +4,7 @@ Per-token auth cache with targeted invalidation.
 Rust populates cache entries on first use (lazy). Python signal handlers
 perform targeted invalidation when cached tokens become invalid.
 
-Cache keys (raw JSON via redis-py, not Django's pickle-wrapped cache):
+Cache keys (Rust writes, Python only deletes):
   posthog:auth_token:{token_hash}        → token metadata
 """
 

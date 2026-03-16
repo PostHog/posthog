@@ -299,11 +299,6 @@ impl Client for ReadWriteClient {
         }
     }
 
-    async fn getex(&self, k: String, seconds: u64) -> Result<String, CustomRedisError> {
-        // GETEX is a write command (it mutates TTL), so always use the primary
-        self.writer.getex(k, seconds).await
-    }
-
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError> {
         match self.reader.hget(k.clone(), field.clone()).await {
             Ok(value) => Ok(value),
