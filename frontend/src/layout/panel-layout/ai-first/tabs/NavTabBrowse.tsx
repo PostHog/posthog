@@ -72,8 +72,11 @@ function formatRelativeDate(dateStr: string | null | undefined): string {
     if (!dateStr) {
         return ''
     }
-    const now = new Date()
     const date = new Date(dateStr)
+    if (isNaN(date.getTime())) {
+        return ''
+    }
+    const now = new Date()
     const diffMs = now.getTime() - date.getTime()
     const diffMins = Math.floor(diffMs / 60000)
     if (diffMins < 1) {
@@ -108,6 +111,8 @@ export function NavTabBrowse(): JSX.Element {
     const { firstTabIsActive } = useValues(sceneLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
+    const { loadRecentItems } = useActions(navRecentsLogic)
+    const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -222,7 +227,12 @@ export function NavTabBrowse(): JSX.Element {
             {!isLayoutNavCollapsed && (
                 <Collapsible
                     open={expandedNavSections.recents ?? false}
-                    onOpenChange={() => toggleNavSection('recents')}
+                    onOpenChange={() => {
+                        if (!expandedNavSections.recents) {
+                            loadRecentItems({})
+                        }
+                        toggleNavSection('recents')
+                    }}
                     className="mt-2 group/colorful-product-icons colorful-product-icons-true"
                 >
                     <SectionTrigger icon={<IconClock />} label="Recents" isCollapsed={isLayoutNavCollapsed} />
@@ -236,7 +246,6 @@ export function NavTabBrowse(): JSX.Element {
                         ) : (
                             recentItems.map((item: FileSystemEntry) => {
                                 const name = getItemName(item)
-                                const currentPath = removeProjectIdIfPresent(pathname)
                                 const isActive = item.href ? currentPath === item.href : false
                                 return (
                                     <Link
