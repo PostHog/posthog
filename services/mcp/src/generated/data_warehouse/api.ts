@@ -130,6 +130,36 @@ export const WarehouseSavedQueriesMaterializeCreateParams = /* @__PURE__ */ zod.
         ),
 })
 
+export const warehouseSavedQueriesMaterializeCreateBodyNameMax = 128
+
+export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
+    .object({
+        deleted: zod.boolean().nullish(),
+        name: zod
+            .string()
+            .max(warehouseSavedQueriesMaterializeCreateBodyNameMax)
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
+        query: zod
+            .unknown()
+            .nullish()
+            .describe(
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+            ),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+    })
+    .describe(
+        'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
+    )
+
 /**
  * Undo materialization, revert back to the original view.
 (i.e. delete the materialized table and the schedule)
@@ -143,6 +173,36 @@ export const WarehouseSavedQueriesRevertMaterializationCreateParams = /* @__PURE
         ),
 })
 
+export const warehouseSavedQueriesRevertMaterializationCreateBodyNameMax = 128
+
+export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__ */ zod
+    .object({
+        deleted: zod.boolean().nullish(),
+        name: zod
+            .string()
+            .max(warehouseSavedQueriesRevertMaterializationCreateBodyNameMax)
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
+        query: zod
+            .unknown()
+            .nullish()
+            .describe(
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+            ),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+    })
+    .describe(
+        'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
+    )
+
 /**
  * Run this saved query.
  */
@@ -154,6 +214,36 @@ export const WarehouseSavedQueriesRunCreateParams = /* @__PURE__ */ zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
         ),
 })
+
+export const warehouseSavedQueriesRunCreateBodyNameMax = 128
+
+export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
+    .object({
+        deleted: zod.boolean().nullish(),
+        name: zod
+            .string()
+            .max(warehouseSavedQueriesRunCreateBodyNameMax)
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
+        query: zod
+            .unknown()
+            .nullish()
+            .describe(
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
+            ),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+    })
+    .describe(
+        'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
+    )
 
 /**
  * Return the recent run history (up to 5 most recent) for this materialized view.
