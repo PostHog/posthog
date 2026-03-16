@@ -495,6 +495,169 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             request=ANY,
         )
 
+    @parameterized.expand(
+        [
+            ("false", False, "bool"),
+            ("true", True, "bool"),
+            ("string", "not_an_int", "str"),
+            ("float", 1.5, "float"),
+        ]
+    )
+    def test_non_integer_aggregation_group_type_index_rejected(self, _name, bad_value, expected_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Bad index flag",
+                "key": f"bad-index-{_name}",
+                "filters": {
+                    "aggregation_group_type_index": bad_value,
+                    "groups": [{"rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_type, response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("false", False, "bool"),
+            ("true", True, "bool"),
+            ("int", 42, "int"),
+        ]
+    )
+    def test_non_string_group_variant_rejected(self, _name, bad_value, expected_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Bad variant flag",
+                "key": f"bad-variant-{_name}",
+                "filters": {
+                    "groups": [{"variant": bad_value, "rollout_percentage": 100}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_type, response.json()["detail"])
+
+    def test_string_group_variant_preserved(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "String variant flag",
+                "key": "string-variant-preserved",
+                "filters": {
+                    "groups": [{"variant": "control", "rollout_percentage": 100}],
+                    "multivariate": {"variants": [{"key": "control", "rollout_percentage": 100}]},
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="string-variant-preserved", team=self.team)
+        self.assertEqual(flag.filters["groups"][0]["variant"], "control")
+
+    @parameterized.expand(
+        [
+            ("string_int", "100"),
+            ("bool_false", False),
+            ("string_nan", "NaN"),
+            ("string_inf", "Infinity"),
+            ("float_nan", float("nan")),
+            ("float_inf", float("inf")),
+        ]
+    )
+    def test_non_numeric_group_rollout_percentage_rejected(self, _name, bad_value):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Bad rollout flag",
+                "key": f"bad-rollout-{_name}",
+                "filters": {
+                    "groups": [{"rollout_percentage": bad_value}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("rollout_percentage", response.json()["detail"])
+
+    def test_numeric_group_rollout_percentage_preserved(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Numeric rollout",
+                "key": "numeric-rollout-preserved",
+                "filters": {
+                    "groups": [{"rollout_percentage": 75}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        flag = FeatureFlag.objects.get(key="numeric-rollout-preserved", team=self.team)
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 75)
+
+    # Same _validate_rollout_percentage function as group tests; smoke-testing the call site
+    @parameterized.expand(
+        [
+            ("string_int", "50"),
+            ("bool_true", True),
+            ("null", None),
+        ]
+    )
+    def test_non_numeric_variant_rollout_percentage_rejected(self, _name, bad_value):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Bad variant rollout",
+                "key": f"bad-variant-rollout-{_name}",
+                "filters": {
+                    "groups": [{"rollout_percentage": 100}],
+                    "multivariate": {
+                        "variants": [
+                            {"key": "control", "rollout_percentage": bad_value},
+                            {"key": "test", "rollout_percentage": 50},
+                        ]
+                    },
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("rollout_percentage", response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("false", False, "bool"),
+            ("true", True, "bool"),
+            ("string", "not_an_int", "str"),
+            ("float", 1.5, "float"),
+        ]
+    )
+    def test_non_integer_property_group_type_index_rejected(self, _name, bad_value, expected_type):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Bad gti flag",
+                "key": f"bad-prop-gti-{_name}",
+                "filters": {
+                    "groups": [
+                        {
+                            "rollout_percentage": 100,
+                            "properties": [
+                                {"key": "email", "type": "person", "value": "test", "group_type_index": bad_value}
+                            ],
+                        }
+                    ],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn(expected_type, response.json()["detail"])
+
     @freeze_time("2021-08-25T22:09:14.252Z")
     @patch("posthog.api.feature_flag.report_user_action")
     def test_create_feature_flag(self, mock_report_user_action):
