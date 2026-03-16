@@ -108,6 +108,15 @@ export const organizationLogic = kea<organizationLogicType>([
         ],
     })),
     selectors({
+        currentOrganizationId: [
+            (s) => [s.currentOrganization],
+            (currentOrganization): string => {
+                if (!currentOrganization) {
+                    throw new Error('currentOrganizationId accessed before organization loaded')
+                }
+                return currentOrganization.id
+            },
+        ],
         isCurrentOrganizationUnavailable: [
             (s) => [s.currentOrganization, s.currentOrganizationLoading],
             (currentOrganization, currentOrganizationLoading): boolean =>

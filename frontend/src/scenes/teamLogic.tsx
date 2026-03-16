@@ -258,6 +258,15 @@ export const teamLogic = kea<teamLogicType>([
             (selectors) => [selectors.currentTeam],
             (currentTeam): number | null => (currentTeam ? currentTeam.id : null),
         ],
+        currentProjectId: [
+            (selectors) => [selectors.currentTeam],
+            (currentTeam): number => {
+                if (!currentTeam) {
+                    throw new Error('currentProjectId accessed before team loaded')
+                }
+                return currentTeam.project_id
+            },
+        ],
         isCurrentTeamUnavailable: [
             (selectors) => [selectors.currentTeam, selectors.currentTeamLoading],
             // If project has been loaded and is still null, it means the user just doesn't have access.
