@@ -96,6 +96,7 @@ class BaseBatchExportInputs:
     batch_export_id: str
     team_id: int
     interval: str = "hour"
+    timezone: str = "UTC"
     data_interval_end: str | None = None
     exclude_events: list[str] | None = None
     include_events: list[str] | None = None
@@ -906,6 +907,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
                     team_id=batch_export.team.id,
                     batch_export_id=str(batch_export.id),
                     interval=str(batch_export.interval),
+                    timezone=str(batch_export.timezone_info),
                     batch_export_model=BatchExportModel(
                         name=batch_export.model or "events",
                         schema=batch_export.schema,

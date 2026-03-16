@@ -130,7 +130,15 @@ function SlackSection(): JSX.Element {
     return (
         <SceneSection
             title="SupportHog Slack bot"
-            description="Add the SupportHog bot to your Slack workspace to create and manage support tickets directly from Slack messages."
+            description={
+                <>
+                    Add the SupportHog bot to your Slack workspace to create and manage support tickets directly from
+                    Slack messages.{' '}
+                    <Link to="https://posthog.com/docs/support/slack" target="_blank">
+                        Docs
+                    </Link>
+                </>
+            }
             className="mt-4"
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
@@ -404,7 +412,14 @@ export function SupportSettingsScene(): JSX.Element {
             <ScenesTabs />
             <SceneSection
                 title="Conversations API"
-                description="Turn on conversations API to enable access for tickets and messages."
+                description={
+                    <>
+                        Turn on conversations API to enable access for tickets and messages.{' '}
+                        <Link to="https://posthog.com/docs/support/javascript-api" target="_blank">
+                            Docs
+                        </Link>
+                    </>
+                }
             >
                 <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
                     <div className="flex items-center gap-4 justify-between">
@@ -456,7 +471,18 @@ export function SupportSettingsScene(): JSX.Element {
                         </LemonCard>
                     </SceneSection>
                     <SlackSection />
-                    <SceneSection title="In-app widget" className="mt-4">
+                    <SceneSection
+                        title="In-app widget"
+                        description={
+                            <>
+                                Add a chat widget to your website for customers to reach you.{' '}
+                                <Link to="https://posthog.com/docs/support/widget" target="_blank">
+                                    Docs
+                                </Link>
+                            </>
+                        }
+                        className="mt-4"
+                    >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">
                                 <div>
@@ -767,7 +793,10 @@ export function SupportSettingsScene(): JSX.Element {
                         description={
                             <>
                                 Use these events as triggers in <Link to="/workflows">Workflows</Link> to automate
-                                ticket actions.
+                                ticket actions.{' '}
+                                <Link to="https://posthog.com/docs/support/workflows" target="_blank">
+                                    Docs
+                                </Link>
                             </>
                         }
                         className="mt-4"
