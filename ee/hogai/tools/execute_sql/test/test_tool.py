@@ -1,6 +1,7 @@
 from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest, _create_event
 from unittest.mock import AsyncMock, Mock, patch
 
+from asgiref.sync import sync_to_async
 from langchain_core.runnables import RunnableConfig
 
 from posthog.schema import ArtifactContentType, AssistantToolCallMessage
@@ -86,7 +87,7 @@ class TestExecuteSQLTool(ClickhouseTestMixin, NonAtomicBaseTest):
 
     @patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
     async def test_select_from_system_insights(self):
-        Insight.objects.create(
+        await sync_to_async(Insight.objects.create)(
             team=self.team,
             name="Revenue Trends",
             query={"kind": "TrendsQuery", "series": [{"event": "$pageview", "kind": "EventsNode"}]},
