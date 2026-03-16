@@ -37,6 +37,8 @@ jobs:
               uses: actions/setup-go@v6
               with:
                   go-version: '1.25.5'
+                  cache: true
+                  cache-dependency-path: tools/phrocs/go.sum
 
             - name: Build all platform binaries
               run: cd tools/phrocs && make build-all
