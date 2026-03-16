@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 70 ops
+ * PostHog API - MCP 71 ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -365,6 +365,17 @@ export const DataWarehouseCompletedActivityRetrieveParams = zod.object({
 Includes: materializations, syncs, sources, destinations, and transformations.
  */
 export const DataWarehouseDataHealthIssuesRetrieveParams = zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+})
+
+/**
+ * Returns the data ops overview dashboard ID for this team, creating it if it doesn't exist yet.
+ */
+export const DataWarehouseDataOpsDashboardRetrieveParams = zod.object({
     project_id: zod
         .string()
         .describe(
