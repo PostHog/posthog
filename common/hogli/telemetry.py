@@ -1,6 +1,6 @@
 """Anonymous opt-out telemetry for hogli CLI.
 
-Sends a single `command_executed` event per invocation via a direct HTTP POST
+Sends a single `command_invoked` event per invocation via a direct HTTP POST
 to PostHog's /capture endpoint.  No SDK is used because the `posthog` package
 name collides with the repo module.
 
@@ -34,7 +34,7 @@ _HOST = "https://us.i.posthog.com"
 # ---------------------------------------------------------------------------
 
 
-def _get_config_path() -> Path:
+def get_config_path() -> Path:
     xdg = os.environ.get("XDG_CONFIG_HOME")
     base = Path(xdg) if xdg else Path.home() / ".config"
     return base / "posthog" / "hogli_telemetry.json"
@@ -42,14 +42,14 @@ def _get_config_path() -> Path:
 
 def _load_config() -> dict[str, Any]:
     try:
-        return json.loads(_get_config_path().read_text())
+        return json.loads(get_config_path().read_text())
     except Exception:
         return {}
 
 
 def _save_config(config: dict[str, Any]) -> None:
     try:
-        path = _get_config_path()
+        path = get_config_path()
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(config, indent=2) + "\n")
     except Exception:
@@ -95,7 +95,7 @@ def set_enabled(enabled: bool) -> None:
 
 def show_first_run_notice_if_needed() -> None:
     """Print a one-time notice to stderr on first invocation, then create config."""
-    if _get_config_path().exists():
+    if get_config_path().exists():
         return
 
     click.echo(
@@ -156,8 +156,13 @@ def track(event: str, properties: dict[str, Any] | None = None) -> None:
 _pending_threads: list[threading.Thread] = []
 
 
-def flush(timeout: float = 0.2) -> None:
-    """Block until pending telemetry threads complete or *timeout* elapses."""
+def flush(timeout: float = 0.5) -> None:
+    """Block until pending telemetry threads complete or *timeout* elapses.
+
+    Tradeoff: higher timeout improves delivery on slow networks (first
+    request needs DNS + TLS) but adds latency to CLI exit. 0.5s is
+    imperceptible interactively and covers most first-request scenarios.
+    """
     deadline = _time.monotonic() + timeout
     while _pending_threads:
         thread = _pending_threads.pop(0)

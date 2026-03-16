@@ -25,7 +25,7 @@ def telemetry_status() -> None:
     import os
 
     enabled = telemetry.is_enabled()
-    config_path = telemetry._get_config_path()
+    config_path = telemetry.get_config_path()
 
     click.echo(f"Telemetry: {'enabled' if enabled else 'disabled'}")
 

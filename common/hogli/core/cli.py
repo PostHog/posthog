@@ -7,8 +7,11 @@ Help output is dynamically generated from the manifest with category grouping.
 from __future__ import annotations
 
 import os
+import sys
 import time as _time
+import shutil
 import platform
+import dataclasses
 from collections import defaultdict
 from typing import Any
 
@@ -99,7 +102,13 @@ def _auto_update_manifest() -> None:
         )
 
 
-_telemetry_command: str | None = None
+@dataclasses.dataclass
+class _TelemetryState:
+    command: str | None = None
+    has_args: bool = False
+
+
+_telemetry_state = _TelemetryState()
 
 
 @click.group(
@@ -110,8 +119,8 @@ _telemetry_command: str | None = None
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - Developer CLI for PostHog."""
-    global _telemetry_command
-    _telemetry_command = ctx.invoked_subcommand
+    _telemetry_state.command = ctx.invoked_subcommand
+    _telemetry_state.has_args = len(sys.argv) > 2
 
     # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
     # Skip during git hooks to prevent manifest modifications during lint-staged execution
@@ -283,15 +292,19 @@ except ImportError:
 
 
 def _fire_telemetry(duration_s: float, exit_code: int) -> None:
-    """Send a command_executed telemetry event. Never raises."""
-    if _telemetry_command is None and exit_code != 0:
+    """Send a command_invoked telemetry event. Never raises."""
+    if _telemetry_state.command is None and exit_code != 0:
         return
     try:
         props: dict[str, Any] = {
-            "command": _telemetry_command,
-            "command_category": get_category_for_command(_telemetry_command) if _telemetry_command else None,
+            "command": _telemetry_state.command,
+            "command_category": get_category_for_command(_telemetry_state.command)
+            if _telemetry_state.command
+            else None,
             "duration_s": round(duration_s, 3),
             "exit_code": exit_code,
+            "has_args": _telemetry_state.has_args,
+            "terminal_width": shutil.get_terminal_size().columns,
             "os": platform.system(),
             "arch": platform.machine(),
             "python_version": platform.python_version(),
@@ -303,7 +316,7 @@ def _fire_telemetry(duration_s: float, exit_code: int) -> None:
             "in_flox": os.environ.get("FLOX_ENV") is not None,
             "is_worktree": (REPO_ROOT / ".git").is_file(),
         }
-        telemetry.track("command_executed", props)
+        telemetry.track("command_invoked", props)
     except Exception:
         pass
 
