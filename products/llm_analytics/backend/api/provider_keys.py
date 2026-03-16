@@ -307,12 +307,12 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 )
                 return super().destroy(request, *args, **kwargs)
         else:
-            model_config_ids = list(
-                LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
-                    "id", flat=True
-                )
-            )
             with transaction.atomic():
+                model_config_ids = list(
+                    LLMModelConfiguration.objects.filter(provider_key=instance, team_id=self.team_id).values_list(
+                        "id", flat=True
+                    )
+                )
                 # Disable affected evaluations and sever the model configuration
                 # link so they don't attempt to use a provider that no longer has
                 # a key. The user will need to reconfigure the evaluation to
