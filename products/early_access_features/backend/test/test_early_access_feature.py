@@ -102,6 +102,43 @@ class TestEarlyAccessFeature(APIBaseTest):
         assert response_data["stage"] == target_stage
         assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
 
+    @parameterized.expand(
+        [
+            ("with_rollout_to_all", True, False, [{"properties": [], "rollout_percentage": 100}]),
+            ("without_rollout_to_all", False, True, None),
+        ]
+    )
+    def test_promote_to_ga_rollout_to_all(self, _name, rollout_to_all, expect_super_groups, expected_groups):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/early_access_feature/",
+            data={"name": "Hick bondoogling", "description": "Test feature", "stage": "beta"},
+            format="json",
+        )
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+        assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+
+        feature_id = response_data["id"]
+
+        patch_data: dict = {"stage": EarlyAccessFeature.Stage.GENERAL_AVAILABILITY}
+        if rollout_to_all:
+            patch_data["rollout_to_all"] = True
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/early_access_feature/{feature_id}",
+            data=patch_data,
+            format="json",
+        )
+        response_data = response.json()
+
+        assert response.status_code == status.HTTP_200_OK, response_data
+        assert response_data["stage"] == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY
+        if expect_super_groups:
+            assert len(response_data["feature_flag"]["filters"]["super_groups"]) == 1
+        else:
+            assert not response_data["feature_flag"]["filters"].get("super_groups")
+            assert response_data["feature_flag"]["filters"]["groups"] == expected_groups
+
     def test_demote_alpha_to_concept_removes_super_groups(self):
         """Demoting from ALPHA back to CONCEPT should remove super_groups."""
         response = self.client.post(
