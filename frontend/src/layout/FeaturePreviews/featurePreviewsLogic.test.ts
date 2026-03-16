@@ -95,6 +95,50 @@ describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment', () => {
     })
 })
 
+describe('featurePreviewsLogic - conceptEnrollments reducer', () => {
+    let logic: ReturnType<typeof featurePreviewsLogic.build>
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        ;(posthog as any).updateEarlyAccessFeatureEnrollment = jest.fn()
+
+        useMocks({
+            post: {
+                'https://posthoghelp.zendesk.com/api/v2/requests.json': [200, {}],
+            },
+        })
+        initKeaTests()
+        logic = featurePreviewsLogic()
+        logic.mount()
+        userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
+    })
+
+    test('tracks concept stage enrollments locally', async () => {
+        logic.actions.updateEarlyAccessFeatureEnrollment('concept-flag', true, 'concept')
+
+        await expectLogic(logic).toMatchValues({
+            conceptEnrollments: { 'concept-flag': true },
+        })
+    })
+
+    test('does not track non-concept stage enrollments', async () => {
+        logic.actions.updateEarlyAccessFeatureEnrollment('beta-flag', true, 'beta')
+
+        await expectLogic(logic).toMatchValues({
+            conceptEnrollments: {},
+        })
+    })
+
+    test('tracks multiple concept enrollments', async () => {
+        logic.actions.updateEarlyAccessFeatureEnrollment('concept-a', true, 'concept')
+        logic.actions.updateEarlyAccessFeatureEnrollment('concept-b', true, 'concept')
+
+        await expectLogic(logic).toMatchValues({
+            conceptEnrollments: { 'concept-a': true, 'concept-b': true },
+        })
+    })
+})
+
 describe('featurePreviewsLogic - updateEarlyAccessFeatureEnrollment (impersonated session)', () => {
     let logic: ReturnType<typeof featurePreviewsLogic.build>
     const mockUpdateEnrollment = jest.fn()
