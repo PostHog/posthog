@@ -7,9 +7,10 @@ import { urls } from 'scenes/urls'
 import { EvaluationConfig, llmProviderKeysLogic } from './llmProviderKeysLogic'
 
 export function TrialUsageMeter({ showSettingsLink = false }: { showSettingsLink?: boolean }): JSX.Element | null {
-    const { evaluationConfig, providerKeys } = useValues(llmProviderKeysLogic)
+    const { evaluationConfig, providerKeys, providerKeysLoading } = useValues(llmProviderKeysLogic)
 
-    if (!evaluationConfig) {
+    // Wait for both loaders before deciding visibility to avoid a brief flash
+    if (!evaluationConfig || providerKeysLoading) {
         return null
     }
 

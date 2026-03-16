@@ -287,8 +287,9 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
                 non_retryable=True,
             )
 
-        # No explicit active key — resolve dynamically (legacy is always openai)
-        return _resolve_provider_key("openai")
+        # No explicit active key — resolve dynamically (legacy is always openai).
+        # Pass the already-fetched config to avoid a duplicate DB query.
+        return _resolve_provider_key("openai", config=config)
 
     def _get_provider_key_by_id(key_id: str) -> LLMProviderKey:
         """Fetch a specific provider key by ID, validating team ownership."""
@@ -310,7 +311,7 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
                 non_retryable=True,
             )
 
-    def _resolve_provider_key(provider: str) -> LLMProviderKey | None:
+    def _resolve_provider_key(provider: str, config: EvaluationConfig | None = None) -> LLMProviderKey | None:
         """Resolve the best available key for a provider.
 
         Prefers a BYOK key when one exists so the team's own key is always
@@ -330,7 +331,8 @@ async def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> dict[str,
             return byok_key
 
         # No BYOK key — fall back to trial quota
-        config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
+        if config is None:
+            config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
         if config.trial_evals_used < config.trial_eval_limit:
             return None
 
