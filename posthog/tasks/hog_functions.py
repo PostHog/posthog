@@ -49,12 +49,9 @@ def refresh_affected_hog_functions(
             return 0
 
         team_id = team.id
-        affected_hog_functions = list(
-            HogFunction.objects.select_related("team")
-            .filter(team_id=team_id)
-            .filter(filters__contains={"filter_test_accounts": True})
-        )
-    elif team_id:
+
+    # For both cohort_id and team_id paths, find hog functions with test account filters enabled
+    if team_id and not affected_hog_functions:
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
             .filter(team_id=team_id)
