@@ -271,7 +271,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setPageVisibility: (visible: boolean) => ({ visible }),
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
         /** Set the dashboard mode, see DashboardMode for details. */
-        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
+        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource) => ({ mode, source }),
         /** Make it easier to handle organizing the layout when theres lots of tiles by zooming out */
         setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
         /** Optimistic pin/unpin toggle. */
