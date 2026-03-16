@@ -387,9 +387,7 @@ def lint_product(name: str, verbose: bool = True) -> list[str]:
             click.echo("  tach interfaces...")
         module_path = f"products.{name}"
         tach_content = TACH_TOML.read_text() if TACH_TOML.exists() else ""
-        has_interfaces = f'path = "{module_path}"' in tach_content and "interfaces" in _get_tach_block(
-            tach_content, module_path
-        )
+        has_interfaces = "interfaces" in _get_tach_block(tach_content, module_path)
         if not has_interfaces:
             issues.append(
                 f"Isolated product missing 'interfaces' in tach.toml — "
@@ -470,7 +468,7 @@ def _lint_all_products() -> None:
 
     click.echo(f"Linting {len(product_dirs)} products ({len(strict)} strict, {len(lenient)} lenient)")
     click.echo(
-        "Checks: required root files, backend:test, backend:contract-check (isolated only), misplaced files, file/folder conflicts\n"
+        "Checks: required root files, backend:test, backend:contract-check (isolated only), misplaced files, file/folder conflicts, tach interfaces (isolated only)\n"
     )
 
     failed: list[str] = []
