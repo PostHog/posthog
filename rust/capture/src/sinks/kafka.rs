@@ -572,6 +572,7 @@ mod tests {
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+            kafka_traces_topic: "traces_ingestion".to_string(),
             kafka_tls: false,
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
