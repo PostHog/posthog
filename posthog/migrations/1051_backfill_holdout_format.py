@@ -25,7 +25,10 @@ def backfill_holdout_format(apps, schema_editor):
         condition = holdout_groups[0]
         variant = condition.get("variant", "")
         # Parse holdout ID from variant string "holdout-{id}"
-        holdout_id = int(variant.split("-", 1)[1]) if "-" in variant else None
+        try:
+            holdout_id = int(variant.split("-", 1)[1]) if "-" in variant else None
+        except (ValueError, IndexError):
+            holdout_id = None
         if holdout_id is None:
             continue
 
