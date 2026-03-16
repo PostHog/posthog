@@ -549,9 +549,10 @@ jobs:
             - name: Checkout this PR
               uses: actions/checkout@v6
               with:
-                  # Checkout the actual branch (not the merge commit) so OpenAPI type
-                  # generation runs against branch code and can be committed directly.
-                  ref: ${{ github.event.pull_request.head.ref || github.ref }}
+                  # For same-repo PRs, checkout the actual branch (not the merge commit)
+                  # so OpenAPI type generation can be committed directly. Fork PRs fall
+                  # back to the default merge commit (auto-commit bails out for forks).
+                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
                   clean: false
                   # Use app token so the git extraheader is set correctly for the OpenAPI
                   # type commit push later — GITHUB_TOKEN pushes don't trigger CI.
