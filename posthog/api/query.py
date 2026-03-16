@@ -35,7 +35,7 @@ from posthog import settings
 from posthog.api.documentation import extend_schema
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.monitoring import Feature, monitor
-from posthog.api.query_coalescer import QueryCoalescer, compute_coalescing_key
+from posthog.api.query_coalescer import CoalesceSignal, QueryCoalescer, compute_coalescing_key
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
 from posthog.api.utils import action, is_insight_actors_options_query, is_insight_actors_query, is_insight_query
@@ -179,11 +179,11 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
 
         signal = coalescer.wait_for_signal(max_wait=settings.QUERY_COALESCING_MAX_WAIT_SECONDS)
 
-        if signal == "done":
+        if signal == CoalesceSignal.DONE:
             log.info("query_coalescing_follower_done")
             return None
 
-        if signal == "error":
+        if signal == CoalesceSignal.ERROR:
             error_data = coalescer.get_error_response()
             if error_data:
                 log.info("query_coalescing_follower_replaying_error", status=error_data["status"])
@@ -200,14 +200,13 @@ class QueryViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet)
             log.warning("query_coalescing_follower_error_read_failed")
             return None
 
-        if signal == "timeout":
+        if signal == CoalesceSignal.TIMEOUT:
             log.warning("query_coalescing_follower_timeout")
             return Response(
                 data={"type": "server_error", "detail": "Query is still running, please try again shortly."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        # crashed — leader is gone, fall through to re-execute
         log.info("query_coalescing_follower_fallthrough", signal=signal)
         return None
 

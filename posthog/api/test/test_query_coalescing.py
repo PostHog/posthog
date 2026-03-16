@@ -1,5 +1,6 @@
 import json
 import time
+import itertools
 import threading
 from typing import Any
 
@@ -12,14 +13,23 @@ from redis.exceptions import RedisError
 
 from posthog import redis as posthog_redis
 from posthog.api.query_coalescer import (
+    _EXTEND_LOCK_SCRIPT,
+    CHANNEL_PREFIX,
     DONE_KEY_PREFIX,
     ERROR_KEY_PREFIX,
     LOCK_KEY_PREFIX,
+    LOCK_TTL_SECONDS,
+    CoalesceSignal,
     QueryCoalescer,
-    _Heartbeat,
     compute_coalescing_key,
     query_coalesce_counter,
 )
+
+
+def _fake_clock(step: float):
+    """Return a callable that advances by `step` on each call, replacing time.monotonic."""
+    counter = itertools.count()
+    return lambda: next(counter) * step
 
 
 class TestComputeCoalescingKey(TestCase):
@@ -89,21 +99,16 @@ class TestQueryCoalescer(TestCase):
 
     # -- Heartbeat --
 
-    def test_heartbeat_extends_lock_ttl(self):
+    def test_extend_lock_script_refreshes_ttl(self):
         coalescer = QueryCoalescer(self.key)
         coalescer.try_acquire()
 
         self.redis.expire(f"{LOCK_KEY_PREFIX}:{self.key}", 2)
-        ttl_before = self.redis.ttl(f"{LOCK_KEY_PREFIX}:{self.key}")
-        self.assertLessEqual(ttl_before, 2)
+        self.assertLessEqual(self.redis.ttl(f"{LOCK_KEY_PREFIX}:{self.key}"), 2)
 
-        with mock.patch("posthog.api.query_coalescer.HEARTBEAT_INTERVAL_SECONDS", 0.1):
-            hb = _Heartbeat(self.redis, coalescer._lock_key, coalescer._lock_value)
-            time.sleep(0.3)
-            hb.stop()
+        self.redis.eval(_EXTEND_LOCK_SCRIPT, 1, coalescer._lock_key, coalescer._lock_value, LOCK_TTL_SECONDS)
 
-        ttl_after = self.redis.ttl(f"{LOCK_KEY_PREFIX}:{self.key}")
-        self.assertGreater(ttl_after, 2)
+        self.assertGreater(self.redis.ttl(f"{LOCK_KEY_PREFIX}:{self.key}"), 2)
         coalescer.cleanup()
 
     def test_heartbeat_stops_cleanly(self):
@@ -143,7 +148,7 @@ class TestQueryCoalescer(TestCase):
         self._set_lock()
         self.redis.set(f"{DONE_KEY_PREFIX}:{self.key}", "1", ex=60)
         coalescer = QueryCoalescer(self.key)
-        self.assertEqual(coalescer.wait_for_signal(max_wait=5), "done")
+        self.assertEqual(coalescer.wait_for_signal(max_wait=5), CoalesceSignal.DONE)
 
     def test_wait_returns_error_when_error_key_set(self):
         self._set_lock()
@@ -153,30 +158,51 @@ class TestQueryCoalescer(TestCase):
             ex=60,
         )
         coalescer = QueryCoalescer(self.key)
-        self.assertEqual(coalescer.wait_for_signal(max_wait=5), "error")
+        self.assertEqual(coalescer.wait_for_signal(max_wait=5), CoalesceSignal.ERROR)
 
-    def test_wait_returns_crashed_when_lock_gone(self):
-        # No lock set — leader gone
+    def test_wait_returns_crashed_when_no_heartbeat(self):
         coalescer = QueryCoalescer(self.key)
-        self.assertEqual(coalescer.wait_for_signal(max_wait=0.1), "crashed")
+        # Each call advances 25s. crash_timeout = 2 * 20 = 40s.
+        # Iteration 1: elapsed=25, last_message=0 → 25 < 40, no crash yet
+        # Iteration 2: elapsed=50, last_message=0 → 50 > 40, CRASHED
+        clock = _fake_clock(step=25)
+        with mock.patch("posthog.api.query_coalescer.time.monotonic", clock):
+            self.assertEqual(coalescer.wait_for_signal(max_wait=300), CoalesceSignal.CRASHED)
+
+    def test_wait_returns_crashed_when_heartbeat_stops(self):
+        coalescer = QueryCoalescer(self.key)
+        channel = f"{CHANNEL_PREFIX}:{self.key}"
+
+        # Publish heartbeats for the first 3 get_message calls, then stop
+        call_count = 0
+        original_get_message = self.redis.pubsub().__class__.get_message
+
+        def get_message_with_initial_heartbeats(ps, *args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count <= 3:
+                self.redis.publish(channel, "heartbeat")
+            return original_get_message(ps, *args, **kwargs)
+
+        # Each call advances 15s. crash_timeout = 40s.
+        # Iterations 1-3: heartbeat received → last_message resets
+        # Iteration 4: no heartbeat, elapsed since last_message=15 < 40
+        # Iteration 5: no heartbeat, elapsed since last_message=30 < 40
+        # Iteration 6: no heartbeat, elapsed since last_message=45 > 40 → CRASHED
+        clock = _fake_clock(step=15)
+        with (
+            mock.patch("posthog.api.query_coalescer.time.monotonic", clock),
+            mock.patch("redis.client.PubSub.get_message", get_message_with_initial_heartbeats),
+        ):
+            self.assertEqual(coalescer.wait_for_signal(max_wait=300), CoalesceSignal.CRASHED)
 
     def test_wait_returns_timeout_when_max_wait_exceeded(self):
         self._set_lock()
         coalescer = QueryCoalescer(self.key)
-        self.assertEqual(coalescer.wait_for_signal(max_wait=0.01), "timeout")
-
-    def test_wait_polls_until_done(self):
-        self._set_lock()
-        coalescer = QueryCoalescer(self.key)
-
-        def leader_finishes():
-            time.sleep(0.05)
-            self.redis.set(f"{DONE_KEY_PREFIX}:{self.key}", "1", ex=60)
-
-        t = threading.Thread(target=leader_finishes)
-        t.start()
-        self.assertEqual(coalescer.wait_for_signal(max_wait=5), "done")
-        t.join()
+        # First call returns 0 (start), next returns 100 → exceeds max_wait
+        clock = _fake_clock(step=100)
+        with mock.patch("posthog.api.query_coalescer.time.monotonic", clock):
+            self.assertEqual(coalescer.wait_for_signal(max_wait=50), CoalesceSignal.TIMEOUT)
 
     # -- Concurrent leader + follower --
 
@@ -213,7 +239,7 @@ class TestQueryCoalescer(TestCase):
 
         self.assertTrue(results["leader_acquired"])
         self.assertFalse(results["follower_acquired"])
-        self.assertEqual(results["follower_signal"], "done")
+        self.assertEqual(results["follower_signal"], CoalesceSignal.DONE)
 
     def test_concurrent_leader_error_and_follower(self):
         results: dict[str, Any] = {}
@@ -235,7 +261,7 @@ class TestQueryCoalescer(TestCase):
             follower_polling.set()
             signal = c.wait_for_signal(max_wait=5)
             results["signal"] = signal
-            if signal == "error":
+            if signal == CoalesceSignal.ERROR:
                 results["error_data"] = c.get_error_response()
 
         leader_thread = threading.Thread(target=run_leader)
@@ -245,7 +271,7 @@ class TestQueryCoalescer(TestCase):
         leader_thread.join(timeout=10)
         follower_thread.join(timeout=10)
 
-        self.assertEqual(results["signal"], "error")
+        self.assertEqual(results["signal"], CoalesceSignal.ERROR)
         self.assertEqual(results["error_data"]["status"], 500)
         self.assertEqual(results["error_data"]["body"], '{"detail":"server error"}')
 
