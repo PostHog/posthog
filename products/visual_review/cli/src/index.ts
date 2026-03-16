@@ -262,10 +262,12 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     // 3. Read baseline hashes (signed format — sent as-is, backend verifies)
     const baselinePath = resolve(options.baseline)
     const baselineHashes = readBaselineHashes(baselinePath)
+    log(`Loaded ${Object.keys(baselineHashes).length} baseline hashes from ${baselinePath}`)
 
     // 4. Create run with manifest
     const branch = options.branch ?? getCurrentBranch()
     const commit = options.commit ?? getCurrentCommit()
+    log(`Creating run: ${snapshots.length} snapshots, branch=${branch}, commit=${commit.slice(0, 10)}`)
 
     const result = await client.createRun({
         repoId: repo,
@@ -283,28 +285,33 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
     })
 
     log(`Run created: ${result.run_id}`)
+    log(
+        `Backend requested ${result.uploads.length} upload(s), ${snapshots.length - result.uploads.length} already exist`
+    )
 
     // 5. Upload missing artifacts
     if (result.uploads.length > 0) {
-        log(`Uploading ${result.uploads.length} artifacts...`)
         const hashToSnapshot = new Map(snapshots.map((s) => [s.hash, s]))
 
         for (const upload of result.uploads) {
             const snapshot = hashToSnapshot.get(upload.content_hash)
             if (!snapshot) {
+                log(`  skip upload ${upload.content_hash.slice(0, 12)} — no matching local snapshot`)
                 continue
             }
 
             try {
                 await client.uploadToS3(upload, snapshot.data)
+                log(`  uploaded ${snapshot.identifier} (${upload.content_hash.slice(0, 12)})`)
             } catch (error) {
-                console.error(`  ✗ Upload failed: ${error}`)
+                console.error(`  upload failed ${snapshot.identifier}: ${error}`)
             }
         }
     }
 
     // 6. Complete run
     let run = await client.completeRun(result.run_id)
+    log(`Run status after complete: ${run.status}`)
 
     // 7. Wait for diff processing if still running
     if (run.status !== 'completed' && run.status !== 'failed') {
@@ -324,7 +331,7 @@ async function runSubmit(options: SubmitOptions): Promise<number> {
         const approveResult = await client.autoApproveRun(result.run_id)
         const baselinePath = resolve(options.baseline)
         writeFileSync(baselinePath, approveResult.baseline_content, 'utf-8')
-        log(`Baseline written to ${baselinePath}`)
+        log(`Baseline written to ${baselinePath} (${approveResult.baseline_content.length} bytes)`)
         return 0
     }
 
