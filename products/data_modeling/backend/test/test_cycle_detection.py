@@ -31,16 +31,13 @@ class LinkedListCycleDetectionTest(BaseTest):
                 for i in range(25)
             ]
             ll_nodes = [
-                Node.objects.create(
-                    team=cls.team, dag_fk=cls.ll_dag, dag_id_text=LINKED_LIST_DAG_ID, saved_query=query, name=f"ll_{i}"
-                )
+                Node.objects.create(team=cls.team, dag=cls.ll_dag, saved_query=query, name=f"ll_{i}")
                 for i, query in enumerate(ll_queries)
             ]
             for i in range(len(ll_nodes) - 1):
                 Edge.objects.create(
                     team=cls.team,
-                    dag_fk=cls.ll_dag,
-                    dag_id_text=LINKED_LIST_DAG_ID,
+                    dag=cls.ll_dag,
                     source=ll_nodes[i],
                     target=ll_nodes[i + 1],
                 )
@@ -64,13 +61,9 @@ class LinkedListCycleDetectionTest(BaseTest):
         target = Node.objects.get(saved_query__name=f"ll_{target_label}")
         if should_raise:
             with self.assertRaises(Exception):
-                Edge.objects.create(
-                    team=source.team, dag_fk=self.ll_dag, dag_id_text=LINKED_LIST_DAG_ID, source=source, target=target
-                )
+                Edge.objects.create(team=source.team, dag=self.ll_dag, source=source, target=target)
         else:
-            edge = Edge.objects.create(
-                team=source.team, dag_fk=self.ll_dag, dag_id_text=LINKED_LIST_DAG_ID, source=source, target=target
-            )
+            edge = Edge.objects.create(team=source.team, dag=self.ll_dag, source=source, target=target)
             edge.delete()
 
 
@@ -109,8 +102,7 @@ class TreeCycleDetectionTest(BaseTest):
             bt_nodes = [
                 Node.objects.create(
                     team=cls.team,
-                    dag_fk=cls.bt_dag,
-                    dag_id_text=BALANCED_TREE_DAG_ID,
+                    dag=cls.bt_dag,
                     saved_query=query,
                     name=query.name,
                 )
@@ -119,15 +111,12 @@ class TreeCycleDetectionTest(BaseTest):
             root = bt_nodes[0]
             children = bt_nodes[1:6]
             for i, child in enumerate(children):
-                Edge.objects.create(
-                    team=cls.team, dag_fk=cls.bt_dag, dag_id_text=BALANCED_TREE_DAG_ID, source=root, target=child
-                )
+                Edge.objects.create(team=cls.team, dag=cls.bt_dag, source=root, target=child)
                 for j in range(5):
                     grandchild = bt_nodes[6 + i * 5 + j]
                     Edge.objects.create(
                         team=cls.team,
-                        dag_fk=cls.bt_dag,
-                        dag_id_text=BALANCED_TREE_DAG_ID,
+                        dag=cls.bt_dag,
                         source=child,
                         target=grandchild,
                     )
@@ -175,26 +164,22 @@ class TreeCycleDetectionTest(BaseTest):
         target = Node.objects.get(saved_query__name=f"bt_{target_label}")
         if should_raise:
             with self.assertRaises(CycleDetectionError):
-                Edge.objects.create(
-                    team=source.team, dag_fk=self.bt_dag, dag_id_text=BALANCED_TREE_DAG_ID, source=source, target=target
-                )
+                Edge.objects.create(team=source.team, dag=self.bt_dag, source=source, target=target)
         else:
-            edge = Edge.objects.create(
-                team=source.team, dag_fk=self.bt_dag, dag_id_text=BALANCED_TREE_DAG_ID, source=source, target=target
-            )
+            edge = Edge.objects.create(team=source.team, dag=self.bt_dag, source=source, target=target)
             edge.delete()
 
     def test_disallowed_object_functions(self):
         test_team = self.team
         test_node = Node.objects.get(name="bt_root")
-        bt_edges = Edge.objects.filter(dag_id_text=BALANCED_TREE_DAG_ID)
-        disallowed = ("dag_id", "dag_id_text", "source", "source_id", "target", "target_id", "team", "team_id")
+        bt_edges = Edge.objects.filter(dag=self.bt_dag)
+        disallowed = ("dag", "dag_id", "source", "source_id", "target", "target_id", "team", "team_id")
         for key in disallowed:
             # test update disallowed for each key
             with self.assertRaises(NotImplementedError):
-                if key in ("dag",):
-                    bt_edges.update(dag_fk=self.bt_dag)
-                elif key.endswith("id") or key == "dag_id_text":
+                if key == "dag":
+                    bt_edges.update(dag=self.bt_dag)
+                elif key.endswith("id"):
                     bt_edges.update(**{key: "test"})
                 elif key == "source":
                     bt_edges.update(source=test_node)
@@ -203,14 +188,11 @@ class TreeCycleDetectionTest(BaseTest):
                 elif key == "team":
                     bt_edges.update(team=test_team)
             # test bulk_update disallowed for each key
-            mock_edges = [
-                Edge(source=test_node, target=test_node, team=test_team, dag_fk=self.bt_dag, dag_id_text="test")
-                for _ in range(3)
-            ]
+            mock_edges = [Edge(source=test_node, target=test_node, team=test_team, dag=self.bt_dag) for _ in range(3)]
             for edge in mock_edges:
                 if key == "dag":
                     setattr(edge, key, self.bt_dag)
-                elif key.endswith("id") or key == "dag_id_text":
+                elif key.endswith("id"):
                     setattr(edge, key, "test")
                 elif key in ("source", "target"):
                     setattr(edge, key, test_node)

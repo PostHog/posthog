@@ -758,31 +758,29 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         const prefix = outputVar.key
                         if (outputVar.spread) {
                             // Create individual variables for each expected property
-                            const spreadKeys = [
-                                'status',
-                                'priority',
-                                'ticket_number',
-                                'channel_source',
-                                'distinct_id',
-                                'message_count',
-                                'last_message_at',
-                                'last_message_text',
-                                'unread_team_count',
-                                'unread_customer_count',
-                                'sla_due_at',
-                                'assignee',
-                                'current_url',
-                                'tags',
-                            ].map((prop) => `${prefix}_${prop}`)
+                            const spreadFields: [string, string][] = [
+                                ['status', 'Status'],
+                                ['priority', 'Priority'],
+                                ['number', 'Number'],
+                                ['channel_source', 'Channel source'],
+                                ['last_message_at', 'Last message at'],
+                                ['last_message_text', 'Last message text'],
+                                ['unread_team_count', 'Unread team'],
+                                ['unread_customer_count', 'Unread customer'],
+                                ['sla', 'SLA'],
+                                ['assignee', 'Assignee'],
+                                ['url', 'URL'],
+                                ['tags', 'Tags'],
+                            ]
 
-                            const newVars = spreadKeys
-                                .filter((key) => !updatedVariables?.some((v) => v.key === key))
-                                .map((key) => ({
-                                    key,
-                                    label: key,
+                            const newVars = spreadFields
+                                .map(([prop, label]) => ({
+                                    key: `${prefix}_${prop}`,
+                                    label,
                                     type: 'string' as const,
                                     default: '',
                                 }))
+                                .filter(({ key }) => !updatedVariables?.some((v) => v.key === key))
 
                             if (newVars.length > 0) {
                                 updatedVariables = [...(updatedVariables || []), ...newVars]

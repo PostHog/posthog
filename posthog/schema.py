@@ -2259,7 +2259,7 @@ class IntegrationFilter(BaseModel):
 
 class IntegrationKind(StrEnum):
     SLACK = "slack"
-    SLACK_TWIG = "slack-twig"
+    SLACK_POSTHOG_CODE = "slack-posthog-code"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
@@ -2470,6 +2470,20 @@ class MarketingAnalyticsConstants(StrEnum):
     GOAL = "Goal"
     COST_PER = "Cost per"
     CONST_ = "const:"
+
+
+class MarketingAnalyticsDrillDownConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columnAlias: str
+    excludedBaseColumns: list[MarketingAnalyticsBaseColumns]
+
+
+class MarketingAnalyticsDrillDownLevel(StrEnum):
+    CHANNEL = "channel"
+    SOURCE = "source"
+    CAMPAIGN = "campaign"
 
 
 class MarketingAnalyticsOrderByEnum(StrEnum):
@@ -5585,6 +5599,10 @@ class FileSystemImport(BaseModel):
     created_at: str | None = Field(
         default=None,
         description="Timestamp when file was added. Used to check persistence",
+    )
+    displayLabel: str | None = Field(
+        default=None,
+        description=("Display label override — when set, shown in the nav instead of the last segment of `path`"),
     )
     flag: str | None = None
     href: str | None = Field(default=None, description="Object's URL")
@@ -16266,6 +16284,10 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
         default=None,
         description="Draft conversion goal that can be set in the UI without saving",
     )
+    drillDownLevel: MarketingAnalyticsDrillDownLevel | None = Field(
+        default=None,
+        description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
+    )
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
@@ -16309,6 +16331,10 @@ class MarketingAnalyticsTableQuery(BaseModel):
     draftConversionGoal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | None = Field(
         default=None,
         description="Draft conversion goal that can be set in the UI without saving",
+    )
+    drillDownLevel: MarketingAnalyticsDrillDownLevel | None = Field(
+        default=None,
+        description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     includeRevenue: bool | None = None

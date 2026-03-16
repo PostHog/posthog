@@ -55,4 +55,15 @@ LifecycleEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
+export const LifecycleEditViewports: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/lifecycle.json'),
+    'edit'
+)
+LifecycleEditViewports.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
+}
+
 /* eslint-enable @typescript-eslint/no-var-requires */

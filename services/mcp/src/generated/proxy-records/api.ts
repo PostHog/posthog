@@ -18,7 +18,7 @@ export const ProxyRecordsListParams = zod.object({
 export const ProxyRecordsListResponseItem = zod.object({
     results: zod.array(
         zod.object({
-            id: zod.string().describe('Unique identifier for the proxy record.'),
+            id: zod.string().optional().describe('Unique identifier for the proxy record.'),
             domain: zod
                 .string()
                 .describe(
@@ -26,6 +26,7 @@ export const ProxyRecordsListResponseItem = zod.object({
                 ),
             target_cname: zod
                 .string()
+                .optional()
                 .describe(
                     "The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value."
                 ),
@@ -34,16 +35,17 @@ export const ProxyRecordsListResponseItem = zod.object({
                 .describe(
                     '* `waiting` - Waiting\n* `issuing` - Issuing\n* `valid` - Valid\n* `warning` - Warning\n* `erroring` - Erroring\n* `deleting` - Deleting\n* `timed_out` - Timed Out'
                 )
+                .optional()
                 .describe(
                     'Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).\n\n* `waiting` - Waiting\n* `issuing` - Issuing\n* `valid` - Valid\n* `warning` - Warning\n* `erroring` - Erroring\n* `deleting` - Deleting\n* `timed_out` - Timed Out'
                 ),
             message: zod
                 .string()
-                .nullable()
+                .nullish()
                 .describe('Human-readable status message with details about errors or warnings, if any.'),
-            created_at: zod.string().datetime({}).describe('When this proxy record was created.'),
-            updated_at: zod.string().datetime({}).describe('When this proxy record was last updated.'),
-            created_by: zod.number().describe('ID of the user who created this proxy record.'),
+            created_at: zod.string().datetime({}).optional().describe('When this proxy record was created.'),
+            updated_at: zod.string().datetime({}).optional().describe('When this proxy record was last updated.'),
+            created_by: zod.number().optional().describe('ID of the user who created this proxy record.'),
         })
     ),
     max_proxy_records: zod
@@ -74,28 +76,30 @@ export const ProxyRecordsRetrieveParams = zod.object({
 })
 
 export const ProxyRecordsRetrieveResponse = zod.object({
-    id: zod.string().describe('Unique identifier for the proxy record.'),
+    id: zod.string().optional().describe('Unique identifier for the proxy record.'),
     domain: zod
         .string()
         .describe("The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control."),
     target_cname: zod
         .string()
+        .optional()
         .describe("The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value."),
     status: zod
         .enum(['waiting', 'issuing', 'valid', 'warning', 'erroring', 'deleting', 'timed_out'])
         .describe(
             '* `waiting` - Waiting\n* `issuing` - Issuing\n* `valid` - Valid\n* `warning` - Warning\n* `erroring` - Erroring\n* `deleting` - Deleting\n* `timed_out` - Timed Out'
         )
+        .optional()
         .describe(
             'Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).\n\n* `waiting` - Waiting\n* `issuing` - Issuing\n* `valid` - Valid\n* `warning` - Warning\n* `erroring` - Erroring\n* `deleting` - Deleting\n* `timed_out` - Timed Out'
         ),
     message: zod
         .string()
-        .nullable()
+        .nullish()
         .describe('Human-readable status message with details about errors or warnings, if any.'),
-    created_at: zod.string().datetime({}).describe('When this proxy record was created.'),
-    updated_at: zod.string().datetime({}).describe('When this proxy record was last updated.'),
-    created_by: zod.number().describe('ID of the user who created this proxy record.'),
+    created_at: zod.string().datetime({}).optional().describe('When this proxy record was created.'),
+    updated_at: zod.string().datetime({}).optional().describe('When this proxy record was last updated.'),
+    created_by: zod.number().optional().describe('ID of the user who created this proxy record.'),
 })
 
 /**
@@ -115,26 +119,28 @@ export const ProxyRecordsRetryCreateParams = zod.object({
 })
 
 export const ProxyRecordsRetryCreateResponse = zod.object({
-    id: zod.string().describe('Unique identifier for the proxy record.'),
+    id: zod.string().optional().describe('Unique identifier for the proxy record.'),
     domain: zod
         .string()
         .describe("The custom domain to proxy through, e.g. 'e.example.com'. Must be a valid subdomain you control."),
     target_cname: zod
         .string()
+        .optional()
         .describe("The CNAME target to add as a DNS record for your domain. Point your domain's CNAME to this value."),
     status: zod
         .enum(['waiting', 'issuing', 'valid', 'warning', 'erroring', 'deleting', 'timed_out'])
         .describe(
             '* `waiting` - Waiting\n* `issuing` - Issuing\n* `valid` - Valid\n* `warning` - Warning\n* `erroring` - Erroring\n* `deleting` - Deleting\n* `timed_out` - Timed Out'
         )
+        .optional()
         .describe(
             'Current provisioning status. Values: waiting (DNS verification pending), issuing (SSL certificate being issued), valid (proxy is live and working), warning (proxy has issues but is operational), erroring (proxy setup failed), deleting (removal in progress), timed_out (DNS verification timed out).\n\n* `waiting` - Waiting\n* `issuing` - Issuing\n* `valid` - Valid\n* `warning` - Warning\n* `erroring` - Erroring\n* `deleting` - Deleting\n* `timed_out` - Timed Out'
         ),
     message: zod
         .string()
-        .nullable()
+        .nullish()
         .describe('Human-readable status message with details about errors or warnings, if any.'),
-    created_at: zod.string().datetime({}).describe('When this proxy record was created.'),
-    updated_at: zod.string().datetime({}).describe('When this proxy record was last updated.'),
-    created_by: zod.number().describe('ID of the user who created this proxy record.'),
+    created_at: zod.string().datetime({}).optional().describe('When this proxy record was created.'),
+    updated_at: zod.string().datetime({}).optional().describe('When this proxy record was last updated.'),
+    created_by: zod.number().optional().describe('ID of the user who created this proxy record.'),
 })

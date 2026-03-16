@@ -23,12 +23,12 @@ from .process_task.activities import (
     update_task_run_status,
 )
 from .process_task.workflow import ProcessTaskWorkflow
-from .slack_relay import TwigAgentRelayWorkflow, relay_slack_message
+from .slack_relay import PostHogCodeAgentRelayWorkflow, relay_slack_message
 
 WORKFLOWS = [
     ProcessTaskWorkflow,
     CreateSnapshotForRepositoryWorkflow,
-    TwigAgentRelayWorkflow,
+    PostHogCodeAgentRelayWorkflow,
 ]
 
 ACTIVITIES = [
