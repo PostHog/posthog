@@ -2358,6 +2358,232 @@ export interface FunnelsQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
+export type GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApiKind =
+    (typeof GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApiKind)[keyof typeof GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApiKind]
+
+export const GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApiKind = {
+    GroupNode: 'GroupNode',
+} as const
+
+export type FunnelsDataWarehouseNodeApiKind =
+    (typeof FunnelsDataWarehouseNodeApiKind)[keyof typeof FunnelsDataWarehouseNodeApiKind]
+
+export const FunnelsDataWarehouseNodeApiKind = {
+    FunnelsDataWarehouseNode: 'FunnelsDataWarehouseNode',
+} as const
+
+export const FunnelsDataWarehouseNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type FunnelsDataWarehouseNodeApiResponse = { [key: string]: unknown } | null | null
+
+export interface FunnelsDataWarehouseNodeApi {
+    /** @nullable */
+    custom_name?: string | null
+    distinct_id_field: string
+    /** @nullable */
+    dw_source_type?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+          )[]
+        | null
+    id: string
+    id_field: string
+    kind?: FunnelsDataWarehouseNodeApiKind
+    math?: (typeof FunnelsDataWarehouseNodeApiMath)[keyof typeof FunnelsDataWarehouseNodeApiMath] | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+          )[]
+        | null
+    /** @nullable */
+    response?: FunnelsDataWarehouseNodeApiResponse
+    table_name: string
+    timestamp_field: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
+export const GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApiResponse = {
+    [key: string]: unknown
+} | null | null
+
+export interface GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApi {
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+          )[]
+        | null
+    kind?: GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApiKind
+    /** @nullable */
+    limit?: number | null
+    math?:
+        | (typeof GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApiMath)[keyof typeof GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApiMath]
+        | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** Entities to combine in this group */
+    nodes: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi | FunnelsDataWarehouseNodeApi)[]
+    /** Group of entities combined with AND/OR operator */
+    operator: FilterLogicalOperatorApi
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Columns to order by
+     * @nullable
+     */
+    orderBy?: string[] | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+          )[]
+        | null
+    /** @nullable */
+    response?: GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApiResponse
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
 export interface FunnelsQueryApi {
     /**
      * Groups aggregation
@@ -2416,7 +2642,13 @@ export interface FunnelsQueryApi {
      */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
+    series: (
+        | GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EApi
+        | EventsNodeApi
+        | ActionsNodeApi
+        | DataWarehouseNodeApi
+        | FunnelsDataWarehouseNodeApi
+    )[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /**

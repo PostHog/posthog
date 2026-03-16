@@ -2679,6 +2679,130 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
+    export type GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EKind = typeof GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EKind[keyof typeof GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EKind];
+
+
+    export const GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EKind = {
+      GroupNode: 'GroupNode',
+    } as const;
+
+    export type FunnelsDataWarehouseNodeKind = typeof FunnelsDataWarehouseNodeKind[keyof typeof FunnelsDataWarehouseNodeKind];
+
+
+    export const FunnelsDataWarehouseNodeKind = {
+      FunnelsDataWarehouseNode: 'FunnelsDataWarehouseNode',
+    } as const;
+
+    export const FunnelsDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
+    /**
+     * @nullable
+     */
+    export type FunnelsDataWarehouseNodeResponse = { [key: string]: unknown } | null | null;
+
+    export interface FunnelsDataWarehouseNode {
+      /** @nullable */
+      custom_name?: string | null;
+      distinct_id_field: string;
+      /** @nullable */
+      dw_source_type?: string | null;
+      /**
+       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+       * @nullable
+       */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      id: string;
+      id_field: string;
+      kind?: FunnelsDataWarehouseNodeKind;
+      math?: typeof FunnelsDataWarehouseNodeMath[keyof typeof FunnelsDataWarehouseNodeMath]  | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_hogql?: string | null;
+      /** @nullable */
+      math_multiplier?: number | null;
+      /** @nullable */
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      /** @nullable */
+      math_property_type?: string | null;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      optionalInFunnel?: boolean | null;
+      /**
+       * Properties configurable in the interface
+       * @nullable
+       */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      /** @nullable */
+      response?: FunnelsDataWarehouseNodeResponse;
+      table_name: string;
+      timestamp_field: string;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
+    export const GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
+    /**
+     * @nullable
+     */
+    export type GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EResponse = { [key: string]: unknown } | null | null;
+
+    export interface GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3E {
+      /** @nullable */
+      custom_name?: string | null;
+      /**
+       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+       * @nullable
+       */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      kind?: GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EKind;
+      /** @nullable */
+      limit?: number | null;
+      math?: typeof GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EMath[keyof typeof GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EMath]  | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_hogql?: string | null;
+      /** @nullable */
+      math_multiplier?: number | null;
+      /** @nullable */
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      /** @nullable */
+      math_property_type?: string | null;
+      /** @nullable */
+      name?: string | null;
+      /** Entities to combine in this group */
+      nodes: (EventsNode | ActionsNode | DataWarehouseNode | FunnelsDataWarehouseNode)[];
+      /** Group of entities combined with AND/OR operator */
+      operator: FilterLogicalOperator;
+      /** @nullable */
+      optionalInFunnel?: boolean | null;
+      /**
+       * Columns to order by
+       * @nullable
+       */
+      orderBy?: string[] | null;
+      /**
+       * Properties configurable in the interface
+       * @nullable
+       */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      /** @nullable */
+      response?: GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3EResponse;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
     export interface FunnelsQuery {
       /**
        * Groups aggregation
@@ -2715,7 +2839,7 @@ export namespace Schemas {
        */
       samplingFactor?: number | null;
       /** Events and actions to include */
-      series: (GroupNode | EventsNode | ActionsNode | DataWarehouseNode)[];
+      series: (GroupNode3CDataWarehouseNode7CFunnelsDataWarehouseNode3E | EventsNode | ActionsNode | DataWarehouseNode | FunnelsDataWarehouseNode)[];
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
       /**
@@ -23708,7 +23832,7 @@ export namespace Schemas {
     ```
 
     For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
     - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -25395,34 +25519,6 @@ export namespace Schemas {
       variants: ExperimentVariantFunnelsBaseStats[];
     }
 
-    export type QueryResponseAlternative62Kind = typeof QueryResponseAlternative62Kind[keyof typeof QueryResponseAlternative62Kind];
-
-
-    export const QueryResponseAlternative62Kind = {
-      ExperimentTrendsQuery: 'ExperimentTrendsQuery',
-    } as const;
-
-    export type QueryResponseAlternative62CredibleIntervals = {[key: string]: number[]};
-
-    export type QueryResponseAlternative62InsightItem = { [key: string]: unknown };
-
-    export type QueryResponseAlternative62Probability = {[key: string]: number};
-
-    export interface QueryResponseAlternative62 {
-      count_query?: TrendsQuery | null;
-      credible_intervals: QueryResponseAlternative62CredibleIntervals;
-      exposure_query?: TrendsQuery | null;
-      insight: QueryResponseAlternative62InsightItem[];
-      kind?: QueryResponseAlternative62Kind;
-      p_value: number;
-      probability: QueryResponseAlternative62Probability;
-      significance_code: ExperimentSignificanceCode;
-      significant: boolean;
-      /** @nullable */
-      stats_version?: number | null;
-      variants: ExperimentVariantTrendsBaseStats[];
-    }
-
     export interface QueryResponseAlternative63 {
       /** @nullable */
       columns?: string[] | null;
@@ -26071,18 +26167,18 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
-    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | unknown | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative56 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative61 | QueryResponseAlternative62 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88;
+    export type QueryResponseAlternative = { [key: string]: unknown } | QueryResponseAlternative1 | QueryResponseAlternative2 | QueryResponseAlternative3 | QueryResponseAlternative4 | QueryResponseAlternative5 | QueryResponseAlternative6 | QueryResponseAlternative7 | QueryResponseAlternative8 | QueryResponseAlternative9 | QueryResponseAlternative10 | QueryResponseAlternative11 | QueryResponseAlternative14 | QueryResponseAlternative15 | QueryResponseAlternative16 | QueryResponseAlternative17 | QueryResponseAlternative18 | QueryResponseAlternative19 | QueryResponseAlternative20 | QueryResponseAlternative21 | QueryResponseAlternative22 | QueryResponseAlternative23 | QueryResponseAlternative24 | QueryResponseAlternative25 | QueryResponseAlternative27 | QueryResponseAlternative28 | QueryResponseAlternative29 | QueryResponseAlternative30 | QueryResponseAlternative31 | QueryResponseAlternative32 | QueryResponseAlternative33 | QueryResponseAlternative34 | QueryResponseAlternative35 | QueryResponseAlternative36 | QueryResponseAlternative37 | unknown | QueryResponseAlternative38 | QueryResponseAlternative39 | QueryResponseAlternative40 | QueryResponseAlternative41 | QueryResponseAlternative42 | QueryResponseAlternative43 | QueryResponseAlternative44 | QueryResponseAlternative46 | QueryResponseAlternative47 | QueryResponseAlternative48 | QueryResponseAlternative49 | QueryResponseAlternative50 | QueryResponseAlternative51 | QueryResponseAlternative52 | QueryResponseAlternative53 | QueryResponseAlternative54 | QueryResponseAlternative56 | QueryResponseAlternative57 | QueryResponseAlternative58 | QueryResponseAlternative59 | QueryResponseAlternative61 | QueryResponseAlternative63 | QueryResponseAlternative64 | QueryResponseAlternative65 | QueryResponseAlternative66 | QueryResponseAlternative67 | QueryResponseAlternative68 | QueryResponseAlternative69 | QueryResponseAlternative71 | QueryResponseAlternative72 | QueryResponseAlternative73 | QueryResponseAlternative74 | QueryResponseAlternative75 | QueryResponseAlternative76 | QueryResponseAlternative77 | QueryResponseAlternative78 | QueryResponseAlternative79 | QueryResponseAlternative80 | QueryResponseAlternative82 | QueryResponseAlternative83 | QueryResponseAlternative84 | QueryResponseAlternative85 | QueryResponseAlternative86 | QueryResponseAlternative87 | QueryResponseAlternative88;
 
     export interface QueryStatusResponse {
       query_status: QueryStatus;
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface ReorderTilesRequest {
