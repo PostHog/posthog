@@ -688,6 +688,56 @@ class TestDynamicKeyResolution:
             assert result["is_byok"] is True
             assert result["key_id"] == str(byok_key.id)
 
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_most_recently_used_byok_key_preferred(self, setup_data):
+        team = setup_data["team"]
+        from datetime import timedelta
+
+        from django.utils import timezone
+
+        now = timezone.now()
+
+        # Create two OK keys — the older one was used more recently
+        older_key = await sync_to_async(LLMProviderKey.objects.create)(
+            team=team,
+            provider="openai",
+            name="Older Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-old"},
+            last_used_at=now - timedelta(minutes=5),
+        )
+        await sync_to_async(LLMProviderKey.objects.create)(
+            team=team,
+            provider="openai",
+            name="Never Used Key",
+            state=LLMProviderKey.State.OK,
+            encrypted_config={"api_key": "sk-new"},
+            last_used_at=None,
+        )
+
+        evaluation = self._make_evaluation(
+            setup_data["evaluation"],
+            team,
+            model_configuration={"provider": "openai", "model": "gpt-5-mini", "provider_key_id": None},
+        )
+
+        with self._mock_llm_client() as mock_client_class:
+            mock_client = MagicMock()
+            mock_client_class.return_value = mock_client
+            mock_response = MagicMock()
+            mock_response.parsed = BooleanEvalResult(verdict=True, reasoning="Good")
+            mock_response.usage = MagicMock(input_tokens=10, output_tokens=5, total_tokens=15)
+            mock_client.complete.return_value = mock_response
+
+            result = await execute_llm_judge_activity(
+                ExecuteLLMJudgeInputs(evaluation=evaluation, event_data=self._make_event_data(team))
+            )
+
+            # The recently-used key is preferred over the never-used one
+            assert result["is_byok"] is True
+            assert result["key_id"] == str(older_key.id)
+
 
 class TestExecuteHogEvalActivity:
     @pytest.mark.asyncio
