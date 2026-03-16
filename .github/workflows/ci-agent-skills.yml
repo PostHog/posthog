@@ -50,8 +50,10 @@ jobs:
             - uses: actions/checkout@v6
 
             - name: Start Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: |
-                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
+                  bin/ci-wait-for-docker launch
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -88,7 +90,9 @@ jobs:
               run: ./bin/hogli lint:skills
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
 
             - name: Run migrations and create test data
               env:
@@ -130,8 +134,10 @@ jobs:
                   fetch-depth: 0
 
             - name: Start Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: |
-                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
+                  bin/ci-wait-for-docker launch
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -165,7 +171,9 @@ jobs:
               run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
 
             - name: Run migrations and create test data
               env:

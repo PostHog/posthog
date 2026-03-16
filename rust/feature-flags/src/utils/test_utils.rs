@@ -814,6 +814,7 @@ pub fn create_test_flag(
             payloads: None,
             super_groups: None,
             holdout_groups: None,
+            holdout: None,
         }),
         deleted: deleted.unwrap_or(false),
         active: active.unwrap_or(true),
@@ -835,8 +836,8 @@ pub async fn insert_suppression_rule_in_pg(
     let rule_id = uuid::Uuid::new_v4();
     sqlx::query(
         r#"INSERT INTO posthog_errortrackingsuppressionrule
-           (id, team_id, filters, created_at, updated_at, order_key)
-           VALUES ($1, $2, $3, NOW(), NOW(), 0)"#,
+           (id, team_id, filters, created_at, updated_at, order_key, sampling_rate)
+           VALUES ($1, $2, $3, NOW(), NOW(), 0, 1.0)"#,
     )
     .bind(rule_id)
     .bind(team_id)
@@ -884,6 +885,7 @@ pub fn create_test_flag_with_properties(
             payloads: None,
             super_groups: None,
             holdout_groups: None,
+            holdout: None,
         }),
         None,
         None,
@@ -1187,12 +1189,7 @@ impl TestContext {
         let pak_id = format!("test_pak_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let api_key_value = format!("phx_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
-        // Hash the key using SHA256
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(api_key_value.as_bytes());
-        let hash_result = hasher.finalize();
-        let secure_value = format!("sha256${}", hex::encode(hash_result));
+        let secure_value = crate::api::auth::hash_personal_api_key(&api_key_value);
 
         let mut conn = self.non_persons_writer.get_connection().await?;
 

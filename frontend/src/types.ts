@@ -464,6 +464,26 @@ export interface OrganizationDomainType {
     scim_bearer_token?: string
 }
 
+export interface SCIMRequestLogType {
+    id: string
+    request_method: string
+    request_path: string
+    request_headers: Record<string, string>
+    request_body: Record<string, any> | null
+    response_status: number
+    response_body: Record<string, any> | null
+    identity_provider: string
+    duration_ms: number | null
+    created_at: string
+}
+
+export interface PaginatedSCIMRequestLogs {
+    count: number
+    next: string | null
+    previous: string | null
+    results: SCIMRequestLogType[]
+}
+
 /** Member properties relevant at both organization and project level. */
 export interface BaseMemberType {
     id: string
@@ -4022,7 +4042,7 @@ export interface PreflightStatus {
         available: boolean
         client_id?: string
     }
-    twig_slack_service: {
+    posthog_code_slack_service: {
         available: boolean
         client_id?: string
     }
@@ -4043,7 +4063,6 @@ export interface PreflightStatus {
     site_url?: string
     instance_preferences?: InstancePreferencesInterface
     buffer_conversion_seconds?: number
-    auth_brand?: string | null
     object_storage: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
@@ -4068,6 +4087,7 @@ export enum DashboardPlacement {
     Person = 'person', // When the dashboard is being viewed on a person page
     Group = 'group', // When the dashboard is being viewed on a group page
     Builtin = 'builtin', // Dashboard built into product UI with external controls provided by parent context
+    DataOps = 'data-ops', // When embedded on the data ops scene dashboard tab
 }
 
 // Default mode is null
@@ -4795,7 +4815,7 @@ export enum EventDefinitionType {
 
 export const INTEGRATION_KINDS = [
     'slack',
-    'slack-twig',
+    'slack-posthog-code',
     'salesforce',
     'hubspot',
     'google-pubsub',

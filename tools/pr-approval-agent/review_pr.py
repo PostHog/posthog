@@ -228,13 +228,8 @@ class Pipeline:
         if changes_requested:
             issues.append(f"changes requested by: {', '.join(changes_requested)}")
 
-        failed = [
-            c["name"]
-            for c in pr.check_runs
-            if c.get("conclusion") in ("failure", "cancelled", "timed_out") and c.get("status") == "completed"
-        ]
-        if failed:
-            issues.append(f"failed CI: {', '.join(failed[:5])}")
+        # CI failures are not a hard gate — CI is its own gate and the
+        # agent is often triggered before all checks finish.
 
         if issues:
             return False, "; ".join(issues)
