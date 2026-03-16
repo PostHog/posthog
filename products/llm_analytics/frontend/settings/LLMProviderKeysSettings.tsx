@@ -481,8 +481,8 @@ function DeleteKeyModal({
                     {hasEvaluations && !hasAlternatives && (
                         <div className="bg-warning-highlight border border-warning rounded p-3">
                             <p className="text-sm">
-                                <strong>No replacement keys available.</strong> These evaluations will be disabled after
-                                deletion.
+                                <strong>No replacement keys available.</strong> These evaluations will be disabled and
+                                their model configuration removed. You'll need to reconfigure them to re-enable.
                             </p>
                         </div>
                     )}

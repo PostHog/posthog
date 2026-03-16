@@ -312,9 +312,13 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
                 )
             )
             with transaction.atomic():
+                # Disable affected evaluations and sever the model configuration
+                # link so they don't attempt to use a provider that no longer has
+                # a key. The user will need to reconfigure the evaluation to
+                # re-enable it.
                 Evaluation.objects.filter(
                     model_configuration_id__in=model_config_ids, team_id=self.team_id, deleted=False
-                ).update(enabled=False)
+                ).update(enabled=False, model_configuration=None)
                 return super().destroy(request, *args, **kwargs)
 
 

@@ -9,7 +9,7 @@ import { EvaluationConfig, llmProviderKeysLogic } from './llmProviderKeysLogic'
 export function TrialUsageMeter({ showSettingsLink = false }: { showSettingsLink?: boolean }): JSX.Element | null {
     const { evaluationConfig, providerKeys, providerKeysLoading } = useValues(llmProviderKeysLogic)
 
-    // Wait for both loaders before deciding visibility to avoid a brief flash
+    // Wait for provider keys to load before deciding visibility to avoid a brief flash
     if (!evaluationConfig || providerKeysLoading) {
         return null
     }

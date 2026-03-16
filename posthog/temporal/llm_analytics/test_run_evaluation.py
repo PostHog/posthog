@@ -1,10 +1,12 @@
 import json
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
 from unittest.mock import MagicMock, patch
+
+from django.utils import timezone
 
 from asgiref.sync import sync_to_async
 from parameterized import parameterized
@@ -581,10 +583,6 @@ class TestDynamicKeyResolution:
     @pytest.mark.django_db(transaction=True)
     async def test_most_recently_used_byok_key_preferred(self, setup_data):
         team = setup_data["team"]
-        from datetime import timedelta
-
-        from django.utils import timezone
-
         now = timezone.now()
 
         older_key = await sync_to_async(LLMProviderKey.objects.create)(
