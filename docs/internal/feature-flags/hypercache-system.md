@@ -302,12 +302,12 @@ The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache u
 
 Cache freshness is maintained through scheduled Celery tasks.
 
-| Task                                                          | Schedule         | Purpose                                                       |
-| ------------------------------------------------------------- | ---------------- | ------------------------------------------------------------- |
-| `refresh_expiring_flags_cache_entries`                        | Hourly at :15    | Refresh caches with TTL < 24h before they expire              |
-| `cleanup_stale_flags_expiry_tracking_task`                    | Daily at 3:15 AM | Remove expired team entries from tracking sorted set          |
-| `verify_and_fix_flag_definitions_cache_task`                  | Hourly at :50    | Verify flag definitions cache (with cohorts) against database |
-| `verify_and_fix_flag_definitions_without_cohorts_cache_task`  | Hourly at :10    | Verify flag definitions cache (without cohorts) against database |
+| Task                                                         | Schedule         | Purpose                                                          |
+| ------------------------------------------------------------ | ---------------- | ---------------------------------------------------------------- |
+| `refresh_expiring_flags_cache_entries`                       | Hourly at :15    | Refresh caches with TTL < 24h before they expire                 |
+| `cleanup_stale_flags_expiry_tracking_task`                   | Daily at 3:15 AM | Remove expired team entries from tracking sorted set             |
+| `verify_and_fix_flag_definitions_cache_task`                 | Hourly at :50    | Verify flag definitions cache (with cohorts) against database    |
+| `verify_and_fix_flag_definitions_without_cohorts_cache_task` | Hourly at :10    | Verify flag definitions cache (without cohorts) against database |
 
 ### Refresh task
 
