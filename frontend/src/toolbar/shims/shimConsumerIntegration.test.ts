@@ -12,6 +12,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { initKeaTests } from '~/test/init'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
+import { AppContext } from '~/types'
 
 global.fetch = jest.fn(() =>
     Promise.resolve({
@@ -23,6 +24,11 @@ global.fetch = jest.fn(() =>
 
 describe('shim consumer integration', () => {
     beforeEach(() => {
+        // Pre-set current_user: null so initKeaTests preserves it (via the `in` check) rather than
+        // bootstrapping the default org. Without this, something in the import chain mounts the real
+        // userLogic (bypassing the jest.mock shim), reads POSTHOG_APP_CONTEXT.current_user, and leaks
+        // it into hedgehogModeLogic.values.user — which should be null in the toolbar context.
+        window.POSTHOG_APP_CONTEXT = { current_user: null } as unknown as AppContext
         initKeaTests(false)
         toolbarConfigLogic.build({ apiURL: 'http://localhost' }).mount()
         jest.clearAllMocks()
