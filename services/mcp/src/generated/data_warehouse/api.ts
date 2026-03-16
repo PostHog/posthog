@@ -79,9 +79,9 @@ export const WarehouseSavedQueryDraftsListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
-            created_at: zod.string().datetime({}),
-            updated_at: zod.string().datetime({}).nullable(),
+            id: zod.string().optional(),
+            created_at: zod.string().datetime({}).optional(),
+            updated_at: zod.string().datetime({}).nullish(),
             query: zod.unknown().optional().describe('HogQL query draft'),
             saved_query_id: zod.string().nullish(),
             name: zod.string().nullish(),
@@ -127,9 +127,9 @@ export const WarehouseSavedQueryDraftsRetrieveParams = zod.object({
 export const warehouseSavedQueryDraftsRetrieveResponseEditedHistoryIdMax = 255
 
 export const WarehouseSavedQueryDraftsRetrieveResponse = zod.object({
-    id: zod.string(),
-    created_at: zod.string().datetime({}),
-    updated_at: zod.string().datetime({}).nullable(),
+    id: zod.string().optional(),
+    created_at: zod.string().datetime({}).optional(),
+    updated_at: zod.string().datetime({}).nullish(),
     query: zod.unknown().optional().describe('HogQL query draft'),
     saved_query_id: zod.string().nullish(),
     name: zod.string().nullish(),
@@ -165,9 +165,9 @@ export const WarehouseSavedQueryDraftsUpdateBody = zod.object({
 export const warehouseSavedQueryDraftsUpdateResponseEditedHistoryIdMax = 255
 
 export const WarehouseSavedQueryDraftsUpdateResponse = zod.object({
-    id: zod.string(),
-    created_at: zod.string().datetime({}),
-    updated_at: zod.string().datetime({}).nullable(),
+    id: zod.string().optional(),
+    created_at: zod.string().datetime({}).optional(),
+    updated_at: zod.string().datetime({}).nullish(),
     query: zod.unknown().optional().describe('HogQL query draft'),
     saved_query_id: zod.string().nullish(),
     name: zod.string().nullish(),
@@ -203,9 +203,9 @@ export const WarehouseSavedQueryDraftsPartialUpdateBody = zod.object({
 export const warehouseSavedQueryDraftsPartialUpdateResponseEditedHistoryIdMax = 255
 
 export const WarehouseSavedQueryDraftsPartialUpdateResponse = zod.object({
-    id: zod.string(),
-    created_at: zod.string().datetime({}),
-    updated_at: zod.string().datetime({}).nullable(),
+    id: zod.string().optional(),
+    created_at: zod.string().datetime({}).optional(),
+    updated_at: zod.string().datetime({}).nullish(),
     query: zod.unknown().optional().describe('HogQL query draft'),
     saved_query_id: zod.string().nullish(),
     name: zod.string().nullish(),
@@ -247,20 +247,21 @@ export const DataModelingJobsListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
-            saved_query_id: zod.string().nullable(),
+            id: zod.string().optional(),
+            saved_query_id: zod.string().nullish(),
             status: zod
                 .enum(['Cancelled', 'Completed', 'Failed', 'Running'])
                 .describe(
                     '* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
-                ),
-            rows_materialized: zod.number(),
-            error: zod.string().nullable(),
-            created_at: zod.string().datetime({}),
-            last_run_at: zod.string().datetime({}),
-            workflow_id: zod.string().nullable(),
-            workflow_run_id: zod.string().nullable(),
-            rows_expected: zod.number().nullable().describe('Total rows expected to be materialized'),
+                )
+                .optional(),
+            rows_materialized: zod.number().optional(),
+            error: zod.string().nullish(),
+            created_at: zod.string().datetime({}).optional(),
+            last_run_at: zod.string().datetime({}).optional(),
+            workflow_id: zod.string().nullish(),
+            workflow_run_id: zod.string().nullish(),
+            rows_expected: zod.number().nullish().describe('Total rows expected to be materialized'),
         })
     ),
 })
@@ -278,18 +279,19 @@ export const DataModelingJobsRetrieveParams = zod.object({
 })
 
 export const DataModelingJobsRetrieveResponse = zod.object({
-    id: zod.string(),
-    saved_query_id: zod.string().nullable(),
+    id: zod.string().optional(),
+    saved_query_id: zod.string().nullish(),
     status: zod
         .enum(['Cancelled', 'Completed', 'Failed', 'Running'])
-        .describe('* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'),
-    rows_materialized: zod.number(),
-    error: zod.string().nullable(),
-    created_at: zod.string().datetime({}),
-    last_run_at: zod.string().datetime({}),
-    workflow_id: zod.string().nullable(),
-    workflow_run_id: zod.string().nullable(),
-    rows_expected: zod.number().nullable().describe('Total rows expected to be materialized'),
+        .describe('* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running')
+        .optional(),
+    rows_materialized: zod.number().optional(),
+    error: zod.string().nullish(),
+    created_at: zod.string().datetime({}).optional(),
+    last_run_at: zod.string().datetime({}).optional(),
+    workflow_id: zod.string().nullish(),
+    workflow_run_id: zod.string().nullish(),
+    rows_expected: zod.number().nullish().describe('Total rows expected to be materialized'),
 })
 
 /**
@@ -304,18 +306,19 @@ export const DataModelingJobsRecentRetrieveParams = zod.object({
 })
 
 export const DataModelingJobsRecentRetrieveResponse = zod.object({
-    id: zod.string(),
-    saved_query_id: zod.string().nullable(),
+    id: zod.string().optional(),
+    saved_query_id: zod.string().nullish(),
     status: zod
         .enum(['Cancelled', 'Completed', 'Failed', 'Running'])
-        .describe('* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'),
-    rows_materialized: zod.number(),
-    error: zod.string().nullable(),
-    created_at: zod.string().datetime({}),
-    last_run_at: zod.string().datetime({}),
-    workflow_id: zod.string().nullable(),
-    workflow_run_id: zod.string().nullable(),
-    rows_expected: zod.number().nullable().describe('Total rows expected to be materialized'),
+        .describe('* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running')
+        .optional(),
+    rows_materialized: zod.number().optional(),
+    error: zod.string().nullish(),
+    created_at: zod.string().datetime({}).optional(),
+    last_run_at: zod.string().datetime({}).optional(),
+    workflow_id: zod.string().nullish(),
+    workflow_run_id: zod.string().nullish(),
+    rows_expected: zod.number().nullish().describe('Total rows expected to be materialized'),
 })
 
 /**
@@ -330,18 +333,19 @@ export const DataModelingJobsRunningRetrieveParams = zod.object({
 })
 
 export const DataModelingJobsRunningRetrieveResponse = zod.object({
-    id: zod.string(),
-    saved_query_id: zod.string().nullable(),
+    id: zod.string().optional(),
+    saved_query_id: zod.string().nullish(),
     status: zod
         .enum(['Cancelled', 'Completed', 'Failed', 'Running'])
-        .describe('* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'),
-    rows_materialized: zod.number(),
-    error: zod.string().nullable(),
-    created_at: zod.string().datetime({}),
-    last_run_at: zod.string().datetime({}),
-    workflow_id: zod.string().nullable(),
-    workflow_run_id: zod.string().nullable(),
-    rows_expected: zod.number().nullable().describe('Total rows expected to be materialized'),
+        .describe('* `Cancelled` - Cancelled\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running')
+        .optional(),
+    rows_materialized: zod.number().optional(),
+    error: zod.string().nullish(),
+    created_at: zod.string().datetime({}).optional(),
+    last_run_at: zod.string().datetime({}).optional(),
+    workflow_id: zod.string().nullish(),
+    workflow_run_id: zod.string().nullish(),
+    rows_expected: zod.number().nullish().describe('Total rows expected to be materialized'),
 })
 
 /**
@@ -435,19 +439,19 @@ export const ExternalDataSchemasListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
-            name: zod.string(),
-            table: zod.record(zod.string(), zod.unknown()).nullable(),
+            id: zod.string().optional(),
+            name: zod.string().optional(),
+            table: zod.record(zod.string(), zod.unknown()).nullish(),
             should_sync: zod.boolean().optional(),
-            last_synced_at: zod.string().datetime({}).nullable(),
-            latest_error: zod.string().nullable().describe('The latest error that occurred when syncing this schema.'),
-            incremental: zod.boolean(),
-            status: zod.string().nullable(),
-            sync_type: zod.enum(['full_refresh', 'incremental', 'append']).nullable(),
-            incremental_field: zod.string().nullable(),
-            incremental_field_type: zod.string().nullable(),
-            sync_frequency: zod.string(),
-            sync_time_of_day: zod.string(),
+            last_synced_at: zod.string().datetime({}).nullish(),
+            latest_error: zod.string().nullish().describe('The latest error that occurred when syncing this schema.'),
+            incremental: zod.boolean().optional(),
+            status: zod.string().nullish(),
+            sync_type: zod.enum(['full_refresh', 'incremental', 'append']).nullish(),
+            incremental_field: zod.string().nullish(),
+            incremental_field_type: zod.string().nullish(),
+            sync_frequency: zod.string().optional(),
+            sync_time_of_day: zod.string().optional(),
         })
     ),
 })
@@ -492,10 +496,10 @@ export const ExternalDataSourcesListResponse = zod.object({
     results: zod.array(
         zod
             .object({
-                id: zod.string(),
-                created_at: zod.string().datetime({}),
-                created_by: zod.string().nullable(),
-                status: zod.string(),
+                id: zod.string().optional(),
+                created_at: zod.string().datetime({}).optional(),
+                created_by: zod.string().nullish(),
+                status: zod.string().optional(),
                 client_secret: zod.string(),
                 account_id: zod.string(),
                 source_type: zod
@@ -643,23 +647,27 @@ export const ExternalDataSourcesListResponse = zod.object({
                     ])
                     .describe(
                         '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter'
-                    ),
-                latest_error: zod.string(),
+                    )
+                    .optional(),
+                latest_error: zod.string().optional(),
                 prefix: zod.string().max(externalDataSourcesListResponseResultsItemPrefixMax).nullish(),
                 description: zod.string().max(externalDataSourcesListResponseResultsItemDescriptionMax).nullish(),
                 access_method: zod
                     .enum(['warehouse', 'direct'])
-                    .describe('* `warehouse` - warehouse\n* `direct` - direct'),
-                last_run_at: zod.string(),
-                schemas: zod.string(),
+                    .describe('* `warehouse` - warehouse\n* `direct` - direct')
+                    .optional(),
+                last_run_at: zod.string().optional(),
+                schemas: zod.string().optional(),
                 job_inputs: zod.unknown().nullish(),
-                revenue_analytics_config: zod.object({
-                    enabled: zod.boolean().optional(),
-                    include_invoiceless_charges: zod.boolean().optional(),
-                }),
+                revenue_analytics_config: zod
+                    .object({
+                        enabled: zod.boolean().optional(),
+                        include_invoiceless_charges: zod.boolean().optional(),
+                    })
+                    .optional(),
                 user_access_level: zod
                     .string()
-                    .nullable()
+                    .nullish()
                     .describe('The effective access level the user has for this object'),
             })
             .describe('Mixin for serializers to add user access control fields')
@@ -709,10 +717,10 @@ export const externalDataSourcesRetrieveResponseDescriptionMax = 400
 
 export const ExternalDataSourcesRetrieveResponse = zod
     .object({
-        id: zod.string(),
-        created_at: zod.string().datetime({}),
-        created_by: zod.string().nullable(),
-        status: zod.string(),
+        id: zod.string().optional(),
+        created_at: zod.string().datetime({}).optional(),
+        created_by: zod.string().nullish(),
+        status: zod.string().optional(),
         client_secret: zod.string(),
         account_id: zod.string(),
         source_type: zod
@@ -860,19 +868,25 @@ export const ExternalDataSourcesRetrieveResponse = zod
             ])
             .describe(
                 '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter'
-            ),
-        latest_error: zod.string(),
+            )
+            .optional(),
+        latest_error: zod.string().optional(),
         prefix: zod.string().max(externalDataSourcesRetrieveResponsePrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesRetrieveResponseDescriptionMax).nullish(),
-        access_method: zod.enum(['warehouse', 'direct']).describe('* `warehouse` - warehouse\n* `direct` - direct'),
-        last_run_at: zod.string(),
-        schemas: zod.string(),
+        access_method: zod
+            .enum(['warehouse', 'direct'])
+            .describe('* `warehouse` - warehouse\n* `direct` - direct')
+            .optional(),
+        last_run_at: zod.string().optional(),
+        schemas: zod.string().optional(),
         job_inputs: zod.unknown().nullish(),
-        revenue_analytics_config: zod.object({
-            enabled: zod.boolean().optional(),
-            include_invoiceless_charges: zod.boolean().optional(),
-        }),
-        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
+        revenue_analytics_config: zod
+            .object({
+                enabled: zod.boolean().optional(),
+                include_invoiceless_charges: zod.boolean().optional(),
+            })
+            .optional(),
+        user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -908,10 +922,10 @@ export const externalDataSourcesUpdateResponseDescriptionMax = 400
 
 export const ExternalDataSourcesUpdateResponse = zod
     .object({
-        id: zod.string(),
-        created_at: zod.string().datetime({}),
-        created_by: zod.string().nullable(),
-        status: zod.string(),
+        id: zod.string().optional(),
+        created_at: zod.string().datetime({}).optional(),
+        created_by: zod.string().nullish(),
+        status: zod.string().optional(),
         client_secret: zod.string(),
         account_id: zod.string(),
         source_type: zod
@@ -1059,19 +1073,25 @@ export const ExternalDataSourcesUpdateResponse = zod
             ])
             .describe(
                 '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter'
-            ),
-        latest_error: zod.string(),
+            )
+            .optional(),
+        latest_error: zod.string().optional(),
         prefix: zod.string().max(externalDataSourcesUpdateResponsePrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesUpdateResponseDescriptionMax).nullish(),
-        access_method: zod.enum(['warehouse', 'direct']).describe('* `warehouse` - warehouse\n* `direct` - direct'),
-        last_run_at: zod.string(),
-        schemas: zod.string(),
+        access_method: zod
+            .enum(['warehouse', 'direct'])
+            .describe('* `warehouse` - warehouse\n* `direct` - direct')
+            .optional(),
+        last_run_at: zod.string().optional(),
+        schemas: zod.string().optional(),
         job_inputs: zod.unknown().nullish(),
-        revenue_analytics_config: zod.object({
-            enabled: zod.boolean().optional(),
-            include_invoiceless_charges: zod.boolean().optional(),
-        }),
-        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
+        revenue_analytics_config: zod
+            .object({
+                enabled: zod.boolean().optional(),
+                include_invoiceless_charges: zod.boolean().optional(),
+            })
+            .optional(),
+        user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -1107,10 +1127,10 @@ export const externalDataSourcesPartialUpdateResponseDescriptionMax = 400
 
 export const ExternalDataSourcesPartialUpdateResponse = zod
     .object({
-        id: zod.string(),
-        created_at: zod.string().datetime({}),
-        created_by: zod.string().nullable(),
-        status: zod.string(),
+        id: zod.string().optional(),
+        created_at: zod.string().datetime({}).optional(),
+        created_by: zod.string().nullish(),
+        status: zod.string().optional(),
         client_secret: zod.string(),
         account_id: zod.string(),
         source_type: zod
@@ -1258,19 +1278,25 @@ export const ExternalDataSourcesPartialUpdateResponse = zod
             ])
             .describe(
                 '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter'
-            ),
-        latest_error: zod.string(),
+            )
+            .optional(),
+        latest_error: zod.string().optional(),
         prefix: zod.string().max(externalDataSourcesPartialUpdateResponsePrefixMax).nullish(),
         description: zod.string().max(externalDataSourcesPartialUpdateResponseDescriptionMax).nullish(),
-        access_method: zod.enum(['warehouse', 'direct']).describe('* `warehouse` - warehouse\n* `direct` - direct'),
-        last_run_at: zod.string(),
-        schemas: zod.string(),
+        access_method: zod
+            .enum(['warehouse', 'direct'])
+            .describe('* `warehouse` - warehouse\n* `direct` - direct')
+            .optional(),
+        last_run_at: zod.string().optional(),
+        schemas: zod.string().optional(),
         job_inputs: zod.unknown().nullish(),
-        revenue_analytics_config: zod.object({
-            enabled: zod.boolean().optional(),
-            include_invoiceless_charges: zod.boolean().optional(),
-        }),
-        user_access_level: zod.string().nullable().describe('The effective access level the user has for this object'),
+        revenue_analytics_config: zod
+            .object({
+                enabled: zod.boolean().optional(),
+                include_invoiceless_charges: zod.boolean().optional(),
+            })
+            .optional(),
+        user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
     })
     .describe('Mixin for serializers to add user access control fields')
 
@@ -1462,7 +1488,7 @@ export const QueryTabStateListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             state: zod
                 .unknown()
                 .nullish()
@@ -1506,7 +1532,7 @@ export const QueryTabStateRetrieveParams = zod.object({
 })
 
 export const QueryTabStateRetrieveResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     state: zod
         .unknown()
         .nullish()
@@ -1537,7 +1563,7 @@ export const QueryTabStateUpdateBody = zod.object({
 })
 
 export const QueryTabStateUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     state: zod
         .unknown()
         .nullish()
@@ -1568,7 +1594,7 @@ export const QueryTabStatePartialUpdateBody = zod.object({
 })
 
 export const QueryTabStatePartialUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     state: zod
         .unknown()
         .nullish()
@@ -1601,7 +1627,7 @@ export const QueryTabStateUserRetrieveParams = zod.object({
 })
 
 export const QueryTabStateUserRetrieveResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     state: zod
         .unknown()
         .nullish()
@@ -1648,52 +1674,54 @@ export const WarehouseModelPathsListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             path: zod.string(),
             team: zod.number(),
             table: zod.string().nullish(),
             saved_query: zod.string().nullish(),
-            created_at: zod.string().datetime({}),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod
-                    .string()
-                    .max(warehouseModelPathsListResponseResultsItemCreatedByOneDistinctIdMax)
-                    .nullish(),
-                first_name: zod
-                    .string()
-                    .max(warehouseModelPathsListResponseResultsItemCreatedByOneFirstNameMax)
-                    .optional(),
-                last_name: zod
-                    .string()
-                    .max(warehouseModelPathsListResponseResultsItemCreatedByOneLastNameMax)
-                    .optional(),
-                email: zod.string().email().max(warehouseModelPathsListResponseResultsItemCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            updated_at: zod.string().datetime({}).nullable(),
+            created_at: zod.string().datetime({}).optional(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(warehouseModelPathsListResponseResultsItemCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(warehouseModelPathsListResponseResultsItemCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod
+                        .string()
+                        .max(warehouseModelPathsListResponseResultsItemCreatedByOneLastNameMax)
+                        .optional(),
+                    email: zod.string().email().max(warehouseModelPathsListResponseResultsItemCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            updated_at: zod.string().datetime({}).nullish(),
         })
     ),
 })
@@ -1729,51 +1757,56 @@ export const WarehouseSavedQueriesListResponse = zod.object({
     results: zod.array(
         zod
             .object({
-                id: zod.string(),
-                deleted: zod.boolean().nullable(),
-                name: zod.string(),
-                created_by: zod.object({
-                    id: zod.number(),
-                    uuid: zod.string(),
-                    distinct_id: zod
-                        .string()
-                        .max(warehouseSavedQueriesListResponseResultsItemCreatedByOneDistinctIdMax)
-                        .nullish(),
-                    first_name: zod
-                        .string()
-                        .max(warehouseSavedQueriesListResponseResultsItemCreatedByOneFirstNameMax)
-                        .optional(),
-                    last_name: zod
-                        .string()
-                        .max(warehouseSavedQueriesListResponseResultsItemCreatedByOneLastNameMax)
-                        .optional(),
-                    email: zod.string().email().max(warehouseSavedQueriesListResponseResultsItemCreatedByOneEmailMax),
-                    is_email_verified: zod.boolean().nullish(),
-                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                    role_at_organization: zod
-                        .union([
-                            zod
-                                .enum([
-                                    'engineering',
-                                    'data',
-                                    'product',
-                                    'founder',
-                                    'leadership',
-                                    'marketing',
-                                    'sales',
-                                    'other',
-                                ])
-                                .describe(
-                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                                ),
-                            zod.enum(['']),
-                            zod.literal(null),
-                        ])
-                        .nullish(),
-                }),
-                created_at: zod.string().datetime({}),
-                sync_frequency: zod.string(),
-                columns: zod.string(),
+                id: zod.string().optional(),
+                deleted: zod.boolean().nullish(),
+                name: zod.string().optional(),
+                created_by: zod
+                    .object({
+                        id: zod.number().optional(),
+                        uuid: zod.string().optional(),
+                        distinct_id: zod
+                            .string()
+                            .max(warehouseSavedQueriesListResponseResultsItemCreatedByOneDistinctIdMax)
+                            .nullish(),
+                        first_name: zod
+                            .string()
+                            .max(warehouseSavedQueriesListResponseResultsItemCreatedByOneFirstNameMax)
+                            .optional(),
+                        last_name: zod
+                            .string()
+                            .max(warehouseSavedQueriesListResponseResultsItemCreatedByOneLastNameMax)
+                            .optional(),
+                        email: zod
+                            .string()
+                            .email()
+                            .max(warehouseSavedQueriesListResponseResultsItemCreatedByOneEmailMax),
+                        is_email_verified: zod.boolean().nullish(),
+                        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                        role_at_organization: zod
+                            .union([
+                                zod
+                                    .enum([
+                                        'engineering',
+                                        'data',
+                                        'product',
+                                        'founder',
+                                        'leadership',
+                                        'marketing',
+                                        'sales',
+                                        'other',
+                                    ])
+                                    .describe(
+                                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                    ),
+                                zod.enum(['']),
+                                zod.literal(null),
+                            ])
+                            .nullish(),
+                    })
+                    .optional(),
+                created_at: zod.string().datetime({}).optional(),
+                sync_frequency: zod.string().optional(),
+                columns: zod.string().optional(),
                 status: zod
                     .union([
                         zod
@@ -1783,14 +1816,14 @@ export const WarehouseSavedQueriesListResponse = zod.object({
                             ),
                         zod.literal(null),
                     ])
-                    .nullable()
+                    .nullish()
                     .describe(
                         'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
                     ),
-                last_run_at: zod.string().datetime({}).nullable(),
-                managed_viewset_kind: zod.string(),
-                latest_error: zod.string().nullable(),
-                is_materialized: zod.boolean().nullable(),
+                last_run_at: zod.string().datetime({}).nullish(),
+                managed_viewset_kind: zod.string().optional(),
+                latest_error: zod.string().nullish(),
+                is_materialized: zod.boolean().nullish(),
                 origin: zod
                     .union([
                         zod
@@ -1800,7 +1833,7 @@ export const WarehouseSavedQueriesListResponse = zod.object({
                             ),
                         zod.literal(null),
                     ])
-                    .nullable()
+                    .nullish()
                     .describe(
                         'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
                     ),
@@ -1827,12 +1860,14 @@ export const WarehouseSavedQueriesCreateBody = zod
         name: zod
             .string()
             .max(warehouseSavedQueriesCreateBodyNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
     })
     .describe(
@@ -1853,20 +1888,104 @@ export const WarehouseSavedQueriesRetrieveParams = zod.object({
 
 export const warehouseSavedQueriesRetrieveResponseNameMax = 128
 
+export const warehouseSavedQueriesRetrieveResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesRetrieveResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesRetrieveResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesRetrieveResponseCreatedByOneEmailMax = 254
+
 export const WarehouseSavedQueriesRetrieveResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesRetrieveResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod.string().max(warehouseSavedQueriesRetrieveResponseCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(warehouseSavedQueriesRetrieveResponseCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(warehouseSavedQueriesRetrieveResponseCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(warehouseSavedQueriesRetrieveResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -1888,16 +2007,27 @@ export const warehouseSavedQueriesUpdateBodyNameMax = 128
 
 export const WarehouseSavedQueriesUpdateBody = zod
     .object({
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesUpdateBodyNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -1905,20 +2035,104 @@ export const WarehouseSavedQueriesUpdateBody = zod
 
 export const warehouseSavedQueriesUpdateResponseNameMax = 128
 
+export const warehouseSavedQueriesUpdateResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesUpdateResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesUpdateResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesUpdateResponseCreatedByOneEmailMax = 254
+
 export const WarehouseSavedQueriesUpdateResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesUpdateResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod.string().max(warehouseSavedQueriesUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(warehouseSavedQueriesUpdateResponseCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(warehouseSavedQueriesUpdateResponseCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(warehouseSavedQueriesUpdateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -1944,12 +2158,14 @@ export const WarehouseSavedQueriesPartialUpdateBody = zod
             .string()
             .max(warehouseSavedQueriesPartialUpdateBodyNameMax)
             .optional()
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
         edited_history_id: zod
             .string()
@@ -1962,20 +2178,113 @@ export const WarehouseSavedQueriesPartialUpdateBody = zod
 
 export const warehouseSavedQueriesPartialUpdateResponseNameMax = 128
 
+export const warehouseSavedQueriesPartialUpdateResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesPartialUpdateResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesPartialUpdateResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesPartialUpdateResponseCreatedByOneEmailMax = 254
+
 export const WarehouseSavedQueriesPartialUpdateResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesPartialUpdateResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseSavedQueriesPartialUpdateResponseCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesPartialUpdateResponseCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesPartialUpdateResponseCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod.string().email().max(warehouseSavedQueriesPartialUpdateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2007,20 +2316,113 @@ export const WarehouseSavedQueriesActivityRetrieveParams = zod.object({
 
 export const warehouseSavedQueriesActivityRetrieveResponseNameMax = 128
 
+export const warehouseSavedQueriesActivityRetrieveResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesActivityRetrieveResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesActivityRetrieveResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesActivityRetrieveResponseCreatedByOneEmailMax = 254
+
 export const WarehouseSavedQueriesActivityRetrieveResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesActivityRetrieveResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseSavedQueriesActivityRetrieveResponseCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesActivityRetrieveResponseCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesActivityRetrieveResponseCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod.string().email().max(warehouseSavedQueriesActivityRetrieveResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2046,16 +2448,27 @@ export const warehouseSavedQueriesAncestorsCreateBodyNameMax = 128
 
 export const WarehouseSavedQueriesAncestorsCreateBody = zod
     .object({
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesAncestorsCreateBodyNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2063,20 +2476,113 @@ export const WarehouseSavedQueriesAncestorsCreateBody = zod
 
 export const warehouseSavedQueriesAncestorsCreateResponseNameMax = 128
 
+export const warehouseSavedQueriesAncestorsCreateResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesAncestorsCreateResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesAncestorsCreateResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesAncestorsCreateResponseCreatedByOneEmailMax = 254
+
 export const WarehouseSavedQueriesAncestorsCreateResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesAncestorsCreateResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseSavedQueriesAncestorsCreateResponseCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesAncestorsCreateResponseCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesAncestorsCreateResponseCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod.string().email().max(warehouseSavedQueriesAncestorsCreateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2098,16 +2604,27 @@ export const warehouseSavedQueriesCancelCreateBodyNameMax = 128
 
 export const WarehouseSavedQueriesCancelCreateBody = zod
     .object({
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesCancelCreateBodyNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2115,20 +2632,113 @@ export const WarehouseSavedQueriesCancelCreateBody = zod
 
 export const warehouseSavedQueriesCancelCreateResponseNameMax = 128
 
+export const warehouseSavedQueriesCancelCreateResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesCancelCreateResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesCancelCreateResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesCancelCreateResponseCreatedByOneEmailMax = 254
+
 export const WarehouseSavedQueriesCancelCreateResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesCancelCreateResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseSavedQueriesCancelCreateResponseCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesCancelCreateResponseCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesCancelCreateResponseCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod.string().email().max(warehouseSavedQueriesCancelCreateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2148,20 +2758,113 @@ export const WarehouseSavedQueriesDependenciesRetrieveParams = zod.object({
 
 export const warehouseSavedQueriesDependenciesRetrieveResponseNameMax = 128
 
+export const warehouseSavedQueriesDependenciesRetrieveResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesDependenciesRetrieveResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesDependenciesRetrieveResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesDependenciesRetrieveResponseCreatedByOneEmailMax = 254
+
 export const WarehouseSavedQueriesDependenciesRetrieveResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesDependenciesRetrieveResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseSavedQueriesDependenciesRetrieveResponseCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesDependenciesRetrieveResponseCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesDependenciesRetrieveResponseCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod.string().email().max(warehouseSavedQueriesDependenciesRetrieveResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2187,16 +2890,27 @@ export const warehouseSavedQueriesDescendantsCreateBodyNameMax = 128
 
 export const WarehouseSavedQueriesDescendantsCreateBody = zod
     .object({
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesDescendantsCreateBodyNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2204,20 +2918,113 @@ export const WarehouseSavedQueriesDescendantsCreateBody = zod
 
 export const warehouseSavedQueriesDescendantsCreateResponseNameMax = 128
 
+export const warehouseSavedQueriesDescendantsCreateResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesDescendantsCreateResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesDescendantsCreateResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesDescendantsCreateResponseCreatedByOneEmailMax = 254
+
 export const WarehouseSavedQueriesDescendantsCreateResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesDescendantsCreateResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseSavedQueriesDescendantsCreateResponseCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesDescendantsCreateResponseCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesDescendantsCreateResponseCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod.string().email().max(warehouseSavedQueriesDescendantsCreateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2235,41 +3042,115 @@ export const WarehouseSavedQueriesMaterializeCreateParams = zod.object({
         ),
 })
 
-export const warehouseSavedQueriesMaterializeCreateBodyNameMax = 128
-
-export const WarehouseSavedQueriesMaterializeCreateBody = zod
-    .object({
-        name: zod
-            .string()
-            .max(warehouseSavedQueriesMaterializeCreateBodyNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
-        query: zod
-            .unknown()
-            .nullish()
-            .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
-            ),
-    })
-    .describe(
-        'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
-    )
-
 export const warehouseSavedQueriesMaterializeCreateResponseNameMax = 128
+
+export const warehouseSavedQueriesMaterializeCreateResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesMaterializeCreateResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesMaterializeCreateResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesMaterializeCreateResponseCreatedByOneEmailMax = 254
 
 export const WarehouseSavedQueriesMaterializeCreateResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesMaterializeCreateResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseSavedQueriesMaterializeCreateResponseCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesMaterializeCreateResponseCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesMaterializeCreateResponseCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod.string().email().max(warehouseSavedQueriesMaterializeCreateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2288,41 +3169,118 @@ export const WarehouseSavedQueriesRevertMaterializationCreateParams = zod.object
         ),
 })
 
-export const warehouseSavedQueriesRevertMaterializationCreateBodyNameMax = 128
-
-export const WarehouseSavedQueriesRevertMaterializationCreateBody = zod
-    .object({
-        name: zod
-            .string()
-            .max(warehouseSavedQueriesRevertMaterializationCreateBodyNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
-        query: zod
-            .unknown()
-            .nullish()
-            .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
-            ),
-    })
-    .describe(
-        'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
-    )
-
 export const warehouseSavedQueriesRevertMaterializationCreateResponseNameMax = 128
+
+export const warehouseSavedQueriesRevertMaterializationCreateResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesRevertMaterializationCreateResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesRevertMaterializationCreateResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesRevertMaterializationCreateResponseCreatedByOneEmailMax = 254
 
 export const WarehouseSavedQueriesRevertMaterializationCreateResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesRevertMaterializationCreateResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseSavedQueriesRevertMaterializationCreateResponseCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesRevertMaterializationCreateResponseCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesRevertMaterializationCreateResponseCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod
+                    .string()
+                    .email()
+                    .max(warehouseSavedQueriesRevertMaterializationCreateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2340,41 +3298,109 @@ export const WarehouseSavedQueriesRunCreateParams = zod.object({
         ),
 })
 
-export const warehouseSavedQueriesRunCreateBodyNameMax = 128
-
-export const WarehouseSavedQueriesRunCreateBody = zod
-    .object({
-        name: zod
-            .string()
-            .max(warehouseSavedQueriesRunCreateBodyNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
-        query: zod
-            .unknown()
-            .nullish()
-            .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
-            ),
-    })
-    .describe(
-        'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
-    )
-
 export const warehouseSavedQueriesRunCreateResponseNameMax = 128
+
+export const warehouseSavedQueriesRunCreateResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesRunCreateResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesRunCreateResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesRunCreateResponseCreatedByOneEmailMax = 254
 
 export const WarehouseSavedQueriesRunCreateResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesRunCreateResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseSavedQueriesRunCreateResponseCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod.string().max(warehouseSavedQueriesRunCreateResponseCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(warehouseSavedQueriesRunCreateResponseCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(warehouseSavedQueriesRunCreateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2394,20 +3420,113 @@ export const WarehouseSavedQueriesRunHistoryRetrieveParams = zod.object({
 
 export const warehouseSavedQueriesRunHistoryRetrieveResponseNameMax = 128
 
+export const warehouseSavedQueriesRunHistoryRetrieveResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesRunHistoryRetrieveResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesRunHistoryRetrieveResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesRunHistoryRetrieveResponseCreatedByOneEmailMax = 254
+
 export const WarehouseSavedQueriesRunHistoryRetrieveResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesRunHistoryRetrieveResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseSavedQueriesRunHistoryRetrieveResponseCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesRunHistoryRetrieveResponseCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesRunHistoryRetrieveResponseCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod.string().email().max(warehouseSavedQueriesRunHistoryRetrieveResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2431,16 +3550,27 @@ export const warehouseSavedQueriesResumeSchedulesCreateBodyNameMax = 128
 
 export const WarehouseSavedQueriesResumeSchedulesCreateBody = zod
     .object({
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesResumeSchedulesCreateBodyNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2448,20 +3578,113 @@ export const WarehouseSavedQueriesResumeSchedulesCreateBody = zod
 
 export const warehouseSavedQueriesResumeSchedulesCreateResponseNameMax = 128
 
+export const warehouseSavedQueriesResumeSchedulesCreateResponseCreatedByOneDistinctIdMax = 200
+
+export const warehouseSavedQueriesResumeSchedulesCreateResponseCreatedByOneFirstNameMax = 150
+
+export const warehouseSavedQueriesResumeSchedulesCreateResponseCreatedByOneLastNameMax = 150
+
+export const warehouseSavedQueriesResumeSchedulesCreateResponseCreatedByOneEmailMax = 254
+
 export const WarehouseSavedQueriesResumeSchedulesCreateResponse = zod
     .object({
-        id: zod.string(),
+        id: zod.string().optional(),
+        deleted: zod.boolean().nullish(),
         name: zod
             .string()
             .max(warehouseSavedQueriesResumeSchedulesCreateResponseNameMax)
-            .describe('Unique name for the view. Used as the table name in HogQL queries.'),
+            .describe(
+                'Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.'
+            ),
         query: zod
             .unknown()
             .nullish()
             .describe(
-                'HogQL query definition as a JSON object with a "query" key containing the SQL string. Example: {"query": "SELECT * FROM events LIMIT 100"}'
+                'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}'
             ),
-        sync_frequency: zod.string(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseSavedQueriesResumeSchedulesCreateResponseCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesResumeSchedulesCreateResponseCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod
+                    .string()
+                    .max(warehouseSavedQueriesResumeSchedulesCreateResponseCreatedByOneLastNameMax)
+                    .optional(),
+                email: zod.string().email().max(warehouseSavedQueriesResumeSchedulesCreateResponseCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
+        sync_frequency: zod.string().optional(),
+        columns: zod.string().optional(),
+        status: zod
+            .union([
+                zod
+                    .enum(['Cancelled', 'Modified', 'Completed', 'Failed', 'Running'])
+                    .describe(
+                        '* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'The status of when this SavedQuery last ran.\n\n* `Cancelled` - Cancelled\n* `Modified` - Modified\n* `Completed` - Completed\n* `Failed` - Failed\n* `Running` - Running'
+            ),
+        last_run_at: zod.string().datetime({}).nullish(),
+        managed_viewset_kind: zod.string().optional(),
+        latest_error: zod.string().nullish(),
+        edited_history_id: zod
+            .string()
+            .nullish()
+            .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        latest_history_id: zod.string().optional(),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe('If true, skip column inference and validation. For saving drafts.'),
+        is_materialized: zod.boolean().nullish(),
+        origin: zod
+            .union([
+                zod
+                    .enum(['data_warehouse', 'endpoint', 'managed_viewset'])
+                    .describe(
+                        '* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+                    ),
+                zod.literal(null),
+            ])
+            .nullish()
+            .describe(
+                'Where this SavedQuery is created.\n\n* `data_warehouse` - Data Warehouse\n* `endpoint` - Endpoint\n* `managed_viewset` - Managed Viewset'
+            ),
     })
     .describe(
         'Shared methods for DataWarehouseSavedQuery serializers.\n\nThis mixin is intended to be used with serializers.ModelSerializer subclasses.'
@@ -2514,7 +3737,7 @@ export const WarehouseTablesListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             deleted: zod.boolean().nullish(),
             name: zod.string().max(warehouseTablesListResponseResultsItemNameMax),
             format: zod
@@ -2522,64 +3745,25 @@ export const WarehouseTablesListResponse = zod.object({
                 .describe(
                     '* `CSV` - CSV\n* `CSVWithNames` - CSVWithNames\n* `Parquet` - Parquet\n* `JSONEachRow` - JSON\n* `Delta` - Delta\n* `DeltaS3Wrapper` - DeltaS3Wrapper'
                 ),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod
-                    .string()
-                    .max(warehouseTablesListResponseResultsItemCreatedByOneDistinctIdMax)
-                    .nullish(),
-                first_name: zod.string().max(warehouseTablesListResponseResultsItemCreatedByOneFirstNameMax).optional(),
-                last_name: zod.string().max(warehouseTablesListResponseResultsItemCreatedByOneLastNameMax).optional(),
-                email: zod.string().email().max(warehouseTablesListResponseResultsItemCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            created_at: zod.string().datetime({}),
-            url_pattern: zod.string().max(warehouseTablesListResponseResultsItemUrlPatternMax),
-            credential: zod.object({
-                id: zod.string(),
-                created_by: zod.object({
-                    id: zod.number(),
-                    uuid: zod.string(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
                     distinct_id: zod
                         .string()
-                        .max(warehouseTablesListResponseResultsItemCredentialCreatedByOneDistinctIdMax)
+                        .max(warehouseTablesListResponseResultsItemCreatedByOneDistinctIdMax)
                         .nullish(),
                     first_name: zod
                         .string()
-                        .max(warehouseTablesListResponseResultsItemCredentialCreatedByOneFirstNameMax)
+                        .max(warehouseTablesListResponseResultsItemCreatedByOneFirstNameMax)
                         .optional(),
                     last_name: zod
                         .string()
-                        .max(warehouseTablesListResponseResultsItemCredentialCreatedByOneLastNameMax)
+                        .max(warehouseTablesListResponseResultsItemCreatedByOneLastNameMax)
                         .optional(),
-                    email: zod
-                        .string()
-                        .email()
-                        .max(warehouseTablesListResponseResultsItemCredentialCreatedByOneEmailMax),
+                    email: zod.string().email().max(warehouseTablesListResponseResultsItemCreatedByOneEmailMax),
                     is_email_verified: zod.boolean().nullish(),
-                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
                     role_at_organization: zod
                         .union([
                             zod
@@ -2600,165 +3784,217 @@ export const WarehouseTablesListResponse = zod.object({
                             zod.literal(null),
                         ])
                         .nullish(),
-                }),
-                created_at: zod.string().datetime({}),
+                })
+                .optional(),
+            created_at: zod.string().datetime({}).optional(),
+            url_pattern: zod.string().max(warehouseTablesListResponseResultsItemUrlPatternMax),
+            credential: zod.object({
+                id: zod.string().optional(),
+                created_by: zod
+                    .object({
+                        id: zod.number().optional(),
+                        uuid: zod.string().optional(),
+                        distinct_id: zod
+                            .string()
+                            .max(warehouseTablesListResponseResultsItemCredentialCreatedByOneDistinctIdMax)
+                            .nullish(),
+                        first_name: zod
+                            .string()
+                            .max(warehouseTablesListResponseResultsItemCredentialCreatedByOneFirstNameMax)
+                            .optional(),
+                        last_name: zod
+                            .string()
+                            .max(warehouseTablesListResponseResultsItemCredentialCreatedByOneLastNameMax)
+                            .optional(),
+                        email: zod
+                            .string()
+                            .email()
+                            .max(warehouseTablesListResponseResultsItemCredentialCreatedByOneEmailMax),
+                        is_email_verified: zod.boolean().nullish(),
+                        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                        role_at_organization: zod
+                            .union([
+                                zod
+                                    .enum([
+                                        'engineering',
+                                        'data',
+                                        'product',
+                                        'founder',
+                                        'leadership',
+                                        'marketing',
+                                        'sales',
+                                        'other',
+                                    ])
+                                    .describe(
+                                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                    ),
+                                zod.enum(['']),
+                                zod.literal(null),
+                            ])
+                            .nullish(),
+                    })
+                    .optional(),
+                created_at: zod.string().datetime({}).optional(),
                 access_key: zod.string().max(warehouseTablesListResponseResultsItemCredentialAccessKeyMax),
                 access_secret: zod.string().max(warehouseTablesListResponseResultsItemCredentialAccessSecretMax),
             }),
-            columns: zod.string(),
-            external_data_source: zod.object({
-                id: zod.string(),
-                created_at: zod.string().datetime({}),
-                created_by: zod.number().nullable(),
-                status: zod.string(),
-                source_type: zod
-                    .enum([
-                        'Ashby',
-                        'Supabase',
-                        'CustomerIO',
-                        'Github',
-                        'Stripe',
-                        'Hubspot',
-                        'Postgres',
-                        'Zendesk',
-                        'Snowflake',
-                        'Salesforce',
-                        'MySQL',
-                        'MongoDB',
-                        'MSSQL',
-                        'Vitally',
-                        'BigQuery',
-                        'Chargebee',
-                        'Clerk',
-                        'GoogleAds',
-                        'TemporalIO',
-                        'DoIt',
-                        'GoogleSheets',
-                        'MetaAds',
-                        'Klaviyo',
-                        'Mailchimp',
-                        'Braze',
-                        'Mailjet',
-                        'Redshift',
-                        'Polar',
-                        'RevenueCat',
-                        'LinkedinAds',
-                        'RedditAds',
-                        'TikTokAds',
-                        'BingAds',
-                        'Shopify',
-                        'Attio',
-                        'SnapchatAds',
-                        'Linear',
-                        'Intercom',
-                        'Amplitude',
-                        'Mixpanel',
-                        'Jira',
-                        'ActiveCampaign',
-                        'Marketo',
-                        'Adjust',
-                        'AppsFlyer',
-                        'Freshdesk',
-                        'GoogleAnalytics',
-                        'Pipedrive',
-                        'SendGrid',
-                        'Slack',
-                        'PagerDuty',
-                        'Asana',
-                        'Notion',
-                        'Airtable',
-                        'Greenhouse',
-                        'BambooHR',
-                        'Lever',
-                        'GitLab',
-                        'Datadog',
-                        'Sentry',
-                        'Pendo',
-                        'FullStory',
-                        'AmazonAds',
-                        'PinterestAds',
-                        'AppleSearchAds',
-                        'QuickBooks',
-                        'Xero',
-                        'NetSuite',
-                        'WooCommerce',
-                        'BigCommerce',
-                        'PayPal',
-                        'Square',
-                        'Zoom',
-                        'Trello',
-                        'Monday',
-                        'ClickUp',
-                        'Confluence',
-                        'Recurly',
-                        'SalesLoft',
-                        'Outreach',
-                        'Gong',
-                        'Calendly',
-                        'Typeform',
-                        'Iterable',
-                        'ZohoCRM',
-                        'Close',
-                        'Oracle',
-                        'DynamoDB',
-                        'Elasticsearch',
-                        'Kafka',
-                        'LaunchDarkly',
-                        'Braintree',
-                        'Recharge',
-                        'HelpScout',
-                        'Gorgias',
-                        'Instagram',
-                        'YouTubeAnalytics',
-                        'FacebookPages',
-                        'TwitterAds',
-                        'Workday',
-                        'ServiceNow',
-                        'Pardot',
-                        'Copper',
-                        'Front',
-                        'ChartMogul',
-                        'Zuora',
-                        'Paddle',
-                        'CircleCI',
-                        'CockroachDB',
-                        'Firebase',
-                        'AzureBlob',
-                        'GoogleDrive',
-                        'OneDrive',
-                        'SharePoint',
-                        'Box',
-                        'SFTP',
-                        'MicrosoftTeams',
-                        'Aircall',
-                        'Webflow',
-                        'Okta',
-                        'Auth0',
-                        'Productboard',
-                        'Smartsheet',
-                        'Wrike',
-                        'Plaid',
-                        'SurveyMonkey',
-                        'Eventbrite',
-                        'RingCentral',
-                        'Twilio',
-                        'Freshsales',
-                        'Shortcut',
-                        'ConvertKit',
-                        'Drip',
-                        'CampaignMonitor',
-                        'MailerLite',
-                        'Omnisend',
-                        'Brevo',
-                        'Postmark',
-                        'Granola',
-                        'BuildBetter',
-                    ])
-                    .describe(
-                        '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter'
-                    ),
-            }),
-            external_schema: zod.string(),
+            columns: zod.string().optional(),
+            external_data_source: zod
+                .object({
+                    id: zod.string().optional(),
+                    created_at: zod.string().datetime({}).optional(),
+                    created_by: zod.number().nullish(),
+                    status: zod.string().optional(),
+                    source_type: zod
+                        .enum([
+                            'Ashby',
+                            'Supabase',
+                            'CustomerIO',
+                            'Github',
+                            'Stripe',
+                            'Hubspot',
+                            'Postgres',
+                            'Zendesk',
+                            'Snowflake',
+                            'Salesforce',
+                            'MySQL',
+                            'MongoDB',
+                            'MSSQL',
+                            'Vitally',
+                            'BigQuery',
+                            'Chargebee',
+                            'Clerk',
+                            'GoogleAds',
+                            'TemporalIO',
+                            'DoIt',
+                            'GoogleSheets',
+                            'MetaAds',
+                            'Klaviyo',
+                            'Mailchimp',
+                            'Braze',
+                            'Mailjet',
+                            'Redshift',
+                            'Polar',
+                            'RevenueCat',
+                            'LinkedinAds',
+                            'RedditAds',
+                            'TikTokAds',
+                            'BingAds',
+                            'Shopify',
+                            'Attio',
+                            'SnapchatAds',
+                            'Linear',
+                            'Intercom',
+                            'Amplitude',
+                            'Mixpanel',
+                            'Jira',
+                            'ActiveCampaign',
+                            'Marketo',
+                            'Adjust',
+                            'AppsFlyer',
+                            'Freshdesk',
+                            'GoogleAnalytics',
+                            'Pipedrive',
+                            'SendGrid',
+                            'Slack',
+                            'PagerDuty',
+                            'Asana',
+                            'Notion',
+                            'Airtable',
+                            'Greenhouse',
+                            'BambooHR',
+                            'Lever',
+                            'GitLab',
+                            'Datadog',
+                            'Sentry',
+                            'Pendo',
+                            'FullStory',
+                            'AmazonAds',
+                            'PinterestAds',
+                            'AppleSearchAds',
+                            'QuickBooks',
+                            'Xero',
+                            'NetSuite',
+                            'WooCommerce',
+                            'BigCommerce',
+                            'PayPal',
+                            'Square',
+                            'Zoom',
+                            'Trello',
+                            'Monday',
+                            'ClickUp',
+                            'Confluence',
+                            'Recurly',
+                            'SalesLoft',
+                            'Outreach',
+                            'Gong',
+                            'Calendly',
+                            'Typeform',
+                            'Iterable',
+                            'ZohoCRM',
+                            'Close',
+                            'Oracle',
+                            'DynamoDB',
+                            'Elasticsearch',
+                            'Kafka',
+                            'LaunchDarkly',
+                            'Braintree',
+                            'Recharge',
+                            'HelpScout',
+                            'Gorgias',
+                            'Instagram',
+                            'YouTubeAnalytics',
+                            'FacebookPages',
+                            'TwitterAds',
+                            'Workday',
+                            'ServiceNow',
+                            'Pardot',
+                            'Copper',
+                            'Front',
+                            'ChartMogul',
+                            'Zuora',
+                            'Paddle',
+                            'CircleCI',
+                            'CockroachDB',
+                            'Firebase',
+                            'AzureBlob',
+                            'GoogleDrive',
+                            'OneDrive',
+                            'SharePoint',
+                            'Box',
+                            'SFTP',
+                            'MicrosoftTeams',
+                            'Aircall',
+                            'Webflow',
+                            'Okta',
+                            'Auth0',
+                            'Productboard',
+                            'Smartsheet',
+                            'Wrike',
+                            'Plaid',
+                            'SurveyMonkey',
+                            'Eventbrite',
+                            'RingCentral',
+                            'Twilio',
+                            'Freshsales',
+                            'Shortcut',
+                            'ConvertKit',
+                            'Drip',
+                            'CampaignMonitor',
+                            'MailerLite',
+                            'Omnisend',
+                            'Brevo',
+                            'Postmark',
+                            'Granola',
+                            'BuildBetter',
+                        ])
+                        .describe(
+                            '* `Ashby` - Ashby\n* `Supabase` - Supabase\n* `CustomerIO` - CustomerIO\n* `Github` - Github\n* `Stripe` - Stripe\n* `Hubspot` - Hubspot\n* `Postgres` - Postgres\n* `Zendesk` - Zendesk\n* `Snowflake` - Snowflake\n* `Salesforce` - Salesforce\n* `MySQL` - MySQL\n* `MongoDB` - MongoDB\n* `MSSQL` - MSSQL\n* `Vitally` - Vitally\n* `BigQuery` - BigQuery\n* `Chargebee` - Chargebee\n* `Clerk` - Clerk\n* `GoogleAds` - GoogleAds\n* `TemporalIO` - TemporalIO\n* `DoIt` - DoIt\n* `GoogleSheets` - GoogleSheets\n* `MetaAds` - MetaAds\n* `Klaviyo` - Klaviyo\n* `Mailchimp` - Mailchimp\n* `Braze` - Braze\n* `Mailjet` - Mailjet\n* `Redshift` - Redshift\n* `Polar` - Polar\n* `RevenueCat` - RevenueCat\n* `LinkedinAds` - LinkedinAds\n* `RedditAds` - RedditAds\n* `TikTokAds` - TikTokAds\n* `BingAds` - BingAds\n* `Shopify` - Shopify\n* `Attio` - Attio\n* `SnapchatAds` - SnapchatAds\n* `Linear` - Linear\n* `Intercom` - Intercom\n* `Amplitude` - Amplitude\n* `Mixpanel` - Mixpanel\n* `Jira` - Jira\n* `ActiveCampaign` - ActiveCampaign\n* `Marketo` - Marketo\n* `Adjust` - Adjust\n* `AppsFlyer` - AppsFlyer\n* `Freshdesk` - Freshdesk\n* `GoogleAnalytics` - GoogleAnalytics\n* `Pipedrive` - Pipedrive\n* `SendGrid` - SendGrid\n* `Slack` - Slack\n* `PagerDuty` - PagerDuty\n* `Asana` - Asana\n* `Notion` - Notion\n* `Airtable` - Airtable\n* `Greenhouse` - Greenhouse\n* `BambooHR` - BambooHR\n* `Lever` - Lever\n* `GitLab` - GitLab\n* `Datadog` - Datadog\n* `Sentry` - Sentry\n* `Pendo` - Pendo\n* `FullStory` - FullStory\n* `AmazonAds` - AmazonAds\n* `PinterestAds` - PinterestAds\n* `AppleSearchAds` - AppleSearchAds\n* `QuickBooks` - QuickBooks\n* `Xero` - Xero\n* `NetSuite` - NetSuite\n* `WooCommerce` - WooCommerce\n* `BigCommerce` - BigCommerce\n* `PayPal` - PayPal\n* `Square` - Square\n* `Zoom` - Zoom\n* `Trello` - Trello\n* `Monday` - Monday\n* `ClickUp` - ClickUp\n* `Confluence` - Confluence\n* `Recurly` - Recurly\n* `SalesLoft` - SalesLoft\n* `Outreach` - Outreach\n* `Gong` - Gong\n* `Calendly` - Calendly\n* `Typeform` - Typeform\n* `Iterable` - Iterable\n* `ZohoCRM` - ZohoCRM\n* `Close` - Close\n* `Oracle` - Oracle\n* `DynamoDB` - DynamoDB\n* `Elasticsearch` - Elasticsearch\n* `Kafka` - Kafka\n* `LaunchDarkly` - LaunchDarkly\n* `Braintree` - Braintree\n* `Recharge` - Recharge\n* `HelpScout` - HelpScout\n* `Gorgias` - Gorgias\n* `Instagram` - Instagram\n* `YouTubeAnalytics` - YouTubeAnalytics\n* `FacebookPages` - FacebookPages\n* `TwitterAds` - TwitterAds\n* `Workday` - Workday\n* `ServiceNow` - ServiceNow\n* `Pardot` - Pardot\n* `Copper` - Copper\n* `Front` - Front\n* `ChartMogul` - ChartMogul\n* `Zuora` - Zuora\n* `Paddle` - Paddle\n* `CircleCI` - CircleCI\n* `CockroachDB` - CockroachDB\n* `Firebase` - Firebase\n* `AzureBlob` - AzureBlob\n* `GoogleDrive` - GoogleDrive\n* `OneDrive` - OneDrive\n* `SharePoint` - SharePoint\n* `Box` - Box\n* `SFTP` - SFTP\n* `MicrosoftTeams` - MicrosoftTeams\n* `Aircall` - Aircall\n* `Webflow` - Webflow\n* `Okta` - Okta\n* `Auth0` - Auth0\n* `Productboard` - Productboard\n* `Smartsheet` - Smartsheet\n* `Wrike` - Wrike\n* `Plaid` - Plaid\n* `SurveyMonkey` - SurveyMonkey\n* `Eventbrite` - Eventbrite\n* `RingCentral` - RingCentral\n* `Twilio` - Twilio\n* `Freshsales` - Freshsales\n* `Shortcut` - Shortcut\n* `ConvertKit` - ConvertKit\n* `Drip` - Drip\n* `CampaignMonitor` - CampaignMonitor\n* `MailerLite` - MailerLite\n* `Omnisend` - Omnisend\n* `Brevo` - Brevo\n* `Postmark` - Postmark\n* `Granola` - Granola\n* `BuildBetter` - BuildBetter'
+                        )
+                        .optional(),
+                })
+                .optional(),
+            external_schema: zod.string().optional(),
             options: zod.record(zod.string(), zod.unknown()).optional(),
         })
     ),
@@ -2801,38 +4037,40 @@ export const WarehouseTablesCreateBody = zod.object({
         ),
     url_pattern: zod.string().max(warehouseTablesCreateBodyUrlPatternMax),
     credential: zod.object({
-        id: zod.string(),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.string(),
-            distinct_id: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax).optional(),
-            email: zod.string().email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
-        }),
-        created_at: zod.string().datetime({}),
+        id: zod.string().optional(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
+                first_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
+                last_name: zod.string().max(warehouseTablesCreateBodyCredentialCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(warehouseTablesCreateBodyCredentialCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
         access_key: zod.string().max(warehouseTablesCreateBodyCredentialAccessKeyMax),
         access_secret: zod.string().max(warehouseTablesCreateBodyCredentialAccessSecretMax),
     }),
@@ -2876,38 +4114,46 @@ export const WarehouseTablesFileCreateBody = zod.object({
         ),
     url_pattern: zod.string().max(warehouseTablesFileCreateBodyUrlPatternMax),
     credential: zod.object({
-        id: zod.string(),
-        created_by: zod.object({
-            id: zod.number(),
-            uuid: zod.string(),
-            distinct_id: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneDistinctIdMax).nullish(),
-            first_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax).optional(),
-            last_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax).optional(),
-            email: zod.string().email().max(warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax),
-            is_email_verified: zod.boolean().nullish(),
-            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-            role_at_organization: zod
-                .union([
-                    zod
-                        .enum([
-                            'engineering',
-                            'data',
-                            'product',
-                            'founder',
-                            'leadership',
-                            'marketing',
-                            'sales',
-                            'other',
-                        ])
-                        .describe(
-                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                        ),
-                    zod.enum(['']),
-                    zod.literal(null),
-                ])
-                .nullish(),
-        }),
-        created_at: zod.string().datetime({}),
+        id: zod.string().optional(),
+        created_by: zod
+            .object({
+                id: zod.number().optional(),
+                uuid: zod.string().optional(),
+                distinct_id: zod
+                    .string()
+                    .max(warehouseTablesFileCreateBodyCredentialCreatedByOneDistinctIdMax)
+                    .nullish(),
+                first_name: zod
+                    .string()
+                    .max(warehouseTablesFileCreateBodyCredentialCreatedByOneFirstNameMax)
+                    .optional(),
+                last_name: zod.string().max(warehouseTablesFileCreateBodyCredentialCreatedByOneLastNameMax).optional(),
+                email: zod.string().email().max(warehouseTablesFileCreateBodyCredentialCreatedByOneEmailMax),
+                is_email_verified: zod.boolean().nullish(),
+                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                role_at_organization: zod
+                    .union([
+                        zod
+                            .enum([
+                                'engineering',
+                                'data',
+                                'product',
+                                'founder',
+                                'leadership',
+                                'marketing',
+                                'sales',
+                                'other',
+                            ])
+                            .describe(
+                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                            ),
+                        zod.enum(['']),
+                        zod.literal(null),
+                    ])
+                    .nullish(),
+            })
+            .optional(),
+        created_at: zod.string().datetime({}).optional(),
         access_key: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessKeyMax),
         access_secret: zod.string().max(warehouseTablesFileCreateBodyCredentialAccessSecretMax),
     }),
@@ -2955,45 +4201,50 @@ export const WarehouseViewLinkListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             deleted: zod.boolean().nullish(),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod
-                    .string()
-                    .max(warehouseViewLinkListResponseResultsItemCreatedByOneDistinctIdMax)
-                    .nullish(),
-                first_name: zod
-                    .string()
-                    .max(warehouseViewLinkListResponseResultsItemCreatedByOneFirstNameMax)
-                    .optional(),
-                last_name: zod.string().max(warehouseViewLinkListResponseResultsItemCreatedByOneLastNameMax).optional(),
-                email: zod.string().email().max(warehouseViewLinkListResponseResultsItemCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            created_at: zod.string().datetime({}),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(warehouseViewLinkListResponseResultsItemCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(warehouseViewLinkListResponseResultsItemCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod
+                        .string()
+                        .max(warehouseViewLinkListResponseResultsItemCreatedByOneLastNameMax)
+                        .optional(),
+                    email: zod.string().email().max(warehouseViewLinkListResponseResultsItemCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            created_at: zod.string().datetime({}).optional(),
             source_table_name: zod.string().max(warehouseViewLinkListResponseResultsItemSourceTableNameMax),
             source_table_key: zod.string().max(warehouseViewLinkListResponseResultsItemSourceTableKeyMax),
             joining_table_name: zod.string().max(warehouseViewLinkListResponseResultsItemJoiningTableNameMax),
@@ -3102,48 +4353,50 @@ export const WarehouseViewLinksListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             deleted: zod.boolean().nullish(),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod
-                    .string()
-                    .max(warehouseViewLinksListResponseResultsItemCreatedByOneDistinctIdMax)
-                    .nullish(),
-                first_name: zod
-                    .string()
-                    .max(warehouseViewLinksListResponseResultsItemCreatedByOneFirstNameMax)
-                    .optional(),
-                last_name: zod
-                    .string()
-                    .max(warehouseViewLinksListResponseResultsItemCreatedByOneLastNameMax)
-                    .optional(),
-                email: zod.string().email().max(warehouseViewLinksListResponseResultsItemCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            created_at: zod.string().datetime({}),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod
+                        .string()
+                        .max(warehouseViewLinksListResponseResultsItemCreatedByOneDistinctIdMax)
+                        .nullish(),
+                    first_name: zod
+                        .string()
+                        .max(warehouseViewLinksListResponseResultsItemCreatedByOneFirstNameMax)
+                        .optional(),
+                    last_name: zod
+                        .string()
+                        .max(warehouseViewLinksListResponseResultsItemCreatedByOneLastNameMax)
+                        .optional(),
+                    email: zod.string().email().max(warehouseViewLinksListResponseResultsItemCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            created_at: zod.string().datetime({}).optional(),
             source_table_name: zod.string().max(warehouseViewLinksListResponseResultsItemSourceTableNameMax),
             source_table_key: zod.string().max(warehouseViewLinksListResponseResultsItemSourceTableKeyMax),
             joining_table_name: zod.string().max(warehouseViewLinksListResponseResultsItemJoiningTableNameMax),
