@@ -93,6 +93,7 @@ describe('insightDataLogic', () => {
 
             await expectLogic(adHocLogic)
                 .toDispatchActions(['syncQueryFromProps'])
+                .toNotHaveDispatchedActions(['setQuery'])
                 .toMatchValues({ query: trendsQuery })
         })
 
