@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
-use common_cache::NegativeCache;
+use common_cache::{CacheConfig, NegativeCache, ReadThroughCache};
 use common_database::get_pool;
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::MockRedisClient;
@@ -331,6 +331,15 @@ impl ServerHandle {
                 config_hypercache_reader,
                 RayonDispatcher::new(2, None),
                 NegativeCache::new(10_000, 300),
+                Arc::new(ReadThroughCache::new(
+                    redis_writer_client.clone(),
+                    redis_writer_client.clone(),
+                    CacheConfig::with_ttl(
+                        feature_flags::api::auth::TOKEN_CACHE_PREFIX,
+                        feature_flags::api::auth::TOKEN_CACHE_TTL_SECONDS,
+                    ),
+                    Some(Arc::new(NegativeCache::new(10_000, 300))),
+                )),
                 config,
             );
 

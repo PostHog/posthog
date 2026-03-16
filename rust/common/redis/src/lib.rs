@@ -254,6 +254,9 @@ pub trait Client: Send + Sync {
         ttl_seconds: usize,
     ) -> Result<(), CustomRedisError>;
 
+    /// Get a value and atomically refresh its TTL (Redis GETEX).
+    /// Returns the value as a string, or NotFound if the key doesn't exist.
+    async fn getex(&self, k: String, seconds: u64) -> Result<String, CustomRedisError>;
     async fn del(&self, k: String) -> Result<(), CustomRedisError>;
     async fn hget(&self, k: String, field: String) -> Result<String, CustomRedisError>;
     async fn scard(&self, k: String) -> Result<u64, CustomRedisError>;

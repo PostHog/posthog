@@ -1,19 +1,18 @@
 # Unlocks Tokio's unstable RuntimeMetrics API (per-worker poll counts, blocking pool stats, etc.).
 # Used by feature-flags/src/tokio_monitor.rs — no other crate calls unstable APIs.
+# Applies workspace-wide because Cargo doesn't support per-crate config within a workspace.
 #
-# Placed under [target.'cfg(all())'] instead of [build] so that target-specific
-# rustflags (like lld on macOS) can merge via Cargo's "all matching target entries
-# joined together" rule, rather than being silently ignored by [build].rustflags
-# which is mutually exclusive with target-level entries.
-# See: https://doc.rust-lang.org/cargo/reference/config.html#buildrustflags
-[target.'cfg(all())']
+# NOTE: [build].rustflags is mutually exclusive with [target.*].rustflags: when a target entry
+# matches, [build] is ignored for that target. The macOS aarch64 entry below therefore repeats
+# --cfg tokio_unstable so it is not silently dropped for that platform.
+[build]
 rustflags = ["--cfg", "tokio_unstable"]
 
 # Use lld for linking on Apple Silicon dev builds. Flox only installs lld for
 # aarch64-darwin, so we scope this to match. clang's -fuse-ld=lld resolves to
 # ld64.lld (Mach-O flavor) on macOS automatically.
 [target.'cfg(all(target_os = "macos", target_arch = "aarch64"))']
-rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+rustflags = ["--cfg", "tokio_unstable", "-C", "link-arg=-fuse-ld=lld"]
 
 [env]
 # Force SQLX to run in offline mode for CI. Devs can change this if they want, to live code against the DB,

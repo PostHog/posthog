@@ -421,6 +421,19 @@ impl Client for MockRedisClient {
         }
     }
 
+    async fn getex(&self, key: String, seconds: u64) -> Result<String, CustomRedisError> {
+        self.lock_calls().push(MockRedisCall {
+            op: "getex".to_string(),
+            key: key.clone(),
+            value: MockRedisValue::I64(seconds as i64),
+        });
+
+        self.get_ret
+            .get(&key)
+            .cloned()
+            .unwrap_or(Err(CustomRedisError::NotFound))
+    }
+
     async fn del(&self, key: String) -> Result<(), CustomRedisError> {
         let mut calls = self.lock_calls();
         calls.push(MockRedisCall {

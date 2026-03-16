@@ -756,6 +756,15 @@ async fn test_personal_api_key_with_scoped_organizations_removed_member() {
         .remove_user_from_organization(user_id, &org_id)
         .await
         .unwrap();
+    // Simulate Django signal-based cache invalidation (Python handles this in production)
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    feature_flags::utils::test_utils::invalidate_personal_api_key_auth_cache(
+        redis_client,
+        &api_key_value,
+    )
+    .await
+    .unwrap();
 
     // Should now fail because the user is no longer an org member
     let response = client
@@ -840,6 +849,15 @@ async fn test_personal_api_key_unscoped_removed_member() {
         .remove_user_from_organization(user_id, &org_id)
         .await
         .unwrap();
+    // Simulate Django signal-based cache invalidation (Python handles this in production)
+    let redis_client =
+        feature_flags::utils::test_utils::setup_redis_client(Some(config.redis_url.clone())).await;
+    feature_flags::utils::test_utils::invalidate_personal_api_key_auth_cache(
+        redis_client,
+        &api_key_value,
+    )
+    .await
+    .unwrap();
 
     // Should fail because the user is no longer an org member, even without scoped_organizations
     let response = client

@@ -162,6 +162,33 @@ impl RedisClient {
     ///
     /// Logs a warning if decompression fails and data starts with zstd magic bytes,
     /// which indicates potential corruption rather than uncompressed data.
+    /// Decode raw bytes from Redis: empty check, decompression, and format dispatch.
+    fn decode_raw_bytes(
+        raw_bytes: Vec<u8>,
+        format: RedisValueFormat,
+    ) -> Result<String, CustomRedisError> {
+        if raw_bytes.is_empty() {
+            return Err(CustomRedisError::NotFound);
+        }
+
+        let decompressed = Self::try_decompress(raw_bytes);
+
+        match format {
+            RedisValueFormat::Pickle => {
+                let string_response: String =
+                    serde_pickle::from_slice(&decompressed, Default::default())?;
+                Ok(string_response)
+            }
+            RedisValueFormat::Utf8 => {
+                let string_response = String::from_utf8(decompressed)?;
+                Ok(string_response)
+            }
+            RedisValueFormat::RawBytes => {
+                Err(CustomRedisError::ParseError(ERR_RAWBYTES_GET.to_string()))
+            }
+        }
+    }
+
     pub(crate) fn try_decompress(data: Vec<u8>) -> Vec<u8> {
         match zstd::decode_all(&data[..]) {
             Ok(decompressed) => decompressed,
@@ -257,30 +284,18 @@ impl Client for RedisClient {
     ) -> Result<String, CustomRedisError> {
         let mut conn = self.connection.clone();
         let raw_bytes: Vec<u8> = conn.get(k).await?;
+        Self::decode_raw_bytes(raw_bytes, format)
+    }
 
-        // return NotFound error when empty
-        if raw_bytes.is_empty() {
-            return Err(CustomRedisError::NotFound);
-        }
-
-        // Always attempt decompression - handles both compressed and uncompressed data gracefully
-        // This ensures clients can read data regardless of compression settings used when writing
-        let decompressed = Self::try_decompress(raw_bytes);
-
-        match format {
-            RedisValueFormat::Pickle => {
-                let string_response: String =
-                    serde_pickle::from_slice(&decompressed, Default::default())?;
-                Ok(string_response)
-            }
-            RedisValueFormat::Utf8 => {
-                let string_response = String::from_utf8(decompressed)?;
-                Ok(string_response)
-            }
-            RedisValueFormat::RawBytes => {
-                Err(CustomRedisError::ParseError(ERR_RAWBYTES_GET.to_string()))
-            }
-        }
+    async fn getex(&self, k: String, seconds: u64) -> Result<String, CustomRedisError> {
+        let mut conn = self.connection.clone();
+        let raw_bytes: Vec<u8> = redis::cmd("GETEX")
+            .arg(&k)
+            .arg("EX")
+            .arg(seconds)
+            .query_async(&mut conn)
+            .await?;
+        Self::decode_raw_bytes(raw_bytes, self.format)
     }
 
     async fn get_raw_bytes(&self, k: String) -> Result<Vec<u8>, CustomRedisError> {

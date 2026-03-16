@@ -13,7 +13,7 @@ use axum::{
     routing::{any, get},
     Router,
 };
-use common_cache::NegativeCache;
+use common_cache::{NegativeCache, ReadThroughCache};
 use common_cookieless::CookielessManager;
 use common_geoip::GeoIpClient;
 use common_hypercache::HyperCacheReader;
@@ -87,7 +87,11 @@ pub struct State {
     /// In-memory negative cache for invalid API tokens, preventing repeated
     /// Redis/S3/PG lookups for tokens that don't correspond to any team
     pub team_negative_cache: NegativeCache,
+    /// Read-through cache for auth tokens (secret + personal API keys).
+    /// Handles Redis positive cache, in-memory negative cache, and loader ordering.
+    pub auth_token_cache: Arc<ReadThroughCache>,
 }
+
 
 #[allow(clippy::too_many_arguments)]
 pub fn router(
@@ -106,6 +110,7 @@ pub fn router(
     config_hypercache_reader: Arc<HyperCacheReader>,
     rayon_dispatcher: RayonDispatcher,
     team_negative_cache: NegativeCache,
+    auth_token_cache: Arc<ReadThroughCache>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -187,6 +192,7 @@ pub fn router(
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
+        auth_token_cache,
     };
 
     // Very permissive CORS policy, as old SDK versions
