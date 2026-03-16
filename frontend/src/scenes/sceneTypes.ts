@@ -228,6 +228,7 @@ export interface SceneTab {
     sceneId?: string
     sceneKey?: string
     sceneParams?: SceneParams
+    sceneUrls?: Record<string, { pathname: string; search: string; hash: string }>
 }
 
 export interface SceneParams {

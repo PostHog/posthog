@@ -306,6 +306,67 @@ describe('sceneLogic', () => {
         expect(tab3Instances[0].pinned).toBe(false)
         expect(pinnedTabs.map((tab) => tab.id)).not.toContain('tab-3')
     })
+    it('saves and restores per-scene URLs when navigating within the same tab', () => {
+        const tabId = 'tab-1'
+        const eventsPathname = '/project/1/activity/explore'
+        const eventsHash = '#q=%7B%22test%22%3Atrue%7D'
+        const sessionsPathname = '/project/1/activity/sessions'
+
+        // Set up a tab on the events page with a hash (simulating configured columns)
+        logic.actions.setTabs([
+            {
+                id: tabId,
+                title: 'Explore events',
+                pathname: eventsPathname,
+                search: '',
+                hash: eventsHash,
+                active: true,
+                iconType: 'blank',
+                sceneId: Scene.ExploreEvents,
+            },
+        ])
+
+        // Navigate to a different page within the same tab
+        router.actions.push(sessionsPathname)
+
+        // The tab system should have saved the events URL under the ExploreEvents sceneId
+        const tabAfterNav = logic.values.tabs.find((t) => t.id === tabId)!
+        expect(tabAfterNav.pathname).toEqual(sessionsPathname)
+        expect(tabAfterNav.sceneUrls?.[Scene.ExploreEvents]).toEqual({
+            pathname: eventsPathname,
+            search: '',
+            hash: eventsHash,
+        })
+
+        // Simulate scene change to Sessions
+        logic.actions.setScene(
+            Scene.ExploreSessions,
+            Scene.ExploreSessions,
+            tabId,
+            { params: {}, searchParams: {}, hashParams: {} },
+            true
+        )
+
+        // Navigate back to Events
+        router.actions.push(eventsPathname)
+
+        // setScene for Events should restore the saved URL via router.replace
+        logic.actions.setScene(
+            Scene.ExploreEvents,
+            Scene.ExploreEvents,
+            tabId,
+            { params: {}, searchParams: {}, hashParams: {} },
+            true
+        )
+
+        // The URL should be restored with the original hash
+        expect(router.values.location.hash).toEqual(eventsHash)
+
+        // The tab URL should reflect the restored hash
+        const tabAfterRestore = logic.values.tabs.find((t) => t.id === tabId)!
+        expect(tabAfterRestore.hash).toEqual(eventsHash)
+    })
+
     it('hydrates pinned tabs stored under legacy personal key', async () => {
         const teamId = teamLogic.values.currentTeamId ?? 'null'
         const pinnedStorageKey = `scene-tabs-pinned-state-${teamId}`
