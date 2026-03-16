@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch } from '@posthog/lemon-ui'
+import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
@@ -65,6 +65,7 @@ function TestAccountFiltersConfig(): JSX.Element {
     const { filterTestAccounts } = useValues(revenueAnalyticsSettingsLogic)
     const { updateFilterTestAccounts } = useActions(revenueAnalyticsSettingsLogic)
     const { cohortsById } = useValues(cohortsModel)
+    const hasCohortFilter = currentTeam?.test_account_filters?.some((f) => f.type === 'cohort')
     const restrictedReason = useRestrictedArea({
         scope: RestrictionScope.Project,
         minimumAccessLevel: TeamMembershipLevel.Admin,
@@ -85,8 +86,23 @@ function TestAccountFiltersConfig(): JSX.Element {
                 <LemonBanner type="info">
                     When filtering out internal users by person properties, like email, we recommend creating a Cohort
                     with those properties, and then adding that cohort with a "not in" operator in your ‘Filter out
-                    internal and test users’ settings.
+                    internal and test users’ settings. <b>Note:</b> Cohorts are not supported for real-time CDP/Hog
+                    Functions. Use person property filters if you require CDP.
                 </LemonBanner>
+                {hasCohortFilter && (
+                    <LemonBanner type="warning" className="m-2">
+                        <p>
+                            You are using a cohort filter. While recommended for standard analytics, cohorts are{' '}
+                            <strong>not supported</strong> for real-time CDP destinations or Hog Functions.
+                        </p>
+                        <p>
+                            If you rely on these features, please use inline person property filters instead.{' '}
+                            <Link to="https://posthog.com/docs/cdp/destinations#filtering" target="blank">
+                                Learn more in our docs
+                            </Link>
+                        </p>
+                    </LemonBanner>
+                )}
                 {!!testAccountFilterWarningLabels && testAccountFilterWarningLabels.length > 0 && (
                     <LemonBanner type="warning" className="m-2">
                         <p>
