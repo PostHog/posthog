@@ -104,6 +104,11 @@ test.describe('Workflows', () => {
             await expect(page.getByRole('heading', { name: 'Message categories' })).toBeVisible()
             await expect(page.getByText('Marketing opt-out list')).toBeVisible()
 
+            // Wait for skeleton loaders to finish
+            await expect(page.locator('[data-attr="opt-out-scene"] .LemonSkeleton')).not.toBeAttached({
+                timeout: 10000,
+            })
+
             await expect(page).toHaveScreenshot('opt-outs-tab.png', { fullPage: true })
         })
     })
