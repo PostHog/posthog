@@ -59,7 +59,10 @@ function hrTimeNano(): string {
 }
 
 function sendLog(level: LogLevel, context: string, message: string, properties?: Record<string, unknown>): void {
-    const config = toolbarPosthogJS.config
+    const config = toolbarPosthogJS?.config
+    if (!config) {
+        return
+    }
     const apiHost = config.api_host?.replace(/\/+$/, '') || ''
     const token = config.token
 
@@ -74,7 +77,6 @@ function sendLog(level: LogLevel, context: string, message: string, properties?:
 
     const attributes = toAttributes({
         'toolbar.context': context,
-        'service.name': 'posthog-toolbar',
         ...properties,
     })
 
@@ -110,7 +112,7 @@ function sendLog(level: LogLevel, context: string, message: string, properties?:
     const url = `${apiHost}/i/v1/logs?token=${token}`
 
     if (navigator.sendBeacon) {
-        navigator.sendBeacon(url, JSON.stringify(body))
+        navigator.sendBeacon(url, new Blob([JSON.stringify(body)], { type: 'application/json' }))
     } else {
         void fetch(url, {
             method: 'POST',

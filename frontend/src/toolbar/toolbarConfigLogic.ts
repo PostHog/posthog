@@ -328,12 +328,11 @@ function initInstrumentation(
     props: ToolbarProps,
     values: { isAuthenticated: boolean; uiHost: string; apiHost: string }
 ): void {
-    if (props.distinctId) {
-        toolbarPosthogJS.identify(props.distinctId, props.userEmail ? { email: props.userEmail } : {})
-    }
-
     if (props.instrument) {
         toolbarPosthogJS.opt_in_capturing()
+        if (props.distinctId) {
+            toolbarPosthogJS.identify(props.distinctId, props.userEmail ? { email: props.userEmail } : {})
+        }
     }
 
     toolbarPosthogJS.capture('toolbar loaded', {
