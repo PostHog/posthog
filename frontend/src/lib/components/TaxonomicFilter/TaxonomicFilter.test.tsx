@@ -64,6 +64,13 @@ describe('TaxonomicFilter', () => {
         )
     }
 
+    function expectActiveTab(activeTestId: string, inactiveTestId?: string): void {
+        expect(screen.getByTestId(activeTestId).closest('[class*="LemonTag--primary"]')).toBeInTheDocument()
+        if (inactiveTestId) {
+            expect(screen.getByTestId(inactiveTestId).closest('[class*="LemonTag--primary"]')).not.toBeInTheDocument()
+        }
+    }
+
     describe('rendering', () => {
         it('renders search input and loads results from the API', async () => {
             renderFilter()
@@ -208,12 +215,8 @@ describe('TaxonomicFilter', () => {
             await userEvent.click(screen.getByTestId('taxonomic-tab-actions'))
 
             await waitFor(() => {
-                expect(
-                    screen.getByTestId('taxonomic-tab-actions').closest('[class*="LemonTag--primary"]')
-                ).toBeInTheDocument()
-                expect(
-                    screen.getByTestId('taxonomic-tab-events').closest('[class*="LemonTag--primary"]')
-                ).not.toBeInTheDocument()
+                expectActiveTab('taxonomic-tab-actions', 'taxonomic-tab-events')
+                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
             })
         })
 
@@ -242,8 +245,7 @@ describe('TaxonomicFilter', () => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
 
-            const eventsTab = screen.getByTestId('taxonomic-tab-events')
-            expect(eventsTab.closest('[class*="LemonTag--primary"]')).toBeInTheDocument()
+            expectActiveTab('taxonomic-tab-events')
         })
     })
 
@@ -314,17 +316,17 @@ describe('TaxonomicFilter', () => {
     })
 
     describe('keyboard navigation', () => {
-        it('type to search and enter to select', async () => {
+        it('search narrows results and arrow down + enter selects from filtered list', async () => {
             renderFilter()
 
             await waitFor(() => {
                 expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
 
-            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event1')
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), '$click')
 
             await waitFor(() => {
-                expect(screen.getAllByText('event1').length).toBeGreaterThanOrEqual(1)
+                expect(screen.queryByTestId('prop-filter-events-1')).not.toBeInTheDocument()
             })
 
             await userEvent.keyboard('{ArrowDown}')
@@ -333,7 +335,7 @@ describe('TaxonomicFilter', () => {
             await waitFor(() => {
                 expect(onChangeMock).toHaveBeenCalledTimes(1)
             })
-            expect(onChangeMock.mock.calls[0][1]).toBe('event1')
+            expect(onChangeMock.mock.calls[0][1]).toBe('$click')
         })
 
         it('arrow down moves the highlighted index down', async () => {
@@ -395,12 +397,8 @@ describe('TaxonomicFilter', () => {
             await userEvent.keyboard('{Tab}')
 
             await waitFor(() => {
-                expect(
-                    screen.getByTestId('taxonomic-tab-actions').closest('[class*="LemonTag--primary"]')
-                ).toBeInTheDocument()
-                expect(
-                    screen.getByTestId('taxonomic-tab-events').closest('[class*="LemonTag--primary"]')
-                ).not.toBeInTheDocument()
+                expectActiveTab('taxonomic-tab-actions', 'taxonomic-tab-events')
+                expect(screen.getByTestId('prop-filter-actions-0')).toBeInTheDocument()
             })
         })
 
@@ -420,20 +418,14 @@ describe('TaxonomicFilter', () => {
             await userEvent.keyboard('{Tab}')
 
             await waitFor(() => {
-                expect(
-                    screen.getByTestId('taxonomic-tab-actions').closest('[class*="LemonTag--primary"]')
-                ).toBeInTheDocument()
+                expectActiveTab('taxonomic-tab-actions')
             })
 
             await userEvent.keyboard('{Shift>}{Tab}{/Shift}')
 
             await waitFor(() => {
-                expect(
-                    screen.getByTestId('taxonomic-tab-events').closest('[class*="LemonTag--primary"]')
-                ).toBeInTheDocument()
-                expect(
-                    screen.getByTestId('taxonomic-tab-actions').closest('[class*="LemonTag--primary"]')
-                ).not.toBeInTheDocument()
+                expectActiveTab('taxonomic-tab-events', 'taxonomic-tab-actions')
+                expect(screen.getByTestId('prop-filter-events-0')).toBeInTheDocument()
             })
         })
     })
