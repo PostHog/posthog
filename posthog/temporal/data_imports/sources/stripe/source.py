@@ -1,6 +1,5 @@
 from typing import TYPE_CHECKING, Optional, cast
 
-import structlog
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
@@ -49,8 +48,6 @@ from posthog.temporal.data_imports.sources.stripe.stripe import (
 )
 
 from products.data_warehouse.backend.types import ExternalDataSourceType
-
-logger = structlog.get_logger(__name__)
 
 STRIPE_BASE_URL = "https://dashboard.stripe.com"
 STRIPE_ACCOUNT_URL = f"{STRIPE_BASE_URL}/settings/account"
