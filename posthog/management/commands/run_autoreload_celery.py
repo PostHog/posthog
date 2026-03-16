@@ -6,8 +6,6 @@ from typing import Literal
 
 from django.core.management.base import BaseCommand
 
-import pywatchman
-
 from posthog.tasks.utils import CeleryQueue
 
 PROJECT_ROOT = Path(__file__).parent.parent.parent.parent
@@ -20,7 +18,7 @@ class Command(BaseCommand):
     help = "Run Celery with watchman-based auto-reload"
 
     def add_arguments(self, parser):
-        parser.add_argument("--type", type=str, choices=("worker", "beat"), help="Process type")
+        parser.add_argument("--type", type=str, required=True, choices=("worker", "beat"), help="Process type")
         parser.add_argument("--no-reload", action="store_true", help="Disable auto-reload")
 
     def handle(self, *args, **options):
@@ -57,20 +55,16 @@ class Command(BaseCommand):
         thread.start()
 
     def _watchman_loop(self, process_type: Literal["worker", "beat"]):
+        import pywatchman
+
         try:
             client = pywatchman.client(timeout=5)
-            root = str(PROJECT_ROOT)
-            client.query("watch-project", root)
-        except (pywatchman.WatchmanError, pywatchman.CommandError, ConnectionError, OSError) as e:
-            self.stderr.write(self.style.WARNING(f"Watchman not available, auto-reload disabled: {e}"))
-            return
+            result = client.query("watch-project", str(PROJECT_ROOT))
+            watch_root = result["watch"]
+            relative_path = result.get("relative_path")
 
-        sub_name = f"celery-reload-{process_type}-{os.getpid()}"
-        client.query(
-            "subscribe",
-            root,
-            sub_name,
-            {
+            sub_name = f"celery-reload-{process_type}-{os.getpid()}"
+            sub_opts: dict = {
                 "expression": [
                     "allof",
                     ["suffix", "py"],
@@ -84,15 +78,21 @@ class Command(BaseCommand):
                 "fields": ["name"],
                 "drop": ["stat"],
                 "defer_vcs": True,
-            },
-        )
+            }
+            if relative_path:
+                sub_opts["relative_root"] = relative_path
+
+            client.query("subscribe", watch_root, sub_name, sub_opts)
+        except (pywatchman.WatchmanError, pywatchman.CommandError, ConnectionError, OSError) as e:
+            self.stderr.write(self.style.WARNING(f"Watchman not available, auto-reload disabled: {e}"))
+            return
 
         self.stdout.write(
             self.style.SUCCESS(f"Watching {', '.join(WATCH_DIRS)} for .py changes (celery {process_type})")
         )
 
-        # Skip initial notification from subscription setup — watchman sends the
-        # current state of matching files immediately upon subscribing
+        # Skip initial notification — watchman sends the current state of matching
+        # files immediately upon subscribing
         try:
             client.receive()
             client.getSubscription(sub_name)
@@ -104,6 +104,9 @@ class Command(BaseCommand):
                 client.receive()
             except pywatchman.SocketTimeout:
                 continue
+            except (pywatchman.WatchmanError, ConnectionError, OSError) as e:
+                self.stderr.write(self.style.WARNING(f"Watchman connection lost, auto-reload disabled: {e}"))
+                return
 
             data = client.getSubscription(sub_name)
             if not data:
