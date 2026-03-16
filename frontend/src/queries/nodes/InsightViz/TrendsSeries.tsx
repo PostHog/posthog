@@ -88,15 +88,24 @@ export function TrendsSeries(): JSX.Element | null {
                                 NodeKind.LifecycleDataWarehouseNode
                             ),
                         } as LifecycleQuery)
+                    } else if (isFunnels) {
+                        updateQuerySource({
+                            series: actionsAndEventsToSeries(
+                                payload as any,
+                                true,
+                                mathAvailability,
+                                NodeKind.FunnelsDataWarehouseNode
+                            ),
+                        } as FunnelsQuery)
                     } else {
                         updateQuerySource({
                             series: actionsAndEventsToSeries(
                                 payload as any,
                                 true,
                                 mathAvailability,
-                                isFunnels ? NodeKind.FunnelsDataWarehouseNode : NodeKind.DataWarehouseNode
+                                NodeKind.DataWarehouseNode
                             ),
-                        } as TrendsQuery | FunnelsQuery | StickinessQuery)
+                        } as TrendsQuery | StickinessQuery)
                     }
                 }}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}

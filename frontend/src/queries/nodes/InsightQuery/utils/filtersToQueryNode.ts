@@ -263,14 +263,8 @@ export function actionsAndEventsToSeries(
     filters: FilterTypeActionsAndEventsWithGroups,
     includeProperties: boolean,
     includeMath: MathAvailability,
-    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode | NodeKind.FunnelsDataWarehouseNode
+    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode
 ): (AnyEntityNode | GroupNode)[]
-export function actionsAndEventsToSeries(
-    filters: FilterTypeActionsAndEventsWithoutGroups,
-    includeProperties: boolean,
-    includeMath: MathAvailability,
-    dataWarehouseNodeKind: NodeKind.FunnelsDataWarehouseNode
-): AnyEntityNode<FunnelsDataWarehouseNode>[]
 export function actionsAndEventsToSeries(
     filters: FilterTypeActionsAndEventsWithoutGroups,
     includeProperties: boolean,
@@ -281,7 +275,13 @@ export function actionsAndEventsToSeries(
     filters: FilterTypeActionsAndEventsWithoutGroups,
     includeProperties: boolean,
     includeMath: MathAvailability,
-    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode | NodeKind.FunnelsDataWarehouseNode
+    dataWarehouseNodeKind: NodeKind.FunnelsDataWarehouseNode
+): AnyEntityNode<FunnelsDataWarehouseNode>[]
+export function actionsAndEventsToSeries(
+    filters: FilterTypeActionsAndEventsWithoutGroups,
+    includeProperties: boolean,
+    includeMath: MathAvailability,
+    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode
 ): AnyEntityNode[]
 export function actionsAndEventsToSeries(
     { actions, events, data_warehouse, new_entity, groups }: FilterTypeActionsAndEvents,
@@ -289,7 +289,7 @@ export function actionsAndEventsToSeries(
     includeMath: MathAvailability,
     dataWarehouseNodeKind: DataWarehouseNodeKind = NodeKind.DataWarehouseNode
 ): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode>)[] {
-    const series: (AnyEntityNode | GroupNode)[] = [
+    const series: (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode>)[] = [
         ...(actions || []),
         ...(events || []),
         ...(data_warehouse || []),
