@@ -932,7 +932,7 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             {"name": "bad template", "use_template": "NONEXISTENT_KEY_abc123"},
             expected_status=status.HTTP_400_BAD_REQUEST,
         )
-        self.assertIn("use_template", response)
+        self.assertEqual(response["attr"], "use_template")
 
     def test_dashboard_creation_validation(self):
         existing_dashboard = Dashboard.objects.create(team=self.team, name="existing dashboard", created_by=self.user)
