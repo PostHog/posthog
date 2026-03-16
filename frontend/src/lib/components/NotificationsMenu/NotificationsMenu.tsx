@@ -8,6 +8,7 @@ import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { IconWithCount } from 'lib/lemon-ui/icons'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
+import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { InAppNotification } from '~/types'
@@ -50,7 +51,12 @@ export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }):
                                 <IconNotification className="size-4.5" />
                             </IconWithCount>
                         </span>
-                        {!iconOnly && <span className="-ml-[2px]">Notifications</span>}
+                        {!iconOnly && (
+                            <>
+                                <span className="-ml-[2px]">Notifications</span>
+                                <MenuOpenIndicator direction="up" />
+                            </>
+                        )}
                     </ButtonPrimitive>
                 }
             />
@@ -63,7 +69,7 @@ export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }):
                     sideOffset={8}
                     collisionPadding={{ left: 0, top: 50, bottom: 50 }}
                 >
-                    <Menu.Popup className="primitive-menu-content w-[380px] max-h-[500px] flex flex-col">
+                    <Menu.Popup className="primitive-menu-content max-h-[calc(var(--available-height)-4px)] min-w-[380px] flex flex-col">
                         <div className="flex items-center justify-between px-3 py-2 border-b border-primary shrink-0">
                             <div className="flex gap-1">
                                 <button
