@@ -138,6 +138,7 @@ pub struct KafkaTopicConfig {
     pub replay_overflow_topic: String,
     pub dlq_topic: String,
     pub error_tracking_topic: String,
+    pub traces_topic: String,
 }
 
 impl From<&KafkaConfig> for KafkaTopicConfig {
@@ -152,6 +153,7 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
             replay_overflow_topic: config.kafka_replay_overflow_topic.clone(),
             dlq_topic: config.kafka_dlq_topic.clone(),
             error_tracking_topic: config.kafka_error_tracking_topic.clone(),
+            traces_topic: config.kafka_traces_topic.clone(),
         }
     }
 }
