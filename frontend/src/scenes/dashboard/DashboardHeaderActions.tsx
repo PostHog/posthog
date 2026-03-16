@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPencil, IconPlusSmall, IconShare } from '@posthog/icons'
+import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
@@ -25,14 +25,23 @@ export function EditModeActions(): JSX.Element {
 
     return (
         <>
-            <LemonButton
-                data-attr="dashboard-edit-mode-discard"
-                type="secondary"
-                onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
-                size="small"
+            <AppShortcut
+                name="CancelDashboardEdit"
+                keybind={[keyBinds.escape]}
+                intent="Cancel edit mode"
+                interaction="click"
+                scope={Scene.Dashboard}
             >
-                Cancel
-            </LemonButton>
+                <LemonButton
+                    data-attr="dashboard-edit-mode-discard"
+                    type="secondary"
+                    onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
+                    size="small"
+                    tooltip="Discard changes and exit edit mode"
+                >
+                    Cancel
+                </LemonButton>
+            </AppShortcut>
             <AppShortcut
                 name="SaveDashboard"
                 keybind={[keyBinds.edit, keyBinds.save]}
@@ -142,7 +151,7 @@ export function ViewModeActions(): JSX.Element {
                         data-attr="dashboard-edit-mode-button"
                         onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)}
                         size="small"
-                        icon={<IconPencil fontSize="16" />}
+                        icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Edit layout"
                         tooltipPlacement="top"
                     >

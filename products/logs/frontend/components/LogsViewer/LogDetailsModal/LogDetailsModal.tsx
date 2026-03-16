@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconCopy, IconX } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonModal, LemonTabs } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDrawer, LemonTabs } from '@posthog/lemon-ui'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -77,17 +77,17 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
         : selectedLog.originalLog
 
     return (
-        <LemonModal
-            title="Log details"
+        <LemonDrawer
             isOpen={isLogDetailsOpen}
             onClose={closeLogDetails}
             simple
-            overlayClassName="backdrop-blur-none bg-transparent flex items-stretch justify-end pr-16 py-4 h-screen"
-            className="m-0! max-w-3xl w-[50vw] min-h-full"
+            width="50vw"
             hideCloseButton
+            overlayTransparent
+            aria-label="Log details"
         >
             <div className="flex flex-col h-full">
-                <LemonModal.Header className="flex flex-col gap-2">
+                <LemonDrawer.Header className="flex flex-col gap-2">
                     <div className="flex items-center justify-between">
                         <h3>Log details</h3>
                         <div className="flex items-center gap-1">
@@ -148,8 +148,8 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                             />
                         )}
                     </div>
-                </LemonModal.Header>
-                <LemonModal.Content>
+                </LemonDrawer.Header>
+                <LemonDrawer.Content>
                     <LemonTabs
                         activeKey={activeTab}
                         onChange={(key) => setActiveTab(key as LogDetailsTab)}
@@ -207,8 +207,8 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                             },
                         ]}
                     />
-                </LemonModal.Content>
+                </LemonDrawer.Content>
             </div>
-        </LemonModal>
+        </LemonDrawer>
     )
 }

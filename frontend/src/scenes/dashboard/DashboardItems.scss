@@ -34,12 +34,13 @@
 .react-grid-item.react-draggable .CardMeta,
 .react-grid-item.react-draggable .TextCard__body {
     // .CardMeta is the draggable handle of insight cards. Text cards are draggable as a whole
-    cursor: move;
+    cursor: grab;
     user-select: none; // Prevent accidental text selection while dragging
 }
 
 .react-grid-item.react-draggable-dragging {
     z-index: 105;
+    cursor: grabbing;
     transition: none;
     will-change: transform;
 }

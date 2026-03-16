@@ -218,7 +218,7 @@ class TestEndpointExecution(ClickhouseTestMixin, APIBaseTest):
         )
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("filters_override is not allowed for HogQL endpoints", response.json()["detail"])
+        self.assertIn("Not allowed for HogQL endpoints. Use variables instead.", response.json()["detail"])
 
     # =========================================================================
     # NON-MATERIALIZED INSIGHT ENDPOINTS

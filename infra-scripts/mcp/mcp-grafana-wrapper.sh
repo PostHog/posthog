@@ -6,9 +6,9 @@
 # Grafana directly within the K8s cluster, enabling the MCP server to authenticate
 # with a service account token.
 #
-# Supports switching between prod-us, prod-eu, and dev regions via ~/.grafana-region file.
-# Use `grafana-region us`, `grafana-region eu`, or `grafana-region dev` to switch,
-# then restart your MCP client.
+# Supports switching between prod-us, prod-eu, and dev regions via GRAFANA_REGION env var
+# or ~/.grafana-region file (env var takes precedence). Use `grafana-region us`,
+# `grafana-region eu`, or `grafana-region dev` to switch, then restart your MCP client.
 #
 # Prerequisites:
 #   - kubectl configured with access to PostHog K8s clusters
@@ -33,9 +33,16 @@ else
     CURRENT_REGION="$DEFAULT_REGION"
 fi
 
+# Environment variable takes precedence over region file
+REGION_SOURCE="$REGION_FILE"
+if [ -n "${GRAFANA_REGION:-}" ]; then
+    CURRENT_REGION="$GRAFANA_REGION"
+    REGION_SOURCE="GRAFANA_REGION env var"
+fi
+
 # Validate region
 if [[ "$CURRENT_REGION" != "us" && "$CURRENT_REGION" != "eu" && "$CURRENT_REGION" != "dev" ]]; then
-    echo "Error: Invalid region '$CURRENT_REGION' in $REGION_FILE. Must be 'us', 'eu', or 'dev'." >&2
+    echo "Error: Invalid region '$CURRENT_REGION' from $REGION_SOURCE. Must be 'us', 'eu', or 'dev'." >&2
     exit 1
 fi
 

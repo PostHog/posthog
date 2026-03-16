@@ -16,8 +16,9 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { parse as parseYaml } from 'yaml'
 
-import { filterSchemaByOperationIds } from '@posthog/openapi-codegen'
+import { applyNestedExclusions, filterSchemaByOperationIds } from '@posthog/openapi-codegen'
 
 import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
 
@@ -35,13 +36,31 @@ if (!fs.existsSync(schemaPath)) {
     process.exit(1)
 }
 
-function collectOperationIdsFromFile(filePath) {
-    const operationIds = new Set()
+/**
+ * Parse a YAML tool definition and return operationIds plus all exclude_params
+ * grouped by operationId for schema-level exclusion before Orval runs.
+ */
+function parseToolDefinition(filePath) {
     const content = fs.readFileSync(filePath, 'utf-8')
-    for (const match of content.matchAll(/^\s+operation:\s+(\S+)/gm)) {
-        operationIds.add(match[1])
+    const parsed = parseYaml(content)
+    const operationIds = new Set()
+    /** @type {Map<string, string[]>} */
+    const schemaExclusions = new Map()
+
+    if (parsed?.tools) {
+        for (const tool of Object.values(parsed.tools)) {
+            if (!tool?.enabled || !tool?.operation) {
+                continue
+            }
+
+            operationIds.add(tool.operation)
+            const excludeParams = tool.exclude_params ?? []
+            if (excludeParams.length > 0) {
+                schemaExclusions.set(tool.operation, excludeParams)
+            }
+        }
     }
-    return operationIds
+    return { operationIds, schemaExclusions }
 }
 
 // ------------------------------------------------------------------
@@ -71,6 +90,39 @@ function stripNullDefaults(obj) {
         result[key] = stripNullDefaults(value)
     }
     return result
+}
+
+/**
+ * Remove readOnly properties from `required` arrays in the schema.
+ *
+ * drf-spectacular includes readOnly fields in `required` because they're
+ * always present in responses. But Orval generates a single Zod schema
+ * used for request validation, where readOnly fields shouldn't be required.
+ * This strips them so MCP tool callers don't need to provide server-computed
+ * fields like `bytecode`, `order`, or `transpiled`.
+ */
+function stripReadOnlyFromRequired(obj) {
+    if (!obj || typeof obj !== 'object') {
+        return
+    }
+    if (Array.isArray(obj)) {
+        for (const item of obj) {
+            stripReadOnlyFromRequired(item)
+        }
+        return
+    }
+    if (obj.properties && Array.isArray(obj.required)) {
+        obj.required = obj.required.filter((fieldName) => {
+            const prop = obj.properties[fieldName]
+            return !prop || !prop.readOnly
+        })
+        if (obj.required.length === 0) {
+            delete obj.required
+        }
+    }
+    for (const value of Object.values(obj)) {
+        stripReadOnlyFromRequired(value)
+    }
 }
 
 /**
@@ -151,28 +203,32 @@ if (definitions.length === 0) {
 const fullSchema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'))
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-orval-'))
 const outputDirs = []
-let totalOps = 0
+let totalEnabledOps = 0
 
 for (const def of definitions) {
-    const operationIds = collectOperationIdsFromFile(def.filePath)
+    const { operationIds, schemaExclusions } = parseToolDefinition(def.filePath)
     if (operationIds.size === 0) {
         continue
     }
-    totalOps += operationIds.size
+    totalEnabledOps += operationIds.size
 
-    let filtered = filterSchemaByOperationIds(fullSchema, operationIds)
+    let filtered = filterSchemaByOperationIds(fullSchema, operationIds, { includeResponseSchemas: false })
 
     // Annotate title for easier debugging
-    filtered.info.title = `${fullSchema.info?.title ?? 'API'} - MCP ${operationIds.size} ops`
+    filtered.info.title = `${fullSchema.info?.title ?? 'API'} - MCP ${operationIds.size} enabled ops`
 
     filtered = stripNullDefaults(filtered)
     stripUuidFormat(filtered)
+    stripReadOnlyFromRequired(filtered)
+    applyNestedExclusions(filtered, schemaExclusions)
     const pathCount = Object.keys(filtered.paths).length
     const schemaCount = Object.keys(filtered.components.schemas).length
 
     try {
         const outDir = runOrval(def.moduleName, filtered, tmpDir)
-        console.log(`   ✓ ${def.moduleName}: ${pathCount} paths, ${schemaCount} schemas (${operationIds.size} ops)`)
+        console.log(
+            `   ✓ ${def.moduleName}: ${pathCount} paths, ${schemaCount} schemas (${operationIds.size} enabled ops)`
+        )
         outputDirs.push(outDir)
     } catch (err) {
         console.error(`   ✗ ${def.moduleName}: Orval failed — ${err.message}`)
@@ -181,7 +237,7 @@ for (const def of definitions) {
 }
 
 fs.rmSync(tmpDir, { recursive: true, force: true })
-console.log(`MCP Orval: ${outputDirs.length} module(s), ${totalOps} operations total`)
+console.log(`MCP Orval: ${outputDirs.length} module(s), ${totalEnabledOps} enabled operations total`)
 
 if (outputDirs.length > 0) {
     const generatedFiles = outputDirs.map((d) => path.join(d, 'api.ts'))

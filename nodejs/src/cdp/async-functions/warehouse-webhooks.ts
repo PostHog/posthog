@@ -4,7 +4,7 @@ import { registerAsyncFunction } from '../async-function-registry'
 
 registerAsyncFunction('produceToWarehouseWebhooks', {
     execute: (args, context, result) => {
-        const [payload] = args
+        const [payload, explicitSchemaId] = args
 
         if (!payload || typeof payload !== 'object') {
             throw new Error('[HogFunction] - produceToWarehouseWebhooks requires an object payload')
@@ -16,10 +16,11 @@ registerAsyncFunction('produceToWarehouseWebhooks', {
             )
         }
 
-        const schemaId = context.invocation.hogFunction.inputs?.schema_id?.value
-        if (!schemaId) {
+        // Use explicit schema_id from Hog code args, or fall back to inputs for backward compat
+        const schemaId = explicitSchemaId ?? context.invocation.hogFunction.inputs?.schema_id?.value
+        if (!schemaId || typeof schemaId !== 'string') {
             throw new Error(
-                '[HogFunction] - produceToWarehouseWebhooks requires schema_id to be set on the hog function inputs'
+                '[HogFunction] - produceToWarehouseWebhooks requires a schema_id (either as second argument or in hog function inputs)'
             )
         }
 
