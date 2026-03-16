@@ -50,7 +50,6 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
             null as number | null,
             {
                 loadData: () => performance.now(),
-                loadDataSuccess: () => null,
                 loadDataFailure: () => null,
             },
         ],
