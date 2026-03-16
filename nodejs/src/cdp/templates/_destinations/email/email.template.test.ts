@@ -60,4 +60,36 @@ describe('email template', () => {
             }
         `)
     })
+
+    it('should pass cc and bcc strings through to queue parameters', async () => {
+        const response = await tester.invoke(
+            {
+                email: {
+                    to: {
+                        email: 'to@example.com',
+                        name: '',
+                    },
+                    from: {
+                        integrationId: 1,
+                        email: 'test@posthog.com',
+                        name: 'Test User',
+                    },
+                    cc: 'cc1@example.com, cc2@example.com',
+                    bcc: 'bcc@example.com',
+                    subject: 'Test',
+                    text: '',
+                    html: '',
+                },
+                debug: false,
+            },
+            {}
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(response.invocation.queueParameters).toMatchObject({
+            type: 'email',
+            cc: 'cc1@example.com, cc2@example.com',
+            bcc: 'bcc@example.com',
+        })
+    })
 })

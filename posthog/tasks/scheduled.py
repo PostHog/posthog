@@ -536,6 +536,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
             name="delete expired exported assets",
         )
 
+        from ee.tasks.scim_request_log_cleanup import cleanup_old_scim_request_logs
+
+        add_periodic_task_with_expiry(
+            sender,
+            crontab(minute="0"),
+            cleanup_old_scim_request_logs.s(),
+            name="clean up old SCIM request logs",
+        )
+
     # Check integrations to refresh every minute
     add_periodic_task_with_expiry(
         sender,

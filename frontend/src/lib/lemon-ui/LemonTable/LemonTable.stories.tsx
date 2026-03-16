@@ -9,6 +9,7 @@ import { LemonButton } from '../LemonButton'
 import { LemonDivider } from '../LemonDivider'
 import { LemonTable, LemonTableProps } from './LemonTable'
 import { LemonTableLink } from './LemonTableLink'
+import { LemonTableColumns } from './types'
 
 type Story = StoryObj<typeof LemonTable>
 const meta: Meta<typeof LemonTable> = {
@@ -27,6 +28,67 @@ interface MockFunnelSeries {
     name: string
     stepResults: [[number, number], [number, number]]
 }
+
+const MANY_PEOPLE: MockPerson[] = [
+    { name: 'Werner C.', occupation: 'Engineer' },
+    { name: 'Ursula Z.', occupation: 'Retired' },
+    { name: 'Ludwig A.', occupation: 'Painter' },
+    { name: 'Arnold S.', occupation: 'Body-builder' },
+    { name: 'Franz B.', occupation: 'Teacher' },
+    { name: 'Marie K.', occupation: 'Scientist' },
+    { name: 'Hans G.', occupation: 'Architect' },
+    { name: 'Greta T.', occupation: 'Activist' },
+    { name: 'Otto V.', occupation: 'Musician' },
+    { name: 'Helga P.', occupation: 'Doctor' },
+    { name: 'Klaus M.', occupation: 'Chef' },
+    { name: 'Ingrid S.', occupation: 'Writer' },
+]
+
+const WIDE_COLUMNS: LemonTableColumns<MockPerson> = [
+    {
+        title: 'Name',
+        dataIndex: 'name',
+        width: 150,
+        sorter: (a, b) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
+    },
+    {
+        title: 'Occupation',
+        dataIndex: 'occupation',
+        width: 150,
+        tooltip: 'What they are primarily working on.',
+        sorter: (a, b) => a.occupation.localeCompare(b.occupation),
+    },
+    {
+        title: 'Age',
+        key: 'age',
+        width: 120,
+        render: (_, person) => `${person.name.length * 12} years`,
+    },
+    {
+        title: 'Zodiac sign',
+        key: 'zodiac',
+        width: 120,
+        render: () => 'Gemini',
+    },
+    {
+        title: 'Favorite color',
+        key: 'color',
+        width: 120,
+        render: (_, person) => (person.occupation === 'Engineer' ? 'Blue' : 'Red'),
+    },
+    {
+        title: 'Hometown',
+        key: 'hometown',
+        width: 120,
+        render: (_, person) => (person.occupation === 'Engineer' ? 'Berlin' : 'Munich'),
+    },
+    {
+        title: 'Years of experience',
+        key: 'experience',
+        width: 150,
+        render: (_, person) => `${person.name.length + 5} years`,
+    },
+]
 
 // @ts-expect-error
 const GroupedTemplate: StoryFn<typeof LemonTable> = (props: LemonTableProps<MockFunnelSeries>) => {
@@ -268,58 +330,8 @@ export const WithStickyFirstColumn = (): JSX.Element => {
         <LemonTable
             className="max-w-100"
             firstColumnSticky
-            columns={[
-                {
-                    title: 'Name',
-                    dataIndex: 'name',
-                    sorter: (a, b) => a.name.split(' ')[1].localeCompare(b.name.split(' ')[1]),
-                },
-                {
-                    title: 'Occupation',
-                    dataIndex: 'occupation',
-                    tooltip: 'What they are primarily working on.',
-                    sorter: (a, b) => a.occupation.localeCompare(b.occupation),
-                },
-                {
-                    title: 'Age',
-                    key: 'age',
-                    render: (_, person) => `${person.name.length * 12} years`,
-                },
-                {
-                    title: 'Zodiac sign',
-                    key: 'zodiac',
-                    render: () => 'Gemini',
-                },
-                {
-                    title: 'Favorite color',
-                    key: 'color',
-                    render: (_, person) => (person.occupation === 'Engineer' ? 'Blue' : 'Red'),
-                },
-            ]}
-            dataSource={
-                [
-                    {
-                        name: 'Werner C.',
-                        occupation: 'Engineer',
-                    },
-                    {
-                        name: 'Ursula Z.',
-                        occupation: 'Retired',
-                    },
-                    {
-                        name: 'Ludwig A.',
-                        occupation: 'Painter',
-                    },
-                    {
-                        name: 'Arnold S.',
-                        occupation: 'Body-builder',
-                    },
-                    {
-                        name: 'Franz B.',
-                        occupation: 'Teacher',
-                    },
-                ] as MockPerson[]
-            }
+            columns={WIDE_COLUMNS.slice(0, 5)}
+            dataSource={MANY_PEOPLE.slice(0, 5)}
         />
     )
 }
@@ -342,52 +354,9 @@ export const WithLink = (): JSX.Element => {
                         />
                     ),
                 },
-                {
-                    title: 'Occupation',
-                    dataIndex: 'occupation',
-                    tooltip: 'What they are primarily working on.',
-                    sorter: (a, b) => a.occupation.localeCompare(b.occupation),
-                },
-                {
-                    title: 'Age',
-                    key: 'age',
-                    render: (_, person) => `${person.name.length * 12} years`,
-                },
-                {
-                    title: 'Zodiac sign',
-                    key: 'zodiac',
-                    render: () => 'Gemini',
-                },
-                {
-                    title: 'Favorite color',
-                    key: 'color',
-                    render: (_, person) => (person.occupation === 'Engineer' ? 'Blue' : 'Red'),
-                },
+                ...WIDE_COLUMNS.slice(1, 5),
             ]}
-            dataSource={
-                [
-                    {
-                        name: 'Werner C.',
-                        occupation: 'Engineer',
-                    },
-                    {
-                        name: 'Ursula Z.',
-                        occupation: 'Retired',
-                    },
-                    {
-                        name: 'Ludwig A.',
-                        occupation: 'Painter',
-                    },
-                    {
-                        name: 'Arnold S.',
-                        occupation: 'Body-builder',
-                    },
-                    {
-                        name: 'Franz B.',
-                        occupation: 'Teacher',
-                    },
-                ] as MockPerson[]
-            }
+            dataSource={MANY_PEOPLE.slice(0, 5)}
         />
     )
 }
@@ -442,15 +411,7 @@ export const WithCellActions = (): JSX.Element => {
                     render: (_, person) => `${person.name.length * 12} years`,
                 },
             ]}
-            dataSource={
-                [
-                    { name: 'Werner C.', occupation: 'Engineer' },
-                    { name: 'Ursula Z.', occupation: 'Retired' },
-                    { name: 'Ludwig A.', occupation: 'Painter' },
-                    { name: 'Arnold S.', occupation: 'Body-builder' },
-                    { name: 'Franz B.', occupation: 'Teacher' },
-                ] as MockPerson[]
-            }
+            dataSource={MANY_PEOPLE.slice(0, 5)}
         />
     )
 }
@@ -498,15 +459,31 @@ export const WithRowActions = (): JSX.Element => {
                     </LemonButton>
                 </>
             )}
-            dataSource={
-                [
-                    { name: 'Werner C.', occupation: 'Engineer' },
-                    { name: 'Ursula Z.', occupation: 'Retired' },
-                    { name: 'Ludwig A.', occupation: 'Painter' },
-                    { name: 'Arnold S.', occupation: 'Body-builder' },
-                    { name: 'Franz B.', occupation: 'Teacher' },
-                ] as MockPerson[]
-            }
+            dataSource={MANY_PEOPLE.slice(0, 5)}
         />
+    )
+}
+
+export const WithHorizontalOverflow = (): JSX.Element => {
+    return (
+        <div className="max-w-120">
+            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE.slice(0, 5)} />
+        </div>
+    )
+}
+
+export const WithVerticalOverflow = (): JSX.Element => {
+    return (
+        <div className="max-h-60 flex flex-col overflow-auto">
+            <LemonTable columns={WIDE_COLUMNS.slice(0, 2)} dataSource={MANY_PEOPLE} />
+        </div>
+    )
+}
+
+export const WithHorizontalAndVerticalOverflow = (): JSX.Element => {
+    return (
+        <div className="max-w-120 max-h-60 flex flex-col overflow-auto">
+            <LemonTable columns={WIDE_COLUMNS} dataSource={MANY_PEOPLE} />
+        </div>
     )
 }

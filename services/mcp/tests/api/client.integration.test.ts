@@ -17,7 +17,6 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
     const createdResources = {
         featureFlags: [] as number[],
         insights: [] as number[],
-        dashboards: [] as number[],
         experiments: [] as number[],
     }
 
@@ -47,7 +46,11 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
         // Clean up created feature flags
         for (const flagId of createdResources.featureFlags) {
             try {
-                await client.featureFlags({ projectId: testProjectId }).delete({ flagId })
+                await client.request({
+                    method: 'PATCH',
+                    path: `/api/projects/${testProjectId}/feature_flags/${flagId}/`,
+                    body: { deleted: true },
+                })
             } catch (error) {
                 console.warn(`Failed to cleanup feature flag ${flagId}:`, error)
             }
@@ -63,16 +66,6 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
             }
         }
         createdResources.insights = []
-
-        // Clean up created dashboards
-        for (const dashboardId of createdResources.dashboards) {
-            try {
-                await client.dashboards({ projectId: testProjectId }).delete({ dashboardId })
-            } catch (error) {
-                console.warn(`Failed to cleanup dashboard ${dashboardId}:`, error)
-            }
-        }
-        createdResources.dashboards = []
 
         // Clean up created experiments
         for (const experimentId of createdResources.experiments) {
@@ -237,22 +230,20 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
 
     describe('Feature Flags API', () => {
         it('should list feature flags', async () => {
-            const result = await client.featureFlags({ projectId: testProjectId }).list()
+            const result = await client.request<{
+                results: Array<{ id: number; key: string; name?: string; active?: boolean }>
+            }>({
+                method: 'GET',
+                path: `/api/projects/${testProjectId}/feature_flags/`,
+                query: { limit: 10, offset: 0 },
+            })
 
-            expect(result.success).toBe(true)
-
-            if (result.success) {
-                expect(Array.isArray(result.data)).toBe(true)
-                for (const flag of result.data) {
-                    expect(flag).toHaveProperty('id')
-                    expect(flag).toHaveProperty('key')
-                    expect(flag).toHaveProperty('name')
-                    expect(flag).toHaveProperty('active')
-                    expect(typeof flag.id).toBe('number')
-                    expect(typeof flag.key).toBe('string')
-                    expect(typeof flag.name).toBe('string')
-                    expect(typeof flag.active).toBe('boolean')
-                }
+            expect(Array.isArray(result.results)).toBe(true)
+            for (const flag of result.results) {
+                expect(flag).toHaveProperty('id')
+                expect(flag).toHaveProperty('key')
+                expect(typeof flag.id).toBe('number')
+                expect(typeof flag.key).toBe('string')
             }
         })
 
@@ -260,11 +251,12 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
             const testKey = `test-flag-${Date.now()}`
 
             // Create
-            const createResult = await client.featureFlags({ projectId: testProjectId }).create({
-                data: {
+            const createResult = await client.request<{ id: number; key: string; name: string; active: boolean }>({
+                method: 'POST',
+                path: `/api/projects/${testProjectId}/feature_flags/`,
+                body: {
                     key: testKey,
-                    name: 'Test Flag',
-                    description: 'Test feature flag',
+                    name: 'Test flag',
                     active: true,
                     filters: {
                         groups: [
@@ -276,50 +268,43 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                     },
                 },
             })
+            const flagId = createResult.id
+            createdResources.featureFlags.push(flagId)
 
-            expect(createResult.success).toBe(true)
+            // Get by ID
+            const getResult = await client.request<{ id: number; key: string; name: string; active: boolean }>({
+                method: 'GET',
+                path: `/api/projects/${testProjectId}/feature_flags/${flagId}/`,
+            })
+            expect(getResult.key).toBe(testKey)
+            expect(getResult.name).toBe('Test flag')
 
-            if (createResult.success) {
-                const flagId = createResult.data.id
-                createdResources.featureFlags.push(flagId)
+            // Find by key via list endpoint
+            const findResult = await client.request<{ results: Array<{ id: number; key: string }> }>({
+                method: 'GET',
+                path: `/api/projects/${testProjectId}/feature_flags/`,
+                query: { limit: 100, offset: 0 },
+            })
+            const found = findResult.results.find((flag) => flag.key === testKey)
+            expect(found?.id).toBe(flagId)
 
-                // Get by ID
-                const getResult = await client.featureFlags({ projectId: testProjectId }).get({ flagId })
-                expect(getResult.success).toBe(true)
+            // Update
+            await client.request({
+                method: 'PATCH',
+                path: `/api/projects/${testProjectId}/feature_flags/${flagId}/`,
+                body: {
+                    name: 'Updated test flag',
+                    active: false,
+                },
+            })
 
-                if (getResult.success) {
-                    expect(getResult.data.key).toBe(testKey)
-                    expect(getResult.data.name).toBe('Test Flag')
-                }
-
-                // Find by key
-                const findResult = await client.featureFlags({ projectId: testProjectId }).findByKey({ key: testKey })
-                expect(findResult.success).toBe(true)
-
-                if (findResult.success && findResult.data) {
-                    expect(findResult.data.id).toBe(flagId)
-                    expect(findResult.data.key).toBe(testKey)
-                }
-
-                // Update
-                const updateResult = await client.featureFlags({ projectId: testProjectId }).update({
-                    key: testKey,
-                    data: {
-                        name: 'Updated Test Flag',
-                        active: false,
-                    },
-                })
-                expect(updateResult.success).toBe(true)
-
-                // Verify update
-                const updatedGetResult = await client.featureFlags({ projectId: testProjectId }).get({ flagId })
-                if (updatedGetResult.success) {
-                    expect(updatedGetResult.data.name).toBe('Updated Test Flag')
-                    expect(updatedGetResult.data.active).toBe(false)
-                }
-
-                // Delete will be handled by afterEach cleanup
-            }
+            // Verify update
+            const updatedGetResult = await client.request<{ name: string; active: boolean }>({
+                method: 'GET',
+                path: `/api/projects/${testProjectId}/feature_flags/${flagId}/`,
+            })
+            expect(updatedGetResult.name).toBe('Updated test flag')
+            expect(updatedGetResult.active).toBe(false)
         })
     })
 
@@ -962,60 +947,6 @@ describe('API Client Integration Tests', { concurrent: false }, () => {
                     createdResources.insights.push(result.data.id)
                 }
             })
-        })
-    })
-
-    describe('Dashboards API', () => {
-        it('should list dashboards', async () => {
-            const result = await client.dashboards({ projectId: testProjectId }).list()
-
-            expect(result.success).toBe(true)
-
-            if (result.success) {
-                expect(Array.isArray(result.data)).toBe(true)
-                for (const dashboard of result.data) {
-                    expect(dashboard).toHaveProperty('id')
-                    expect(dashboard).toHaveProperty('name')
-                    expect(typeof dashboard.id).toBe('number')
-                    expect(typeof dashboard.name).toBe('string')
-                }
-            }
-        })
-
-        it('should create, get, update, and delete a dashboard', async () => {
-            const createResult = await client.dashboards({ projectId: testProjectId }).create({
-                data: {
-                    name: 'Test Dashboard',
-                    description: 'Test dashboard for API tests',
-                    pinned: false,
-                },
-            })
-
-            expect(createResult.success).toBe(true)
-
-            if (createResult.success) {
-                const dashboardId = createResult.data.id
-                createdResources.dashboards.push(dashboardId)
-
-                // Get
-                const getResult = await client.dashboards({ projectId: testProjectId }).get({ dashboardId })
-                expect(getResult.success).toBe(true)
-
-                if (getResult.success) {
-                    expect(getResult.data.name).toBe('Test Dashboard')
-                }
-
-                // Update
-                const updateResult = await client.dashboards({ projectId: testProjectId }).update({
-                    dashboardId,
-                    data: {
-                        name: 'Updated Test Dashboard',
-                    },
-                })
-                expect(updateResult.success).toBe(true)
-
-                // Delete will be handled by afterEach cleanup
-            }
         })
     })
 

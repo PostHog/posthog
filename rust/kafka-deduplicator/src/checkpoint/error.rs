@@ -30,6 +30,21 @@ impl fmt::Display for DownloadCancelledError {
 
 impl std::error::Error for DownloadCancelledError {}
 
+/// Error indicating checkpoint planning was cancelled before upload started.
+/// Use anyhow's downcast_ref::<PlanningCancelledError>() to detect this error type.
+#[derive(Debug)]
+pub struct PlanningCancelledError {
+    pub reason: String,
+}
+
+impl fmt::Display for PlanningCancelledError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Checkpoint planning cancelled: {}", self.reason)
+    }
+}
+
+impl std::error::Error for PlanningCancelledError {}
+
 /// Error indicating a checkpoint import operation timed out.
 /// This prevents exceeding Kafka's max poll interval during long imports.
 /// Use anyhow's downcast_ref::<ImportTimeoutError>() to detect this error type.

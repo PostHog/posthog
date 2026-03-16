@@ -763,7 +763,7 @@ class SessionRecordingViewSet(
             exc.status_code = 500
             raise exc
 
-        return Response({"success": True}, status=204)
+        return Response(status=204)
 
     @extend_schema(exclude=True)
     @action(methods=["POST"], detail=False, url_path="bulk_delete")
@@ -1351,7 +1351,7 @@ class SessionRecordingViewSet(
                 return await storage.delete_recordings(session_ids, self.team.id, deleted_by=deleted_by)
 
         try:
-            return async_to_sync(_delete_all)()
+            return asyncio.run(_delete_all())
         except Exception as e:
             logger.exception(
                 "recording_api_delete_error",

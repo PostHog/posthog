@@ -87,7 +87,7 @@ class TestShouldProxyTokenLookup(BaseTest):
 
 
 class TestProxyHeaderAllowlist(BaseTest):
-    @patch("ee.api.agentic_provisioning.region_proxy.external_requests")
+    @patch("ee.api.agentic_provisioning.region_proxy.requests")
     def test_strips_cookies_and_forwarded_headers(self, mock_requests):
         mock_response = MagicMock()
         mock_response.status_code = 200

@@ -8,41 +8,115 @@ The **Signals** product is a signal clustering and summarization pipeline. Signa
 
 ## Temporal Workflows
 
-There are two Temporal workflows. The grouping workflow is defined in `backend/temporal/grouping.py`. The summary workflow is defined in `backend/temporal/summary.py`, with its LLM activities split across dedicated files.
+Signal ingestion uses a three-stage pipeline: **emitter → buffer → grouping v2**. The emitter and buffer workflows are defined in `backend/temporal/emitter.py` and `backend/temporal/buffer.py`. The grouping v2 workflow is in `backend/temporal/grouping_v2.py` and delegates to `_process_signal_batch()` in `backend/temporal/grouping.py`. The summary workflow is defined in `backend/temporal/summary.py`, with its LLM activities split across dedicated files.
 
-Both workflows and all activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker via `posthog/temporal/ai/__init__.py`.
+The original `TeamSignalGroupingWorkflow` (v1) in `backend/temporal/grouping.py` is still registered but no longer used by `emit_signal()`.
 
-### `TeamSignalGroupingWorkflow` (`team-signal-grouping`)
+All workflows and activities are registered in `backend/temporal/__init__.py` and wired into the `VIDEO_EXPORT_TASK_QUEUE` worker via `posthog/temporal/ai/__init__.py`.
 
-A long-running entity workflow that serializes all signal grouping for a single team. Exactly one instance per team, with workflow ID `team-signal-grouping-{team_id}`.
+### Signal Ingestion Pipeline (v2)
+
+The v1 `TeamSignalGroupingWorkflow` buffered raw `EmitSignalInputs` in memory and carried them over on `continue_as_new`. Under high signal volume the `continue_as_new` payload grew too large and failed. The v2 pipeline solves this by flushing buffered signals to S3, passing only lightweight object keys between workflows.
+
+```text
+emit_signal()                       SignalEmitterWorkflow              BufferSignalsWorkflow              TeamSignalGroupingV2Workflow
+     │                                     │                                  │                                  │
+     ├─ start (idempotent) ───────────────────────────────────────────────────►│                                  │
+     │                                     │                                  │                                  │
+     ├─ start (fire-and-forget) ──────────►│                                  │                                  │
+     │                                     │                                  │                                  │
+     │                              activity: query buffer size               │                                  │
+     │                                     ├─ get_buffer_size ───────────────►│                                  │
+     │                                     │◄─ size ─────────────────────────┤│                                  │
+     │                                     │  (poll+sleep if full)            │                                  │
+     │                              activity: signal submit_signal            │                                  │
+     │                                     ├─────────────────────────────────►│                                  │
+     │                                     │                                  │                                  │
+     │                                     │                           (buffer fills / timeout)                  │
+     │                                     │                                  │                                  │
+     │                                     │                           activity: flush to S3                     │
+     │                                     │                                  ├──► S3: signals/signal_batches/<uuid>
+     │                                     │                                  │                                  │
+     │                                     │                           activity: signal-with-start               │
+     │                                     │                                  ├─ submit_batch(object_key) ──────►│
+     │                                     │                                  │                                  │
+     │                                     │                           continue_as_new                    activity: read from S3
+     │                                     │                                  │                                  ├──► S3
+     │                                     │                                  │                                  │
+     │                                     │                                  │                           _process_signal_batch()
+     │                                     │                                  │                                  │
+     │                                     │                                  │                           continue_as_new
+```
+
+### `SignalEmitterWorkflow` (`signal-emitter`)
+
+Ephemeral per-signal workflow that provides backpressure between `emit_signal()` and the buffer. One instance per signal, with workflow ID `signal-emitter-{team_id}-{uuid}`.
+
+Defined in `backend/temporal/emitter.py`.
+
+**Flow:**
+
+1. Run `submit_signal_to_buffer_activity`, which:
+   a. **Query** the buffer workflow's `get_buffer_size` query
+   b. If buffer is full (`>= BUFFER_MAX_SIZE`), **poll with jittered sleep** until space is available (heartbeating to stay alive)
+   c. **Signal** the buffer workflow's `submit_signal` handler with the signal
+
+This keeps `emit_signal()` fire-and-forget while the emitter workflow absorbs backpressure. The activity has a 1-hour `start_to_close_timeout` and 2-minute `heartbeat_timeout` to accommodate long waits under pressure.
+
+### `BufferSignalsWorkflow` (`buffer-signals`)
+
+Buffers incoming signals in memory and periodically flushes them to S3. One instance per team, with workflow ID `buffer-signals-{team_id}`.
+
+Defined in `backend/temporal/buffer.py`.
+
+**Architecture:**
+
+- New signals arrive via `@workflow.signal` (`submit_signal`), sent by `SignalEmitterWorkflow` instances.
+- Exposes `@workflow.query` (`get_buffer_size`) so emitters can implement backpressure by polling buffer occupancy before sending.
+- The main loop waits for signals, then waits until either the buffer reaches `BUFFER_MAX_SIZE` (20) or `BUFFER_FLUSH_TIMEOUT_SECONDS` (60s) elapses since the first signal arrived.
+- On flush: drains the buffer, writes all signals to S3 at `signals/signal_batches/<uuid>` via `flush_signals_to_s3_activity`, then sends the object key to the grouping v2 workflow via `signal_with_start_grouping_v2_activity` (which creates the grouping workflow if not already running).
+- If the buffer is already full again after flushing (signals arrived during the flush activities), loops immediately to flush again rather than `continue_as_new` (avoids losing throughput to workflow restart).
+- Otherwise calls `continue_as_new`, carrying over any signals that arrived between drain and now via `BufferSignalsInput.pending_signals`.
+- S3 objects are cleaned up by S3 lifecycle policies, not by the workflows.
+
+### `TeamSignalGroupingV2Workflow` (`team-signal-grouping-v2`)
+
+Long-running entity workflow that processes batches of signals from S3. One instance per team, with workflow ID `team-signal-grouping-v2-{team_id}`.
+
+Defined in `backend/temporal/grouping_v2.py`.
+
+**Architecture:**
+
+- Receives S3 object keys via `@workflow.signal` (`submit_batch`), sent by `BufferSignalsWorkflow`.
+- Pending object keys are buffered in memory as a `list[str]` — lightweight compared to the v1 approach of buffering full `EmitSignalInputs` objects.
+- The main loop waits for a batch key, downloads the signals from S3 via `read_signals_from_s3_activity`, then processes the full batch via `_process_signal_batch()` from `grouping.py`.
+- Caches type examples across batches with a TTL (`TYPE_EXAMPLES_CACHE_TTL`, 5 minutes).
+- Calls `continue_as_new` after each batch, carrying over any pending keys that arrived during processing.
+- Errors processing a batch are caught and logged — the workflow continues to the next batch.
+
+### `TeamSignalGroupingWorkflow` (`team-signal-grouping`) — v1, legacy
+
+A long-running entity workflow that serializes all signal grouping for a single team. Exactly one instance per team, with workflow ID `team-signal-grouping-{team_id}`. **No longer used by `emit_signal()` — superseded by the v2 pipeline above.**
 
 **Architecture:**
 
 - New signals arrive via `@workflow.signal` (`submit_signal`). The workflow maintains an internal `signal_buffer: list[EmitSignalInputs]` as a FIFO queue.
-- `emit_signal()` in `api.py` uses `signal_with_start` to atomically create the workflow if it doesn't exist, or send a signal to the running instance.
-- The main loop waits for buffered signals, processes them one at a time via `_process_one_signal()`, and calls `continue_as_new` after `CONTINUE_AS_NEW_THRESHOLD` (20) signals to keep Temporal history bounded. Unprocessed signals in the buffer are carried over as workflow input.
+- The main loop waits for buffered signals, processes them via `_process_signal_batch()` (with debouncing), and calls `continue_as_new` after `CONTINUE_AS_NEW_THRESHOLD` (20) signals to keep Temporal history bounded. Unprocessed signals in the buffer are carried over as workflow input.
 - Sequential processing eliminates race conditions where concurrent workflows could assign related signals to different reports (stale semantic search results, duplicate LLM matching decisions).
 - Errors processing a single signal are caught and logged — the workflow continues to the next signal.
 
-**Signal processing flow** (per signal, in `_process_one_signal()`):
+**Signal processing flow** (per batch, in `_process_signal_batch()`):
 
-1. **Embed** the signal description + **fetch signal type examples** from ClickHouse (parallel) → `get_embedding_activity`, `fetch_signal_type_examples_activity`
-2. **Generate 1-3 search queries** via LLM (receives type examples for context) → `generate_search_queries_activity`
+1. **Embed** all signal descriptions + **fetch signal type examples** from ClickHouse (parallel) → `get_embedding_activity`, `fetch_signal_type_examples_activity`
+2. **Generate 1-3 search queries** per signal via LLM (receives type examples for context) → `generate_search_queries_activity`
 3. **Embed each query** → parallel `get_embedding_activity` calls
 4. **Semantic search** ClickHouse `document_embeddings` for nearest neighbors per query → `run_signal_semantic_search_activity` (uses `cosineDistance()`)
 5. **LLM match** — decides if signal belongs to an existing report or needs a new group → `match_signal_to_report_activity`
 6. **Assign** signal to a `SignalReport` in Postgres, increment weight/count, check promotion threshold, **and emit to ClickHouse** via Kafka (embedding worker) — all in a single atomic operation → `assign_and_emit_signal_activity`
-7. **Wait for ClickHouse** — poll ClickHouse until the emitted signal appears so subsequent signals can find it during semantic search → `wait_for_signal_in_clickhouse_activity`
+7. **Wait for ClickHouse** — poll ClickHouse until the last emitted signal appears so subsequent batches can find it during semantic search → `wait_for_signal_in_clickhouse_activity`
 8. If promoted (weight ≥ `WEIGHT_THRESHOLD`, default `1.0`), **spawn child** `SignalReportSummaryWorkflow` (with `ALLOW_DUPLICATE_FAILED_ONLY` reuse policy, `ParentClosePolicy.ABANDON` so it survives `continue_as_new`, silently ignores `WorkflowAlreadyStartedError`)
 
-Step 1 runs two activities in parallel. Step 2 depends on step 1 (needs the type examples). Steps 3+4 fan out in parallel for each query/embedding.
-
-**Future opportunities the entity model unlocks:**
-
-- **Batching:** Process N signals in a single LLM call instead of 1:1.
-- **Debouncing:** Wait a short window after receiving a signal before processing, to batch burst arrivals.
-- **Per-team rate limiting:** Trivial — just add a sleep between iterations.
-- **Ordering guarantees:** Signals for a team are processed in arrival order.
+Steps 1-4 run in parallel across all signals in the batch. Steps 5-7 run sequentially per signal, with earlier batch signals injected into later signals' candidate sets via local cosine distance.
 
 ### `SignalReportSummaryWorkflow` (`signal-report-summary`)
 
@@ -233,7 +307,7 @@ Activities query via `execute_hogql_query()` using the HogQL alias `document_emb
 
 ### Entry Point: `emit_signal()` (`backend/api.py`)
 
-The primary programmatic entry point. Called by other PostHog products to emit signals.
+The primary programmatic entry point. Called by other PostHog products to emit signals. Ensures the `BufferSignalsWorkflow` is running (idempotent start, catches `WorkflowAlreadyStartedError`), then fires-and-forgets a `SignalEmitterWorkflow` with a unique ID per signal. The emitter handles backpressure — `emit_signal()` itself returns immediately.
 
 ### Utility: `soft_delete_report_signals()` (`backend/api.py`)
 
@@ -366,7 +440,11 @@ Stores result as an `actionability_judgment` artefact on the report. **Extended 
 | Type                                    | Description                                                                                                                          |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
 | `EmitSignalInputs`                      | Workflow input: `team_id`, `source_product`, `source_type`, `source_id`, `description`, `weight`, `extra`                            |
-| `TeamSignalGroupingInput`               | Entity workflow input: `team_id`, `pending_signals: list[EmitSignalInputs]` (carried over on `continue_as_new`)                      |
+| `BufferSignalsInput`                    | Buffer workflow input: `team_id`, `pending_signals: list[EmitSignalInputs]` (carried over on `continue_as_new`)                      |
+| `TeamSignalGroupingV2Input`             | Grouping v2 workflow input: `team_id`, `pending_batch_keys: list[str]` (carried over on `continue_as_new`)                           |
+| `TeamSignalGroupingInput`               | Legacy v1 entity workflow input: `team_id`, `pending_signals: list[EmitSignalInputs]` (carried over on `continue_as_new`)            |
+| `ReadSignalsFromS3Input`                | Activity input: `object_key`                                                                                                         |
+| `ReadSignalsFromS3Output`               | Activity output: `signals: list[EmitSignalInputs]`                                                                                   |
 | `SignalCandidate`                       | Search result: `signal_id`, `report_id`, `content`, `source_product`, `source_type`, `distance`                                      |
 | `MatchedMetadata`                       | Metadata when matched to existing report: `parent_signal_id`, `match_query`, `reason`                                                |
 | `NoMatchMetadata`                       | Metadata when no match found: `reason`, `rejected_signal_ids`                                                                        |
@@ -396,13 +474,16 @@ Signal {index}:
 
 ## Key Configuration
 
-| Setting                     | Default                       | Description                                                                        |
-| --------------------------- | ----------------------------- | ---------------------------------------------------------------------------------- |
-| `SIGNAL_WEIGHT_THRESHOLD`   | `1.0`                         | Total weight needed to promote a report to candidate                               |
-| `SIGNAL_MATCHING_LLM_MODEL` | `claude-sonnet-4-5`           | LLM model for all signal operations                                                |
-| `MAX_RESPONSE_TOKENS`       | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget) |
-| Embedding model             | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                     |
-| Task queue                  | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for both workflows                                             |
+| Setting                        | Default                       | Description                                                                        |
+| ------------------------------ | ----------------------------- | ---------------------------------------------------------------------------------- |
+| `SIGNAL_WEIGHT_THRESHOLD`      | `1.0`                         | Total weight needed to promote a report to candidate                               |
+| `SIGNAL_MATCHING_LLM_MODEL`    | `claude-sonnet-4-5`           | LLM model for all signal operations                                                |
+| `MAX_RESPONSE_TOKENS`          | `4096`                        | Base max tokens for LLM responses (thinking uses 3× for max_tokens, 2× for budget) |
+| Embedding model                | `text-embedding-3-small-1536` | OpenAI embedding model used for signal content                                     |
+| Task queue                     | `VIDEO_EXPORT_TASK_QUEUE`     | Temporal task queue for all workflows                                              |
+| `BUFFER_MAX_SIZE`              | `100`                         | Max signals buffered in memory before flush to S3                                  |
+| `BUFFER_FLUSH_TIMEOUT_SECONDS` | `60`                          | Max seconds to wait for buffer to fill before flushing                             |
+| S3 prefix                      | `signals/signal_batches/`     | Object storage path for signal batch files (cleaned up by S3 lifecycle policies)   |
 
 ---
 
@@ -438,8 +519,11 @@ products/signals/
 │   │   └── 0008_alter_signalsourceconfig_source_product_and_more.py
 │   └── temporal/
 │       ├── __init__.py             # Registers all workflows and activities (WORKFLOWS + ACTIVITIES lists)
+│       ├── emitter.py              # SignalEmitterWorkflow — ephemeral per-signal workflow for backpressure
+│       ├── buffer.py               # BufferSignalsWorkflow + S3 flush/read activities + backpressure activity
+│       ├── grouping_v2.py          # TeamSignalGroupingV2Workflow — processes S3 batches via _process_signal_batch
+│       ├── grouping.py             # TeamSignalGroupingWorkflow (v1, legacy) + _process_signal_batch + grouping activities
 │       ├── emit_eval_signal.py     # EmitEvalSignalWorkflow + activity — LLMA eval → signal (fire-and-forget from evals queue)
-│       ├── grouping.py             # TeamSignalGroupingWorkflow + grouping activities
 │       ├── llm.py                  # call_llm() helper + shared LLM config + grouping LLM calls
 │       ├── deletion.py             # SignalReportDeletionWorkflow — soft-delete signals + delete report
 │       ├── reingestion.py          # SignalReportReingestionWorkflow + soft-delete/delete/reingest activities
