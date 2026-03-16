@@ -74,14 +74,21 @@ func main() {
 	mgr.SetSend(p.Send)
 	go mgr.StartAll()
 
-	ln, err := ipc.Listen(ipc.SocketPath)
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "phrocs: getwd: %v\n", err)
+		os.Exit(1)
+	}
+	socketPath := ipc.SocketPathFor(wd)
+
+	ln, err := ipc.Listen(socketPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "phrocs: ipc: %v\n", err)
 		os.Exit(1)
 	}
 	defer func() {
 		_ = ln.Close()
-		_ = os.Remove(ipc.SocketPath)
+		_ = os.Remove(socketPath)
 	}()
 	go func() {
 		if err := ipc.Serve(ln, mgr); err != nil {

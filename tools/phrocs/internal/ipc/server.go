@@ -22,18 +22,34 @@ package ipc
 
 import (
 	"bufio"
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"regexp"
 	"syscall"
 
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
-// SocketPath is the well-known path for the phrocs UDS.
-const SocketPath = "/tmp/phrocs.sock"
+// SocketPathFor returns the Unix socket path for the given workspace directory.
+// The path is stable (hash of the real absolute dir) so multiple phrocs
+// instances — one per workspace — can coexist without collision.
+func SocketPathFor(dir string) string {
+	real, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		real = dir
+	}
+	abs, err := filepath.Abs(real)
+	if err != nil {
+		abs = real
+	}
+	sum := sha1.Sum([]byte(abs))
+	return "/tmp/phrocs-" + hex.EncodeToString(sum[:4]) + ".sock"
+}
 
 type request struct {
 	Cmd     string `json:"cmd"`

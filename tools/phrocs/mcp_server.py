@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Local MCP server for PostHog dev environment process observability.
 
-Both tools query phrocs directly over a Unix domain socket (/tmp/phrocs.sock).
+Both tools query phrocs directly over a Unix domain socket whose path is
+derived from the workspace root (CWD), matching the socket phrocs binds.
 No file-based intermediary — phrocs tracks status, metrics, and logs in-memory.
 
 Run via Claude Code's .mcp.json (invoked automatically by the MCP client):
@@ -10,8 +11,10 @@ Run via Claude Code's .mcp.json (invoked automatically by the MCP client):
 
 from __future__ import annotations
 
+import os
 import json
 import socket
+import hashlib
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -24,7 +27,19 @@ mcp = FastMCP(
     ),
 )
 
-_PHROCS_SOCK = "/tmp/phrocs.sock"
+
+def _socket_path() -> str:
+    """Return the phrocs socket path for the current workspace (CWD).
+
+    Mirrors the SocketPathFor logic in tools/phrocs/internal/ipc/server.go so
+    both sides agree on the path without any runtime coordination.
+    """
+    real = os.path.realpath(os.getcwd())
+    digest = hashlib.sha1(real.encode()).hexdigest()[:8]
+    return f"/tmp/phrocs-{digest}.sock"
+
+
+_PHROCS_SOCK = _socket_path()
 
 
 def _query_phrocs(cmd: dict) -> dict | None:
