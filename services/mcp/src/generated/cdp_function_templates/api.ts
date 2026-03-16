@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const HogFunctionTemplatesListParams = zod.object({
+export const HogFunctionTemplatesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,7 +16,7 @@ export const HogFunctionTemplatesListParams = zod.object({
         ),
 })
 
-export const HogFunctionTemplatesListQueryParams = zod.object({
+export const HogFunctionTemplatesListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     template_id: zod
@@ -37,7 +37,7 @@ export const HogFunctionTemplatesListQueryParams = zod.object({
         .describe('Comma-separated list of template types to include (e.g. destination,email,sms_provider).'),
 })
 
-export const HogFunctionTemplatesRetrieveParams = zod.object({
+export const HogFunctionTemplatesRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
