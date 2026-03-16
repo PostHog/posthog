@@ -7,9 +7,8 @@ Deterministic safety gates first, then Claude reviews for showstoppers.
 
 Add the `stamphog` label to a non-draft PR.
 The GitHub Action runs the agent and posts an approval or comment.
-The label is auto-removed after the run so it can be re-applied.
-
-Only org members (`MEMBER`/`OWNER` association) can trigger reviews.
+On approval the label stays so it's visible which PRs were stamphog'd.
+On failure the label is removed so it can be re-applied.
 
 ### Local testing
 
@@ -39,7 +38,6 @@ Uses PEP 723 inline metadata so `uv run` handles dependencies automatically.
 Prerequisites (hard gate)
   - Not draft, no merge conflicts
   - No outstanding "changes requested" reviews
-  - No failed CI checks
   │
   ▼
 Deny-list (hard gate)

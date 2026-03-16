@@ -78,4 +78,15 @@ export const TrendsWorldMapEdit: Story = createInsightStory(
     'edit'
 )
 TrendsWorldMapEdit.parameters = { testOptions: { waitForSelector: '.WorldMap' } }
+export const TrendsPieEditViewports: Story = createInsightStory(
+    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
+    'edit'
+)
+TrendsPieEditViewports.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr=trend-pie-graph] > canvas',
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
+}
+
 /* eslint-enable @typescript-eslint/no-var-requires */

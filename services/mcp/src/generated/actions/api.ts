@@ -475,8 +475,12 @@ export const ActionsListResponse = zod.object({
                             .nullish(),
                     })
                     .optional(),
+                deleted: zod.boolean().optional(),
+                is_calculating: zod.boolean().optional(),
+                last_calculated_at: zod.string().datetime({}).optional(),
                 team_id: zod.number().optional(),
                 is_action: zod.boolean().default(actionsListResponseResultsItemIsActionDefault),
+                bytecode_error: zod.string().nullish(),
                 pinned_at: zod
                     .string()
                     .datetime({})
@@ -484,6 +488,7 @@ export const ActionsListResponse = zod.object({
                     .describe(
                         'ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.'
                     ),
+                creation_context: zod.string().optional(),
                 _create_in_folder: zod.string().optional(),
                 user_access_level: zod
                     .string()
@@ -1321,8 +1326,12 @@ export const ActionsRetrieveResponse = zod
                     .nullish(),
             })
             .optional(),
+        deleted: zod.boolean().optional(),
+        is_calculating: zod.boolean().optional(),
+        last_calculated_at: zod.string().datetime({}).optional(),
         team_id: zod.number().optional(),
         is_action: zod.boolean().default(actionsRetrieveResponseIsActionDefault),
+        bytecode_error: zod.string().nullish(),
         pinned_at: zod
             .string()
             .datetime({})
@@ -1330,6 +1339,7 @@ export const ActionsRetrieveResponse = zod
             .describe(
                 'ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.'
             ),
+        creation_context: zod.string().optional(),
         _create_in_folder: zod.string().optional(),
         user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
     })
@@ -1722,6 +1732,8 @@ export const ActionsUpdateBody = zod
             .describe(
                 'Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.'
             ),
+        deleted: zod.boolean().optional(),
+        last_calculated_at: zod.string().datetime({}).optional(),
         pinned_at: zod
             .string()
             .datetime({})
@@ -2150,8 +2162,12 @@ export const ActionsUpdateResponse = zod
                     .nullish(),
             })
             .optional(),
+        deleted: zod.boolean().optional(),
+        is_calculating: zod.boolean().optional(),
+        last_calculated_at: zod.string().datetime({}).optional(),
         team_id: zod.number().optional(),
         is_action: zod.boolean().default(actionsUpdateResponseIsActionDefault),
+        bytecode_error: zod.string().nullish(),
         pinned_at: zod
             .string()
             .datetime({})
@@ -2159,6 +2175,7 @@ export const ActionsUpdateResponse = zod
             .describe(
                 'ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.'
             ),
+        creation_context: zod.string().optional(),
         _create_in_folder: zod.string().optional(),
         user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
     })
@@ -2991,8 +3008,12 @@ export const ActionsPartialUpdateResponse = zod
                     .nullish(),
             })
             .optional(),
+        deleted: zod.boolean().optional(),
+        is_calculating: zod.boolean().optional(),
+        last_calculated_at: zod.string().datetime({}).optional(),
         team_id: zod.number().optional(),
         is_action: zod.boolean().default(actionsPartialUpdateResponseIsActionDefault),
+        bytecode_error: zod.string().nullish(),
         pinned_at: zod
             .string()
             .datetime({})
@@ -3000,6 +3021,7 @@ export const ActionsPartialUpdateResponse = zod
             .describe(
                 'ISO 8601 timestamp when the action was pinned, or null if not pinned. Set any value to pin, null to unpin.'
             ),
+        creation_context: zod.string().optional(),
         _create_in_folder: zod.string().optional(),
         user_access_level: zod.string().nullish().describe('The effective access level the user has for this object'),
     })
