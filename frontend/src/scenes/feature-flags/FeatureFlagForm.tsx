@@ -159,7 +159,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                 props={props}
                 formKey="featureFlag"
                 enableFormOnSubmit
-                className="deprecated-space-y-4"
+                className="flex flex-col gap-4"
             >
                 <SceneTitleSection
                     name={featureFlag.key || 'New feature flag'}
