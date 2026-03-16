@@ -476,7 +476,7 @@ def test_evolve_pyarrow_schema_decimal_does_not_widen_unnecessarily_and_can_wide
         }
     )
     delta_schema = deltalake.Schema.from_arrow(
-        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("amount", pa.decimal128(10, 2), nullable=True)])
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("amount", pa.decimal128(10, 2), nullable=True)])  # type: ignore[arg-type]
     )
 
     evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
@@ -584,7 +584,7 @@ class TestEvolveSchemaSecondPassMissingColumns:
     def test_missing_nullable_column_appended_with_nulls(self):
         arrow_table = pa.table({"id": pa.array([1, 2], type=pa.int64())})
         delta_schema = deltalake.Schema.from_arrow(
-            pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string(), nullable=True)])
+            pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string(), nullable=True)])  # type: ignore[arg-type]
         )
         result = _evolve_pyarrow_schema(arrow_table, delta_schema)
         assert "name" in result.column_names
