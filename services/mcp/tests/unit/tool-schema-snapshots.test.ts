@@ -78,13 +78,9 @@ function stableStringify(value: unknown): string {
 }
 
 function isSnapshotUpdateAll(): boolean {
-    const snapshotState = expect.getState().snapshotState as unknown
-
-    if (!snapshotState || typeof snapshotState !== 'object') {
-        return false
-    }
-
-    return Reflect.get(snapshotState, '_updateSnapshot') === 'all'
+    return process.argv.some(
+        (arg) => arg === '-u' || arg === '--update' || arg === '--updateSnapshot' || arg === '--update-snapshots'
+    )
 }
 
 async function formatSnapshotJson(snapshotPath: string, schema: unknown): Promise<string> {
