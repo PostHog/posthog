@@ -83,6 +83,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
             payload_value = self.initial_data.get("payload")
             validated_data["payload"] = payload_value if payload_value else {}
         stage = validated_data.get("stage", None)
+        rollout_to_all = self.initial_data.get("rollout_to_all", False)
 
         request = self.context["request"]
         user_data = UserBasicSerializer(request.user).data if request.user else None
@@ -91,7 +92,27 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         if instance.stage != stage:
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
-        if instance.stage not in EarlyAccessFeature.ActiveStage and stage in EarlyAccessFeature.ActiveStage:
+        if instance.stage != stage and stage == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY and rollout_to_all:
+            # When promoting to GA with rollout_to_all, clear super_groups (removing opt-in/opt-out
+            # conditions) and set the flag to 100% rollout so all users see the feature regardless
+            # of their previous enrollment status.
+            related_feature_flag = instance.feature_flag
+            if related_feature_flag:
+                serialized_data_filters = {
+                    **related_feature_flag.filters,
+                    "super_groups": None,
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                }
+
+                serializer = FeatureFlagSerializer(
+                    related_feature_flag,
+                    data={"filters": serialized_data_filters},
+                    context=self.context,
+                    partial=True,
+                )
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+        elif instance.stage not in EarlyAccessFeature.ActiveStage and stage in EarlyAccessFeature.ActiveStage:
             super_conditions = lambda feature_flag_key: [
                 {
                     "properties": [

@@ -87,18 +87,14 @@ export const FunnelTopToBottomBreakdown: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json')
 )
 FunnelTopToBottomBreakdown.parameters = {
-    testOptions: {
-        testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
-    },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
 }
 export const FunnelTopToBottomBreakdownEdit: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelTopToBottomBreakdown.json'),
     'edit'
 )
 FunnelTopToBottomBreakdownEdit.parameters = {
-    testOptions: {
-        testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
-    },
+    testOptions: { waitForSelector: ['[data-attr=funnel-bar-horizontal] > .funnel-step'] },
 }
 export const FunnelHistoricalTrends: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelHistoricalTrends.json')
@@ -145,38 +141,31 @@ FunnelWithInlineEventsEdit.play = async ({ canvasElement }) => {
     await userEvent.click(expandFiltersButton)
 }
 
-// Viewport variants to verify the gap between filters and visualization stays consistent
-export const FunnelLeftToRightEditNarrow: Story = createInsightStory(
+export const FunnelLeftToRightEditViewports: Story = createInsightStory(
     require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
     'edit'
 )
-FunnelLeftToRightEditNarrow.parameters = {
+const waitForFunnelToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
+    let lastHeight = 0
+    await waitFor(
+        () => {
+            const funnelContainer = canvasElement.querySelector('[data-attr=funnel-bar-vertical]')
+            const currentHeight = funnelContainer ? funnelContainer.getBoundingClientRect().height : 0
+            if (currentHeight === 0 || currentHeight !== lastHeight) {
+                lastHeight = currentHeight
+                throw new Error('funnel height not yet stable')
+            }
+        },
+        { timeout: 3000, interval: 200 }
+    )
+}
+FunnelLeftToRightEditViewports.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
-        viewport: { width: 960, height: 720 },
+        snapshotTargetSelector: '[data-attr=funnel-bar-vertical]',
+        viewportWidths: ['medium', 'wide', 'superwide'],
     },
 }
-
-export const FunnelLeftToRightEditMedium: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
-    'edit'
-)
-FunnelLeftToRightEditMedium.parameters = {
-    testOptions: {
-        waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
-        viewport: { width: 1300, height: 720 },
-    },
-}
-
-export const FunnelLeftToRightEditWide: Story = createInsightStory(
-    require('../../mocks/fixtures/api/projects/team_id/insights/funnelLeftToRight.json'),
-    'edit'
-)
-FunnelLeftToRightEditWide.parameters = {
-    testOptions: {
-        waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
-        viewport: { width: 1920, height: 720 },
-    },
-}
+FunnelLeftToRightEditViewports.play = waitForFunnelToStabilize
 
 /* eslint-enable @typescript-eslint/no-var-requires */

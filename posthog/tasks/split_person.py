@@ -1,8 +1,11 @@
 from typing import Optional, Union
 
+import structlog
 from celery import shared_task
 
 from posthog.models import Person
+
+logger = structlog.get_logger(__name__)
 
 
 @shared_task(ignore_result=True, max_retries=1)
@@ -19,6 +22,14 @@ def split_person(
     For backward compatibility during rolling deploys, if team_id looks like a string
     (old main_distinct_id position), we fall back to legacy behavior.
     """
+    logger.info(
+        "split_person task started",
+        person_id=person_id,
+        team_id=team_id,
+        main_distinct_id=main_distinct_id,
+        max_splits=max_splits,
+    )
+
     # Backward compatibility: detect old 3-arg signature (person_id, main_distinct_id, max_splits)
     # where second arg would be a string (distinct_id) or None
     if isinstance(team_id, str) or (team_id is None and main_distinct_id is None):
