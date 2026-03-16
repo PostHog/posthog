@@ -529,21 +529,6 @@ export const errorTrackingGroupingRulesDestroy = async (
     })
 }
 
-export const getErrorTrackingGroupingRulesIssueRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/environments/${projectId}/error_tracking/grouping_rules/${id}/issue/`
-}
-
-export const errorTrackingGroupingRulesIssueRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<ErrorTrackingGroupingRuleApi> => {
-    return apiMutator<ErrorTrackingGroupingRuleApi>(getErrorTrackingGroupingRulesIssueRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getErrorTrackingGroupingRulesReorderPartialUpdateUrl = (projectId: string) => {
     return `/api/environments/${projectId}/error_tracking/grouping_rules/reorder/`
 }

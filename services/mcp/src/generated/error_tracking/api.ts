@@ -733,32 +733,6 @@ export const ErrorTrackingGroupingRulesDestroyParams = zod.object({
         ),
 })
 
-export const ErrorTrackingGroupingRulesIssueRetrieveParams = zod.object({
-    id: zod.string().describe('A UUID string identifying this error tracking grouping rule.'),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
-        ),
-})
-
-export const errorTrackingGroupingRulesIssueRetrieveResponseOrderKeyMin = -2147483648
-export const errorTrackingGroupingRulesIssueRetrieveResponseOrderKeyMax = 2147483647
-
-export const ErrorTrackingGroupingRulesIssueRetrieveResponse = zod.object({
-    id: zod.string().optional(),
-    filters: zod.unknown(),
-    assignee: zod.string().optional(),
-    issue: zod.string().optional(),
-    order_key: zod
-        .number()
-        .min(errorTrackingGroupingRulesIssueRetrieveResponseOrderKeyMin)
-        .max(errorTrackingGroupingRulesIssueRetrieveResponseOrderKeyMax),
-    disabled_data: zod.unknown().nullish(),
-    created_at: zod.string().datetime({}).optional(),
-    updated_at: zod.string().datetime({}).optional(),
-})
-
 export const ErrorTrackingGroupingRulesReorderPartialUpdateParams = zod.object({
     project_id: zod
         .string()

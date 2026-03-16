@@ -1,9 +1,6 @@
-from django.http import HttpResponseRedirect
-
 import structlog
 import posthoganalytics
 from rest_framework import serializers, status, viewsets
-from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from posthog.schema import PropertyGroupFilterValue
@@ -110,22 +107,6 @@ class ErrorTrackingGroupingRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelVie
         )
 
         return response
-
-    @action(detail=True, methods=["get"])
-    def issue(self, request, *args, **kwargs) -> Response:
-        rule = self.get_object()
-        fingerprint = f"custom-rule:{rule.id}"
-        fp = (
-            ErrorTrackingIssueFingerprintV2.objects.filter(
-                team_id=self.team.id,
-                fingerprint=fingerprint,
-            )
-            .only("issue_id")
-            .first()
-        )
-        if not fp:
-            return Response({"error": "No issue found for this rule"}, status=status.HTTP_404_NOT_FOUND)
-        return HttpResponseRedirect(f"/error_tracking/{fp.issue_id}")
 
     def create(self, request, *args, **kwargs) -> Response:
         json_filters = request.data.get("filters")
