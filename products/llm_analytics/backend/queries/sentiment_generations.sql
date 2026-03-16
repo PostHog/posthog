@@ -32,5 +32,5 @@ FROM (
         AND {filters}
 )
 GROUP BY trace_id
-ORDER BY timestamp DESC
+ORDER BY timestamp DESC, trace_id DESC
 LIMIT 200

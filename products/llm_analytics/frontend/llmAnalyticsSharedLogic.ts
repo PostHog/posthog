@@ -187,7 +187,10 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
     tabAwareUrlToAction(({ actions, values }) => {
         const KNOWN_PARAMS = new Set(['filters', 'date_from', 'date_to', 'filter_test_accounts'])
 
-        function applySearchParams(searchParams: Record<string, unknown>): void {
+        function applySearchParams(
+            searchParams: Record<string, unknown>,
+            options?: { stripStaleParams?: boolean }
+        ): void {
             const { filters, date_from, date_to, filter_test_accounts } = searchParams
 
             const parsedFilters = isAnyPropertyFilters(filters) ? filters : []
@@ -208,16 +211,19 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                 actions.setShouldFilterTestAccounts(filterTestAccountsValue)
             }
 
-            // Strip stale params from the URL (e.g. event, timestamp, msg from trace view)
-            const hasStaleParams = Object.keys(searchParams).some((key) => !KNOWN_PARAMS.has(key))
-            if (hasStaleParams) {
-                const cleanParams: Record<string, unknown> = {}
-                for (const key of KNOWN_PARAMS) {
-                    if (searchParams[key] !== undefined) {
-                        cleanParams[key] = searchParams[key]
+            // Strip stale params from the URL (e.g. event, timestamp, msg from trace view).
+            // Skip for tabs that manage their own URL state (e.g. reviews has page, search, kind, etc).
+            if (options?.stripStaleParams !== false) {
+                const hasStaleParams = Object.keys(searchParams).some((key) => !KNOWN_PARAMS.has(key))
+                if (hasStaleParams) {
+                    const cleanParams: Record<string, unknown> = {}
+                    for (const key of KNOWN_PARAMS) {
+                        if (searchParams[key] !== undefined) {
+                            cleanParams[key] = searchParams[key]
+                        }
                     }
+                    router.actions.replace(router.values.location.pathname, cleanParams)
                 }
-                router.actions.replace(router.values.location.pathname, cleanParams)
             }
         }
 
@@ -230,7 +236,8 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                 })
             },
             [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
-            [urls.llmAnalyticsReviews()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsReviews()]: (_, searchParams) =>
+                applySearchParams(searchParams, { stripStaleParams: false }),
             [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),

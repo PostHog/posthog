@@ -1,4 +1,4 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
@@ -96,7 +96,7 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
     connect((props: LLMAnalyticsSentimentLogicProps) => ({
         values: [
             llmAnalyticsSharedLogic({ tabId: props.tabId }),
-            ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
+            ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters', 'activeTab'],
             groupsModel,
             ['groupsTaxonomicTypes'],
             llmGenerationSentimentLazyLoaderLogic,
@@ -106,6 +106,7 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
     })),
 
     actions({
+        activate: true,
         setSentimentFilter: (sentimentFilter: SentimentFilterLabel) => ({ sentimentFilter }),
         setIntensityThreshold: (intensityThreshold: number) => ({ intensityThreshold }),
         toggleCardExpanded: (generationId: string) => ({ generationId }),
@@ -161,6 +162,12 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     [cardKey]: feedbackLabel,
                 }),
                 loadGenerations: () => ({}),
+            },
+        ],
+        hasLoadedOnce: [
+            false as boolean,
+            {
+                loadGenerations: () => true,
             },
         ],
     }),
@@ -245,6 +252,11 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
         let preLoadMoreCount = 0
 
         return {
+            activate: () => {
+                if (!values.hasLoadedOnce) {
+                    actions.loadGenerations()
+                }
+            },
             loadGenerationsSuccess: ({ generations }) => {
                 actions.setHasMore(generations.length >= GENERATIONS_PAGE_SIZE)
                 for (const gen of generations) {
@@ -280,13 +292,26 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
         }
     }),
 
-    subscriptions(({ actions }) => ({
-        dateFilter: () => actions.loadGenerations(),
-        shouldFilterTestAccounts: () => actions.loadGenerations(),
-        propertyFilters: () => actions.loadGenerations(),
+    subscriptions(({ actions, values }) => ({
+        activeTab: (activeTab) => {
+            if (activeTab === 'sentiment') {
+                actions.activate()
+            }
+        },
+        dateFilter: () => {
+            if (values.hasLoadedOnce) {
+                actions.loadGenerations()
+            }
+        },
+        shouldFilterTestAccounts: () => {
+            if (values.hasLoadedOnce) {
+                actions.loadGenerations()
+            }
+        },
+        propertyFilters: () => {
+            if (values.hasLoadedOnce) {
+                actions.loadGenerations()
+            }
+        },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadGenerations()
-    }),
 ])
