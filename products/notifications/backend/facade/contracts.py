@@ -1,17 +1,24 @@
-from dataclasses import dataclass
+from __future__ import annotations
 
-from products.notifications.backend.facade.enums import NotificationType, Priority
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING
+
+from products.notifications.backend.facade.enums import NotificationResourceType, NotificationType, Priority, TargetType
+
+if TYPE_CHECKING:
+    from products.notifications.backend.resolvers import RecipientsResolver
 
 
 @dataclass(frozen=True)
 class NotificationData:
-    recipient_id: int
+    team_id: int
     notification_type: NotificationType
     title: str
     body: str
-    team_id: int
-    priority: Priority = Priority.NORMAL
-    source_type: str = ""
-    source_id: str = ""
+    target_type: TargetType
+    target_id: str
+    resource_type: NotificationResourceType | None = None
+    resource_id: str = ""
     source_url: str = ""
-    actor_id: int | None = None
+    priority: Priority = Priority.NORMAL
+    resolver: RecipientsResolver | None = field(default=None, compare=False)
