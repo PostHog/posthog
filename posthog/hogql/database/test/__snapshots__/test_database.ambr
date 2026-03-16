@@ -4106,7 +4106,7 @@
           "row_count": null,
           "type": "system"
       },
-      "system.pipeline_schemas": {
+      "system.source_schemas": {
           "fields": {
               "id": {
                   "chain": null,
@@ -4239,12 +4239,12 @@
                   "type": "datetime"
               }
           },
-          "id": "system.pipeline_schemas",
-          "name": "system.pipeline_schemas",
+          "id": "system.source_schemas",
+          "name": "system.source_schemas",
           "row_count": null,
           "type": "system"
       },
-      "system.pipeline_sync_jobs": {
+      "system.source_sync_jobs": {
           "fields": {
               "id": {
                   "chain": null,
@@ -4337,8 +4337,8 @@
                   "type": "datetime"
               }
           },
-          "id": "system.pipeline_sync_jobs",
-          "name": "system.pipeline_sync_jobs",
+          "id": "system.source_sync_jobs",
+          "name": "system.source_sync_jobs",
           "row_count": null,
           "type": "system"
       },
@@ -7712,7 +7712,7 @@
           "row_count": null,
           "type": "system"
       },
-      "system.pipeline_schemas": {
+      "system.source_schemas": {
           "fields": {
               "id": {
                   "chain": null,
@@ -7845,12 +7845,12 @@
                   "type": "datetime"
               }
           },
-          "id": "system.pipeline_schemas",
-          "name": "system.pipeline_schemas",
+          "id": "system.source_schemas",
+          "name": "system.source_schemas",
           "row_count": null,
           "type": "system"
       },
-      "system.pipeline_sync_jobs": {
+      "system.source_sync_jobs": {
           "fields": {
               "id": {
                   "chain": null,
@@ -7943,8 +7943,8 @@
                   "type": "datetime"
               }
           },
-          "id": "system.pipeline_sync_jobs",
-          "name": "system.pipeline_sync_jobs",
+          "id": "system.source_sync_jobs",
+          "name": "system.source_sync_jobs",
           "row_count": null,
           "type": "system"
       },

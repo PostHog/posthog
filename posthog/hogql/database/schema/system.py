@@ -164,8 +164,8 @@ data_warehouse_tables: PostgresTable = PostgresTable(
     },
 )
 
-pipeline_schemas: PostgresTable = PostgresTable(
-    name="pipeline_schemas",
+source_schemas: PostgresTable = PostgresTable(
+    name="source_schemas",
     postgres_table_name="posthog_externaldataschema",
     access_scope="external_data_source",
     fields={
@@ -187,8 +187,8 @@ pipeline_schemas: PostgresTable = PostgresTable(
     },
 )
 
-pipeline_sync_jobs: PostgresTable = PostgresTable(
-    name="pipeline_sync_jobs",
+source_sync_jobs: PostgresTable = PostgresTable(
+    name="source_sync_jobs",
     postgres_table_name="posthog_externaldatajob",
     access_scope="external_data_source",
     fields={
@@ -421,8 +421,8 @@ class SystemTables(TableNode):
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
-        "pipeline_schemas": TableNode(name="pipeline_schemas", table=pipeline_schemas),
-        "pipeline_sync_jobs": TableNode(name="pipeline_sync_jobs", table=pipeline_sync_jobs),
+        "source_schemas": TableNode(name="source_schemas", table=source_schemas),
+        "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
         "surveys": TableNode(name="surveys", table=surveys),
         "teams": TableNode(name="teams", table=teams),
     }

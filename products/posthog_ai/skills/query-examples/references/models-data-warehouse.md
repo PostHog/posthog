@@ -96,7 +96,7 @@ The `columns` field contains column definitions with their types:
 
 ---
 
-## Pipeline Schemas (`system.pipeline_schemas`)
+## Source Schemas (`system.source_schemas`)
 
 Per-table sync configuration for external data sources.
 Each schema represents one table or entity being synced from an external source.
@@ -140,7 +140,7 @@ Column | Type | Nullable | Description
 
 ---
 
-## Pipeline Sync Jobs (`system.pipeline_sync_jobs`)
+## Source Sync Jobs (`system.source_sync_jobs`)
 
 Individual sync job runs for external data sources.
 Each job tracks the status, row count, and timing of a single sync operation.
@@ -234,7 +234,7 @@ SELECT
   j.finished_at,
   j.latest_error,
   s.source_type
-FROM system.pipeline_sync_jobs AS j
+FROM system.source_sync_jobs AS j
 INNER JOIN system.data_warehouse_sources AS s ON j.pipeline_id = s.id
 ORDER BY j.created_at DESC
 LIMIT 50
@@ -249,7 +249,7 @@ SELECT
   j.created_at,
   s.source_type,
   s.prefix
-FROM system.pipeline_sync_jobs AS j
+FROM system.source_sync_jobs AS j
 INNER JOIN system.data_warehouse_sources AS s ON j.pipeline_id = s.id
 WHERE j.status = 'Failed'
   AND j.created_at >= now() - INTERVAL 7 DAY
@@ -266,7 +266,7 @@ SELECT
   countIf(j.status = 'Completed') AS completed,
   countIf(j.status = 'Failed') AS failed,
   sum(j.rows_synced) AS total_rows_synced
-FROM system.pipeline_sync_jobs AS j
+FROM system.source_sync_jobs AS j
 INNER JOIN system.data_warehouse_sources AS s ON j.pipeline_id = s.id
 GROUP BY s.source_type, s.prefix
 ORDER BY total_jobs DESC

@@ -113,7 +113,7 @@ def _create_data_warehouse_table(team: Team, label: str) -> DataWarehouseTableMo
     )
 
 
-def _create_pipeline_sync_job(team: Team, label: str) -> ExternalDataJob:
+def _create_source_sync_job(team: Team, label: str) -> ExternalDataJob:
     source = ExternalDataSource.objects.create(
         team=team,
         source_id=f"source_for_job_{label}",
@@ -129,7 +129,7 @@ def _create_pipeline_sync_job(team: Team, label: str) -> ExternalDataJob:
     )
 
 
-def _create_pipeline_schema(team: Team, label: str) -> ExternalDataSchema:
+def _create_source_schema(team: Team, label: str) -> ExternalDataSchema:
     source = ExternalDataSource.objects.create(
         team=team,
         source_id=f"source_for_schema_{label}",
@@ -214,7 +214,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("dashboards", _create_dashboard),
     ("data_warehouse_sources", _create_data_warehouse_source),
     ("data_warehouse_tables", _create_data_warehouse_table),
-    ("pipeline_sync_jobs", _create_pipeline_sync_job),
+    ("source_sync_jobs", _create_source_sync_job),
     ("error_tracking_issues", _create_error_tracking_issue),
     ("experiments", _create_experiment),
     ("exports", _create_export),
@@ -226,7 +226,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
     ("notebooks", _create_notebook),
-    ("pipeline_schemas", _create_pipeline_schema),
+    ("source_schemas", _create_source_schema),
     ("surveys", _create_survey),
     ("teams", _create_team),
 ]
