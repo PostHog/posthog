@@ -20,6 +20,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
+import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { urls } from 'scenes/urls'
 
@@ -102,6 +103,7 @@ export function NavTabBrowse(): JSX.Element {
         expandedNavSections,
         activePanelIdentifier,
         activePanelIdentifierFromUrlAiFirst,
+        pathname,
     } = useValues(panelLayoutLogic)
     const { firstTabIsActive } = useValues(sceneLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
@@ -234,12 +236,15 @@ export function NavTabBrowse(): JSX.Element {
                         ) : (
                             recentItems.map((item: FileSystemEntry) => {
                                 const name = getItemName(item)
+                                const currentPath = removeProjectIdIfPresent(pathname)
+                                const isActive = item.href ? currentPath === item.href : false
                                 return (
                                     <Link
                                         key={item.id}
                                         to={item.href}
                                         buttonProps={{
                                             menuItem: true,
+                                            active: isActive,
                                             className: 'group -outline-offset-2 pr-0',
                                         }}
                                         tooltip={name}
