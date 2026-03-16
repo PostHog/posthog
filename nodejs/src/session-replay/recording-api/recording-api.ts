@@ -123,7 +123,7 @@ export class RecordingApi {
         // Initialize ClickHouse client for block listing queries
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
         const chPort = this.config.CLICKHOUSE_SECURE ? 8443 : 8123
-        const chCaCert = this.config.CLICKHOUSE_CA ? fs.readFileSync(this.config.CLICKHOUSE_CA) : undefined
+        const chCaCert = this.config.CLICKHOUSE_CA ? await fs.promises.readFile(this.config.CLICKHOUSE_CA) : undefined
         this.clickhouseClient = createClickHouseClient({
             url: `${chScheme}://${this.config.CLICKHOUSE_HOST}:${chPort}`,
             username: this.config.CLICKHOUSE_USER,
