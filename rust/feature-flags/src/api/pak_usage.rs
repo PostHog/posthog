@@ -151,15 +151,12 @@ mod tests {
             h.await.unwrap();
         }
 
-        let null_check = if expect_last_used_set {
-            "IS NOT NULL"
-        } else {
-            "IS NULL"
-        };
         let mut conn = ctx.get_non_persons_connection().await.unwrap();
-        let count: (i64,) = sqlx::query_as(&format!(
-            "SELECT COUNT(*) FROM posthog_personalapikey WHERE id = $1 AND last_used_at {null_check}"
-        ))
+        let count: (i64,) = sqlx::query_as(if expect_last_used_set {
+            "SELECT COUNT(*) FROM posthog_personalapikey WHERE id = $1 AND last_used_at IS NOT NULL"
+        } else {
+            "SELECT COUNT(*) FROM posthog_personalapikey WHERE id = $1 AND last_used_at IS NULL"
+        })
         .bind(&pak_id)
         .fetch_one(&mut *conn)
         .await
