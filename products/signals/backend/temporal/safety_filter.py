@@ -97,10 +97,6 @@ Respond with valid JSON only:
 {"safe": false, "threat_type": "<category from taxonomy>", "explanation": "<what the signal is trying to do>"}"""
 
 
-def _build_safety_filter_prompt(description: str) -> str:
-    return description
-
-
 @dataclass
 class SafetyFilterInput:
     description: str
@@ -114,8 +110,6 @@ class SafetyFilterOutput:
 
 
 async def safety_filter(description: str) -> SafetyFilterJudgeResponse:
-    user_prompt = _build_safety_filter_prompt(description)
-
     def validate(text: str) -> SafetyFilterJudgeResponse:
         data = json.loads(text)
         return SafetyFilterJudgeResponse.model_validate(data)
@@ -123,7 +117,7 @@ async def safety_filter(description: str) -> SafetyFilterJudgeResponse:
     try:
         return await call_llm(
             system_prompt=SAFETY_FILTER_PROMPT,
-            user_prompt=user_prompt,
+            user_prompt=description,
             validate=validate,
         )
     except EmptyLLMResponseError:
