@@ -3865,13 +3865,13 @@ class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    allowAutoRefresh: bool | None = None
     detailed: bool | None = None
     hideExtraDetails: bool | None = None
     legend: bool | None = None
     noHeader: bool | None = None
     showInspector: bool | None = None
     whitelabel: bool | None = None
-    allowAutoRefresh: bool | None = None
 
 
 class SimilarIssue(BaseModel):
