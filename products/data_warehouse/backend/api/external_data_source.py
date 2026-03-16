@@ -986,6 +986,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         hog_fn_result = get_or_create_webhook_hog_function(
             team=self.team,
             source=source,
+            source_id=str(instance.pk),
             eligible_schemas=eligible_schemas,
         )
 

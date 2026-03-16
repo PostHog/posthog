@@ -271,6 +271,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             hog_fn_result = get_or_create_webhook_hog_function(
                 team=schema.team,
                 source=source_impl,
+                source_id=str(source.pk),
                 eligible_schemas=[schema],
             )
 

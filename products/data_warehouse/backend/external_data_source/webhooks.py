@@ -28,6 +28,7 @@ class WebhookHogFunctionCreateResult:
 def get_or_create_webhook_hog_function(
     team: Any,
     source: WebhookSource,
+    source_id: str,
     eligible_schemas: list[ExternalDataSchema],
     extra_inputs: dict[str, Any] | None = None,
 ) -> WebhookHogFunctionCreateResult:
@@ -38,12 +39,10 @@ def get_or_create_webhook_hog_function(
         return WebhookHogFunctionCreateResult(error="No webhook template available for this source")
 
     schema_mapping: dict[str, str] = {}
-    schema_ids: list[str] = []
     object_type_map = source.webhook_resource_map
 
     for schema in eligible_schemas:
         schema_id_str = str(schema.id)
-        schema_ids.append(schema_id_str)
 
         object_type = object_type_map.get(schema.name)
         if object_type:
@@ -57,7 +56,7 @@ def get_or_create_webhook_hog_function(
 
     inputs: dict[str, Any] = {
         "schema_mapping": {"value": schema_mapping},
-        "schema_ids": {"value": schema_ids},
+        "source_id": {"value": source_id},
     }
     if extra_inputs:
         inputs.update({key: {"value": value} for key, value in extra_inputs.items()})
@@ -65,7 +64,7 @@ def get_or_create_webhook_hog_function(
     hog_function, _ = HogFunction.objects.update_or_create(
         team=team,
         type="warehouse_source_webhook",
-        inputs__schema_ids__value__contains=schema_ids[:1] if schema_ids else [],
+        inputs__source_id__value=source_id,
         defaults={
             "name": db_template.name,
             "description": db_template.description or "",
@@ -80,19 +79,16 @@ def get_or_create_webhook_hog_function(
         },
     )
 
-    # Merge with any existing schemas from a previous function
+    # Merge with any existing schema_mapping from a previous call
     assert hog_function.inputs is not None
     existing_mapping = hog_function.inputs.get("schema_mapping", {}).get("value", {})
-    existing_ids = hog_function.inputs.get("schema_ids", {}).get("value", [])
 
     merged_mapping = {**existing_mapping, **schema_mapping}
-    merged_ids = list(set(existing_ids + schema_ids))
 
-    if merged_mapping != schema_mapping or merged_ids != schema_ids:
+    if merged_mapping != schema_mapping:
         hog_function.inputs = {
             **hog_function.inputs,
             "schema_mapping": {"value": merged_mapping},
-            "schema_ids": {"value": merged_ids},
         }
         hog_function.save(update_fields=["inputs"])
 

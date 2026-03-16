@@ -49,6 +49,15 @@ const STRIPE_INPUTS_SCHEMA = [
         secret: false,
         hidden: true,
     },
+    {
+        type: 'string' as const,
+        key: 'source_id',
+        label: 'Source ID',
+        description: 'The ExternalDataSource ID this webhook is associated with',
+        required: true,
+        secret: false,
+        hidden: true,
+    },
 ]
 
 const STRIPE_HOG_CODE = `
@@ -173,7 +182,6 @@ describe('DWH source webhooks', () => {
             charge: chargeSchemaId,
             subscription: subscriptionSchemaId,
         }
-        const schemaIds = [invoiceSchemaId, chargeSchemaId, subscriptionSchemaId]
         const signingSecret = 'whsec_testsecret'
 
         beforeEach(async () => {
@@ -213,7 +221,7 @@ describe('DWH source webhooks', () => {
                         bypass_signature_check: false,
                     })),
                     schema_mapping: { value: schemaMapping },
-                    schema_ids: { value: schemaIds },
+                    source_id: { value: 'test-source-id' },
                     source_type: { value: 'Stripe' },
                 },
             })
@@ -326,7 +334,7 @@ describe('DWH source webhooks', () => {
                         bypass_signature_check: true,
                     })),
                     schema_mapping: { value: schemaMapping },
-                    schema_ids: { value: schemaIds },
+                    source_id: { value: 'test-source-id' },
                     source_type: { value: 'Stripe' },
                 },
             })

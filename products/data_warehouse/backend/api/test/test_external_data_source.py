@@ -3088,10 +3088,10 @@ class TestCreateWebhook(APIBaseTest):
                     "hidden": True,
                 },
                 {
-                    "type": "json",
-                    "key": "schema_ids",
-                    "label": "Schema IDs",
-                    "required": False,
+                    "type": "string",
+                    "key": "source_id",
+                    "label": "Source ID",
+                    "required": True,
                     "secret": False,
                     "hidden": True,
                 },
@@ -3130,8 +3130,7 @@ class TestCreateWebhook(APIBaseTest):
         assert expected_object_type in schema_mapping
         assert schema_mapping[expected_object_type] == str(schema.id)
 
-        schema_ids = hog_function.inputs["schema_ids"]["value"]
-        assert str(schema.id) in schema_ids
+        assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
     @patch("posthog.temporal.data_imports.sources.stripe.source._is_webhook_feature_flag_enabled", return_value=True)
     def test_create_webhook_no_job_inputs(self, _mock_flag):
@@ -3234,7 +3233,7 @@ class TestCreateWebhook(APIBaseTest):
 
         self._create_hog_function_template()
         source = self._create_stripe_source()
-        charge_schema = self._create_incremental_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
+        self._create_incremental_schema(source, STRIPE_CHARGE_RESOURCE_NAME)
 
         # First call: creates HogFunction with Charge schema
         response = self.client.post(
@@ -3243,7 +3242,7 @@ class TestCreateWebhook(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
 
         # Now add a Customer schema and call again
-        customer_schema = self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
+        self._create_incremental_schema(source, STRIPE_CUSTOMER_RESOURCE_NAME)
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/create_webhook/"
         )
@@ -3253,11 +3252,9 @@ class TestCreateWebhook(APIBaseTest):
 
         assert hog_function.inputs is not None
 
-        schema_ids = hog_function.inputs["schema_ids"]["value"]
         schema_mapping = hog_function.inputs["schema_mapping"]["value"]
 
-        assert str(charge_schema.id) in schema_ids
-        assert str(customer_schema.id) in schema_ids
+        assert hog_function.inputs["source_id"]["value"] == str(source.pk)
 
         charge_object_type = RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_CHARGE_RESOURCE_NAME]
         customer_object_type = RESOURCE_TO_STRIPE_OBJECT_TYPE[STRIPE_CUSTOMER_RESOURCE_NAME]

@@ -279,7 +279,7 @@ class TestExternalDataSchema(APIBaseTest):
 
         mock_hog_function = mock.MagicMock()
         mock_hog_function.id = uuid.uuid4()
-        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "schema_ids": {"value": []}}
+        mock_hog_function.inputs = {"schema_mapping": {"value": {}}, "source_id": {"value": "test-source-id"}}
         mock_hog_fn_result = WebhookHogFunctionCreateResult(
             hog_function=mock_hog_function,
             webhook_url="https://test.com/webhook",
