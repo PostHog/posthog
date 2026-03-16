@@ -11,10 +11,10 @@ This guide explains how to create isolated PostHog development environments usin
 - Work on multiple branches simultaneously with isolated environments
 - Each worktree has its own Flox environment and Python dependencies
 - Quick switching between features, bug fixes, and PR reviews
-- Standard `bin/start` command works in each worktree
+- Standard `hogli start` command works in each worktree
 
 > [!IMPORTANT]
-> **Important:** Only one PostHog instance (`bin/start`) can run at a time since they all use the same ports. The workflow focuses on quickly stopping one instance and starting another.
+> **Important:** Only one PostHog instance (`hogli start`) can run at a time since they all use the same ports. The workflow focuses on quickly stopping one instance and starting another.
 
 ## Prerequisites
 
@@ -23,6 +23,7 @@ This guide explains how to create isolated PostHog development environments usin
 3. **GitHub CLI** (for PR checkout): `brew install gh`
 4. **jq** (for PR JSON parsing): `brew install jq`
 5. **direnv** (recommended): `brew install direnv`
+6. **`phw` shell function**: Provided by the repo at `bin/phw` -- sourced into your shell during [one-time setup](#1-one-time-setup) below
 
 ## Configuration
 
@@ -105,8 +106,8 @@ After setup, use the `phw` command for everything:
 # creates branch haacked/new-feature and worktree haacked/new-feature off of master
 phw create haacked/new-feature
 # You're now IN the worktree with Flox activated!
-bin/start
-# Access at http://localhost:8000
+hogli start
+# Access at http://localhost:8010
 
 # Or specify a different base branch
 phw create haacked/new-feature master
@@ -117,8 +118,8 @@ phw create haacked/new-feature master
 ```bash
 phw checkout haacked/new-feature
 # Creates worktree for existing branch, Flox activated!
-bin/start
-# Access at http://localhost:8000
+hogli start
+# Access at http://localhost:8010
 ```
 
 #### Switch to EXISTING worktree
@@ -126,8 +127,8 @@ bin/start
 ```bash
 phw switch haacked/new-feature
 # Switches to already created worktree, Flox activated!
-bin/start
-# Access at http://localhost:8000
+hogli start
+# Access at http://localhost:8010
 ```
 
 #### Review a Pull Request
@@ -135,8 +136,8 @@ bin/start
 ```bash
 phw pr 12345
 # Fetched PR, switched to worktree, ready to test!
-bin/start
-# Access at http://localhost:8000
+hogli start
+# Access at http://localhost:8010
 ```
 
 ## Real-World Example
@@ -144,31 +145,31 @@ bin/start
 ```bash
 # 9:00 AM - Start working on new dashboard
 phw create haacked/analytics-dashboard
-bin/migrate  # Run migrations
-bin/start    # Start development
-# Work on feature at http://localhost:8000
+hogli migrations:run  # Run migrations
+hogli start           # Start development
+# Work on feature at http://localhost:8010
 
 # 10:30 AM - Urgent production bug!
 # Stop current PostHog instance first
-# Ctrl+C to stop bin/start
+# Ctrl+C to stop hogli start
 phw checkout master
 # Already in main worktree with Flox activated
 git pull origin master
-bin/start    # Start development
-# Fix bug, test at http://localhost:8000
+hogli start  # Start development
+# Fix bug, test at http://localhost:8010
 
 # 11:00 AM - Review teammate's PR
 # Stop current instance first
 phw pr 5678
 # Automatically fetches PR and switches to it
-bin/start
-# Review at http://localhost:8000
+hogli start
+# Review at http://localhost:8010
 
 # 2:00 PM - Back to feature work
 # Stop current instance and switch back
 phw switch haacked/analytics-dashboard
 # You may see interactive prompt - press Enter to skip nesting, or run 'exit' first
-bin/start    # Continue where you left off
+hogli start  # Continue where you left off
 
 # 5:00 PM - Cleanup
 phw list                                # See all worktrees
@@ -189,17 +190,17 @@ phw pr 1234
 
 # Work on feature
 phw switch haacked/feature-analytics
-bin/start  # Work on feature
+hogli start  # Work on feature
 
 # Stop and switch to bug fix
 # Ctrl+C to stop
 phw switch bugfix/login-issue
-bin/start  # Switch to bug fix work
+hogli start  # Switch to bug fix work
 
 # Stop and switch to PR review
 # Ctrl+C to stop
 phw switch pr-1234-teammate
-bin/start  # Review PR
+hogli start  # Review PR
 ```
 
 ### Managing Your Worktrees
@@ -244,7 +245,7 @@ phw list                            # List all worktrees
 - **Isolated environments**: Each worktree has its own Flox environment and Python dependencies
 - **Quick switching**: Move between branches without losing work or rebuilding dependencies
 - **Clean separation**: Different features, bug fixes, and PR reviews stay completely separate
-- **Standard tools**: Uses familiar `bin/start` command in each worktree
+- **Standard tools**: Uses familiar `hogli start` command in each worktree
 
 ## How It Works
 

@@ -481,6 +481,13 @@ hogli build:openapi
 
 See the [Type system guide](type-system) for details on how type generation works and best practices for documenting your API.
 
+## Extra: Working on multiple branches simultaneously
+
+If you frequently switch between features, bug fixes, and PR reviews, the
+[isolated development with Flox](./flox-multi-instance-workflow) guide shows
+how to use Git worktrees with per-worktree Flox environments for fast context
+switching.
+
 ## Extra: Working with the data warehouse
 
 [See here for working with data warehouse](./data-warehouse)
