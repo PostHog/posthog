@@ -9,7 +9,8 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
-from posthog.models import FeatureFlag
+from posthog.models import FeatureFlag, Team
+from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -324,6 +325,49 @@ class TestExperimentService(APIBaseTest):
         assert len(links) == 1
         assert links[0].saved_metric_id == saved_metric.id
         assert experiment.primary_metrics_ordered_uuids == ["sm-uuid"]
+
+    @parameterized.expand(
+        [
+            ("not_list", {"id": 1}, "Saved metrics must be a list"),
+            ("missing_id", [{"metadata": {"type": "primary"}}], "Saved metric must have an id"),
+            ("non_object", [[1]], "Saved metric must be an object"),
+            ("metadata_not_object", [{"id": 1, "metadata": "primary"}], "Metadata must be an object"),
+            ("metadata_missing_type", [{"id": 1, "metadata": {"xxx": "primary"}}], "Metadata must have a type key"),
+        ]
+    )
+    def test_create_experiment_validates_saved_metrics_payload(
+        self, _: str, saved_metrics_ids: object, expected_error: str
+    ) -> None:
+        self._create_flag(key="saved-metrics-invalid")
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Saved Metrics Invalid",
+                feature_flag_key="saved-metrics-invalid",
+                saved_metrics_ids=saved_metrics_ids,  # type: ignore[arg-type]
+            )
+
+        assert expected_error in str(ctx.exception)
+
+    def test_create_experiment_rejects_saved_metrics_from_another_team(self) -> None:
+        self._create_flag(key="saved-metrics-team-check")
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        saved_metric = ExperimentSavedMetric.objects.create(
+            team=other_team,
+            name="Other Team Metric",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "other-uuid", "event": "$pageview"},
+        )
+        service = self._service()
+
+        with self.assertRaises(ValidationError) as ctx:
+            service.create_experiment(
+                name="Wrong Team Metric",
+                feature_flag_key="saved-metrics-team-check",
+                saved_metrics_ids=[{"id": saved_metric.id, "metadata": {"type": "primary"}}],
+            )
+
+        assert "Saved metric does not exist or does not belong to this project" in str(ctx.exception)
 
     # ------------------------------------------------------------------
     # Service contract fields
@@ -839,6 +883,34 @@ class TestExperimentService(APIBaseTest):
         assert fresh_experiment.primary_metrics_ordered_uuids == ["sm-1"]
         assert fresh_experiment.secondary_metrics_ordered_uuids == []
 
+    def test_update_experiment_validates_saved_metrics_before_mutation(self) -> None:
+        self._create_flag(key="saved-metrics-update-validate")
+        sm1 = ExperimentSavedMetric.objects.create(
+            team=self.team,
+            name="SM1",
+            query={"kind": "ExperimentMetric", "metric_type": "count", "uuid": "sm-1", "event": "$pageview"},
+        )
+        service = self._service()
+        experiment = service.create_experiment(
+            name="Update Validation",
+            feature_flag_key="saved-metrics-update-validate",
+            saved_metrics_ids=[{"id": sm1.id, "metadata": {"type": "primary"}}],
+        )
+
+        with (
+            patch("django.db.models.query.QuerySet.delete") as delete_mock,
+            self.assertRaises(ValidationError) as ctx,
+        ):
+            service.update_experiment(
+                experiment,
+                {
+                    "saved_metrics_ids": [[sm1.id]],
+                },
+            )
+
+        assert "Saved metric must be an object" in str(ctx.exception)
+        delete_mock.assert_not_called()
+
     def test_update_experiment_validates_unknown_keys_before_saved_metric_mutation(self):
         self._create_flag(key="validate-before-mutate")
         sm1 = ExperimentSavedMetric.objects.create(
@@ -1186,6 +1258,58 @@ class TestExperimentService(APIBaseTest):
         service.request_timeseries_recalculation(experiment, metric={"uuid": "m1"}, fingerprint="fp1")
 
         assert ExperimentMetricResult.objects.filter(experiment=experiment, metric_uuid="m1").count() == 0
+
+    # ------------------------------------------------------------------
+    # Eligible feature flags
+    # ------------------------------------------------------------------
+
+    def test_get_eligible_feature_flags_only_returns_control_first_multivariate_flags(self) -> None:
+        eligible_flag = self._create_flag(key="eligible-flag")
+        self._create_flag(
+            key="wrong-order-flag",
+            variants=[
+                {"key": "test", "name": "Test", "rollout_percentage": 50},
+                {"key": "control", "name": "Control", "rollout_percentage": 50},
+            ],
+        )
+        self._create_flag(
+            key="single-variant-flag",
+            variants=[{"key": "control", "name": "Control", "rollout_percentage": 100}],
+        )
+
+        result = self._service().get_eligible_feature_flags(order="key")
+
+        assert result["count"] == 1
+        assert [flag.key for flag in result["results"]] == [eligible_flag.key]
+
+    def test_get_eligible_feature_flags_applies_search_and_pagination(self) -> None:
+        self._create_flag(key="search-alpha")
+        self._create_flag(key="search-beta")
+        self._create_flag(key="other-flag")
+
+        result = self._service().get_eligible_feature_flags(
+            search="search",
+            order="key",
+            limit=1,
+            offset=1,
+        )
+
+        assert result["count"] == 2
+        assert [flag.key for flag in result["results"]] == ["search-beta"]
+
+    def test_get_eligible_feature_flags_filters_by_evaluation_tags(self) -> None:
+        flag_with_tags = self._create_flag(key="flag-with-tags")
+        self._create_flag(key="flag-without-tags")
+        evaluation_context = EvaluationContext.objects.create(name="app", team=self.team)
+        FeatureFlagEvaluationContext.objects.create(feature_flag=flag_with_tags, evaluation_context=evaluation_context)
+
+        service = self._service()
+
+        flags_with_tags = service.get_eligible_feature_flags(has_evaluation_tags="true", order="key")
+        flags_without_tags = service.get_eligible_feature_flags(has_evaluation_tags="false", order="key")
+
+        assert [flag.key for flag in flags_with_tags["results"]] == ["flag-with-tags"]
+        assert [flag.key for flag in flags_without_tags["results"]] == ["flag-without-tags"]
 
     # ------------------------------------------------------------------
     # Velocity stats

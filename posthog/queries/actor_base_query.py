@@ -5,6 +5,8 @@ from typing import Any, Literal, Optional, TypedDict, Union, cast
 from django.db.models import OuterRef, Subquery
 from django.db.models.query import Prefetch, QuerySet
 
+import structlog
+
 from posthog.schema import ActorsQuery
 
 from posthog.constants import INSIGHT_FUNNELS, INSIGHT_PATHS, INSIGHT_TRENDS
@@ -17,7 +19,15 @@ from posthog.models.filters.stickiness_filter import StickinessFilter
 from posthog.models.group import Group
 from posthog.models.person import Person
 from posthog.models.person.person import READ_DB_FOR_PERSONS
+from posthog.personhog_client.metrics import (
+    PERSONHOG_ROUTING_ERRORS_TOTAL,
+    PERSONHOG_ROUTING_TOTAL,
+    PERSONHOG_TEAM_MISMATCH_TOTAL,
+    get_client_name,
+)
 from posthog.queries.insight import insight_sync_execute
+
+logger = structlog.get_logger(__name__)
 
 
 class EventInfoForRecording(TypedDict):
@@ -92,7 +102,7 @@ class ActorBaseQuery:
     def get_actors(
         self,
     ) -> tuple[
-        Union[QuerySet[Person], QuerySet[Group]],
+        Union[QuerySet[Person], QuerySet[Group], list[Person]],
         Union[list[SerializedGroup], list[SerializedPerson]],
         int,
     ]:
@@ -210,10 +220,10 @@ class ActorBaseQuery:
     def get_actors_from_result(
         self, raw_result
     ) -> tuple[
-        Union[QuerySet[Person], QuerySet[Group]],
+        Union[QuerySet[Person], QuerySet[Group], list[Person]],
         Union[list[SerializedGroup], list[SerializedPerson]],
     ]:
-        actors: Union[QuerySet[Person], QuerySet[Group]]
+        actors: Union[QuerySet[Person], QuerySet[Group], list[Person]]
         serialized_actors: Union[list[SerializedGroup], list[SerializedPerson]]
 
         actor_ids = [row[0] for row in raw_result]
@@ -253,19 +263,75 @@ def get_groups(
     return groups, serialize_groups(groups, value_per_actor_id)
 
 
+def _fetch_people_via_personhog(
+    team_id: int, people_ids: list[Any], distinct_id_limit: int | None = 1000
+) -> list[Person]:
+    from posthog.personhog_client.client import get_personhog_client
+    from posthog.personhog_client.converters import proto_person_to_model
+    from posthog.personhog_client.proto import GetDistinctIdsForPersonsRequest, GetPersonsByUuidsRequest
+
+    client = get_personhog_client()
+    if client is None:
+        raise RuntimeError("personhog client not configured")
+
+    uuids = [str(pid) for pid in people_ids]
+    resp = client.get_persons_by_uuids(GetPersonsByUuidsRequest(team_id=team_id, uuids=uuids))
+
+    valid_persons = [p for p in resp.persons if p.id and p.team_id == team_id]
+
+    mismatched = len(resp.persons) - len(valid_persons)
+    if mismatched:
+        PERSONHOG_TEAM_MISMATCH_TOTAL.labels(operation="get_people", client_name=get_client_name()).inc(mismatched)
+        logger.warning("personhog_team_mismatch", operation="get_people", team_id=team_id, dropped=mismatched)
+
+    person_ids = [p.id for p in valid_persons]
+    if not person_ids:
+        return []
+
+    # distinct_id_limit is enforced client-side; the proto does not support server-side truncation yet
+    distinct_ids_resp = client.get_distinct_ids_for_persons(
+        GetDistinctIdsForPersonsRequest(team_id=team_id, person_ids=person_ids)
+    )
+    distinct_ids_by_person: dict[int, list[str]] = {}
+    for pd in distinct_ids_resp.person_distinct_ids:
+        dids = [d.distinct_id for d in pd.distinct_ids]
+        if distinct_id_limit is not None:
+            dids = dids[:distinct_id_limit]
+        distinct_ids_by_person[pd.person_id] = dids
+
+    persons = [proto_person_to_model(p, distinct_ids=distinct_ids_by_person.get(p.id, [])) for p in valid_persons]
+    persons.sort(key=lambda p: (-(p.created_at.timestamp() if p.created_at else 0), str(p.uuid)))
+    return persons
+
+
 def get_people(
     team: Team,
     people_ids: list[Any],
     value_per_actor_id: Optional[dict[str, float]] = None,
-    distinct_id_limit=1000,
-) -> tuple[QuerySet[Person], list[SerializedPerson]]:
+    distinct_id_limit: int | None = 1000,
+) -> tuple[Union[QuerySet[Person], list[Person]], list[SerializedPerson]]:
     """Get people from raw SQL results in data model and dict formats"""
+    from posthog.personhog_client.gate import use_personhog
+
+    if use_personhog():
+        try:
+            persons = _fetch_people_via_personhog(team.pk, people_ids, distinct_id_limit)
+            PERSONHOG_ROUTING_TOTAL.labels(
+                operation="get_people", source="personhog", client_name=get_client_name()
+            ).inc()
+            return persons, serialize_people(team, persons, value_per_actor_id)
+        except Exception:
+            PERSONHOG_ROUTING_ERRORS_TOTAL.labels(
+                operation="get_people", source="personhog", error_type="grpc_error", client_name=get_client_name()
+            ).inc()
+            logger.warning("personhog_get_people_failure", team_id=team.pk, exc_info=True)
+
     distinct_id_subquery = Subquery(
         PersonDistinctId.objects.db_manager(READ_DB_FOR_PERSONS)
         .filter(team_id=team.pk, person_id=OuterRef("person_id"))
         .values_list("id", flat=True)[:distinct_id_limit]
     )
-    persons: QuerySet[Person] = (
+    persons_qs: QuerySet[Person] = (
         Person.objects.db_manager(READ_DB_FOR_PERSONS)
         .filter(team_id=team.pk, uuid__in=people_ids)
         .prefetch_related(
@@ -278,12 +344,16 @@ def get_people(
         .order_by("-created_at", "uuid")
         .only("id", "is_identified", "created_at", "properties", "uuid", "team_id")
     )
-    return persons, serialize_people(team, persons, value_per_actor_id)
+    PERSONHOG_ROUTING_TOTAL.labels(operation="get_people", source="django_orm", client_name=get_client_name()).inc()
+    return persons_qs, serialize_people(team, persons_qs, value_per_actor_id)
 
 
 # A faster get_people if you don't need the Person objects
 def get_serialized_people(
-    team: Team, people_ids: list[Any], value_per_actor_id: Optional[dict[str, float]] = None, distinct_id_limit=1000
+    team: Team,
+    people_ids: list[Any],
+    value_per_actor_id: Optional[dict[str, float]] = None,
+    distinct_id_limit: int | None = 1000,
 ) -> list[SerializedPerson]:
     persons_dict = PersonStrategy(team, ActorsQuery(), HogQLHasMorePaginator()).get_actors(
         people_ids, sort_by_created_at_descending=True

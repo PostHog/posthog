@@ -44,7 +44,7 @@ export type IntegrationKindApi = (typeof IntegrationKindApi)[keyof typeof Integr
 
 export const IntegrationKindApi = {
     Slack: 'slack',
-    SlackTwig: 'slack-twig',
+    SlackPosthogCode: 'slack-posthog-code',
     Salesforce: 'salesforce',
     Hubspot: 'hubspot',
     GooglePubsub: 'google-pubsub',
@@ -265,6 +265,10 @@ export interface ErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key: number
+    disabled_data?: unknown | null
+    sampling_rate?: number
+    readonly created_at: string
+    readonly updated_at: string
 }
 
 export interface PaginatedErrorTrackingSuppressionRuleListApi {
@@ -284,6 +288,10 @@ export interface PatchedErrorTrackingSuppressionRuleApi {
      * @maximum 2147483647
      */
     order_key?: number
+    disabled_data?: unknown | null
+    sampling_rate?: number
+    readonly created_at?: string
+    readonly updated_at?: string
 }
 
 export interface ErrorTrackingSymbolSetApi {

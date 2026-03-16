@@ -7,11 +7,11 @@ import { IconArrowLeft, IconInfo, IconPlay } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
-    LemonDivider,
     LemonInput,
     LemonSelect,
     LemonSkeleton,
     LemonSwitch,
+    LemonTabs,
     LemonTag,
     LemonTextArea,
     Link,
@@ -50,6 +50,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         runsSummary,
         evaluationProviderKeyIssue,
         signalEmissionEnabled,
+        activeTab,
     } = useValues(llmEvaluationLogic)
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -63,6 +64,7 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
         resetEvaluation,
         setEvaluationType,
         setSignalEmission,
+        setActiveTab,
     } = useActions(llmEvaluationLogic)
     const { push } = useActions(router)
     const triggersRef = useRef<HTMLDivElement>(null)
@@ -89,9 +91,12 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
     const saveButtonDisabled = !basicFieldsValid
 
     const handleSave = (): void => {
-        // If percentage is unset but other fields are valid, scroll to triggers
+        // If percentage is unset but other fields are valid, switch to settings and scroll to triggers
         if (basicFieldsValid && percentageUnset) {
-            triggersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            setActiveTab('configuration')
+            requestAnimationFrame(() => {
+                triggersRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+            })
             return
         }
 
@@ -142,19 +147,21 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                     <LemonButton type="secondary" icon={<IconArrowLeft />} onClick={handleCancel}>
                         {hasUnsavedChanges ? 'Cancel' : 'Back'}
                     </LemonButton>
-                    <AccessControlAction
-                        resourceType={AccessControlResourceType.LlmAnalytics}
-                        minAccessLevel={AccessControlLevel.Editor}
-                    >
-                        <LemonButton
-                            type="primary"
-                            onClick={handleSave}
-                            disabled={saveButtonDisabled}
-                            loading={evaluationFormSubmitting}
+                    {activeTab !== 'runs' && (
+                        <AccessControlAction
+                            resourceType={AccessControlResourceType.LlmAnalytics}
+                            minAccessLevel={AccessControlLevel.Editor}
                         >
-                            {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
-                        </LemonButton>
-                    </AccessControlAction>
+                            <LemonButton
+                                type="primary"
+                                onClick={handleSave}
+                                disabled={saveButtonDisabled}
+                                loading={evaluationFormSubmitting}
+                            >
+                                {isNewEvaluation ? 'Create evaluation' : 'Save changes'}
+                            </LemonButton>
+                        </AccessControlAction>
+                    )}
                 </div>
             </div>
 
@@ -173,189 +180,206 @@ export function LLMAnalyticsEvaluation(): JSX.Element {
                 </LemonBanner>
             )}
 
-            {/* Configuration Form */}
-            <div className="max-w-4xl">
-                <Form logic={llmEvaluationLogic} formKey="evaluation" className="space-y-6">
-                    {/* Basic Information */}
-                    <div className="bg-bg-light border rounded p-6">
-                        <h3 className="text-lg font-semibold mb-4">Basic information</h3>
-
-                        <div className="space-y-4">
-                            <Field name="name" label="Name">
-                                <LemonInput
-                                    value={evaluation.name}
-                                    onChange={setEvaluationName}
-                                    placeholder="e.g., Helpfulness Check"
-                                    maxLength={100}
-                                />
-                            </Field>
-
-                            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE] && (
-                                <Field name="evaluation_type" label="Method">
-                                    <LemonSelect
-                                        value={evaluation.evaluation_type}
-                                        onChange={(value) => setEvaluationType(value as EvaluationType)}
-                                        options={[
-                                            {
-                                                value: 'llm_judge',
-                                                label: 'LLM as a judge',
-                                            },
-                                            {
-                                                value: 'hog',
-                                                label: 'Hog code',
-                                            },
-                                        ]}
-                                        fullWidth
-                                    />
-                                </Field>
-                            )}
-                            <p className="text-muted text-sm -mt-2">
-                                {isHog ? (
-                                    <>
-                                        Run deterministic{' '}
-                                        <Link to="https://posthog.com/docs/hog" target="_blank">
-                                            Hog code
-                                        </Link>{' '}
-                                        against each generation. No LLM cost, instant results.
-                                    </>
-                                ) : (
-                                    'Use an LLM to evaluate each generation against a natural-language prompt.'
-                                )}
-                            </p>
-
-                            <Field name="description" label="Description (optional)">
-                                <LemonTextArea
-                                    value={evaluation.description || ''}
-                                    onChange={setEvaluationDescription}
-                                    placeholder="Describe what this evaluation checks for..."
-                                    rows={2}
-                                    maxLength={500}
-                                />
-                            </Field>
-
-                            <div className="flex items-center gap-2">
-                                <LemonSwitch
-                                    checked={evaluation.enabled}
-                                    onChange={setEvaluationEnabled}
-                                    label="Enable evaluation"
-                                />
-                                <span className="text-muted text-sm">
-                                    {evaluation.enabled
-                                        ? 'This evaluation will run automatically based on triggers'
-                                        : 'This evaluation is paused and will not run'}
-                                </span>
-                            </div>
-
-                            <Field
-                                name="allows_na"
-                                label={
-                                    <div className="flex items-center gap-1">
-                                        <span>Allow N/A responses</span>
-                                        <Tooltip
-                                            title={
-                                                isHog
-                                                    ? 'When enabled, returning null from your Hog code means "not applicable" instead of being treated as an error.'
-                                                    : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the evaluation is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
-                                            }
-                                        >
-                                            <IconInfo className="text-muted text-base" />
-                                        </Tooltip>
-                                    </div>
-                                }
-                            >
-                                <div className="flex items-center gap-2">
-                                    <LemonSwitch
-                                        checked={evaluation.output_config.allows_na ?? false}
-                                        onChange={setAllowsNA}
-                                    />
-                                    <span className="text-muted text-sm">
-                                        {evaluation.output_config.allows_na
-                                            ? isHog
-                                                ? 'Returning null means "Not Applicable"'
-                                                : 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
-                                            : isHog
-                                              ? 'Evaluation must return true or false'
-                                              : 'Evaluation returns true or false'}
-                                    </span>
-                                </div>
-                            </Field>
-                            {!isNewEvaluation && user?.is_staff && (
-                                <div className="flex items-center gap-2">
-                                    <LemonSwitch checked={signalEmissionEnabled} onChange={setSignalEmission} />
-                                    <span>Emit signals</span>
-                                    <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
-                                        <IconInfo className="text-muted text-base" />
-                                    </Tooltip>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-
-                    {/* Prompt / Code Configuration */}
-                    <div className="bg-bg-light border rounded p-6">
-                        <h3 className="text-lg font-semibold mb-4">
-                            {isHog ? 'Evaluation code' : 'Evaluation prompt'}
-                        </h3>
-                        {isHog ? <EvaluationCodeEditor /> : <EvaluationPromptEditor />}
-                    </div>
-
-                    {/* Judge Model Configuration (LLM judge only) */}
-                    {!isHog && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
-                        <EvaluationModelPicker />
-                    )}
-
-                    {/* Trigger Configuration */}
-                    <div ref={triggersRef} className="bg-bg-light border rounded p-6">
-                        <h3 className="text-lg font-semibold mb-4">Triggers</h3>
-                        <p className="text-muted text-sm mb-4">
-                            Configure when this evaluation should run on your LLM generations.
-                        </p>
-                        <EvaluationTriggers />
-                    </div>
-                </Form>
-            </div>
-
-            {/* Evaluation Runs (only for existing evaluations) */}
-            {!isNewEvaluation && (
-                <>
-                    <LemonDivider />
-                    <div className="max-w-6xl">
-                        <div className="flex justify-between items-center mb-4">
-                            <div>
-                                <h3 className="text-lg font-semibold">Evaluation runs</h3>
-                                <p className="text-muted text-sm">History of when this evaluation has been executed.</p>
-                            </div>
-                            {runsSummary && (
-                                <div className="flex gap-4 text-sm">
-                                    <div className="text-center">
-                                        <div className="font-semibold text-lg">{runsSummary.total}</div>
-                                        <div className="text-muted">Total Runs</div>
-                                    </div>
-                                    <div className="text-center">
-                                        <div className="font-semibold text-lg text-success">
-                                            {runsSummary.successRate}%
-                                        </div>
-                                        <div className="text-muted">Success Rate</div>
-                                    </div>
-                                    {evaluation.output_config.allows_na && (
-                                        <div className="text-center">
-                                            <div className="font-semibold text-lg">
-                                                {runsSummary.applicabilityRate}%
+            <LemonTabs
+                activeKey={activeTab}
+                onChange={(key) => setActiveTab(key)}
+                data-attr="llma-evaluation-tabs"
+                tabs={[
+                    !isNewEvaluation && {
+                        key: 'runs',
+                        label: 'Runs',
+                        'data-attr': 'llma-evaluation-runs-tab',
+                        content: (
+                            <div className="max-w-6xl">
+                                <div className="flex justify-between items-center mb-4">
+                                    <p className="text-muted text-sm m-0">
+                                        History of when this evaluation has been executed.
+                                    </p>
+                                    {runsSummary && (
+                                        <div className="flex gap-4 text-sm">
+                                            <div className="text-center">
+                                                <div className="font-semibold text-lg">{runsSummary.total}</div>
+                                                <div className="text-muted">Total runs</div>
                                             </div>
-                                            <div className="text-muted">Applicable</div>
+                                            <div className="text-center">
+                                                <div className="font-semibold text-lg text-success">
+                                                    {runsSummary.successRate}%
+                                                </div>
+                                                <div className="text-muted">Success rate</div>
+                                            </div>
+                                            {evaluation.output_config.allows_na && (
+                                                <div className="text-center">
+                                                    <div className="font-semibold text-lg">
+                                                        {runsSummary.applicabilityRate}%
+                                                    </div>
+                                                    <div className="text-muted">Applicable</div>
+                                                </div>
+                                            )}
+                                            <div className="text-center">
+                                                <div className="font-semibold text-lg text-danger">
+                                                    {runsSummary.errors}
+                                                </div>
+                                                <div className="text-muted">Errors</div>
+                                            </div>
                                         </div>
                                     )}
-                                    <div className="text-center">
-                                        <div className="font-semibold text-lg text-danger">{runsSummary.errors}</div>
-                                        <div className="text-muted">Errors</div>
-                                    </div>
                                 </div>
-                            )}
-                        </div>
-                        <EvaluationRunsTable />
-                    </div>
-                </>
-            )}
+                                <EvaluationRunsTable />
+                            </div>
+                        ),
+                    },
+                    {
+                        key: 'configuration',
+                        label: 'Configuration',
+                        'data-attr': 'llma-evaluation-configuration-tab',
+                        content: (
+                            <div className="max-w-4xl">
+                                <Form logic={llmEvaluationLogic} formKey="evaluation" className="space-y-6">
+                                    {/* Basic Information */}
+                                    <div className="bg-bg-light border rounded p-6">
+                                        <h3 className="text-lg font-semibold mb-4">Basic information</h3>
+
+                                        <div className="space-y-4">
+                                            <Field name="name" label="Name">
+                                                <LemonInput
+                                                    value={evaluation.name}
+                                                    onChange={setEvaluationName}
+                                                    placeholder="e.g., Helpfulness Check"
+                                                    maxLength={100}
+                                                />
+                                            </Field>
+
+                                            {featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_HOG_CODE] && (
+                                                <Field name="evaluation_type" label="Method">
+                                                    <LemonSelect
+                                                        value={evaluation.evaluation_type}
+                                                        onChange={(value) => setEvaluationType(value as EvaluationType)}
+                                                        options={[
+                                                            {
+                                                                value: 'llm_judge',
+                                                                label: 'LLM as a judge',
+                                                            },
+                                                            {
+                                                                value: 'hog',
+                                                                label: 'Hog code',
+                                                            },
+                                                        ]}
+                                                        fullWidth
+                                                    />
+                                                </Field>
+                                            )}
+                                            <p className="text-muted text-sm -mt-2">
+                                                {isHog ? (
+                                                    <>
+                                                        Run deterministic{' '}
+                                                        <Link to="https://posthog.com/docs/hog" target="_blank">
+                                                            Hog code
+                                                        </Link>{' '}
+                                                        against each generation. No LLM cost, instant results.
+                                                    </>
+                                                ) : (
+                                                    'Use an LLM to evaluate each generation against a natural-language prompt.'
+                                                )}
+                                            </p>
+
+                                            <Field name="description" label="Description (optional)">
+                                                <LemonTextArea
+                                                    value={evaluation.description || ''}
+                                                    onChange={setEvaluationDescription}
+                                                    placeholder="Describe what this evaluation checks for..."
+                                                    rows={2}
+                                                    maxLength={500}
+                                                />
+                                            </Field>
+
+                                            <div className="flex items-center gap-2">
+                                                <LemonSwitch
+                                                    checked={evaluation.enabled}
+                                                    onChange={setEvaluationEnabled}
+                                                    label="Enable evaluation"
+                                                />
+                                                <span className="text-muted text-sm">
+                                                    {evaluation.enabled
+                                                        ? 'This evaluation will run automatically based on triggers'
+                                                        : 'This evaluation is paused and will not run'}
+                                                </span>
+                                            </div>
+
+                                            <Field
+                                                name="allows_na"
+                                                label={
+                                                    <div className="flex items-center gap-1">
+                                                        <span>Allow N/A responses</span>
+                                                        <Tooltip
+                                                            title={
+                                                                isHog
+                                                                    ? 'When enabled, returning null from your Hog code means "not applicable" instead of being treated as an error.'
+                                                                    : 'Sometimes forcing a True or False is not enough and you want the LLM to decide if the evaluation is applicable or not. Enable this when the evaluation criteria may not apply to all generations.'
+                                                            }
+                                                        >
+                                                            <IconInfo className="text-muted text-base" />
+                                                        </Tooltip>
+                                                    </div>
+                                                }
+                                            >
+                                                <div className="flex items-center gap-2">
+                                                    <LemonSwitch
+                                                        checked={evaluation.output_config.allows_na ?? false}
+                                                        onChange={setAllowsNA}
+                                                    />
+                                                    <span className="text-muted text-sm">
+                                                        {evaluation.output_config.allows_na
+                                                            ? isHog
+                                                                ? 'Returning null means "Not Applicable"'
+                                                                : 'Evaluation can return "Not Applicable" when criteria doesn\'t apply'
+                                                            : isHog
+                                                              ? 'Evaluation must return true or false'
+                                                              : 'Evaluation returns true or false'}
+                                                    </span>
+                                                </div>
+                                            </Field>
+                                            {!isNewEvaluation && user?.is_staff && (
+                                                <div className="flex items-center gap-2">
+                                                    <LemonSwitch
+                                                        checked={signalEmissionEnabled}
+                                                        onChange={setSignalEmission}
+                                                    />
+                                                    <span>Emit signals</span>
+                                                    <Tooltip title="When enabled, true verdicts from this evaluation will be emitted as signals for clustering and investigation.">
+                                                        <IconInfo className="text-muted text-base" />
+                                                    </Tooltip>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Prompt / Code Configuration */}
+                                    <div className="bg-bg-light border rounded p-6">
+                                        <h3 className="text-lg font-semibold mb-4">
+                                            {isHog ? 'Evaluation code' : 'Evaluation prompt'}
+                                        </h3>
+                                        {isHog ? <EvaluationCodeEditor /> : <EvaluationPromptEditor />}
+                                    </div>
+
+                                    {/* Judge Model Configuration (LLM judge only) */}
+                                    {!isHog && featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS_CUSTOM_MODELS] && (
+                                        <EvaluationModelPicker />
+                                    )}
+
+                                    {/* Trigger Configuration */}
+                                    <div ref={triggersRef} className="bg-bg-light border rounded p-6">
+                                        <h3 className="text-lg font-semibold mb-4">Triggers</h3>
+                                        <p className="text-muted text-sm mb-4">
+                                            Configure when this evaluation should run on your LLM generations.
+                                        </p>
+                                        <EvaluationTriggers />
+                                    </div>
+                                </Form>
+                            </div>
+                        ),
+                    },
+                ]}
+            />
         </div>
     )
 }
