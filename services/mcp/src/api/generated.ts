@@ -5810,6 +5810,24 @@ export namespace Schemas {
     }
 
     /**
+     * * `slack_channel_message` - Channel message
+    * `slack_bot_mention` - Bot mention
+    * `slack_emoji_reaction` - Emoji reaction
+    * `widget_embedded` - Widget
+    * `widget_api` - API
+     */
+    export type ChannelDetailEnum = typeof ChannelDetailEnum[keyof typeof ChannelDetailEnum];
+
+
+    export const ChannelDetailEnum = {
+      SlackChannelMessage: 'slack_channel_message',
+      SlackBotMention: 'slack_bot_mention',
+      SlackEmojiReaction: 'slack_emoji_reaction',
+      WidgetEmbedded: 'widget_embedded',
+      WidgetApi: 'widget_api',
+    } as const;
+
+    /**
      * * `widget` - Widget
     * `email` - Email
     * `slack` - Slack
@@ -10701,9 +10719,12 @@ export namespace Schemas {
       readonly id: string;
       /** @nullable */
       deleted?: boolean | null;
-      /** @maxLength 128 */
+      /**
+       * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+       * @maxLength 128
+       */
       name: string;
-      /** HogQL query */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
       query?: unknown | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -10722,10 +10743,16 @@ export namespace Schemas {
       readonly managed_viewset_kind: string;
       /** @nullable */
       readonly latest_error: string | null;
-      /** @nullable */
+      /**
+       * Activity log ID from the last known edit. Used for conflict detection.
+       * @nullable
+       */
       edited_history_id?: string | null;
       readonly latest_history_id: string;
-      /** @nullable */
+      /**
+       * If true, skip column inference and validation. For saving drafts.
+       * @nullable
+       */
       soft_update?: boolean | null;
       /** @nullable */
       readonly is_materialized: boolean | null;
@@ -11489,7 +11516,10 @@ export namespace Schemas {
     export interface EarlyAccessFeature {
       readonly id: string;
       readonly feature_flag: MinimalFeatureFlag;
-      /** @maxLength 200 */
+      /**
+       * The name of the early access feature.
+       * @maxLength 200
+       */
       name: string;
       description?: string;
       stage: StageEnum;
@@ -11501,7 +11531,10 @@ export namespace Schemas {
 
     export interface EarlyAccessFeatureSerializerCreateOnly {
       readonly id: string;
-      /** @maxLength 200 */
+      /**
+       * The name of the early access feature.
+       * @maxLength 200
+       */
       name: string;
       description?: string;
       stage: StageEnum;
@@ -12199,6 +12232,10 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key: number;
+      disabled_data?: unknown | null;
+      sampling_rate?: number;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface ErrorTrackingSymbolSet {
@@ -19405,6 +19442,7 @@ export namespace Schemas {
       readonly id: string;
       readonly ticket_number: number;
       readonly channel_source: ChannelSourceEnum;
+      readonly channel_detail: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id: string;
       status?: TicketStatusEnum;
       priority?: PriorityEnum | BlankEnum | NullEnum | null;
@@ -20266,9 +20304,12 @@ export namespace Schemas {
       readonly id?: string;
       /** @nullable */
       deleted?: boolean | null;
-      /** @maxLength 128 */
+      /**
+       * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+       * @maxLength 128
+       */
       name?: string;
-      /** HogQL query */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
       query?: unknown | null;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
@@ -20287,10 +20328,16 @@ export namespace Schemas {
       readonly managed_viewset_kind?: string;
       /** @nullable */
       readonly latest_error?: string | null;
-      /** @nullable */
+      /**
+       * Activity log ID from the last known edit. Used for conflict detection.
+       * @nullable
+       */
       edited_history_id?: string | null;
       readonly latest_history_id?: string;
-      /** @nullable */
+      /**
+       * If true, skip column inference and validation. For saving drafts.
+       * @nullable
+       */
       soft_update?: boolean | null;
       /** @nullable */
       readonly is_materialized?: boolean | null;
@@ -20428,7 +20475,10 @@ export namespace Schemas {
     export interface PatchedEarlyAccessFeature {
       readonly id?: string;
       readonly feature_flag?: MinimalFeatureFlag;
-      /** @maxLength 200 */
+      /**
+       * The name of the early access feature.
+       * @maxLength 200
+       */
       name?: string;
       description?: string;
       stage?: StageEnum;
@@ -20616,6 +20666,10 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key?: number;
+      disabled_data?: unknown | null;
+      sampling_rate?: number;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedErrorTrackingSymbolSet {
@@ -22591,6 +22645,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly ticket_number?: number;
       readonly channel_source?: ChannelSourceEnum;
+      readonly channel_detail?: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id?: string;
       status?: TicketStatusEnum;
       priority?: PriorityEnum | BlankEnum | NullEnum | null;
