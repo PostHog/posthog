@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
@@ -11,6 +13,10 @@ export function TimezoneConfig({ displayWarning = true }: { displayWarning?: boo
     const { preflight } = useValues(preflightLogic)
     const { currentTeam, timezone: currentTimezone, currentTeamLoading } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     if (!preflight?.available_timezones || !currentTeam) {
         return <LemonSkeleton className="w-1/2 h-4" />
@@ -25,7 +31,7 @@ export function TimezoneConfig({ displayWarning = true }: { displayWarning?: boo
             <LemonInputSelect
                 mode="single"
                 placeholder="Select a time zone"
-                disabled={currentTeamLoading}
+                disabled={currentTeamLoading || !!restrictedReason}
                 value={[currentTeam.timezone]}
                 popoverClassName="z-[1000]"
                 virtualized

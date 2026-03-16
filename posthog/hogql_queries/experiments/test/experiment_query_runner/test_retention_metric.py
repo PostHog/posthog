@@ -1497,3 +1497,159 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum, 3)
         self.assertEqual(test_variant.denominator_sum_squares, 3)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 3)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_retention_start_event_before_exposure_not_excluded(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(
+                event="action_performed",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            completion_event=EventsNode(
+                event="action_performed",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control: 3 users who have action_performed BEFORE exposure, and also after
+        # Without the fix, these users would be excluded because min(timestamp)
+        # would pick the pre-exposure event
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+
+            # Pre-exposure start event (should be ignored by the fix)
+            _create_event(
+                team=self.team,
+                event="action_performed",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-01T10:00:00Z",
+                properties={},
+            )
+
+            # Exposure event
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+
+            # Post-exposure start event (should be used as start_timestamp)
+            _create_event(
+                team=self.team,
+                event="action_performed",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "control"},
+            )
+
+            # Completion event within retention window (day 3 after post-exposure start)
+            if i < 2:
+                _create_event(
+                    team=self.team,
+                    event="action_performed",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-05T12:00:00Z",
+                    properties={feature_flag_property: "control"},
+                )
+
+        # Test: 3 users, same pattern
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+
+            # Pre-exposure start event
+            _create_event(
+                team=self.team,
+                event="action_performed",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-01T10:00:00Z",
+                properties={},
+            )
+
+            # Exposure event
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+
+            # Post-exposure start event
+            _create_event(
+                team=self.team,
+                event="action_performed",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "test"},
+            )
+
+            # All 3 test users have completion events
+            _create_event(
+                team=self.team,
+                event="action_performed",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-05T12:00:00Z",
+                properties={feature_flag_property: "test"},
+            )
+
+        flush_persons_and_events()
+
+        runner = ExperimentQueryRunner(query=experiment_query, team=self.team, force_precomputation=use_precomputation)
+        result = runner.calculate()
+
+        assert isinstance(result, ExperimentQueryResponse)
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        assert len(result.variant_results) == 1
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # All 3 control users should be in the denominator (not excluded by pre-exposure events)
+        self.assertEqual(control_variant.number_of_samples, 3)
+        # 2 of 3 retained
+        self.assertEqual(control_variant.sum, 2)
+
+        # All 3 test users should be in the denominator
+        self.assertEqual(test_variant.number_of_samples, 3)
+        # 3 of 3 retained
+        self.assertEqual(test_variant.sum, 3)

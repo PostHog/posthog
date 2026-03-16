@@ -7,6 +7,7 @@ import { stripHTTP } from 'lib/utils'
 
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 
+// eslint-disable-next-line import/no-cycle
 import { FALLBACK_CANVAS_WIDTH, HIDE_PATH_CARD_HEIGHT } from './Paths'
 import { PathNodeData, PathTargetLink, isSelectedPathStartOrEnd, roundedRect } from './pathUtils'
 import { Paths } from './types'

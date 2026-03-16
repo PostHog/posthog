@@ -10,17 +10,25 @@
 /**
  * * `session_replay` - Session replay
  * `llm_analytics` - LLM analytics
+ * `github` - GitHub
+ * `linear` - Linear
+ * `zendesk` - Zendesk
  */
 export type SourceProductEnumApi = (typeof SourceProductEnumApi)[keyof typeof SourceProductEnumApi]
 
 export const SourceProductEnumApi = {
     SessionReplay: 'session_replay',
     LlmAnalytics: 'llm_analytics',
+    Github: 'github',
+    Linear: 'linear',
+    Zendesk: 'zendesk',
 } as const
 
 /**
  * * `session_analysis_cluster` - Session analysis cluster
  * `evaluation` - Evaluation
+ * `issue` - Issue
+ * `ticket` - Ticket
  */
 export type SignalSourceConfigSourceTypeEnumApi =
     (typeof SignalSourceConfigSourceTypeEnumApi)[keyof typeof SignalSourceConfigSourceTypeEnumApi]
@@ -28,6 +36,8 @@ export type SignalSourceConfigSourceTypeEnumApi =
 export const SignalSourceConfigSourceTypeEnumApi = {
     SessionAnalysisCluster: 'session_analysis_cluster',
     Evaluation: 'evaluation',
+    Issue: 'issue',
+    Ticket: 'ticket',
 } as const
 
 export interface SignalSourceConfigApi {
@@ -38,6 +48,8 @@ export interface SignalSourceConfigApi {
     config?: unknown
     readonly created_at: string
     readonly updated_at: string
+    /** @nullable */
+    readonly status: string | null
 }
 
 export interface PaginatedSignalSourceConfigListApi {

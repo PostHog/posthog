@@ -10,7 +10,7 @@ import { defaultConfig } from '~/config/config'
 import { CyclotronInputType } from '~/schema/cyclotron'
 import { GeoIPService, GeoIp } from '~/utils/geoip'
 
-import { Hub } from '../../../types'
+import { PluginsServerConfig } from '../../../types'
 import { HogExecutorService } from '../../services/hog-executor.service'
 import { HogInputsService } from '../../services/hog-inputs.service'
 import { EmailService } from '../../services/messaging/email.service'
@@ -167,7 +167,7 @@ export class TemplateTester {
     public template: HogFunctionTemplateCompiled
     private hogExecutor: HogExecutorService
     private nativeExecutor: NativeDestinationExecutorService
-    private mockHub: Hub
+    private mockHub: PluginsServerConfig
 
     private geoipService?: GeoIPService
     public geoIp?: GeoIp
@@ -187,29 +187,29 @@ export class TemplateTester {
     }
 
     private createHogExecutor(): HogExecutorService {
-        const hub = this.mockHub
-        const hogInputsService = new HogInputsService(hub.integrationManager, hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const config = this.mockHub
+        const hogInputsService = new HogInputsService(undefined as any, config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
         const emailService = new EmailService(
             {
-                sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
-                sesSecretAccessKey: hub.SES_SECRET_ACCESS_KEY,
-                sesRegion: hub.SES_REGION,
-                sesEndpoint: hub.SES_ENDPOINT,
+                sesAccessKeyId: config.SES_ACCESS_KEY_ID,
+                sesSecretAccessKey: config.SES_SECRET_ACCESS_KEY,
+                sesRegion: config.SES_REGION,
+                sesEndpoint: config.SES_ENDPOINT,
             },
-            hub.integrationManager,
-            hub.ENCRYPTION_SALT_KEYS,
-            hub.SITE_URL
+            undefined as any,
+            config.ENCRYPTION_SALT_KEYS,
+            config.SITE_URL
         )
-        const recipientTokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
+        const recipientTokensService = new RecipientTokensService(config.ENCRYPTION_SALT_KEYS, config.SITE_URL)
         return new HogExecutorService(
             {
-                hogCostTimingUpperMs: hub.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
-                googleAdwordsDeveloperToken: hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
-                fetchRetries: hub.CDP_FETCH_RETRIES,
-                fetchBackoffBaseMs: hub.CDP_FETCH_BACKOFF_BASE_MS,
-                fetchBackoffMaxMs: hub.CDP_FETCH_BACKOFF_MAX_MS,
+                hogCostTimingUpperMs: config.CDP_WATCHER_HOG_COST_TIMING_UPPER_MS,
+                googleAdwordsDeveloperToken: config.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN,
+                fetchRetries: config.CDP_FETCH_RETRIES,
+                fetchBackoffBaseMs: config.CDP_FETCH_BACKOFF_BASE_MS,
+                fetchBackoffMaxMs: config.CDP_FETCH_BACKOFF_MAX_MS,
             },
-            { teamManager: hub.teamManager, siteUrl: hub.SITE_URL },
+            { teamManager: undefined as any, siteUrl: config.SITE_URL },
             hogInputsService,
             emailService,
             recipientTokensService

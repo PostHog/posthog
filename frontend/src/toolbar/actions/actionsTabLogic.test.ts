@@ -20,7 +20,14 @@ describe('actionsTabLogic form submission', () => {
 
     beforeEach(() => {
         initKeaTests()
-        toolbarConfigLogic.build({ apiURL: 'http://localhost' }).mount()
+        toolbarConfigLogic
+            .build({
+                apiURL: 'http://localhost',
+                accessToken: 'test-token',
+                refreshToken: 'test-refresh',
+                clientId: 'test-client',
+            })
+            .mount()
         toolbarLogic().mount()
         actionsLogic().mount()
         logic = actionsTabLogic()

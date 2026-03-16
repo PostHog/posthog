@@ -12,12 +12,14 @@
 locals {
   export_insight_regions = {
     us = {
-      table_name    = "postgres.posthog_exportedasset"
-      dashboard_ids = [posthog_dashboard.team_analytics_platform_key_metrics.id, 633001, 567706]
+      table_name         = "postgres.posthog_exportedasset"
+      dashboard_ids      = [posthog_dashboard.team_analytics_platform_key_metrics.id, 633001, 567706]
+      unknown_result_sql = "https://metabase.prod-us.posthog.dev/question/1838-analyse-unknown-exportedasset-exceptions"
     }
     eu = {
-      table_name    = "eu_posthog_exportedasset"
-      dashboard_ids = [posthog_dashboard.team_analytics_platform_key_metrics.id]
+      table_name         = "eu_posthog_exportedasset"
+      dashboard_ids      = [posthog_dashboard.team_analytics_platform_key_metrics.id]
+      unknown_result_sql = "https://metabase.prod-eu.posthog.dev/question/565-analyse-unknown-exportedasset-exceptions"
     }
   }
 
@@ -378,6 +380,7 @@ resource "posthog_insight" "export_successes_and_failures" {
   query_json    = replace(local.export_insight_base_query, "{{TABLE_NAME}}", each.value.table_name)
   tags          = ["managed-by:terraform"]
   dashboard_ids = each.value.dashboard_ids
+  description   = "More details about the unknown errors can be found here: ${each.value.unknown_result_sql}"
 }
 
 # Terraform configuration for PostHog insight
@@ -580,4 +583,71 @@ resource "posthog_insight" "api_calls_originating_from_our_terraform_provider" {
   })
   tags = ["managed-by:terraform"]
   dashboard_ids = [posthog_dashboard.team_analytics_platform_key_metrics.id, 821321]
+}
+
+# Terraform configuration for PostHog insight
+# Compatible with posthog provider v1.0.6
+# Source insight ID: 7067184
+# Short ID: a5XEngMW
+
+import {
+  to = posthog_insight.dashboard_created_unique_users_by_event_s_source
+  id = "2/7067184"
+}
+
+resource "posthog_insight" "dashboard_created_unique_users_by_event_s_source" {
+  derived_name = "dashboard created unique users by event's source"
+  query_json = jsonencode({
+    "kind": "InsightVizNode",
+    "source": {
+      "kind": "TrendsQuery",
+      "series": [
+        {
+          "kind": "EventsNode",
+          "math": "dau",
+          "name": "dashboard created",
+          "event": "dashboard created"
+        }
+      ],
+      "version": 2,
+      "trendsFilter": {
+        "display": "ActionsAreaGraph"
+      },
+      "breakdownFilter": {
+        "breakdowns": [
+          {
+            "type": "event",
+            "property": "source"
+          }
+        ]
+      },
+      "filterTestAccounts": true
+    }
+  })
+  tags = ["managed-by:terraform"]
+  dashboard_ids = [posthog_dashboard.team_analytics_platform_key_metrics.id]
+}
+
+# Terraform configuration for PostHog insight
+# Compatible with posthog provider v1.0.6
+# Source insight ID: 6984945
+# Short ID: US61ntVv
+
+import {
+  to = posthog_insight.alert_failures_by_exception_type_aggregated
+  id = "2/6984945"
+}
+
+resource "posthog_insight" "alert_failures_by_exception_type_aggregated" {
+  name = "Alert failures by exception type (aggregated)"
+  description = "Failures grouped by exception type with alert IDs normalized, showing the core issues affecting alerts"
+  query_json = jsonencode({
+    "kind": "DataTableNode",
+    "source": {
+      "kind": "HogQLQuery",
+      "query": "SELECT \n  CASE \n    WHEN properties.traceback LIKE '%RuntimeError: No results found for insight with alert id =%' \n      THEN 'RuntimeError: No results found for insight'\n    WHEN properties.traceback LIKE '%ValueError: Relative alerts not supported for non time series trends%' \n      THEN 'ValueError: Relative alerts not supported for non time series trends'\n    WHEN properties.traceback LIKE '%UnboundLocalError: cannot access local variable%config%' \n      THEN 'UnboundLocalError: cannot access local variable config'\n    WHEN properties.traceback LIKE '%pydantic_core._pydantic_core.ValidationError%AlertCondition%type%Field required%' \n      THEN 'ValidationError: AlertCondition missing required field \"type\"'\n    WHEN properties.traceback LIKE '%QueryTimeoutError%' OR properties.traceback LIKE '%timeout%'\n      THEN 'Query timeout error'\n    WHEN properties.traceback LIKE '%PermissionError%' OR properties.traceback LIKE '%permission%'\n      THEN 'Permission error'\n    WHEN properties.traceback LIKE '%KeyError%' \n      THEN 'KeyError: Missing expected key'\n    WHEN properties.traceback LIKE '%AttributeError%' \n      THEN 'AttributeError: Missing attribute'\n    WHEN properties.traceback LIKE '%IndexError%' \n      THEN 'IndexError: List index out of range'\n    WHEN properties.traceback LIKE '%TypeError%' \n      THEN 'TypeError: Type mismatch'\n    WHEN properties.traceback IS NULL OR properties.traceback = ''\n      THEN 'Unknown (no traceback)'\n    ELSE 'Other exception type'\n  END AS exception_type,\n  count() AS failure_count,\n  count() * 100.0 / sum(count()) OVER () AS percentage_of_failures,\n  uniq(properties.alert_id) AS unique_alerts_affected,\n  uniq(properties.team_id) AS unique_teams_affected,\n  min(timestamp) AS first_occurrence,\n  max(timestamp) AS last_occurrence\nFROM events\nWHERE event = 'alert check failed'\n  AND timestamp >= now() - INTERVAL 30 DAY\n  AND timestamp < now()\nGROUP BY exception_type\nORDER BY failure_count DESC\nLIMIT 100"
+    }
+  })
+  tags = ["managed-by:terraform"]
+  dashboard_ids = [1142938, 821321, posthog_dashboard.team_analytics_platform_key_metrics.id, 1294240]
 }

@@ -33,7 +33,10 @@ describe('createHogTransformEventStep', () => {
         const result = await hogTransformEventStep(input)
 
         expect(result.type).toBe(PipelineResultType.OK)
-        expect(isOkResult(result) && result.value).toBe(input)
+        if (isOkResult(result)) {
+            expect(result.value.event).toBe(input.event)
+            expect(result.value.transformationsRun).toBe(0)
+        }
     })
 
     it('passes through unchanged when transformer returns same event', async () => {
@@ -48,6 +51,9 @@ describe('createHogTransformEventStep', () => {
 
         expect(result.type).toBe(PipelineResultType.OK)
         expect(mockTransformer.transformEventAndProduceMessages).toHaveBeenCalledWith(input.event)
+        if (isOkResult(result)) {
+            expect(result.value.transformationsRun).toBe(0)
+        }
     })
 
     it('drops event when transformation returns null', async () => {
@@ -70,7 +76,7 @@ describe('createHogTransformEventStep', () => {
                 ...event,
                 properties: { ...event.properties, transformed: true },
             },
-            invocationResults: [],
+            invocationResults: [{} as any],
         }))
         const hogTransformEventStep = createHogTransformEventStep(mockTransformer)
         const input = createTestInput()
@@ -83,6 +89,7 @@ describe('createHogTransformEventStep', () => {
                 $current_url: 'https://example.com',
                 transformed: true,
             })
+            expect(result.value.transformationsRun).toBe(1)
         }
     })
 
@@ -92,7 +99,7 @@ describe('createHogTransformEventStep', () => {
                 ...event,
                 event: 'custom_event',
             },
-            invocationResults: [],
+            invocationResults: [{} as any],
         }))
         const hogTransformEventStep = createHogTransformEventStep(mockTransformer)
         const input = createTestInput()
@@ -102,6 +109,7 @@ describe('createHogTransformEventStep', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
             expect(result.value.event.event).toBe('custom_event')
+            expect(result.value.transformationsRun).toBe(1)
         }
     })
 
@@ -111,7 +119,7 @@ describe('createHogTransformEventStep', () => {
                 ...event,
                 distinct_id: 'new-user-id',
             },
-            invocationResults: [],
+            invocationResults: [{} as any],
         }))
         const hogTransformEventStep = createHogTransformEventStep(mockTransformer)
         const input = createTestInput()
@@ -121,6 +129,23 @@ describe('createHogTransformEventStep', () => {
         expect(result.type).toBe(PipelineResultType.OK)
         if (isOkResult(result)) {
             expect(result.value.event.distinct_id).toBe('new-user-id')
+            expect(result.value.transformationsRun).toBe(1)
+        }
+    })
+
+    it('counts multiple invocation results', async () => {
+        const mockTransformer = createMockHogTransformer((event) => ({
+            event,
+            invocationResults: [{} as any, {} as any, {} as any],
+        }))
+        const hogTransformEventStep = createHogTransformEventStep(mockTransformer)
+        const input = createTestInput()
+
+        const result = await hogTransformEventStep(input)
+
+        expect(result.type).toBe(PipelineResultType.OK)
+        if (isOkResult(result)) {
+            expect(result.value.transformationsRun).toBe(3)
         }
     })
 

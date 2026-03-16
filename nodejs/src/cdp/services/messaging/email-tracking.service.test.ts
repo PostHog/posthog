@@ -42,7 +42,7 @@ describe('EmailTrackingService', () => {
         let server: Server
 
         beforeEach(async () => {
-            api = new CdpApi(hub)
+            api = new CdpApi(hub, hub)
             app = setupExpressApp()
             app.use('/', api.router())
             server = app.listen(0, () => {})

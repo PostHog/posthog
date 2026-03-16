@@ -23,6 +23,17 @@ class SSOTokenResponse:
 
 
 @dataclass
+class OAuthTokenResponse:
+    access_token: str
+    token_type: str
+    installation_id: str
+    user_id: str
+    team_id: str | None = None
+    error: str | None = None
+    error_description: str | None = None
+
+
+@dataclass
 class APIError(Exception):
     message: str
     status_code: int | None = None
@@ -200,6 +211,84 @@ class VercelAPIClient:
             {},
             json={"secrets": secrets},
         )
+
+    def oauth_token_exchange(
+        self,
+        code: str,
+        client_id: str,
+        client_secret: str,
+        redirect_uri: str,
+    ) -> OAuthTokenResponse:
+        """Exchange an OAuth code for an access token (connectable account flow).
+
+        Uses POST /v2/oauth/access_token (different from the SSO /v1/integrations/sso/token endpoint).
+        """
+        try:
+            response = self._request(
+                "POST",
+                "https://api.vercel.com/v2/oauth/access_token",
+                data=urlencode(
+                    {
+                        "code": code,
+                        "client_id": client_id,
+                        "client_secret": client_secret,
+                        "redirect_uri": redirect_uri,
+                    }
+                ),
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            json_data = self._parse_json_response(response)
+
+            if "error" in json_data:
+                logger.warning("OAuth token exchange error", error=json_data["error"], integration="vercel")
+                return OAuthTokenResponse(
+                    access_token="",
+                    token_type="",
+                    installation_id="",
+                    user_id="",
+                    error=json_data["error"],
+                    error_description=json_data.get("error_description"),
+                )
+
+            access_token = json_data.get("access_token")
+            token_type = json_data.get("token_type")
+            installation_id = json_data.get("installation_id")
+            user_id = json_data.get("user_id")
+
+            if not access_token or not installation_id or not user_id:
+                logger.warning(
+                    "OAuth token exchange missing required fields",
+                    has_access_token=bool(access_token),
+                    has_installation_id=bool(installation_id),
+                    has_user_id=bool(user_id),
+                    integration="vercel",
+                )
+                return OAuthTokenResponse(
+                    access_token="",
+                    token_type="",
+                    installation_id="",
+                    user_id="",
+                    error="invalid_response",
+                    error_description="Missing required fields in OAuth response",
+                )
+
+            return OAuthTokenResponse(
+                access_token=access_token,
+                token_type=token_type or "Bearer",
+                installation_id=installation_id,
+                user_id=user_id,
+                team_id=json_data.get("team_id"),
+            )
+        except APIError as e:
+            logger.exception("OAuth token exchange failed", error=str(e), integration="vercel")
+            return OAuthTokenResponse(
+                access_token="",
+                token_type="",
+                installation_id="",
+                user_id="",
+                error="exchange_failed",
+                error_description=str(e),
+            )
 
     def sso_token_exchange(
         self,

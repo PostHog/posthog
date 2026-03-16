@@ -40,19 +40,23 @@ We use both **[Temporal](https://temporal.io/)** and **[Dagster](https://dagster
 
 #### When to use each tool
 
-We tend to use **Celery for lightweight ad-hoc tasks**, **Dagster for internal data jobs**, and **Temporal for user-facing workflows**. You can look at the problem from the requirements for your jobs:
+We tend to use **Celery for lightweight ad-hoc tasks**, **Dagster for internal data jobs**, and **Temporal for user-facing workflows**. Before choosing between Dagster and Temporal, check the cost note below.
 
 1. **Is it a tiny, low-latency, fire-and-forget task (e.g. send email)?** → Celery
 2. **Is it mission-critical with complex failure scenarios?** → Temporal
 3. **Do you need exactly-once guarantees?** → Temporal
 4. **Do you need complex retry policies or long-running workflows?** → Temporal
-5. **Is it primarily about scheduled data transformation?** → Dagster
+5. **Is it primarily about scheduled data transformation?** → Dagster or Temporal
 6. **Do you need rich data lineage and testing?** → Dagster
+
+#### Cost: Temporal vs Dagster
+
+Temporal is **dramatically cheaper** than Dagster for recurring workloads. Dagster charges $0.02–0.04 per credit (1 credit = 1 asset materialization), while Temporal charges $0.00005 per action (1 action ≈ 1 activity execution). That's a **~300x difference per operation**.
+
+In practice, when we migrated experiment metrics precomputation from Dagster to Temporal, the cost went from ~$6k/month to ~$20/month for the same workload. Keep this in mind before adding new Dagster jobs — if Temporal can do the job, it almost certainly should.
 
 #### Where do we use each?
 
-These are examples of where we use Temporal and Dagster at PostHog. Hopefully, these can serve as anecdotal examples to help you pick between Temporal and Dagster for your application. This list is not exhaustive.
-
 **Celery**: Small, fast background tasks (e.g. sending email, minor async operations)
-**Temporal**: Batch exports, data warehouse source syncing, AI platform task generation
-**Dagster**: Exchange rate tracking, one-off production management commands (better monitoring than Django's management commands), web analytics data pre-processing
+**Temporal**: Batch exports, data warehouse source syncing, AI platform task generation, experiment metrics precomputation
+**Dagster**: Exchange rate tracking, one-off production management commands, web analytics data pre-processing

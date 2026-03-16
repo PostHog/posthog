@@ -115,6 +115,7 @@ export function WebVitals(props: {
                 <WebVitalsContent webVitalsQueryResponse={webVitalsQueryResponse} isLoading={responseLoading} />
                 <div className="flex flex-col flex-1 bg-surface-primary rounded border p-4">
                     <Query
+                        key={webVitalsTab}
                         query={webVitalsMetricQuery}
                         readOnly
                         embedded

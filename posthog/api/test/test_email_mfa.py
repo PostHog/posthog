@@ -21,7 +21,6 @@ class TestEmailMFAAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_email_mfa_verifier
     @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
@@ -30,7 +29,6 @@ class TestEmailMFAAPI(APIBaseTest):
         mock_is_http_email_available,
         mock_is_email_available,
         mock_send_email,
-        mock_feature_enabled,
         mock_esp_suppression,
     ):
         response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
@@ -51,7 +49,6 @@ class TestEmailMFAAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_email_mfa_verifier
     @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
@@ -60,7 +57,6 @@ class TestEmailMFAAPI(APIBaseTest):
         mock_is_http_email_available,
         mock_is_email_available,
         mock_send_email,
-        mock_feature_enabled,
         mock_esp_suppression,
     ):
         # Trigger email MFA
@@ -99,7 +95,6 @@ class TestEmailMFAAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_email_mfa_verifier
     @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
@@ -108,7 +103,6 @@ class TestEmailMFAAPI(APIBaseTest):
         mock_is_http_email_available,
         mock_is_email_available,
         mock_send_email,
-        mock_feature_enabled,
         mock_esp_suppression,
     ):
         # Trigger email MFA
@@ -132,7 +126,6 @@ class TestEmailMFAAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_email_mfa_verifier
     @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
@@ -141,7 +134,6 @@ class TestEmailMFAAPI(APIBaseTest):
         mock_is_http_email_available,
         mock_is_email_available,
         mock_send_email,
-        mock_feature_enabled,
         mock_esp_suppression,
     ):
         with freeze_time("2023-01-01T10:00:00"):
@@ -165,7 +157,6 @@ class TestEmailMFAAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_email_mfa_verifier
     @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
@@ -174,7 +165,6 @@ class TestEmailMFAAPI(APIBaseTest):
         mock_is_http_email_available,
         mock_is_email_available,
         mock_send_email,
-        mock_feature_enabled,
         mock_esp_suppression,
     ):
         # Trigger email MFA
@@ -222,7 +212,6 @@ class TestEmailMFAAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_email_mfa_verifier
     @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
@@ -231,7 +220,6 @@ class TestEmailMFAAPI(APIBaseTest):
         mock_is_http_email_available,
         mock_is_email_available,
         mock_send_email,
-        mock_feature_enabled,
         mock_esp_suppression,
     ):
         # Create TOTP device for user
@@ -248,7 +236,6 @@ class TestEmailMFAAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_email_mfa_verifier
     @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
@@ -257,7 +244,6 @@ class TestEmailMFAAPI(APIBaseTest):
         mock_is_http_email_available,
         mock_is_email_available,
         mock_send_email,
-        mock_feature_enabled,
         mock_esp_suppression,
     ):
         with freeze_time("2023-01-01T10:00:00"):
@@ -276,7 +262,6 @@ class TestEmailMFAAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_email_mfa_verifier
     @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
@@ -285,7 +270,6 @@ class TestEmailMFAAPI(APIBaseTest):
         mock_is_http_email_available,
         mock_is_email_available,
         mock_send_email,
-        mock_feature_enabled,
         mock_esp_suppression,
     ):
         with freeze_time("2023-01-01T10:00:00"):
@@ -320,7 +304,6 @@ class TestEmailMFAAPI(APIBaseTest):
 
     @pytest.mark.disable_mock_email_mfa_verifier
     @patch("posthog.helpers.two_factor_session.check_esp_suppression", side_effect=mock_esp_not_suppressed)
-    @patch("posthoganalytics.feature_enabled", return_value=True)
     @patch("posthog.tasks.email.send_email_mfa_link")
     @patch("posthog.helpers.two_factor_session.is_email_available", return_value=True)
     @patch("posthog.helpers.two_factor_session.is_http_email_service_available", return_value=True)
@@ -329,7 +312,6 @@ class TestEmailMFAAPI(APIBaseTest):
         mock_is_http_email_available,
         mock_is_email_available,
         mock_send_email,
-        mock_feature_enabled,
         mock_esp_suppression,
     ):
         # First, log in normally (triggers email MFA)

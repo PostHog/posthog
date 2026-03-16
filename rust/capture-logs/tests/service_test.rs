@@ -569,3 +569,68 @@ fn test_parse_jsonl_with_empty_resource_logs() {
     // Both lines have empty resourceLogs, so merged result is also empty
     assert_eq!(request.resource_logs.len(), 0);
 }
+#[test]
+fn test_otel_log_row_overridden_timestamp_tracking() {
+    use capture_logs::log_record::KafkaLogRow;
+    use chrono::{TimeDelta, Utc};
+    use opentelemetry_proto::tonic::{
+        common::v1::{any_value, AnyValue},
+        logs::v1::LogRecord,
+    };
+
+    // Test with a timestamp far in the past (should be overridden)
+    let far_past_nanos = (Utc::now() - TimeDelta::hours(48))
+        .timestamp_nanos_opt()
+        .unwrap();
+    let log_record_overridden = LogRecord {
+        time_unix_nano: far_past_nanos as u64,
+        severity_text: "INFO".to_string(),
+        severity_number: 9,
+        body: Some(AnyValue {
+            value: Some(any_value::Value::StringValue("Test".to_string())),
+        }),
+        ..Default::default()
+    };
+
+    let (row_overridden, was_overridden) =
+        KafkaLogRow::new(log_record_overridden, None, None).unwrap();
+    assert!(was_overridden);
+    assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
+
+    // Test with a timestamp far in the future (should be overridden)
+    let far_future_nanos = (Utc::now() + TimeDelta::hours(25))
+        .timestamp_nanos_opt()
+        .unwrap();
+    let log_record_overridden = LogRecord {
+        time_unix_nano: far_future_nanos as u64,
+        severity_text: "INFO".to_string(),
+        severity_number: 9,
+        body: Some(AnyValue {
+            value: Some(any_value::Value::StringValue("Test".to_string())),
+        }),
+        ..Default::default()
+    };
+
+    let (row_overridden, was_overridden) =
+        KafkaLogRow::new(log_record_overridden, None, None).unwrap();
+    assert!(was_overridden);
+    assert!(row_overridden.attributes.contains_key("$originalTimestamp"));
+
+    // Test with a recent timestamp (should not be overridden)
+    let recent_nanos = (Utc::now() - TimeDelta::hours(1))
+        .timestamp_nanos_opt()
+        .unwrap();
+    let log_record_recent = LogRecord {
+        time_unix_nano: recent_nanos as u64,
+        severity_text: "INFO".to_string(),
+        severity_number: 9,
+        body: Some(AnyValue {
+            value: Some(any_value::Value::StringValue("Test".to_string())),
+        }),
+        ..Default::default()
+    };
+
+    let (row_recent, was_not_overridden) = KafkaLogRow::new(log_record_recent, None, None).unwrap();
+    assert!(!was_not_overridden);
+    assert!(!row_recent.attributes.contains_key("$originalTimestamp"));
+}

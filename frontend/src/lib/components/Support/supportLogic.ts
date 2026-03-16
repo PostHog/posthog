@@ -246,8 +246,8 @@ export const TARGET_AREA_TO_NAME = [
                 label: 'PostHog AI',
             },
             {
-                value: 'mcp-server',
-                'data-attr': `support-form-target-area-mcp-server`,
+                value: 'posthog-mcp',
+                'data-attr': `support-form-target-area-posthog-mcp`,
                 label: 'MCP Server',
             },
             {

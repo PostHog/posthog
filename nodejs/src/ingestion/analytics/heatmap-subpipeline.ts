@@ -11,6 +11,7 @@ import { EventPipelineRunnerOptions } from '../event-processing/event-pipeline-o
 import { createExtractHeatmapDataStep } from '../event-processing/extract-heatmap-data-step'
 import { createNormalizeEventStep } from '../event-processing/normalize-event-step'
 import { createPrepareEventStep } from '../event-processing/prepare-event-step'
+import { createProcessGroupsStep } from '../event-processing/process-groups-step'
 import { createSkipEmitEventStep } from '../event-processing/skip-emit-event-step'
 import { PipelineBuilder, StartPipelineBuilder } from '../pipelines/builders/pipeline-builders'
 
@@ -40,7 +41,8 @@ export function createHeatmapSubpipeline<TInput extends HeatmapSubpipelineInput,
         .pipe(createCheckHeatmapOptInStep())
         .pipe(createDisablePersonProcessingStep())
         .pipe(createNormalizeEventStep())
-        .pipe(createPrepareEventStep(teamManager, groupTypeManager, groupStore, options))
+        .pipe(createPrepareEventStep())
+        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
         .pipe(
             createExtractHeatmapDataStep({
                 kafkaProducer,

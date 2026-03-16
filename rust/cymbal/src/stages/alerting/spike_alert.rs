@@ -62,7 +62,7 @@ impl Stage for SpikeAlertStage {
             .map(|issue| (issue.id, issue))
             .collect::<HashMap<_, _>>();
 
-        do_spike_detection(self.context, issues_by_id, issues_count_by_id).await;
+        do_spike_detection(self.context, issues_by_id, issues_count_by_id).await?;
 
         Ok(batch)
     }

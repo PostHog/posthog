@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
 import api, { getJSONOrNull } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -30,7 +30,7 @@ import {
     StartupProgramLabel,
 } from '~/types'
 
-import { buildUsageLimitApproachingMessage, buildUsageLimitExceededMessage } from './billing-utils'
+import { buildUsageLimitApproachingMessage, buildUsageLimitExceededMessage, canAccessBilling } from './billing-utils'
 import type { billingLogicType } from './billingLogicType'
 import { DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD } from './CreditCTAHero'
 
@@ -609,9 +609,9 @@ export const billingLogic = kea<billingLogicType>([
             },
         ],
         showCreditCTAHero: [
-            (s) => [s.creditOverview, s.featureFlags],
-            (creditOverview, featureFlags): boolean => {
-                const isEligible = creditOverview.eligible || !!featureFlags[FEATURE_FLAGS.SELF_SERVE_CREDIT_OVERRIDE]
+            (s) => [s.creditOverview],
+            (creditOverview): boolean => {
+                const isEligible = creditOverview.eligible
                 return isEligible && creditOverview.status !== 'paid'
             },
         ],
@@ -809,6 +809,8 @@ export const billingLogic = kea<billingLogicType>([
                 return
             }
 
+            const hasBillingAccess = canAccessBilling(values.currentOrganization)
+
             const trial = values.billing.trial
             if (trial && trial.expires_at && dayjs(trial.expires_at).isAfter(dayjs())) {
                 if (trial.type === 'autosubscribe' || trial.status !== 'active') {
@@ -854,7 +856,7 @@ export const billingLogic = kea<billingLogicType>([
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
-                    if (values.featureFlags[hideProductFlag] === true) {
+                    if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
                         return false
                     }
                     if (isBillingAlertDismissed(values.currentOrganization?.id, x.type, billingPeriodEnd)) {
@@ -864,7 +866,7 @@ export const billingLogic = kea<billingLogicType>([
                 }) || []
 
             if (productsOverLimit.length > 0) {
-                const { title, message } = buildUsageLimitExceededMessage(productsOverLimit)
+                const { title, message } = buildUsageLimitExceededMessage(productsOverLimit, hasBillingAccess)
 
                 actions.setBillingAlert({
                     status: 'error',
@@ -894,7 +896,7 @@ export const billingLogic = kea<billingLogicType>([
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
-                    if (values.featureFlags[hideProductFlag] === true) {
+                    if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
                         return false
                     }
                     if (
@@ -911,7 +913,7 @@ export const billingLogic = kea<billingLogicType>([
                 }) || []
 
             if (productsApproachingLimit.length > 0) {
-                const { title, message } = buildUsageLimitApproachingMessage(productsApproachingLimit)
+                const { title, message } = buildUsageLimitApproachingMessage(productsApproachingLimit, hasBillingAccess)
 
                 actions.setBillingAlert({
                     status: 'info',

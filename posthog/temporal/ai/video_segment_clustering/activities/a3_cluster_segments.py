@@ -3,7 +3,6 @@ Activity 3 of the video segment clustering workflow:
 Clustering video segments using iterative K-means, with noise handling.
 """
 
-import json
 import math
 import asyncio
 from dataclasses import dataclass
@@ -13,7 +12,6 @@ from sklearn.cluster import AgglomerativeClustering, KMeans
 from sklearn.metrics.pairwise import cosine_distances
 from temporalio import activity
 
-from posthog.models.team import Team
 from posthog.temporal.ai.video_segment_clustering import constants
 from posthog.temporal.ai.video_segment_clustering.models import (
     Cluster,
@@ -21,10 +19,8 @@ from posthog.temporal.ai.video_segment_clustering.models import (
     ClusterSegmentsActivityInputs,
     VideoSegment,
 )
-from posthog.temporal.ai.video_segment_clustering.state import load_fetch_result
+from posthog.temporal.ai.video_segment_clustering.object_storage import load_fetch_result
 from posthog.temporal.common.logger import get_logger
-
-from ..data import fetch_video_segment_embedding_rows
 
 logger = get_logger(__name__)
 
@@ -63,72 +59,12 @@ async def cluster_segments_activity(inputs: ClusterSegmentsActivityInputs) -> Cl
     6. Remaining segments are marked as noise
 
     """
-    team = await Team.objects.aget(id=inputs.team_id)
-    document_ids, _ = await load_fetch_result(inputs.storage_key)
-    # We fetch segments here instead of passing via Temporal, to avoid large Temporal payloads (each embedding is 3 KB)
-    segments = await _fetch_embeddings_by_document_ids(team, document_ids)
+    segments, _ = await load_fetch_result(inputs.storage_key)
 
     # Run in to_thread as clustering is CPU-bound
     clustering_with_centroids = await asyncio.to_thread(_perform_clustering, segments)
 
     return clustering_with_centroids.result
-
-
-async def _fetch_embeddings_by_document_ids(
-    team: Team,
-    document_ids: list[str],
-) -> list[VideoSegment]:
-    if not document_ids:
-        return []
-
-    rows = await fetch_video_segment_embedding_rows(team, document_ids)
-    segments: list[VideoSegment] = []
-
-    for row in rows:
-        document_id, content, embedding, metadata_str, _timestamp_of_embedding = row
-        try:
-            metadata = json.loads(metadata_str) if isinstance(metadata_str, str) else metadata_str
-        except (json.JSONDecodeError, TypeError):
-            # Being defensive to avoid a poison pill kind of situation
-            logger.exception(f"Failed to parse metadata for document_id: {document_id}", metadata_str=metadata_str)
-            continue
-        session_id = metadata.get("session_id")
-        start_time = metadata.get("start_time")
-        end_time = metadata.get("end_time")
-        distinct_id = metadata.get("distinct_id")
-        session_start_time = metadata.get("session_start_time")
-        session_end_time = metadata.get("session_end_time")
-        session_duration = metadata.get("session_duration")
-        session_active_seconds = metadata.get("session_active_seconds")
-        if (
-            not session_id
-            or not start_time
-            or not end_time
-            or not distinct_id
-            or not session_start_time
-            or not session_end_time
-            or not session_duration
-            or not session_active_seconds
-        ):
-            logger.error(f"Missing required metadata for document_id: {document_id}", metadata=metadata)
-            continue
-        segments.append(
-            VideoSegment(
-                document_id=document_id,
-                session_id=session_id,
-                start_time=start_time,
-                end_time=end_time,
-                session_start_time=session_start_time,
-                session_end_time=session_end_time,
-                session_duration=session_duration,
-                session_active_seconds=session_active_seconds,
-                distinct_id=distinct_id,
-                content=content,
-                embedding=embedding,
-            )
-        )
-
-    return segments
 
 
 def _perform_clustering(segments: list[VideoSegment]) -> _ClusteringResultWithCentroids:

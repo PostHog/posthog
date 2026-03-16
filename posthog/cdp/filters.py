@@ -3,6 +3,7 @@ from typing import Any, Optional
 from django.conf import settings
 
 from posthog.hogql.compiler.bytecode import create_bytecode
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.property import action_to_expr, ast, property_to_expr
 from posthog.hogql.visitor import TraversingVisitor
@@ -156,7 +157,15 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
         if SelectFinder.has_select(expr):
             raise Exception("Select queries are not allowed in filters")
 
-        filters["bytecode"] = create_bytecode(expr).bytecode
+        context = HogQLContext(team_id=team.id)
+        filters["bytecode"] = create_bytecode(expr, context=context).bytecode
+
+        # context.errors here only contains "function not implemented" errors from the
+        # bytecode compiler (the resolver doesn't run during create_bytecode). These are
+        # genuinely fatal — the bytecode would reference a non-existent function at runtime.
+        if context.errors:
+            error_messages = "; ".join(e.message for e in context.errors if e.message)
+            raise Exception(f"Filter compilation errors: {error_messages}")
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
     except Exception as e:

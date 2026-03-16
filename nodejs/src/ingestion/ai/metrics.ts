@@ -23,3 +23,21 @@ export const aiCostTotalOutcomeCounter = new Counter({
     help: 'Outcome of total cost calculation (positive, zero, negative)',
     labelNames: ['outcome'],
 })
+
+export const aiToolCallExtractionCounter = new Counter({
+    name: 'llma_ai_tool_call_extraction_total',
+    help: 'AI tool call extraction outcomes',
+    labelNames: ['status'],
+})
+
+export const aiOtelMiddlewareCounter = new Counter({
+    name: 'llma_ai_otel_middleware_total',
+    help: 'OTel events processed by library middleware',
+    labelNames: ['library'],
+})
+
+export const aiOtelEventTypeCounter = new Counter({
+    name: 'llma_ai_otel_event_type_total',
+    help: 'OTel events by type and library',
+    labelNames: ['event_type', 'library'],
+})

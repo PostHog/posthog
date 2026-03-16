@@ -15,12 +15,33 @@ async def create_mock_stream(chunks: list[dict[str, Any]]) -> AsyncGenerator[Any
         yield mock_chunk
 
 
+class ProviderError(Exception):
+    def __init__(self, message: str, error_type: str, status_code: int):
+        super().__init__(message)
+        self.message = message
+        self.type = error_type
+        self.status_code = status_code
+
+
 async def create_error_stream(chunks_before_error: int = 1) -> AsyncGenerator[Any, None]:
     for i in range(chunks_before_error):
         mock_chunk = MagicMock()
         mock_chunk.model_dump = MagicMock(return_value={"chunk": i})
         yield mock_chunk
     raise ValueError("Stream error")
+
+
+async def create_provider_error_stream(
+    chunks_before_error: int = 1,
+    message: str = "Service overloaded",
+    error_type: str = "overloaded_error",
+    status_code: int = 529,
+) -> AsyncGenerator[Any, None]:
+    for i in range(chunks_before_error):
+        mock_chunk = MagicMock()
+        mock_chunk.model_dump = MagicMock(return_value={"chunk": i})
+        yield mock_chunk
+    raise ProviderError(message, error_type, status_code)
 
 
 async def collect_stream(stream: AsyncGenerator[bytes, None]) -> list[bytes]:
@@ -86,4 +107,26 @@ class TestFormatSseStream:
 
         assert "error" in error_data
         assert error_data["error"]["type"] == "internal_error"
+        assert error_data["error"]["message"] == "Stream error"
         assert len(result) == chunks_before_error + 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "message,error_type,status_code",
+        [
+            pytest.param("Service overloaded", "overloaded_error", 529, id="overloaded"),
+            pytest.param("Rate limit exceeded", "rate_limit_error", 429, id="rate_limited"),
+            pytest.param("Service unavailable", "service_unavailable", 503, id="unavailable"),
+        ],
+    )
+    async def test_provider_error_surfaces_details(self, message: str, error_type: str, status_code: int) -> None:
+        result = await collect_stream(
+            format_sse_stream(create_provider_error_stream(1, message, error_type, status_code))
+        )
+
+        error_chunk = result[-1]
+        error_data = json.loads(error_chunk.decode().replace("data: ", ""))
+
+        assert error_data["error"]["message"] == message
+        assert error_data["error"]["type"] == error_type
+        assert error_data["error"]["code"] is None

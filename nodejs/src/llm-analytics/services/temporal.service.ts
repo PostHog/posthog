@@ -103,10 +103,15 @@ export class TemporalService {
         return client
     }
 
-    async startEvaluationRunWorkflow(evaluationId: string, event: RawKafkaEvent): Promise<WorkflowHandle> {
+    async startEvaluationRunWorkflow(
+        evaluationId: string,
+        event: RawKafkaEvent,
+        evaluationRuntime: string = 'llm_judge'
+    ): Promise<WorkflowHandle> {
         const client = await this.ensureConnected()
 
-        const workflowId = `${evaluationId}-${event.uuid}-ingestion`
+        const prefix = evaluationRuntime === 'hog' ? 'llma-hog-eval' : 'llma-llm-eval'
+        const workflowId = `${prefix}-${evaluationId}-${event.uuid}-ingestion`
 
         const handle = await client.workflow.start('run-evaluation', {
             args: [

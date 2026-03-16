@@ -5,18 +5,20 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { tabAwareUrlToAction } from 'lib/logic/scenes/tabAwareUrlToAction'
+import { signalSourcesLogic } from 'scenes/inbox/signalSourcesLogic'
+import { SignalSourceConfig, SignalSourceProduct, SignalSourceType } from 'scenes/inbox/types'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
+import { MaxContextInput, createMaxContextHelpers } from '~/scenes/max/maxTypes'
 import { Breadcrumb } from '~/types'
 
-import { LLMProvider, LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
+import { parseTrialProviderKeyId } from '../ModelPicker'
+import { LLMProviderKey, llmProviderKeysLogic } from '../settings/llmProviderKeysLogic'
 import { isUnhealthyProviderKeyState } from '../settings/providerKeyStateUtils'
 import { queryEvaluationRuns } from '../utils'
 import { EVALUATION_SUMMARY_MAX_RUNS } from './constants'
 import type { llmEvaluationLogicType } from './llmEvaluationLogicType'
-import { llmEvaluationsLogic } from './llmEvaluationsLogic'
 import { EvaluationTemplateKey, defaultEvaluationTemplates } from './templates'
 import {
     EvaluationConditionSet,
@@ -24,13 +26,17 @@ import {
     EvaluationRun,
     EvaluationSummary,
     EvaluationSummaryFilter,
+    EvaluationType,
+    HogTestResult,
     ModelConfiguration,
 } from './types'
 
-export interface AvailableModel {
-    id: string
-    posthog_available: boolean
+export const DEFAULT_HOG_SOURCE = `// Check that the output is not empty
+let result := length(output) > 0
+if (not result) {
+    print('Output is empty')
 }
+return result`
 
 export interface LLMEvaluationLogicProps {
     evaluationId: string
@@ -47,8 +53,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     ),
 
     connect(() => ({
-        values: [llmProviderKeysLogic, ['providerKeys', 'providerKeysLoading']],
-        actions: [llmProviderKeysLogic, ['loadProviderKeys', 'loadProviderKeysSuccess']],
+        values: [
+            llmProviderKeysLogic,
+            ['providerKeys', 'providerKeysLoading'],
+            signalSourcesLogic,
+            ['sourceConfigs', 'sourceConfigsLoading'],
+        ],
+        actions: [
+            llmProviderKeysLogic,
+            ['loadProviderKeys'],
+            signalSourcesLogic,
+            [
+                'loadSourceConfigs',
+                'loadSourceConfigsSuccess',
+                'toggleSignalSource',
+                'toggleSignalSourceSuccess',
+                'toggleSignalSourceFailure',
+            ],
+        ],
     })),
 
     actions({
@@ -60,12 +82,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         setAllowsNA: (allowsNA: boolean) => ({ allowsNA }),
         setTriggerConditions: (conditions: EvaluationConditionSet[]) => ({ conditions }),
         setModelConfiguration: (modelConfiguration: ModelConfiguration | null) => ({ modelConfiguration }),
+        setEvaluationType: (evaluationType: EvaluationType) => ({ evaluationType }),
+        setHogSource: (source: string) => ({ source }),
 
         // Signal emission
-        loadSignalConfig: true,
-        loadSignalConfigSuccess: (enabled: boolean) => ({ enabled }),
         setSignalEmission: (enabled: boolean) => ({ enabled }),
-        setSignalEmissionSuccess: (enabled: boolean) => ({ enabled }),
+
+        // Tab navigation
+        setActiveTab: (tab: string) => ({ tab }),
 
         // Evaluation management actions
         saveEvaluation: true,
@@ -78,10 +102,10 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         refreshEvaluationRuns: true,
 
         // Model selection actions
-        setSelectedProvider: (provider: LLMProvider) => ({ provider }),
-        setSelectedKeyId: (keyId: string | null) => ({ keyId }),
-        setSelectedModel: (model: string) => ({ model }),
         selectModelFromPicker: (modelId: string, providerKeyId: string) => ({ modelId, providerKeyId }),
+
+        // Hog test actions
+        clearHogTestResults: true,
 
         // Evaluation summary actions
         setEvaluationSummaryFilter: (filter: EvaluationSummaryFilter, previousFilter: EvaluationSummaryFilter) => ({
@@ -94,6 +118,45 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
     }),
 
     loaders(({ props, values }) => ({
+        hogTestResults: [
+            null as HogTestResult[] | null,
+            {
+                testHogOnSample: async (): Promise<HogTestResult[] | null> => {
+                    const teamId = teamLogic.values.currentTeamId
+                    if (!teamId) {
+                        return null
+                    }
+                    const evaluation = values.evaluation
+                    if (!evaluation || evaluation.evaluation_type !== 'hog') {
+                        return null
+                    }
+                    try {
+                        const conditions = evaluation.conditions
+                            .filter((c) => c.properties && c.properties.length > 0)
+                            .map((c) => ({ properties: c.properties }))
+                        const response = await api.create(`/api/environments/${teamId}/evaluations/test_hog/`, {
+                            source: evaluation.evaluation_config.source,
+                            sample_count: 5,
+                            allows_na: evaluation.output_config?.allows_na ?? false,
+                            conditions,
+                        })
+                        return response.results
+                    } catch (e: unknown) {
+                        const message = e instanceof Error ? e.message : typeof e === 'string' ? e : 'Unknown error'
+                        return [
+                            {
+                                event_uuid: 'error',
+                                input_preview: '',
+                                output_preview: '',
+                                result: null,
+                                reasoning: '',
+                                error: typeof message === 'string' ? message : JSON.stringify(message),
+                            },
+                        ]
+                    }
+                },
+            },
+        ],
         evaluationRuns: [
             [] as EvaluationRun[],
             {
@@ -106,31 +169,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                         evaluationId: props.evaluationId,
                         forceRefresh: values.isForceRefresh,
                     })
-                },
-            },
-        ],
-        availableModels: [
-            [] as AvailableModel[],
-            {
-                loadAvailableModels: async ({
-                    provider,
-                    keyId,
-                }: {
-                    provider: LLMProvider
-                    keyId: string | null
-                }): Promise<AvailableModel[]> => {
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
-                        return []
-                    }
-                    const params = new URLSearchParams({ provider })
-                    if (keyId) {
-                        params.append('key_id', keyId)
-                    }
-                    const response = await api.get(
-                        `/api/environments/${teamId}/llm_analytics/models/?${params.toString()}`
-                    )
-                    return response.models
                 },
             },
         ],
@@ -178,36 +216,51 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setEvaluationName: (state, { name }) => (state ? { ...state, name } : null),
                 setEvaluationDescription: (state, { description }) => (state ? { ...state, description } : null),
                 setEvaluationPrompt: (state, { prompt }) =>
-                    state ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } } : null,
+                    state && state.evaluation_type === 'llm_judge'
+                        ? { ...state, evaluation_config: { ...state.evaluation_config, prompt } }
+                        : state,
                 setEvaluationEnabled: (state, { enabled }) => (state ? { ...state, enabled } : null),
                 setAllowsNA: (state, { allowsNA }) =>
                     state ? { ...state, output_config: { ...state.output_config, allows_na: allowsNA } } : null,
                 setTriggerConditions: (state, { conditions }) => (state ? { ...state, conditions } : null),
                 setModelConfiguration: (state, { modelConfiguration }) =>
                     state ? { ...state, model_configuration: modelConfiguration } : null,
+                setEvaluationType: (state, { evaluationType }) => {
+                    if (!state) {
+                        return null
+                    }
+                    if (evaluationType === 'hog') {
+                        return {
+                            ...state,
+                            evaluation_type: 'hog',
+                            evaluation_config: { source: DEFAULT_HOG_SOURCE },
+                            model_configuration: null,
+                            output_config: { ...state.output_config, allows_na: false },
+                        }
+                    }
+                    return {
+                        ...state,
+                        evaluation_type: 'llm_judge',
+                        evaluation_config: { prompt: '' },
+                    }
+                },
+                setHogSource: (state, { source }) =>
+                    state && state.evaluation_type === 'hog'
+                        ? { ...state, evaluation_config: { ...state.evaluation_config, source } }
+                        : state,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation,
                 saveEvaluationSuccess: (_, { evaluation }) => evaluation,
             },
         ],
-        selectedProvider: [
-            'openai' as LLMProvider,
-            {
-                setSelectedProvider: (_, { provider }) => provider,
-                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider || 'openai',
-            },
-        ],
-        selectedKeyId: [
-            null as string | null,
-            {
-                setSelectedKeyId: (_, { keyId }) => keyId,
-                loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider_key_id || null,
-            },
-        ],
+        hogTestResults: {
+            clearHogTestResults: () => null,
+            setHogSource: () => null,
+        },
         selectedModel: [
             '' as string,
             {
-                setSelectedModel: (_, { model }) => model,
                 selectModelFromPicker: (_, { modelId }) => modelId,
+                setModelConfiguration: (_, { modelConfiguration }) => modelConfiguration?.model || '',
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.model || '',
             },
         ],
@@ -215,6 +268,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             null as string | null,
             {
                 selectModelFromPicker: (_, { providerKeyId }) => providerKeyId,
+                setModelConfiguration: (_, { modelConfiguration }) => modelConfiguration?.provider_key_id || null,
                 loadEvaluationSuccess: (_, { evaluation }) => evaluation?.model_configuration?.provider_key_id || null,
             },
         ],
@@ -240,20 +294,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 saveEvaluationSuccess: () => false,
             },
         ],
-        signalEmissionEnabled: [
-            false,
+        signalEmissionOptimistic: [
+            null as boolean | null,
             {
-                loadSignalConfigSuccess: (_, { enabled }) => enabled,
-                setSignalEmissionSuccess: (_, { enabled }) => enabled,
-            },
-        ],
-        signalEmissionLoading: [
-            false,
-            {
-                loadSignalConfig: () => true,
-                loadSignalConfigSuccess: () => false,
-                setSignalEmission: () => true,
-                setSignalEmissionSuccess: () => false,
+                setSignalEmission: (_, { enabled }) => enabled,
+                loadSourceConfigsSuccess: () => null,
+                toggleSignalSourceFailure: () => null,
             },
         ],
         hasUnsavedChanges: [
@@ -266,6 +312,8 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 setAllowsNA: () => true,
                 setTriggerConditions: () => true,
                 setModelConfiguration: () => true,
+                setEvaluationType: () => true,
+                setHogSource: () => true,
                 saveEvaluationSuccess: () => false,
                 loadEvaluationSuccess: () => false,
                 resetEvaluation: () => false,
@@ -297,6 +345,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 generateEvaluationSummarySuccess: () => true,
             },
         ],
+        activeTab: [
+            'configuration' as string,
+            {
+                setActiveTab: (_, { tab }) => tab,
+                // Show runs tab for existing evaluations, configuration for new
+                loadEvaluationSuccess: (_, { evaluation }) => (evaluation?.id ? 'runs' : 'configuration'),
+            },
+        ],
     }),
 
     listeners(({ actions, values, props }) => ({
@@ -321,16 +377,12 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     ? defaultEvaluationTemplates.find((t) => t.key === props.templateKey)
                     : undefined
 
-                const newEvaluation: EvaluationConfig = {
+                const baseFields = {
                     id: '',
                     name: template?.name || '',
                     description: template?.description || '',
                     enabled: true,
-                    evaluation_type: 'llm_judge',
-                    evaluation_config: {
-                        prompt: template?.prompt || '',
-                    },
-                    output_type: 'boolean',
+                    output_type: 'boolean' as const,
                     output_config: {},
                     conditions: [
                         {
@@ -344,54 +396,21 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                     created_at: new Date().toISOString(),
                     updated_at: new Date().toISOString(),
                 }
+                const newEvaluation: EvaluationConfig =
+                    template?.evaluation_type === 'hog'
+                        ? {
+                              ...baseFields,
+                              evaluation_type: 'hog' as const,
+                              evaluation_config: { source: template.source, bytecode: [] },
+                          }
+                        : {
+                              ...baseFields,
+                              evaluation_type: 'llm_judge' as const,
+                              evaluation_config: {
+                                  prompt: template && 'prompt' in template ? template.prompt : '',
+                              },
+                          }
                 actions.loadEvaluationSuccess(newEvaluation)
-            }
-        },
-
-        loadEvaluationSuccess: ({ evaluation }) => {
-            // Load available models for the current provider/key combination
-            if (evaluation) {
-                const provider = evaluation.model_configuration?.provider || 'openai'
-                let keyId = evaluation.model_configuration?.provider_key_id || null
-
-                // Auto-select user's first key if none set (for new OR existing evals)
-                if (!keyId) {
-                    const keysForProvider = values.providerKeysByProvider[provider] || []
-                    if (keysForProvider.length > 0) {
-                        keyId = keysForProvider[0].id
-                        actions.setSelectedKeyId(keyId)
-                    }
-                }
-
-                actions.loadAvailableModels({ provider, keyId })
-
-                // Load signal emission config for existing evals (staff only)
-                if (props.evaluationId !== 'new' && userLogic.values.user?.is_staff) {
-                    actions.loadSignalConfig()
-                }
-            }
-        },
-
-        loadProviderKeysSuccess: () => {
-            const evaluation = values.evaluation
-
-            // For new evals without a key, auto-select first key
-            if (evaluation && !evaluation.id && !values.selectedKeyId) {
-                const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
-                if (keysForProvider.length > 0) {
-                    const keyId = keysForProvider[0].id
-                    actions.setSelectedKeyId(keyId)
-                    actions.loadAvailableModels({ provider: values.selectedProvider, keyId })
-                }
-            }
-
-            // For existing evals, if selected key no longer exists, reload evaluation to get fresh data
-            if (evaluation && evaluation.id && values.selectedKeyId) {
-                const keysForProvider = values.providerKeysByProvider[values.selectedProvider] || []
-                const keyExists = keysForProvider.some((key) => key.id === values.selectedKeyId)
-                if (!keyExists) {
-                    actions.loadEvaluation()
-                }
             }
         },
 
@@ -459,60 +478,25 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
-        loadSignalConfig: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await api.get(`api/projects/${teamId}/signal_source_configs/`)
-                const configs = response.results ?? response
-                const llmEvalConfig = configs.find(
-                    (c: any) => c.source_product === 'llm_analytics' && c.source_type === 'evaluation'
-                )
-                const ids: string[] = llmEvalConfig?.config?.evaluation_ids ?? []
-                actions.loadSignalConfigSuccess(!!llmEvalConfig?.enabled && ids.includes(props.evaluationId))
-            } catch {
-                actions.loadSignalConfigSuccess(false)
-            }
-        },
+        setSignalEmission: ({ enabled }) => {
+            const configs: SignalSourceConfig[] = values.sourceConfigs ?? []
+            const existing = configs.find(
+                (c) =>
+                    c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
+                    c.source_type === SignalSourceType.EVALUATION
+            )
 
-        setSignalEmission: async ({ enabled }) => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await api.get(`api/projects/${teamId}/signal_source_configs/`)
-                const configs = response.results ?? response
-                const existing = configs.find(
-                    (c: any) => c.source_product === 'llm_analytics' && c.source_type === 'evaluation'
-                )
+            const currentIds: string[] = existing?.config?.evaluation_ids ?? []
+            const newIds = enabled
+                ? [...new Set([...currentIds, props.evaluationId])]
+                : currentIds.filter((id: string) => id !== props.evaluationId)
 
-                if (existing) {
-                    const currentIds: string[] = existing.config?.evaluation_ids ?? []
-                    const newIds = enabled
-                        ? [...new Set([...currentIds, props.evaluationId])]
-                        : currentIds.filter((id: string) => id !== props.evaluationId)
-                    await api.update(`api/projects/${teamId}/signal_source_configs/${existing.id}/`, {
-                        enabled: true,
-                        config: { ...existing.config, evaluation_ids: newIds },
-                    })
-                    actions.setSignalEmissionSuccess(enabled)
-                } else if (enabled) {
-                    await api.create(`api/projects/${teamId}/signal_source_configs/`, {
-                        source_product: 'llm_analytics',
-                        source_type: 'evaluation',
-                        enabled: true,
-                        config: { evaluation_ids: [props.evaluationId] },
-                    })
-                    actions.setSignalEmissionSuccess(true)
-                }
-            } catch (error) {
-                // Revert to previous state on failure
-                actions.setSignalEmissionSuccess(!enabled)
-                throw error
-            }
+            actions.toggleSignalSource({
+                sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
+                sourceType: SignalSourceType.EVALUATION,
+                enabled: true,
+                config: { ...existing?.config, evaluation_ids: newIds },
+            })
         },
 
         saveEvaluation: async () => {
@@ -525,7 +509,6 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (props.evaluationId === 'new') {
                     const response = await api.create(`/api/environments/${teamId}/evaluations/`, values.evaluation!)
                     actions.saveEvaluationSuccess(response)
-                    llmEvaluationsLogic.findMounted()?.actions.loadEvaluations()
                 } else {
                     const response = await api.update(
                         `/api/environments/${teamId}/evaluations/${props.evaluationId}/`,
@@ -539,39 +522,21 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             }
         },
 
-        setSelectedProvider: ({ provider }) => {
-            // When provider changes, auto-select user's first key if they have one, otherwise use PostHog default
-            const keysForProvider = values.providerKeysByProvider[provider] || []
-            const keyId = keysForProvider.length > 0 ? keysForProvider[0].id : null
-            actions.loadAvailableModels({ provider, keyId })
-            actions.setSelectedKeyId(keyId)
-            actions.setSelectedModel('')
-        },
-
-        setSelectedKeyId: ({ keyId }) => {
-            // When key changes, reload available models and reset model selection
-            const provider = values.selectedProvider
-            actions.loadAvailableModels({ provider, keyId })
-            actions.setSelectedModel('')
-        },
-
-        setSelectedModel: ({ model }) => {
-            // When model is selected, update the model configuration
-            if (model) {
-                const modelConfig: ModelConfiguration = {
-                    provider: values.selectedProvider,
-                    model,
-                    provider_key_id: values.selectedKeyId,
-                }
-                actions.setModelConfiguration(modelConfig)
-            } else {
-                actions.setModelConfiguration(null)
-            }
-        },
-
         selectModelFromPicker: ({ modelId, providerKeyId }) => {
+            if (!modelId) {
+                return
+            }
+            const trialProvider = parseTrialProviderKeyId(providerKeyId)
+            if (trialProvider) {
+                actions.setModelConfiguration({
+                    provider: trialProvider,
+                    model: modelId,
+                    provider_key_id: null,
+                })
+                return
+            }
             const key = values.providerKeys.find((k: LLMProviderKey) => k.id === providerKeyId)
-            if (key && modelId) {
+            if (key) {
                 actions.setModelConfiguration({
                     provider: key.provider,
                     model: modelId,
@@ -579,29 +544,29 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 })
             }
         },
-
-        loadAvailableModelsSuccess: ({ availableModels }) => {
-            // If the currently selected model is not in the available models, reset it
-            if (values.selectedModel && !availableModels.some((m: AvailableModel) => m.id === values.selectedModel)) {
-                actions.setSelectedModel('')
-            }
-            // Auto-select the first available model if none selected
-            if (!values.selectedModel && availableModels.length > 0) {
-                // When using PostHog key (no selectedKeyId), pick first PostHog-available model
-                if (!values.selectedKeyId) {
-                    const firstPostHogModel = availableModels.find((m: AvailableModel) => m.posthog_available)
-                    if (firstPostHogModel) {
-                        actions.setSelectedModel(firstPostHogModel.id)
-                    }
-                } else {
-                    actions.setSelectedModel(availableModels[0].id)
-                }
-            }
-        },
     })),
 
     selectors({
         isNewEvaluation: [(_, props) => [props.evaluationId], (evaluationId: string) => evaluationId === 'new'],
+
+        signalEmissionEnabled: [
+            (s, props) => [s.signalEmissionOptimistic, s.sourceConfigs, props.evaluationId],
+            (optimistic: boolean | null, sourceConfigs: SignalSourceConfig[] | null, evaluationId: string): boolean => {
+                if (optimistic !== null) {
+                    return optimistic
+                }
+                if (!sourceConfigs) {
+                    return false
+                }
+                const llmEvalConfig = sourceConfigs.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
+                        c.source_type === SignalSourceType.EVALUATION
+                )
+                const ids: string[] = llmEvalConfig?.config?.evaluation_ids ?? []
+                return !!llmEvalConfig?.enabled && ids.includes(evaluationId)
+            },
+        ],
 
         formValid: [
             (s) => [s.evaluation],
@@ -609,38 +574,20 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 if (!evaluation) {
                     return false
                 }
-                return (
-                    evaluation.name.length > 0 &&
-                    evaluation.evaluation_config.prompt.length > 0 &&
+                const hasValidName = evaluation.name.length > 0
+                const hasValidConditions =
                     evaluation.conditions.length > 0 &&
                     evaluation.conditions.every((c) => c.rollout_percentage > 0 && c.rollout_percentage <= 100)
-                )
-            },
-        ],
 
-        providerKeysByProvider: [
-            (s) => [s.providerKeys],
-            (providerKeys: LLMProviderKey[]) => {
-                const byProvider: Record<LLMProvider, LLMProviderKey[]> = {
-                    openai: [],
-                    anthropic: [],
-                    gemini: [],
-                    openrouter: [],
-                    fireworks: [],
+                let hasValidConfig = false
+                if (evaluation.evaluation_type === 'hog') {
+                    hasValidConfig = evaluation.evaluation_config.source.trim().length > 0
+                } else {
+                    hasValidConfig = evaluation.evaluation_config.prompt.length > 0
                 }
-                for (const key of providerKeys) {
-                    if (key.provider in byProvider) {
-                        byProvider[key.provider as LLMProvider].push(key)
-                    }
-                }
-                return byProvider
-            },
-        ],
 
-        keysForSelectedProvider: [
-            (s) => [s.providerKeysByProvider, s.selectedProvider],
-            (providerKeysByProvider: Record<LLMProvider, LLMProviderKey[]>, selectedProvider: LLMProvider) =>
-                providerKeysByProvider[selectedProvider] || [],
+                return hasValidName && hasValidConfig && hasValidConditions
+            },
         ],
 
         evaluationProviderKeyIssue: [
@@ -741,6 +688,24 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
                 },
             ],
         ],
+
+        maxContext: [
+            (s) => [s.evaluation],
+            (evaluation: EvaluationConfig | null): MaxContextInput[] => {
+                if (!evaluation) {
+                    return []
+                }
+                return [
+                    createMaxContextHelpers.evaluation({
+                        id: evaluation.id || 'new',
+                        name: evaluation.name,
+                        description: evaluation.description,
+                        evaluation_type: evaluation.evaluation_type,
+                        hog_source: evaluation.evaluation_type === 'hog' ? evaluation.evaluation_config.source : null,
+                    }),
+                ]
+            },
+        ],
     }),
 
     tabAwareUrlToAction(({ actions, props }) => ({
@@ -758,6 +723,7 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
 
     afterMount(({ actions, props }) => {
         actions.loadProviderKeys()
+        actions.loadSourceConfigs()
         actions.loadEvaluation()
         if (props.evaluationId !== 'new') {
             actions.loadEvaluationRuns()

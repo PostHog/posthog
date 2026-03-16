@@ -94,6 +94,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
         deregisterTool: (key: string) => ({ key }),
         prependOrReplaceConversation: (conversation: ConversationDetail | Conversation) => ({ conversation }),
         dismissLiabilityNotice: true,
+        dismissDataProcessing: true,
     }),
 
     loaders(({ values }) => ({
@@ -155,6 +156,12 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 dismissLiabilityNotice: () => true,
             },
         ],
+        dataProcessingDismissed: [
+            false,
+            {
+                dismissDataProcessing: () => true,
+            },
+        ],
     }),
     listeners(({ actions, values }) => ({
         acceptDataProcessing: async ({ testOnlyOverride }) => {
@@ -189,6 +196,10 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     }),
 
     selectors({
+        currentConversationId: [
+            () => [router.selectors.searchParams],
+            (searchParams): string | null => searchParams?.chat ?? null,
+        ],
         dataProcessingAccepted: [
             (s) => [s.currentOrganization],
             (currentOrganization): boolean => !!currentOrganization?.is_ai_data_processing_approved,

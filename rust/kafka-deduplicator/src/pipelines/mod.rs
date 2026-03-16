@@ -78,4 +78,6 @@ pub use results::{DedupFieldName, EnrichedEvent, EventSimilarity, PropertyDiffer
 pub use timestamp_deduplicator::{
     DeduplicatableEvent, PublisherConfig, TimestampDeduplicator, TimestampDeduplicatorConfig,
 };
-pub use traits::{DeduplicationKeyExtractor, DeduplicationMetadata, EventParser};
+pub use traits::{
+    DeduplicationKeyExtractor, DeduplicationMetadata, EventParser, FailOpenProcessor,
+};

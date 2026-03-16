@@ -1,9 +1,9 @@
+import { SnapshotStore } from '@posthog/replay-shared'
 import { EventType } from '@posthog/rrweb-types'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import { LoadingScheduler } from './LoadingScheduler'
-import { SnapshotStore } from './SnapshotStore'
 
 function makeSources(count: number): SessionRecordingSnapshotSource[] {
     return Array.from({ length: count }, (_, i) => ({

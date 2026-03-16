@@ -4,7 +4,9 @@ import { LemonSwitch } from '@posthog/lemon-ui'
 
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE } from 'lib/components/PropertyFilters/utils'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -63,6 +65,10 @@ function TestAccountFiltersConfig(): JSX.Element {
     const { filterTestAccounts } = useValues(revenueAnalyticsSettingsLogic)
     const { updateFilterTestAccounts } = useActions(revenueAnalyticsSettingsLogic)
     const { cohortsById } = useValues(cohortsModel)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const testAccountFilterWarningLabels = createTestAccountFilterWarningLabels(currentTeam, cohortsById)
 
@@ -123,6 +129,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                             TaxonomicFilterGroupType.Cohorts,
                             TaxonomicFilterGroupType.Elements,
                         ]}
+                        disabledReason={restrictedReason ?? undefined}
                     />
                 )}
             </div>
@@ -133,6 +140,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                 }}
                 checked={!!currentTeam?.test_account_filters_default_checked}
                 disabled={currentTeamLoading}
+                disabledReason={restrictedReason}
                 label="Enable this filter on all new insights"
                 bordered
             />
@@ -140,6 +148,7 @@ function TestAccountFiltersConfig(): JSX.Element {
                 onChange={updateFilterTestAccounts}
                 checked={filterTestAccounts}
                 disabled={currentTeamLoading}
+                disabledReason={restrictedReason}
                 label="Filter out internal and test users from revenue analytics"
                 bordered
             />

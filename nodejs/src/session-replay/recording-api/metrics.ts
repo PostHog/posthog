@@ -3,8 +3,8 @@ import { Counter, Histogram } from 'prom-client'
 export class RecordingApiMetrics {
     private static readonly getBlockDuration = new Histogram({
         name: 'recording_api_get_block_duration_seconds',
-        help: 'Time taken to serve a getBlock request (S3 fetch + decrypt)',
-        labelNames: ['result', 'session_state'],
+        help: 'Time taken to serve a getBlock request (S3 fetch + decrypt + optional decompress)',
+        labelNames: ['result', 'session_state', 'decompress'],
         buckets: [0.01, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10],
     })
 
@@ -15,9 +15,22 @@ export class RecordingApiMetrics {
         buckets: [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30],
     })
 
-    public static observeGetBlock(result: string, seconds: number, sessionState: string): void {
-        this.getBlockDuration.labels({ result, session_state: sessionState }).observe(seconds)
+    public static observeGetBlock(
+        result: string,
+        seconds: number,
+        sessionState: string,
+        decompress: boolean = false
+    ): void {
+        this.getBlockDuration
+            .labels({ result, session_state: sessionState, decompress: String(decompress) })
+            .observe(seconds)
     }
+
+    private static readonly recordingsDeleted = new Counter({
+        name: 'recording_api_recordings_deleted_total',
+        help: 'Number of recordings deleted via the recording API',
+        labelNames: ['status'],
+    })
 
     private static readonly cleanupFailures = new Counter({
         name: 'recording_api_delete_cleanup_failures_total',
@@ -27,6 +40,13 @@ export class RecordingApiMetrics {
 
     public static observeDeleteRecordings(result: string, seconds: number): void {
         this.deleteRecordingsDuration.labels({ result }).observe(seconds)
+    }
+
+    public static incrementRecordingsDeleted(
+        status: 'deleted' | 'already_deleted' | 'failed',
+        count: number = 1
+    ): void {
+        this.recordingsDeleted.labels({ status }).inc(count)
     }
 
     public static incrementCleanupFailure(step: 'kafka' | 'postgres' | 'activity_log'): void {

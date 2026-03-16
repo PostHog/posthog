@@ -3,15 +3,18 @@ import { useState } from 'react'
 
 import { LemonSwitch } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 export function WebAnalyticsEnablePreAggregatedTables(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     const savedSetting = currentTeam?.web_analytics_pre_aggregated_tables_enabled
     const [enableNewQueryEngine, setEnableNewQueryEngine] = useState<boolean>(savedSetting ?? false)
@@ -22,25 +25,19 @@ export function WebAnalyticsEnablePreAggregatedTables(): JSX.Element {
 
     return (
         <>
-            <AccessControlAction
-                resourceType={AccessControlResourceType.WebAnalytics}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                <LemonSwitch checked={enableNewQueryEngine} onChange={(enabled) => setEnableNewQueryEngine(enabled)} />
-            </AccessControlAction>
+            <LemonSwitch
+                checked={enableNewQueryEngine}
+                onChange={(enabled) => setEnableNewQueryEngine(enabled)}
+                disabledReason={restrictedReason}
+            />
             <div className="mt-4">
-                <AccessControlAction
-                    resourceType={AccessControlResourceType.WebAnalytics}
-                    minAccessLevel={AccessControlLevel.Editor}
+                <LemonButton
+                    type="primary"
+                    onClick={handleSave}
+                    disabledReason={enableNewQueryEngine === savedSetting ? 'No changes to save' : restrictedReason}
                 >
-                    <LemonButton
-                        type="primary"
-                        onClick={handleSave}
-                        disabledReason={enableNewQueryEngine === savedSetting ? 'No changes to save' : undefined}
-                    >
-                        Save
-                    </LemonButton>
-                </AccessControlAction>
+                    Save
+                </LemonButton>
             </div>
         </>
     )

@@ -4,10 +4,8 @@ import { combineUrl, router, urlToAction } from 'kea-router'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
-import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
-import { AvailableFeature, SidePanelTab } from '~/types'
+import { SidePanelTab } from '~/types'
 
 import { sidePanelContextLogic } from './panels/sidePanelContextLogic'
 import { sidePanelHealthLogic } from './panels/sidePanelHealthLogic'
@@ -18,7 +16,6 @@ import { sidePanelStateLogic } from './sidePanelStateLogic'
 
 const ALWAYS_EXTRA_TABS = [
     SidePanelTab.Settings,
-    SidePanelTab.Activity,
     SidePanelTab.Status,
     SidePanelTab.Exports,
     SidePanelTab.SdkDoctor,
@@ -48,17 +45,12 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
             ['isCloudOrDev'],
             sidePanelStateLogic,
             ['selectedTab', 'sidePanelOpen'],
-            // We need to mount this to ensure that marking as read works when the panel closes
-            sidePanelNotificationsLogic,
-            ['unreadCount'],
             sidePanelStatusIncidentIoLogic,
             ['status'],
             sidePanelSdkDoctorLogic,
             ['needsAttention'],
             sidePanelHealthLogic,
             ['hasIssues'],
-            userLogic,
-            ['hasAvailableFeature'],
             sidePanelContextLogic,
             ['sceneSidePanelContext'],
             teamLogic,
@@ -89,7 +81,9 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
                     tabs.push(SidePanelTab.Support)
                 }
 
-                tabs.push(SidePanelTab.Activity)
+                if (sceneSidePanelContext?.activity_scope) {
+                    tabs.push(SidePanelTab.Activity)
+                }
                 tabs.push(SidePanelTab.Discussion)
 
                 if (sceneSidePanelContext.access_control_resource && sceneSidePanelContext.access_control_resource_id) {
@@ -113,36 +107,10 @@ export const sidePanelLogic = kea<sidePanelLogicType>([
         ],
 
         visibleTabs: [
-            (s) => [
-                s.enabledTabs,
-                s.selectedTab,
-                s.sidePanelOpen,
-                s.unreadCount,
-                s.status,
-                s.needsAttention,
-                s.hasIssues,
-                s.hasAvailableFeature,
-            ],
-            (
-                enabledTabs,
-                selectedTab,
-                sidePanelOpen,
-                unreadCount,
-                status,
-                needsAttention,
-                hasIssues,
-                hasAvailableFeature
-            ): SidePanelTab[] => {
+            (s) => [s.enabledTabs, s.selectedTab, s.sidePanelOpen, s.status, s.needsAttention, s.hasIssues],
+            (enabledTabs, selectedTab, sidePanelOpen, status, needsAttention, hasIssues): SidePanelTab[] => {
                 return enabledTabs.filter((tab) => {
                     if (tab === selectedTab && sidePanelOpen) {
-                        return true
-                    }
-
-                    if (
-                        tab === SidePanelTab.Activity &&
-                        unreadCount &&
-                        hasAvailableFeature(AvailableFeature.AUDIT_LOGS)
-                    ) {
                         return true
                     }
 

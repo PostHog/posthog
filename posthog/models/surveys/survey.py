@@ -187,6 +187,32 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
             "index": 2
         }
         ```
+
+        Translations: Each question can include inline translations.
+        - `translations`: Object mapping language codes to translated fields.
+        - Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+        - Translatable fields: `question`, `description`, `buttonText`, `choices`, `lowerBoundLabel`, `upperBoundLabel`, `link`
+
+        Example with translations:
+        ```json
+        {
+            "id": "uuid",
+            "type": "rating",
+            "question": "How satisfied are you?",
+            "lowerBoundLabel": "Not satisfied",
+            "upperBoundLabel": "Very satisfied",
+            "translations": {
+                "es": {
+                    "question": "¿Qué tan satisfecho estás?",
+                    "lowerBoundLabel": "No satisfecho",
+                    "upperBoundLabel": "Muy satisfecho"
+                },
+                "fr": {
+                    "question": "Dans quelle mesure êtes-vous satisfait?"
+                }
+            }
+        }
+        ```
         """,
     )
     appearance = models.JSONField(blank=True, null=True)
@@ -213,11 +239,11 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
         choices=SurveySamplingIntervalType.choices,
         default=SurveySamplingIntervalType.WEEK,
     )
-    response_sampling_interval = models.PositiveIntegerField(null=True)
+    response_sampling_interval = models.PositiveIntegerField(null=True, blank=True)
     # Upper limit of responses that should be accepted in a given response sampling interval.
-    response_sampling_limit = models.PositiveIntegerField(null=True)
+    response_sampling_limit = models.PositiveIntegerField(null=True, blank=True)
     # { 'daily_limits' : [{'date': <Date> , 'limit': <number of expected responses by this day>'}]
-    response_sampling_daily_limits = models.JSONField(null=True)
+    response_sampling_daily_limits = models.JSONField(null=True, blank=True)
 
     iteration_count = models.PositiveIntegerField(null=True)
     iteration_frequency_days = models.PositiveIntegerField(null=True)
@@ -252,6 +278,10 @@ class Survey(FileSystemSyncMixin, RootTeamMixin, UUIDTModel):
 
     # TipTap editor layout for form-builder surveys
     form_content = models.JSONField(blank=True, null=True)
+    # Translations for multi-language support
+    # Format: { [languageCode]: { name: string, description: string, thankYouMessageHeader: string, thankYouMessageDescription: string, thankYouMessageCloseButtonText: string, ... } }
+    # Language codes: Any string - allows customers to use their own language keys (e.g., "es", "es-MX", "english", "french")
+    translations = models.JSONField(blank=True, null=True)
 
     # Use the survey_type instead. If it's external_survey, it's publicly shareable.
     is_publicly_shareable = deprecate_field(

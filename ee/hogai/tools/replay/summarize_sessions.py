@@ -1,6 +1,7 @@
+import json
 import asyncio
 from textwrap import dedent
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import structlog
 import posthoganalytics
@@ -8,15 +9,17 @@ from pydantic import BaseModel, Field
 
 from posthog.schema import MaxRecordingUniversalFilters, RecordingsQuery
 
+from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.session_recordings.playlist_counters import convert_filters_to_recordings_query
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai.session_summary.summarize_session import execute_summarize_session
-from posthog.temporal.ai.session_summary.summarize_session_group import (
+from posthog.temporal.ai.session_summary.summarize_session_group import execute_summarize_session_group
+from posthog.temporal.ai.session_summary.types.group import (
+    SessionProgressStreamData,
+    SessionStatusChange,
     SessionSummaryStreamUpdate,
-    execute_summarize_session_group,
 )
 from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.utils import pluralize
 
 from ee.hogai.session_summaries.constants import (
     GROUP_SUMMARIES_MIN_SESSIONS,
@@ -230,16 +233,65 @@ class SummarizeSessionsTool(MaxTool):
         if content:
             self.dispatcher.update(content)
 
+    def _dispatch_structured_update(self, data: SessionProgressStreamData | dict) -> None:
+        """Push structured JSON update directly, bypassing prepare_reasoning_progress_message truncation."""
+        self.dispatcher.update(json.dumps(data))
+
+    def _dispatch_session_progress(self, session_id: str, status: str, completed: int, total: int) -> None:
+        """Push a per-session progress update to the frontend widget."""
+        self._dispatch_structured_update(
+            SessionProgressStreamData(
+                type="progress",
+                status_changes=[SessionStatusChange(id=session_id, status=status)],
+                phase="watching_sessions",
+                completed_count=completed,
+                total_count=total,
+                patterns_found=[],
+            )
+        )
+
+    def _get_session_metadata(self, session_ids: list[str]) -> dict[str, dict]:
+        """Fetch per-session metadata from ClickHouse for the progress widget."""
+        from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+
+        replay_events = SessionReplayEvents()
+        metadata_dict = replay_events.get_group_metadata(
+            session_ids=session_ids,
+            team=self._team,
+        )
+        result: dict[str, dict] = {}
+        for sid in session_ids:
+            meta = metadata_dict.get(sid)
+            if meta:
+                start_time = meta.get("start_time")
+                result[sid] = {
+                    "first_url": meta["first_url"],
+                    "active_duration_s": int(meta["active_seconds"]),
+                    "distinct_id": meta["distinct_id"],
+                    "start_time": start_time.isoformat() if start_time else None,
+                    "snapshot_source": meta["snapshot_source"],
+                }
+            else:
+                result[sid] = {
+                    "first_url": "",
+                    "active_duration_s": 0,
+                    "distinct_id": "",
+                    "start_time": None,
+                    "snapshot_source": "web",
+                }
+        return result
+
     def _get_session_ids_with_filters(self, replay_filters: RecordingsQuery) -> list[str] | None:
         """Get session ids from DB with filters"""
         from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
         # Execute the query to get session IDs
         try:
-            query_runner = SessionRecordingListFromQuery(
-                team=self._team, query=replay_filters, hogql_query_modifiers=None
-            )
-            results = query_runner.run()
+            with tags_context(product=Product.MAX_AI, team_id=self._team.pk, org_id=self._team.organization_id):
+                query_runner = SessionRecordingListFromQuery(
+                    team=self._team, query=replay_filters, hogql_query_modifiers=None
+                )
+                results = query_runner.run()
         except Exception as e:
             logger.exception(
                 f"Error getting session ids for session summarization with filters query "
@@ -257,19 +309,29 @@ class SummarizeSessionsTool(MaxTool):
         completed = 0
         video_validation_enabled = self._determine_video_validation_enabled()
 
-        async def _summarize(session_id: str) -> dict[str, Any]:
+        async def _summarize(session_id: str) -> dict[str, Any] | None:
             nonlocal completed
-            result = await execute_summarize_session(
-                session_id=session_id,
-                user=self._user,
-                team=self._team,
-                model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
-                video_validation_enabled=video_validation_enabled,
-            )
-            completed += 1
-            # Update the user on the progress
-            self._stream_progress(progress_message=f"Watching sessions ({completed}/{total})")
-            return result
+            self._dispatch_session_progress(session_id, "summarizing", completed, total)
+            try:
+                result = await execute_summarize_session(
+                    session_id=session_id,
+                    user=self._user,
+                    team=self._team,
+                    model_to_use=SESSION_SUMMARIES_SYNC_MODEL,
+                    video_validation_enabled=video_validation_enabled,
+                )
+                completed += 1
+                self._dispatch_session_progress(session_id, "summarized", completed, total)
+                return result
+            except Exception:
+                completed += 1
+                self._dispatch_session_progress(session_id, "failed", completed, total)
+                logger.warning(
+                    f"Session summarization failed for session {session_id}",
+                    exc_info=True,
+                    signals_type="session-summaries",
+                )
+                return None
 
         # Run all tasks concurrently, with periodic heartbeats to keep the parent activity alive
         tasks = [_summarize(sid) for sid in session_ids]
@@ -279,6 +341,8 @@ class SummarizeSessionsTool(MaxTool):
         # Stringify, as chat doesn't need full JSON to be context-aware, while providing it could overload the context
         stringified_summaries = []
         for summary in summaries:
+            if summary is None:
+                continue
             stringifier = SingleSessionSummaryStringifier(summary)
             stringified_summaries.append(stringifier.stringify_session())
         # Combine all stringified summaries into a single string
@@ -318,8 +382,12 @@ class SummarizeSessionsTool(MaxTool):
                         )
                         logger.error(msg, signals_type="session-summaries")
                         raise TypeError(msg)
-                    # Status message - stream to user
+                    # Status message - stream to user (backward-compatible logging)
                     self._stream_progress(progress_message=data)
+                # Structured per-session progress
+                elif update_type == SessionSummaryStreamUpdate.SESSION_PROGRESS:
+                    assert isinstance(data, dict)
+                    self._dispatch_structured_update(cast(SessionProgressStreamData, data))
                 # Final summary result
                 elif update_type == SessionSummaryStreamUpdate.FINAL_RESULT:
                     if not isinstance(data, tuple) or len(data) != 2:
@@ -357,19 +425,30 @@ class SummarizeSessionsTool(MaxTool):
         Summarize sessions. Returns tuple of (summary_str, session_group_summary_id).
         session_group_summary_id is None for individual summaries, as report is not generated.
         """
+        # Fetch per-session metadata for the progress widget
+        metadata = await database_sync_to_async(self._get_session_metadata, thread_sensitive=False)(session_ids)
+        # Emit sessions_discovered for the frontend progress widget
+        self._dispatch_structured_update(
+            {
+                "type": "sessions_discovered",
+                "sessions": [
+                    {
+                        "id": sid,
+                        "first_url": metadata[sid]["first_url"],
+                        "active_duration_s": metadata[sid]["active_duration_s"],
+                        "distinct_id": metadata[sid]["distinct_id"],
+                        "start_time": metadata[sid]["start_time"],
+                        "snapshot_source": metadata[sid]["snapshot_source"],
+                    }
+                    for sid in session_ids
+                ],
+            }
+        )
         # Process sessions based on count
-        base_message = f"Found {pluralize(len(session_ids), 'session')} based on {'filters' if session_ids_source == 'filters' else 'explicit session IDs'}."
         if len(session_ids) <= GROUP_SUMMARIES_MIN_SESSIONS:
-            # If small amount of sessions - there are no patterns to extract, so summarize them individually and return as is
-            self._stream_progress(
-                progress_message=f"{base_message} We will do a quick summary, as the scope is small",
-            )
             summaries_content = await self._summarize_sessions_individually(session_ids=session_ids)
             return summaries_content, None
         # For large groups, process in detail, searching for patterns
-        self._stream_progress(
-            progress_message=f"{base_message} We will analyze in detail, and store the report",
-        )
         summaries_content, session_group_summary_id = await self._summarize_sessions_as_group(
             session_ids=session_ids,
             summary_title=summary_title,

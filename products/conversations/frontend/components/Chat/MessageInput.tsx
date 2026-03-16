@@ -24,6 +24,8 @@ export interface MessageInputProps {
     isPrivate?: boolean
     /** Called when private checkbox changes */
     onPrivateChange?: (isPrivate: boolean) => void
+    /** Extra actions rendered next to the send button */
+    extraActions?: React.ReactNode
 }
 
 export function MessageInput({
@@ -37,6 +39,7 @@ export function MessageInput({
     onDraftChange,
     isPrivate: controlledIsPrivate,
     onPrivateChange,
+    extraActions,
 }: MessageInputProps): JSX.Element {
     const [isEmpty, setIsEmpty] = useState(!draftContent)
     const [isUploading, setIsUploading] = useState(false)
@@ -112,14 +115,17 @@ export function MessageInput({
                 ) : (
                     <div />
                 )}
-                <LemonButton
-                    type="primary"
-                    onClick={handleSubmit}
-                    loading={messageSending}
-                    disabledReason={isEmpty ? 'No message' : isUploading ? 'Uploading image...' : undefined}
-                >
-                    {isPrivate ? 'Attach' : buttonText}
-                </LemonButton>
+                <div className="flex items-center gap-2">
+                    {extraActions}
+                    <LemonButton
+                        type="primary"
+                        onClick={handleSubmit}
+                        loading={messageSending}
+                        disabledReason={isEmpty ? 'No message' : isUploading ? 'Uploading image...' : undefined}
+                    >
+                        {isPrivate ? 'Attach' : buttonText}
+                    </LemonButton>
+                </div>
             </div>
         </div>
     )

@@ -1,7 +1,7 @@
 {
     "id": 75,
     "short_id": "ZzKvMiTK",
-    "name": "",
+    "name": null,
     "derived_name": "Pageview count & Rageclick count & All events count",
     "filters": {},
     "query": {

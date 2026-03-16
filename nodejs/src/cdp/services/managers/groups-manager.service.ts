@@ -1,6 +1,5 @@
-import { LRUCache } from 'lru-cache'
-
 import { sanitizeString } from '~/utils/db/utils'
+import { LazyLoader } from '~/utils/lazy-loader'
 import { logger } from '~/utils/logger'
 import { TeamManager } from '~/utils/team-manager'
 import { GroupRepository } from '~/worker/ingestion/groups/repositories/group-repository.interface'
@@ -11,175 +10,174 @@ import { GroupType, HogFunctionInvocationGlobals } from '../../types'
 export type GroupsMap = Record<string, GroupType>
 export type GroupsCache = Record<Team['id'], GroupsMap>
 
-// Maps to the group type index for easy lookup like: { 'team_id:group_type': group_type_index }
-type GroupIndexByTeamType = Record<string, number | undefined>
+// groupType -> groupTypeIndex for a single team
+type GroupTypeMapping = Record<string, number>
 
-type Group = {
-    id: string
-    index: number
-    type: string
-    url: string
-    properties: Record<string, any>
-    teamId?: number
+const toGroupPropertiesKey = (teamId: number, groupTypeIndex: number, groupKey: string): string =>
+    `${teamId}:${groupTypeIndex}:${groupKey}`
+
+const fromGroupPropertiesKey = (key: string): { teamId: number; groupTypeIndex: number; groupKey: string } => {
+    const [teamIdStr, groupTypeIndexStr, ...groupKeyParts] = key.split(':')
+    return {
+        teamId: parseInt(teamIdStr),
+        groupTypeIndex: parseInt(groupTypeIndexStr),
+        groupKey: groupKeyParts.join(':'),
+    }
 }
 
-const GROUP_TYPES_CACHE_TTL_MS = 60 * 10 * 1000 // 10 minutes
-
 export class GroupsManagerService {
-    groupTypesMappingCache: LRUCache<number, { group_type: string; group_type_index: number }[]>
+    private groupTypesLoader: LazyLoader<GroupTypeMapping>
+    private groupPropertiesLoader: LazyLoader<Record<string, any>>
 
     constructor(
         private teamManager: TeamManager,
         private groupRepository: GroupRepository
     ) {
-        // There is only 5 per team so we can have a very high cache and a very long cooldown
-        this.groupTypesMappingCache = new LRUCache({ max: 100_000, ttl: GROUP_TYPES_CACHE_TTL_MS })
-    }
-
-    private async filterTeamsWithGroups(teams: Team['id'][]): Promise<Team['id'][]> {
-        const teamIds = await Promise.all(
-            teams.map(async (teamId) => {
-                if (await this.teamManager.hasAvailableFeature(teamId, 'group_analytics')) {
-                    return teamId
-                }
-            })
-        )
-
-        return teamIds.filter((x) => x !== undefined) as Team['id'][]
-    }
-
-    private async fetchGroupTypesMapping(teams: Team['id'][]): Promise<GroupIndexByTeamType> {
-        // Get from cache otherwise load and save
-        const teamsWithGroupAnalytics = await this.filterTeamsWithGroups(teams)
-
-        // Load teams from cache where possible
-        // Any teams that aren't in the cache we load from the DB, and then add to the cache
-
-        const groupTypesMapping: GroupIndexByTeamType = {}
-
-        // Load the cached values so we definitely have them
-        teamsWithGroupAnalytics.forEach((teamId) => {
-            const cached = this.groupTypesMappingCache.get(teamId)
-
-            if (cached) {
-                cached.forEach((row) => {
-                    groupTypesMapping[`${teamId}:${row.group_type}`] = row.group_type_index
-                })
-            }
+        this.groupTypesLoader = new LazyLoader({
+            name: 'groups_manager_types',
+            refreshAgeMs: 10 * 60 * 1000, // 10 minutes - group types rarely change
+            loader: async (teamIds) => this.fetchGroupTypes(teamIds),
         })
 
-        const teamsToLoad = teamsWithGroupAnalytics.filter((teamId) => !this.groupTypesMappingCache.get(teamId))
-
-        if (teamsToLoad.length) {
-            const result = await this.groupRepository.fetchGroupTypesByTeamIds(teamsToLoad)
-            Object.entries(result).forEach(([teamIdStr, groupTypes]) => {
-                const teamId = parseInt(teamIdStr)
-                this.groupTypesMappingCache.set(teamId, groupTypes)
-                groupTypes.forEach((row) => {
-                    groupTypesMapping[`${teamId}:${row.group_type}`] = row.group_type_index
-                })
-            })
-        }
-
-        return groupTypesMapping
+        this.groupPropertiesLoader = new LazyLoader({
+            name: 'groups_manager_properties',
+            refreshAgeMs: 60 * 1000, // 1 minute
+            loader: async (keys) => this.fetchGroupPropertiesBatch(keys),
+        })
     }
 
-    private async fetchGroupProperties(
-        groups: Group[]
-    ): Promise<
-        { team_id: number; group_type_index: number; group_key: string; group_properties: Record<string, any> }[]
-    > {
-        const [teamIds, groupIndexes, groupKeys] = groups.reduce(
-            (acc, group) => {
-                acc[0].push(group.teamId!)
-                acc[1].push(group.index)
-                acc[2].push(group.id)
-                return acc
-            },
-            [[], [], []] as [number[], number[], string[]]
-        )
-
-        try {
-            return await this.groupRepository.fetchGroupsByKeys(teamIds, groupIndexes as GroupTypeIndex[], groupKeys)
-        } catch (e) {
-            logger.error('[GroupsManagerService] Error fetching group properties', {
-                error: e,
-                teamIds,
-                groupIndexes,
-                groupKeys,
-            })
-            throw e
-        }
+    public clear(): void {
+        this.groupTypesLoader.clear()
+        this.groupPropertiesLoader.clear()
     }
 
     /**
-     * This function looks complex but is trying to be as optimized as possible.
-     *
-     * It iterates over the globals and creates "Group" objects, tracking them referentially in order to later load the properties.
-     * Once loaded, the objects are mutated in place.
+     * Loads groups for a given team and event, returning the groups record.
+     * Can be used directly when a full globals object isn't available (e.g. hogflow worker).
      */
-    public async enrichGroups(items: HogFunctionInvocationGlobals[]): Promise<HogFunctionInvocationGlobals[]> {
-        const itemsNeedingGroups = items.filter((x) => !x.groups)
-        const byTeamType = await this.fetchGroupTypesMapping(
-            Array.from(new Set(itemsNeedingGroups.map((global) => global.project.id)))
-        )
+    public async getGroupsForEvent(
+        teamId: number,
+        eventProperties: Record<string, any>,
+        projectUrl: string
+    ): Promise<Record<string, GroupType>> {
+        // Early return - if there are no $groups on the event then we don't need to do anything
+        const groupsProperty = eventProperties['$groups']
+        if (typeof groupsProperty !== 'object' || groupsProperty === null || Object.keys(groupsProperty).length === 0) {
+            return {}
+        }
 
-        const groupsByTeamTypeId: Record<string, Group> = {}
+        const typeMapping = await this.groupTypesLoader.get(String(teamId))
+        if (!typeMapping) {
+            logger.warn('No group types found for team', { teamId })
+            return {}
+        }
 
-        itemsNeedingGroups.forEach((item) => {
-            // TODO: In the future move this kind of validation to Zod
-            const validGroupsProperty: Record<string, string> = {}
-            const groupsProperty = item.event.properties['$groups']
+        const groups: Record<string, GroupType> = {}
+        const entries: { compositeKey: string; sanitizedType: string; sanitizedKey: string; groupIndex: number }[] = []
 
-            if (typeof groupsProperty === 'object' && groupsProperty !== null) {
-                Object.entries(groupsProperty).forEach(([groupType, groupKey]) => {
-                    if (typeof groupType === 'string' && typeof groupKey === 'string') {
-                        validGroupsProperty[sanitizeString(groupType)] = sanitizeString(groupKey)
-                    }
-                })
+        for (const [groupType, groupKey] of Object.entries(groupsProperty)) {
+            if (typeof groupType !== 'string' || typeof groupKey !== 'string') {
+                continue
             }
-            const groups: HogFunctionInvocationGlobals['groups'] = {}
 
-            // Add the base group info without properties
-            Object.entries(validGroupsProperty).forEach(([groupType, groupKey]) => {
-                const groupIndex = byTeamType[`${item.project.id}:${groupType}`]
+            const sanitizedType = sanitizeString(groupType)
+            const sanitizedKey = sanitizeString(groupKey)
+            const groupIndex = typeMapping[sanitizedType]
 
-                if (typeof groupIndex === 'number') {
-                    let group = groupsByTeamTypeId[`${item.project.id}:${groupIndex}:${groupKey}`]
-                    if (!group) {
-                        group = groupsByTeamTypeId[`${item.project.id}:${groupIndex}:${groupKey}`] = {
-                            id: groupKey,
-                            index: groupIndex,
-                            type: groupType,
-                            url: `${item.project.url}/groups/${groupIndex}/${encodeURIComponent(groupKey)}`,
-                            properties: {},
-                            teamId: item.project.id,
-                        }
-                    }
+            if (typeof groupIndex !== 'number') {
+                continue
+            }
 
-                    // Add to the groups to be enriched and the object here
-                    groups[groupType] = group
-                }
+            entries.push({
+                compositeKey: toGroupPropertiesKey(teamId, groupIndex, sanitizedKey),
+                sanitizedType,
+                sanitizedKey,
+                groupIndex,
             })
+        }
 
-            item.groups = groups
-        })
-        const groupsFromDatabase = await this.fetchGroupProperties(Object.values(groupsByTeamTypeId))
+        if (entries.length === 0) {
+            return {}
+        }
 
-        // Add the properties to all the groups
-        groupsFromDatabase.forEach((row) => {
-            const group = groupsByTeamTypeId[`${row.team_id}:${row.group_type_index}:${row.group_key}`]
+        const propertiesMap = await this.groupPropertiesLoader.getMany(entries.map((e) => e.compositeKey))
 
-            if (group) {
-                group.properties = row.group_properties
+        for (const { compositeKey, sanitizedType, sanitizedKey, groupIndex } of entries) {
+            groups[sanitizedType] = {
+                id: sanitizedKey,
+                index: groupIndex,
+                type: sanitizedType,
+                url: `${projectUrl}/groups/${groupIndex}/${encodeURIComponent(sanitizedKey)}`,
+                properties: propertiesMap[compositeKey] ?? {},
             }
-        })
+        }
 
-        // Finally delete the teamId from the groupsByTeamTypeId
-        Object.values(groupsByTeamTypeId).forEach((group) => {
-            delete group.teamId
-        })
+        return groups
+    }
 
-        return items
+    /**
+     * Enriches a single globals context with group type info and properties.
+     *
+     * Designed to be called per-item. When multiple calls happen concurrently
+     * (e.g. via Promise.all), the LazyLoader batches the underlying DB queries.
+     */
+    public async addGroupsToGlobals(globals: HogFunctionInvocationGlobals): Promise<void> {
+        if (globals.groups) {
+            return
+        }
+
+        globals.groups = await this.getGroupsForEvent(globals.project.id, globals.event.properties, globals.project.url)
+    }
+
+    public async addGroupsToGlobalsList(globalsList: HogFunctionInvocationGlobals[]): Promise<void> {
+        await Promise.all(globalsList.map((globals) => this.addGroupsToGlobals(globals)))
+    }
+
+    private async fetchGroupTypes(teamIdStrs: string[]): Promise<Record<string, GroupTypeMapping | null | undefined>> {
+        const result: Record<string, GroupTypeMapping | null | undefined> = {}
+        const teamsToLoad: number[] = []
+
+        for (const teamIdStr of teamIdStrs) {
+            const teamId = parseInt(teamIdStr)
+            if (await this.teamManager.hasAvailableFeature(teamId, 'group_analytics')) {
+                teamsToLoad.push(teamId)
+            } else {
+                result[teamIdStr] = null
+            }
+        }
+
+        if (teamsToLoad.length > 0) {
+            const repoResult = await this.groupRepository.fetchGroupTypesByTeamIds(teamsToLoad)
+            for (const teamId of teamsToLoad) {
+                const groupTypes = repoResult[String(teamId)] ?? []
+                const mapping: GroupTypeMapping = {}
+                for (const gt of groupTypes) {
+                    mapping[gt.group_type] = gt.group_type_index
+                }
+                result[String(teamId)] = mapping
+            }
+        }
+
+        return result
+    }
+
+    private async fetchGroupPropertiesBatch(
+        keys: string[]
+    ): Promise<Record<string, Record<string, any> | null | undefined>> {
+        const parsed = keys.map(fromGroupPropertiesKey)
+
+        const teamIds = parsed.map((p) => p.teamId)
+        const groupIndexes = parsed.map((p) => p.groupTypeIndex) as GroupTypeIndex[]
+        const groupKeys = parsed.map((p) => p.groupKey)
+
+        const rows = await this.groupRepository.fetchGroupsByKeys(teamIds, groupIndexes, groupKeys)
+
+        const result: Record<string, Record<string, any> | null | undefined> = {}
+        for (const row of rows) {
+            const key = toGroupPropertiesKey(row.team_id, row.group_type_index, row.group_key)
+            result[key] = row.group_properties
+        }
+
+        return result
     }
 }

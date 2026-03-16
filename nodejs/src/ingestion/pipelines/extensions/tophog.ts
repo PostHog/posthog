@@ -27,6 +27,14 @@ export function count<TInput, TOutput>(
 
 export function countResult<TInput, TOutput>(
     name: string,
+    key: (result: PipelineResult<TOutput>, input: TInput) => Record<string, string>,
+    opts?: MetricConfig
+): TopHogMetricFactory<TInput, TOutput> {
+    return (registry) => new CompletionMetric(registry.registerSum(name, opts), key, () => 1)
+}
+
+export function countOk<TInput, TOutput>(
+    name: string,
     key: (output: TOutput, input: TInput) => Record<string, string>,
     opts?: MetricConfig
 ): TopHogMetricFactory<TInput, TOutput> {
@@ -43,6 +51,15 @@ export function sum<TInput, TOutput>(
 }
 
 export function sumResult<TInput, TOutput>(
+    name: string,
+    key: (result: PipelineResult<TOutput>, input: TInput) => Record<string, string>,
+    value: (result: PipelineResult<TOutput>, input: TInput) => number,
+    opts?: MetricConfig
+): TopHogMetricFactory<TInput, TOutput> {
+    return (registry) => new CompletionMetric(registry.registerSum(name, opts), key, value)
+}
+
+export function sumOk<TInput, TOutput>(
     name: string,
     key: (output: TOutput, input: TInput) => Record<string, string>,
     value: (output: TOutput, input: TInput) => number,
@@ -62,6 +79,15 @@ export function max<TInput, TOutput>(
 
 export function maxResult<TInput, TOutput>(
     name: string,
+    key: (result: PipelineResult<TOutput>, input: TInput) => Record<string, string>,
+    value: (result: PipelineResult<TOutput>, input: TInput) => number,
+    opts?: MetricConfig
+): TopHogMetricFactory<TInput, TOutput> {
+    return (registry) => new CompletionMetric(registry.registerMax(name, opts), key, value)
+}
+
+export function maxOk<TInput, TOutput>(
+    name: string,
     key: (output: TOutput, input: TInput) => Record<string, string>,
     value: (output: TOutput, input: TInput) => number,
     opts?: MetricConfig
@@ -79,6 +105,15 @@ export function average<TInput, TOutput>(
 }
 
 export function averageResult<TInput, TOutput>(
+    name: string,
+    key: (result: PipelineResult<TOutput>, input: TInput) => Record<string, string>,
+    value: (result: PipelineResult<TOutput>, input: TInput) => number,
+    opts?: MetricConfig
+): TopHogMetricFactory<TInput, TOutput> {
+    return (registry) => new CompletionMetric(registry.registerAverage(name, opts), key, value)
+}
+
+export function averageOk<TInput, TOutput>(
     name: string,
     key: (output: TOutput, input: TInput) => Record<string, string>,
     value: (output: TOutput, input: TInput) => number,
@@ -128,6 +163,20 @@ class InputMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
     start(input: TInput): (result: PipelineResult<TOutput>) => void {
         this.tracker.record(this.key(input), this.value(input))
         return noop
+    }
+}
+
+class CompletionMetric<TInput, TOutput> implements TopHogMetric<TInput, TOutput> {
+    constructor(
+        private readonly tracker: Recorder,
+        private readonly key: (result: PipelineResult<TOutput>, input: TInput) => Record<string, string>,
+        private readonly value: (result: PipelineResult<TOutput>, input: TInput) => number
+    ) {}
+
+    start(input: TInput): (result: PipelineResult<TOutput>) => void {
+        return (result) => {
+            this.tracker.record(this.key(result, input), this.value(result, input))
+        }
     }
 }
 

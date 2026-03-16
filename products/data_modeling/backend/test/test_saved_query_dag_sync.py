@@ -6,6 +6,7 @@ from parameterized import parameterized
 from posthog.hogql.errors import QueryError
 
 from products.data_modeling.backend.models import Edge, Node
+from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.node import NodeType
 from products.data_modeling.backend.services.saved_query_dag_sync import (
     HasDependentsError,
@@ -33,6 +34,31 @@ class TestGetDagId(BaseTest):
 
 @pytest.mark.django_db
 class TestSyncSavedQueryToDag(BaseTest):
+    def test_sync_creates_dag_model(self):
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+
+        sync_saved_query_to_dag(saved_query)
+
+        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
+        self.assertEqual(dag.name, f"posthog_{self.team.id}")
+
+    def test_sync_reuses_existing_dag_model(self):
+        existing_dag = DAG.objects.create(team=self.team, name=get_dag_id(self.team.id))
+
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name="test_view",
+            team=self.team,
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+        )
+        sync_saved_query_to_dag(saved_query)
+
+        self.assertEqual(DAG.objects.filter(team=self.team, name=get_dag_id(self.team.id)).count(), 1)
+        self.assertEqual(DAG.objects.get(team=self.team, name=get_dag_id(self.team.id)).id, existing_dag.id)
+
     def test_sync_creates_node_for_saved_query(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
             name="test_view",
@@ -41,13 +67,16 @@ class TestSyncSavedQueryToDag(BaseTest):
         )
 
         node = sync_saved_query_to_dag(saved_query)
-        # use explicit assert for mypy's dumb ass
         assert node is not None
         self.assertEqual(node.name, "test_view")
         self.assertEqual(node.team, self.team)
-        self.assertEqual(node.dag_id_text, get_dag_id(self.team.id))
+        assert node.dag is not None
+        self.assertEqual(node.dag.name, get_dag_id(self.team.id))
         self.assertEqual(node.type, NodeType.VIEW)
         self.assertEqual(node.saved_query, saved_query)
+
+        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
+        self.assertEqual(node.dag_id, dag.id)
 
     def test_sync_creates_table_node_for_posthog_source(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -60,7 +89,7 @@ class TestSyncSavedQueryToDag(BaseTest):
 
         events_node = Node.objects.filter(
             team=self.team,
-            dag_id_text=get_dag_id(self.team.id),
+            dag__name=get_dag_id(self.team.id),
             name="events",
         ).first()
 
@@ -68,9 +97,14 @@ class TestSyncSavedQueryToDag(BaseTest):
         self.assertEqual(events_node.type, NodeType.TABLE)
         self.assertEqual(events_node.properties.get("origin"), "posthog")
 
+        dag = DAG.objects.get(team=self.team, name=get_dag_id(self.team.id))
+        self.assertEqual(events_node.dag_id, dag.id)
+
         # edge from events -> test_view
         edge = Edge.objects.filter(source=events_node, target=node).first()
         self.assertIsNotNone(edge)
+        assert edge is not None
+        self.assertEqual(edge.dag_id, dag.id)
 
     def test_sync_creates_edges_for_multiple_dependencies(self):
         saved_query = DataWarehouseSavedQuery.objects.create(
@@ -175,7 +209,7 @@ class TestSyncSavedQueryToDag(BaseTest):
         query_a.save()
         sync_saved_query_to_dag(query_a)
 
-        conflict_edges = Edge.objects.filter(dag_id_text__startswith="conflict_", target=node_a)
+        conflict_edges = Edge.objects.filter(dag__name__startswith="conflict_", target=node_a)
         self.assertEqual(conflict_edges.count(), 1)
 
         conflict_edge = conflict_edges.first()
@@ -390,6 +424,7 @@ class TestUpdateNodeType(BaseTest):
 @pytest.mark.django_db
 class TestSkipValidation(BaseTest):
     def test_skip_validation_bypasses_cycle_detection(self):
+        dag = DAG.objects.create(team=self.team, name=get_dag_id(self.team.id))
         query_a = DataWarehouseSavedQuery.objects.create(
             name="view_a",
             team=self.team,
@@ -397,7 +432,7 @@ class TestSkipValidation(BaseTest):
         )
         node_a = Node.objects.create(
             team=self.team,
-            dag_id_text=get_dag_id(self.team.id),
+            dag=dag,
             name="view_a",
             saved_query=query_a,
             type=NodeType.VIEW,
@@ -409,7 +444,7 @@ class TestSkipValidation(BaseTest):
         )
         node_b = Node.objects.create(
             team=self.team,
-            dag_id_text=get_dag_id(self.team.id),
+            dag=dag,
             name="view_b",
             saved_query=query_b,
             type=NodeType.VIEW,
@@ -417,15 +452,16 @@ class TestSkipValidation(BaseTest):
         # a -> b
         Edge.objects.create(
             team=self.team,
-            dag_id_text=get_dag_id(self.team.id),
+            dag=dag,
             source=node_a,
             target=node_b,
         )
 
         # shouldn't raise
+        conflict_dag = DAG.objects.create(team=self.team, name=get_conflict_dag_id(self.team.id))
         conflict_edge = Edge(
             team=self.team,
-            dag_id_text=get_conflict_dag_id(self.team.id),
+            dag=conflict_dag,
             source=node_b,
             target=node_a,
             properties={"error_type": "cycle"},
@@ -435,6 +471,8 @@ class TestSkipValidation(BaseTest):
         self.assertTrue(Edge.objects.filter(id=conflict_edge.id).exists())
 
     def test_skip_validation_bypasses_dag_mismatch_check(self):
+        dag_1 = DAG.objects.create(team=self.team, name="dag_1")
+        dag_2 = DAG.objects.create(team=self.team, name="dag_2")
         query = DataWarehouseSavedQuery.objects.create(
             name="view",
             team=self.team,
@@ -442,7 +480,7 @@ class TestSkipValidation(BaseTest):
         )
         node_a = Node.objects.create(
             team=self.team,
-            dag_id_text="dag_1",
+            dag=dag_1,
             name="node_a",
             saved_query=query,
             type=NodeType.VIEW,
@@ -455,16 +493,17 @@ class TestSkipValidation(BaseTest):
         )
         node_b = Node.objects.create(
             team=self.team,
-            dag_id_text="dag_2",
+            dag=dag_2,
             name="node_b",
             saved_query=query_b,
             type=NodeType.VIEW,
         )
 
         # shouldn't raise
+        conflict_dag = DAG.objects.create(team=self.team, name=get_conflict_dag_id(self.team.id))
         conflict_edge = Edge(
             team=self.team,
-            dag_id_text=get_conflict_dag_id(self.team.id),
+            dag=conflict_dag,
             source=node_a,
             target=node_b,
         )

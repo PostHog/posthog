@@ -108,7 +108,11 @@ impl LocalSymbolResolver {
                     .await
                     .map_err(UnhandledError::from)
             };
-            tokio::try_join!(set_fut, release_fut)?
+            let (mut set, release) = tokio::try_join!(set_fut, release_fut)?;
+            if let Some(s) = &mut set {
+                s.set_last_used(&self.pool).await?;
+            }
+            (set, release)
         } else {
             (None, None)
         };

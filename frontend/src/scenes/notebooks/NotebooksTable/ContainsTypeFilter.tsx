@@ -38,6 +38,7 @@ export const fromNodeTypeToLabel: Omit<
     [NotebookNodeType.UsageMetrics]: 'Usage metrics',
     [NotebookNodeType.ZendeskTickets]: 'Zendesk tickets',
     [NotebookNodeType.RelatedGroups]: 'Related groups',
+    [NotebookNodeType.CustomerJourney]: 'Customer journey',
 }
 
 export function ContainsTypeFilters({

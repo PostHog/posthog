@@ -7,7 +7,7 @@ import { sanitizeForUTF8 } from '~/utils/strings'
 import { RawClickHouseEvent, Team, TimestampFormat } from '../types'
 import { parseJSON } from '../utils/json-parse'
 import { UUIDT, castTimestampOrNow, clickHouseTimestampToISO } from '../utils/utils'
-import { CdpDataWarehouseEvent, CdpInternalEvent } from './schema'
+import { CdpInternalEvent } from './schema'
 import { HogFunctionInvocationGlobals, HogFunctionType, LogEntry, LogEntrySerialized, MinimalLogEntry } from './types'
 
 // ID of functions that are hidden from normal users and used by us for special testing
@@ -121,34 +121,6 @@ export function convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
             url: '',
         },
         person,
-    }
-
-    return context
-}
-
-export function convertDataWarehouseEventToHogFunctionInvocationGlobals(
-    event: CdpDataWarehouseEvent,
-    team: Team,
-    siteUrl: string
-): HogFunctionInvocationGlobals {
-    const data = event.properties
-    const projectUrl = `${siteUrl}/project/${team.id}`
-
-    const context: HogFunctionInvocationGlobals = {
-        project: {
-            id: team.id,
-            name: team.name,
-            url: projectUrl,
-        },
-        event: {
-            uuid: 'data-warehouse-table-uuid-do-not-use',
-            event: 'data-warehouse-table-event-do-not-use',
-            elements_chain: '', // Not applicable but left here for compatibility
-            distinct_id: 'data-warehouse-table-distinct-id-do-not-use',
-            properties: data,
-            timestamp: DateTime.now().toISO(),
-            url: '',
-        },
     }
 
     return context

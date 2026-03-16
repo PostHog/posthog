@@ -43,6 +43,7 @@ import { urls } from 'scenes/urls'
 
 import { ActivityScope } from '~/types'
 
+import { ticketActivityDescriber } from 'products/conversations/frontend/activityDescriber'
 import { endpointActivityDescriber } from 'products/endpoints/frontend/activityDescriber'
 import { workflowActivityDescriber } from 'products/workflows/frontend/Workflows/misc/workflowActivityDescriber'
 
@@ -172,6 +173,8 @@ export const describerFor = (logItem?: ActivityLogItem): Describer | undefined =
             return endpointActivityDescriber
         case ActivityScope.PRODUCT_TOUR:
             return productTourActivityDescriber
+        case ActivityScope.TICKET:
+            return ticketActivityDescriber
         default:
             return (logActivity, asNotification) => defaultDescriber(logActivity, asNotification)
     }

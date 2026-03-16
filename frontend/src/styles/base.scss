@@ -336,6 +336,10 @@
     --color-product-llm-evaluations-light: rgb(167 139 250);
     --color-product-llm-prompts-light: rgb(196 181 253);
     --color-product-links-light: rgb(143 7 255);
+    --color-product-tracing-light: rgb(6 182 212);
+    --color-product-tracing-dark: rgb(34 211 238);
+    --color-product-metrics-light: rgb(234 88 12);
+    --color-product-metrics-dark: rgb(251 146 60);
     --color-product-revenue-analytics-light: rgb(52 175 102);
     --color-product-revenue-analytics-dark: rgb(54 196 111);
     --color-product-user-interviews-light: rgb(0 140 255);
@@ -642,7 +646,7 @@
     --z-bottom-notice: 1450;
     --z-shortcut-menu: 1400;
     --z-force-modal-above-popovers: 1350;
-    --z-tooltip: 1300;
+    --z-tooltip: 99999;
     --z-definition-popover: 1250;
     --z-popover: 1200;
     --z-graph-tooltip: 1150;
@@ -1700,6 +1704,38 @@
         display: flex;
         flex-direction: column;
         gap: 1px;
+    }
+
+    // Safe-triangle hover cone for vertical menubars.
+    // An invisible triangle tracks the cursor and extends toward the popup,
+    // preventing accidental sibling menu activation while traveling to the open popup.
+    // The vertex follows --cone-x / --cone-y set by JS on mousemove.
+    .menubar-hover-cone {
+        overflow: visible;
+
+        // Active trigger sits above the cone so it keeps its hover state
+        [data-popup-open] {
+            position: relative;
+            z-index: 20;
+        }
+    }
+
+    .menubar-hover-cone-overlay {
+        position: absolute;
+        inset: -3rem -8px -3rem 0;
+        z-index: 10;
+
+        // Offset --cone-y by 3rem to compensate for the element extending above the container
+        clip-path: polygon(var(--cone-x, 50%) calc(var(--cone-y, 50%) + 3rem), 100% 0%, 100% 100%);
+        pointer-events: none;
+    }
+
+    .menubar-hover-cone:has([data-popup-open]) > .menubar-hover-cone-overlay {
+        pointer-events: auto;
+
+        &.debug {
+            background-color: rgb(255 255 255 / 50%);
+        }
     }
 
     .animate-mark {

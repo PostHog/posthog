@@ -679,6 +679,28 @@ describe('insightVizDataLogic', () => {
             }).toMatchValues({ isSingleSeriesDefinition: true })
         })
 
+        it('returns true for single series WITH breakdowns array', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [
+                        {
+                            kind: NodeKind.EventsNode,
+                            name: '$pageview',
+                            event: '$pageview',
+                        },
+                    ],
+                    breakdownFilter: {
+                        breakdowns: [
+                            {
+                                property: '$browser',
+                                type: 'event',
+                            },
+                        ],
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isSingleSeriesDefinition: true })
+        })
+
         it('returns true for multiple series with single formula', () => {
             expectLogic(builtInsightVizDataLogic, () => {
                 builtInsightVizDataLogic.actions.updateQuerySource({
@@ -699,6 +721,39 @@ describe('insightVizDataLogic', () => {
                     },
                 } as Partial<TrendsQuery>)
             }).toMatchValues({ isSingleSeriesDefinition: true })
+        })
+    })
+
+    describe('isBreakdownSeries', () => {
+        it('returns false without breakdown filter', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isBreakdownSeries: false })
+        })
+
+        it('returns true with singular breakdown object', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                    breakdownFilter: {
+                        breakdown: '$browser',
+                        breakdown_type: 'event',
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isBreakdownSeries: true })
+        })
+
+        it('returns true with breakdowns array', () => {
+            expectLogic(builtInsightVizDataLogic, () => {
+                builtInsightVizDataLogic.actions.updateQuerySource({
+                    series: [{ kind: NodeKind.EventsNode, name: '$pageview', event: '$pageview' }],
+                    breakdownFilter: {
+                        breakdowns: [{ property: '$browser', type: 'event' }],
+                    },
+                } as Partial<TrendsQuery>)
+            }).toMatchValues({ isBreakdownSeries: true })
         })
     })
 })

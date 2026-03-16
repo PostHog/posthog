@@ -223,6 +223,13 @@ class BatchImportConfigBuilder:
         }
         return self
 
+    def to_capture(self, send_rate: int) -> Self:
+        self.batch_import.import_config["sink"] = {
+            "type": "capture",
+            "send_rate": send_rate,
+        }
+        return self
+
     def to_noop(self) -> Self:
         self.batch_import.import_config["sink"] = {"type": "noop"}
         return self

@@ -1,7 +1,6 @@
-import { BindLogic, useValues } from 'kea'
+import { BindLogic, useMountedLogic, useValues } from 'kea'
 
 import { NotFound } from 'lib/components/NotFound'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import type { SceneExport } from 'scenes/sceneTypes'
@@ -9,7 +8,6 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ExperimentForm } from './ExperimentForm'
 import { createExperimentLogic } from './ExperimentForm/createExperimentLogic'
 import { type ExperimentLogicProps, FORM_MODES, experimentLogic } from './experimentLogic'
 import { type ExperimentSceneLogicProps, experimentSceneLogic } from './experimentSceneLogic'
@@ -41,7 +39,6 @@ export function Experiment(props: ExperimentSceneLogicProps): JSX.Element {
         type: 'experiment',
         ref: experimentId,
         enabled: Boolean(currentTeamId && !experimentMissing && typeof experimentId === 'number'),
-        deps: [currentTeamId, experimentId, experimentMissing],
     })
 
     const logicProps: ExperimentLogicProps = { experimentId, formMode, tabId }
@@ -62,17 +59,11 @@ export function Experiment(props: ExperimentSceneLogicProps): JSX.Element {
 
 function ExperimentCreateMode({ tabId }: { tabId: string }): JSX.Element {
     const logic = createExperimentLogic({ tabId })
-    useAttachedLogic(logic, experimentSceneLogic({ tabId }))
+    useMountedLogic(logic)
 
-    const showWizard = useFeatureFlag('EXPERIMENTS_WIZARD_CREATION_FORM', 'test')
-
-    if (showWizard) {
-        return (
-            <BindLogic logic={experimentWizardLogic} props={{ tabId }}>
-                <ExperimentWizard />
-            </BindLogic>
-        )
-    }
-
-    return <ExperimentForm tabId={tabId} />
+    return (
+        <BindLogic logic={experimentWizardLogic} props={{ tabId }}>
+            <ExperimentWizard />
+        </BindLogic>
+    )
 }

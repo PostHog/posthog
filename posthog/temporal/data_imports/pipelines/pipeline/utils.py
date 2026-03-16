@@ -44,7 +44,8 @@ DLT_TO_PA_TYPE_MAP = {
 }
 
 DEFAULT_NUMERIC_PRECISION = 38  # Delta Lake maximum precision
-DEFAULT_NUMERIC_SCALE = 32  # Delta Lake maximum scale
+DEFAULT_NUMERIC_SCALE = 18  # Good default scale for decimal128, 20 int digits plus 18 decimal cases
+MAX_NUMERIC_SCALE = 32  # Maximum scale for Delta Lake
 DEFAULT_PARTITION_TARGET_SIZE_IN_BYTES = 200 * 1024 * 1024  # 200 MB
 
 
@@ -201,31 +202,41 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                     )
                 table = table.append_column(field, new_column_data)
 
-            # If the delta table schema has a larger scale/precision, then update the
-            # pyarrow schema to use the larger values so that we're not trying to downscale
             if isinstance(field.type, pa.Decimal128Type) or isinstance(field.type, pa.Decimal256Type):
                 py_arrow_table_column = table.column(field.name)
 
-                if (
-                    isinstance(py_arrow_table_column.type, pa.Decimal128Type)
-                    or isinstance(py_arrow_table_column.type, pa.Decimal256Type)
-                ) and (
-                    field.type.precision > py_arrow_table_column.type.precision
-                    or field.type.scale > py_arrow_table_column.type.scale
+                if isinstance(py_arrow_table_column.type, pa.Decimal128Type) or isinstance(
+                    py_arrow_table_column.type, pa.Decimal256Type
                 ):
-                    field_index = table.schema.get_field_index(field.name)
+                    delta_int_digits = field.type.precision - field.type.scale
+                    pa_int_digits = py_arrow_table_column.type.precision - py_arrow_table_column.type.scale
+                    max_int_digits = max(delta_int_digits, pa_int_digits)
 
-                    new_decimal_type = (
-                        pa.decimal128(field.type.precision, field.type.scale)
-                        if field.type.precision <= 38
-                        else pa.decimal256(field.type.precision, field.type.scale)
-                    )
+                    if max_int_digits <= 38:
+                        merged_scale = min(
+                            max(field.type.scale, py_arrow_table_column.type.scale),
+                            38 - max_int_digits,
+                        )
+                        new_decimal_type = pa.decimal128(38, merged_scale)
 
-                    new_schema = table.schema.set(
-                        field_index,
-                        table.schema.field(field_index).with_type(new_decimal_type),
-                    )
-                    table = table.cast(new_schema)
+                        if new_decimal_type != py_arrow_table_column.type:
+                            field_index = table.schema.get_field_index(field.name)
+                            new_schema = table.schema.set(
+                                field_index,
+                                table.schema.field(field_index).with_type(new_decimal_type),
+                            )
+                            try:
+                                table = table.cast(new_schema)
+                            except pa.ArrowInvalid:
+                                # Cast failed (e.g. rescale would lose data); keep column scale, widen to decimal256; dlt converts to string
+                                col_scale = py_arrow_table_column.type.scale
+                                fallback_type = pa.decimal256(76, col_scale)
+                                fallback_schema = table.schema.set(
+                                    field_index,
+                                    table.schema.field(field_index).with_type(fallback_type),
+                                )
+                                table = table.cast(fallback_schema)
+                    # If max_int_digits > 38: leave as decimal256; ensure_delta_compatible_arrow_schema converts to string
 
             # If the deltalake schema has a different type to the pyarrows table, then cast to the deltalake field type
             py_arrow_table_column = table.column(field.name)
@@ -251,6 +262,9 @@ def _evolve_pyarrow_schema(table: pa.Table, delta_schema: deltalake.Schema | Non
                             field.name,
                             timestamp_array,
                         )
+                elif pa.types.is_decimal(field.type) and pa.types.is_decimal(py_arrow_table_column.type):
+                    # Already reconciled above; delta table schema evolution handles mismatch on write
+                    pass
                 else:
                     table = table.set_column(
                         table.schema.get_field_index(field.name),
@@ -555,17 +569,18 @@ def _get_max_decimal_type(values: list[decimal.Decimal]) -> pa.Decimal128Type | 
     return build_pyarrow_decimal_type(max_precision, max_scale)
 
 
-def _build_decimal_type_from_defaults(values: list[decimal.Decimal | None]) -> pa.Array:
-    for decimal_type in [
-        pa.decimal128(38, DEFAULT_NUMERIC_SCALE),
-        pa.decimal256(76, DEFAULT_NUMERIC_SCALE),
-    ]:
+def _decimal_array_from_values(values: list[decimal.Decimal | None]) -> pa.Array:
+    non_null = [v for v in values if v is not None]
+    if non_null:
+        optimal_type = _get_max_decimal_type(non_null)
         try:
-            return pa.array(values, type=decimal_type)
-        except:
+            return pa.array(values, type=optimal_type)
+        except pa.ArrowInvalid:
             pass
-
-    raise ValueError("Cant build a decimal type from defaults")
+    try:
+        return pa.array(values, type=pa.decimal256(76, MAX_NUMERIC_SCALE))
+    except Exception as exc:
+        raise ValueError("Cannot build decimal array from values") from exc
 
 
 def _python_type_to_pyarrow_type(type_: type, value: Any):
@@ -789,7 +804,12 @@ def _process_batch(table_data: list[dict], schema: Optional[pa.Schema] = None) -
                 if len(e.args) > 0 and (
                     "does not fit into precision" in e.args[0] or "would cause data loss" in e.args[0]
                 ):
-                    number_arr = _build_decimal_type_from_defaults([_convert_to_decimal_or_none(x) for x in all_values])
+                    decimal_values = (
+                        all_values
+                        if py_type is decimal.Decimal
+                        else [_convert_to_decimal_or_none(x) for x in all_values]
+                    )
+                    number_arr = _decimal_array_from_values(decimal_values)
                     new_field_type = number_arr.type
 
                     py_type = decimal.Decimal

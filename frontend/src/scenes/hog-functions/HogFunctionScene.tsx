@@ -367,7 +367,6 @@ export function HogFunctionScene(): JSX.Element {
         type: `hog_function/${type ?? ''}`,
         ref: id ?? null,
         enabled: Boolean(id && type && loaded),
-        deps: [id, type, loaded],
     })
 
     if (loading && !loaded) {

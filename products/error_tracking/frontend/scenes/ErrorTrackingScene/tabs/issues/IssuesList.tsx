@@ -1,14 +1,8 @@
-import { BindLogic, useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { BindLogic, useValues } from 'kea'
 
-import { LemonBanner, Link, Tooltip } from '@posthog/lemon-ui'
+import { Tooltip } from '@posthog/lemon-ui'
 
-import { supportLogic } from 'lib/components/Support/supportLogic'
-import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyLargeNumber } from 'lib/utils'
-import { formatCurrency } from 'lib/utils/geography/currency'
-import { teamLogic } from 'scenes/teamLogic'
-import { urls } from 'scenes/urls'
 
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
@@ -24,7 +18,6 @@ import { InsightLogicProps } from '~/types'
 
 import { IssueActions } from 'products/error_tracking/frontend/components/IssueActions/IssueActions'
 import { IssueQueryOptions } from 'products/error_tracking/frontend/components/IssueQueryOptions/IssueQueryOptions'
-import { issueQueryOptionsLogic } from 'products/error_tracking/frontend/components/IssueQueryOptions/issueQueryOptionsLogic'
 import { OccurrenceSparkline } from 'products/error_tracking/frontend/components/OccurrenceSparkline'
 import { IssueListTitleColumn, IssueListTitleHeader } from 'products/error_tracking/frontend/components/TableColumns'
 import { useSparklineData } from 'products/error_tracking/frontend/hooks/use-sparkline-data'
@@ -96,20 +89,8 @@ const defaultColumns: Record<string, QueryContextColumn> = {
 }
 
 export const useIssueQueryContext = (): QueryContext => {
-    const { orderBy } = useValues(issueQueryOptionsLogic)
-
-    const columns = useMemo(() => {
-        const columns = { ...defaultColumns }
-
-        if (orderBy === 'revenue') {
-            columns['revenue'] = { align: 'center', render: CurrencyColumn }
-        }
-
-        return columns
-    }, [orderBy])
-
     return {
-        columns: columns,
+        columns: defaultColumns,
         showOpenEditorButton: false,
         insightProps: insightProps,
         emptyStateHeading: 'No issues found',
@@ -122,9 +103,7 @@ const insightProps: InsightLogicProps = {
 }
 
 export function IssuesList(): JSX.Element {
-    const { orderBy } = useValues(issueQueryOptionsLogic)
     const { query } = useValues(errorTrackingSceneLogic)
-    const { openSupportForm } = useActions(supportLogic)
     const context = useIssueQueryContext()
 
     return (
@@ -134,27 +113,6 @@ export function IssuesList(): JSX.Element {
         >
             <SceneStickyBar showBorderBottom={false}>
                 <ListOptions />
-                {orderBy === 'revenue' && (
-                    <LemonBanner
-                        type="warning"
-                        action={{
-                            children: 'Send feedback',
-                            onClick: () =>
-                                openSupportForm({
-                                    kind: 'feedback',
-                                    target_area: 'error_tracking',
-                                    severity_level: 'medium',
-                                    isEmailFormOpen: true,
-                                }),
-                            id: 'revenue-analytics-feedback-button',
-                        }}
-                    >
-                        Revenue sorting requires setting up{' '}
-                        <Link to="https://posthog.com/docs/revenue-analytics">Revenue analytics</Link>. It does not yet
-                        work well for customers with a large number of persons or groups. We're keen to hear feedback or
-                        any issues you have using it while we work to improve the performance
-                    </LemonBanner>
-                )}
             </SceneStickyBar>
 
             <div data-attr="error-tracking-issue-row">
@@ -162,17 +120,6 @@ export function IssuesList(): JSX.Element {
             </div>
         </BindLogic>
     )
-}
-
-const CurrencyColumn = ({ record }: { record: unknown }): JSX.Element => {
-    const { baseCurrency } = useValues(teamLogic)
-    const revenue = (record as ErrorTrackingIssue).revenue
-
-    if (!revenue) {
-        return <>-</>
-    }
-
-    return <LemonTableLink to={urls.revenueAnalytics()} title={formatCurrency(revenue, baseCurrency)} />
 }
 
 export const ListOptions = (): JSX.Element => {

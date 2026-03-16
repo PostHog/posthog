@@ -91,6 +91,7 @@ export interface BatchExportDestinationApi {
  * `day` - day
  * `week` - week
  * `every 5 minutes` - every 5 minutes
+ * `every 15 minutes` - every 15 minutes
  */
 export type IntervalEnumApi = (typeof IntervalEnumApi)[keyof typeof IntervalEnumApi]
 
@@ -99,6 +100,7 @@ export const IntervalEnumApi = {
     Day: 'day',
     Week: 'week',
     Every5Minutes: 'every 5 minutes',
+    Every15Minutes: 'every 15 minutes',
 } as const
 
 /**

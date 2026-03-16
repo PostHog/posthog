@@ -30,8 +30,8 @@ from ee.models.session_summaries import SingleSessionSummary
 
 logger = structlog.get_logger(__name__)
 
-# We can speed things up a bit right now - but not too much, as CSS animations are the same speed
-VIDEO_ANALYSIS_PLAYBACK_SPEED = 1
+VIDEO_ANALYSIS_PLAYBACK_SPEED = 8
+VIDEO_ANALYSIS_RECORDING_FPS = 3  # 3 frames per 1 second of original real time
 
 
 @temporalio.activity.defn
@@ -127,6 +127,7 @@ async def prep_session_video_asset_activity(
                 "filename": filename,
                 "duration": session_duration,
                 "playback_speed": VIDEO_ANALYSIS_PLAYBACK_SPEED,
+                "recording_fps": VIDEO_ANALYSIS_RECORDING_FPS,
                 "mode": "video",
                 "show_metadata_footer": True,
             },

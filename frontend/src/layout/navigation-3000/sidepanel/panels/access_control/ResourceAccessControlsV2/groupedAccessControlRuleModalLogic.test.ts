@@ -1,6 +1,6 @@
 import { APIScopeObject, AccessControlLevel, EffectiveAccessControlEntry } from '~/types'
 
-import { getEntryId, getInheritedReasonTooltip, getLevelOptionsForResource, getMinLevelDisabledReason } from './helpers'
+import { getEntryId, getInheritedReasonTooltip, getLevelOptionsForResource } from './helpers'
 import { AccessControlMemberEntry, AccessControlRoleEntry, FormAccessLevel } from './types'
 
 const makeEntry = (
@@ -60,33 +60,54 @@ describe('groupedAccessControlRuleModalLogic', () => {
         })
     })
 
-    describe('getMinLevelDisabledReason', () => {
-        it('returns org admin reason when inherited reason is organization_admin', () => {
-            expect(getMinLevelDisabledReason(null, 'organization_admin', null, 'dashboard')).toBe(
-                'User is an organization admin'
-            )
-        })
+    describe('getLevelOptionsForResource disabled reasons', () => {
+        const defaults = {
+            minimum: AccessControlLevel.None,
+            maximum: AccessControlLevel.Manager,
+            inheritedLevel: null,
+            inheritedReason: null,
+            resourceLabel: 'Dashboards',
+        } as const
 
-        it('returns project default reason', () => {
-            expect(getMinLevelDisabledReason(AccessControlLevel.Viewer, 'project_default', null, 'dashboard')).toBe(
-                'Project default is Viewer'
-            )
-        })
-
-        it('returns role override reason', () => {
-            expect(getMinLevelDisabledReason(AccessControlLevel.Editor, 'role_override', null, 'dashboard')).toBe(
-                'User has a role with Editor access'
-            )
-        })
-
-        it('returns minimum level reason when no inherited level', () => {
-            expect(getMinLevelDisabledReason(null, null, AccessControlLevel.Viewer, 'Dashboards')).toBe(
-                'Minimum level for Dashboards is Viewer'
-            )
-        })
-
-        it('returns undefined when nothing applies', () => {
-            expect(getMinLevelDisabledReason(null, null, null, 'dashboard')).toBeUndefined()
+        it.each([
+            [
+                'below min with project default',
+                AccessControlLevel.None,
+                {
+                    ...defaults,
+                    minimum: AccessControlLevel.Viewer,
+                    inheritedLevel: AccessControlLevel.Viewer,
+                    inheritedReason: 'project_default' as const,
+                },
+                'Project default is Viewer',
+            ],
+            [
+                'below min with role override',
+                AccessControlLevel.None,
+                {
+                    ...defaults,
+                    minimum: AccessControlLevel.Editor,
+                    inheritedLevel: AccessControlLevel.Editor,
+                    inheritedReason: 'role_override' as const,
+                },
+                'User has a role with Editor access',
+            ],
+            [
+                'below min with minimum level',
+                AccessControlLevel.None,
+                { ...defaults, minimum: AccessControlLevel.Viewer },
+                'Minimum level for Dashboards is Viewer',
+            ],
+            [
+                'above max',
+                AccessControlLevel.Editor,
+                { ...defaults, maximum: AccessControlLevel.Viewer, resourceLabel: 'Activity Logs' },
+                'Maximum level for Activity Logs is Viewer',
+            ],
+            ['within range', AccessControlLevel.Viewer, { ...defaults }, undefined],
+        ])('%s', (_label, level, opts, expected) => {
+            const result = getLevelOptionsForResource(resourceLevels, opts)
+            expect(result.find((o) => o.value === level)?.disabledReason).toBe(expected)
         })
     })
 
@@ -155,6 +176,19 @@ describe('groupedAccessControlRuleModalLogic', () => {
     })
 
     describe('projectLevelOptions (selector logic)', () => {
+        function computeProjectLevelOptions(entry: {
+            project: EffectiveAccessControlEntry
+        }): { value: AccessControlLevel; label: string; disabledReason?: string }[] {
+            const { inherited_access_level, inherited_access_level_reason, minimum, maximum } = entry.project
+            return getLevelOptionsForResource(projectLevels, {
+                minimum,
+                maximum,
+                inheritedLevel: inherited_access_level,
+                inheritedReason: inherited_access_level_reason,
+                resourceLabel: 'project',
+            })
+        }
+
         it('uses inherited_access_level as minimum when present', () => {
             const entry = {
                 project: makeEntry(AccessControlLevel.Member, {
@@ -163,15 +197,7 @@ describe('groupedAccessControlRuleModalLogic', () => {
                     minimum: AccessControlLevel.None,
                 }),
             }
-            const result = getLevelOptionsForResource(projectLevels, {
-                minimum: entry.project.inherited_access_level ?? entry.project.minimum,
-                disabledReason: getMinLevelDisabledReason(
-                    entry.project.inherited_access_level,
-                    entry.project.inherited_access_level_reason,
-                    entry.project.minimum,
-                    'project'
-                ),
-            })
+            const result = computeProjectLevelOptions(entry)
 
             expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBe(
                 'Project default is Member'
@@ -186,15 +212,7 @@ describe('groupedAccessControlRuleModalLogic', () => {
                     minimum: AccessControlLevel.Member,
                 }),
             }
-            const result = getLevelOptionsForResource(projectLevels, {
-                minimum: entry.project.inherited_access_level ?? entry.project.minimum,
-                disabledReason: getMinLevelDisabledReason(
-                    entry.project.inherited_access_level,
-                    entry.project.inherited_access_level_reason,
-                    entry.project.minimum,
-                    'project'
-                ),
-            })
+            const result = computeProjectLevelOptions(entry)
 
             expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBe(
                 'Minimum level for project is Member'
@@ -213,14 +231,11 @@ describe('groupedAccessControlRuleModalLogic', () => {
             const { access_level, inherited_access_level, inherited_access_level_reason, minimum, maximum } = entry
                 .resources[resource] as EffectiveAccessControlEntry
             const levelOptions = getLevelOptionsForResource(availableResourceLevels, {
-                minimum: inherited_access_level ?? minimum,
-                maximum: maximum,
-                disabledReason: getMinLevelDisabledReason(
-                    inherited_access_level,
-                    inherited_access_level_reason,
-                    minimum,
-                    resourceLabel
-                ),
+                minimum,
+                maximum,
+                inheritedLevel: inherited_access_level,
+                inheritedReason: inherited_access_level_reason,
+                resourceLabel,
             })
             const hasFormOverride = formResourceLevels[resource] !== null
             const hasSavedOverride = access_level !== null && formResourceLevels[resource] !== null
@@ -254,10 +269,38 @@ describe('groupedAccessControlRuleModalLogic', () => {
                 'Project default is Viewer'
             )
             expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).toBe(
-                'Project default is Viewer'
+                'Maximum level for Dashboards is Editor'
             )
             expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.disabledReason).toBeUndefined()
             expect(result.find((o) => o.value === AccessControlLevel.Editor)?.disabledReason).toBeUndefined()
+        })
+
+        it('disables levels above maximum', () => {
+            const entry = {
+                resources: {
+                    activity_log: makeEntry(AccessControlLevel.Viewer, {
+                        maximum: AccessControlLevel.Viewer,
+                    }),
+                },
+            }
+            const formLevels = { activity_log: AccessControlLevel.Viewer } as Record<APIScopeObject, FormAccessLevel>
+
+            const result = computeResourceLevelOptions(
+                resourceLevels,
+                entry,
+                formLevels,
+                'activity_log' as APIScopeObject,
+                'Activity Logs'
+            )
+
+            expect(result.find((o) => o.value === AccessControlLevel.None)?.disabledReason).toBeUndefined()
+            expect(result.find((o) => o.value === AccessControlLevel.Viewer)?.disabledReason).toBeUndefined()
+            expect(result.find((o) => o.value === AccessControlLevel.Editor)?.disabledReason).toBe(
+                'Maximum level for Activity Logs is Viewer'
+            )
+            expect(result.find((o) => o.value === AccessControlLevel.Manager)?.disabledReason).toBe(
+                'Maximum level for Activity Logs is Viewer'
+            )
         })
 
         it('prepends "No override" when no inherited level and form has override', () => {

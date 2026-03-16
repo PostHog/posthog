@@ -1,5 +1,5 @@
 import copy
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from datetime import datetime, timedelta
 from enum import Enum
 from time import time
@@ -606,7 +606,8 @@ def _timed_query(name, fn, *args, **kwargs):
 
 def update_all_orgs_billing_quotas(
     dry_run: bool = False,
-) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]]]:
+    progress_callback: Callable[[str, str, str], None] | None = None,
+) -> tuple[dict[str, dict[str, int]], dict[str, dict[str, int]], dict[str, float | int]]:
     """
     This is called on a cron job every 30 minutes to update all orgs with their quotas.
     Specifically it's update quota_limited_until and quota_limiting_suspended_until in their usage
@@ -690,13 +691,16 @@ def update_all_orgs_billing_quotas(
         },
     }
 
+    queries_duration_s = round((time() - queries_start), 1)
     logger.info(
         "quota_limiting_run",
         phase="queries",
         status="done",
-        duration_ms=round((time() - queries_start) * 1000, 1),
+        duration_ms=round(queries_duration_s * 1000, 1),
         query_count=len(all_data),
     )
+    if progress_callback:
+        progress_callback("queries_done", f"duration={queries_duration_s}s", f"query_count={len(all_data)}")
 
     teams: Sequence[Team] = list(
         Team.objects.select_related("organization")
@@ -821,6 +825,12 @@ def update_all_orgs_billing_quotas(
                     org_count=total_orgs,
                     elapsed_ms=round((time() - org_loop_start) * 1000, 1),
                 )
+                if progress_callback:
+                    progress_callback(
+                        "org_processing",
+                        f"{orgs_processed}/{total_orgs}",
+                        f"limited={orgs_limited_count},suspended={orgs_suspended_count}",
+                    )
         except Exception as e:
             orgs_processed += 1
             capture_exception(e, {"organization_id": org_id})
@@ -834,6 +844,12 @@ def update_all_orgs_billing_quotas(
         orgs_limited=orgs_limited_count,
         orgs_suspended=orgs_suspended_count,
     )
+    if progress_callback:
+        progress_callback(
+            "org_loop_done",
+            f"{orgs_processed}/{total_orgs}",
+            f"limited={orgs_limited_count},suspended={orgs_suspended_count}",
+        )
 
     # Now we have the teams that are currently under quota limits
     # quota_limited_orgs is a dict of resources to org ids (e.g. {"events": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "exceptions": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "recordings": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "rows_synced": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "feature_flag_requests": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "api_queries_read_bytes": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}, "survey_responses": {"018e9acf-b488-0000-259c-534bcef40359": 1737867600}})
@@ -896,21 +912,33 @@ def update_all_orgs_billing_quotas(
                 quota_limiting_suspended_teams[field],
                 QuotaLimitingCaches.QUOTA_LIMITING_SUSPENDED_KEY,
             )
-        logger.info(
-            "quota_limiting_run", phase="redis", status="done", duration_ms=round((time() - redis_start) * 1000, 1)
-        )
+        redis_duration_s = round((time() - redis_start), 1)
+        logger.info("quota_limiting_run", phase="redis", status="done", duration_ms=round(redis_duration_s * 1000, 1))
+        if progress_callback:
+            progress_callback("redis_done", f"duration={redis_duration_s}s", "")
 
+    total_duration_s = time() - total_start
     logger.info(
         "quota_limiting_run",
         phase="total",
         status="done",
-        duration_ms=round((time() - total_start) * 1000, 1),
+        duration_ms=round(total_duration_s * 1000, 1),
         orgs_processed=orgs_processed,
         orgs_limited=orgs_limited_count,
         orgs_suspended=orgs_suspended_count,
     )
 
-    return quota_limited_orgs, quota_limiting_suspended_orgs
+    return (
+        quota_limited_orgs,
+        quota_limiting_suspended_orgs,
+        {
+            "duration_s": round(total_duration_s, 1),
+            "orgs_total": total_orgs,
+            "orgs_processed": orgs_processed,
+            "orgs_limited": orgs_limited_count,
+            "orgs_suspended": orgs_suspended_count,
+        },
+    )
 
 
 # -------------------------------------------------------------------------------------------------

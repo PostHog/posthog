@@ -6,7 +6,6 @@ from posthog.schema import (
     CachedHogQLQueryResponse,
     DashboardFilter,
     DateRange,
-    HogQLASTQuery,
     HogQLFilters,
     HogQLQuery,
     HogQLQueryResponse,
@@ -14,11 +13,11 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.filters import replace_filters
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders, replace_placeholders
 from posthog.hogql.query import execute_hogql_query
-from posthog.hogql.utils import deserialize_hx_ast
 from posthog.hogql.variables import replace_variables
 
 from posthog import settings as app_settings
@@ -26,9 +25,11 @@ from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 
+from products.data_warehouse.backend.models.external_data_source import get_direct_external_data_source_for_connection
+
 
 class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
-    query: HogQLQuery | HogQLASTQuery
+    query: HogQLQuery
     cached_response: CachedHogQLQueryResponse
     settings: Optional[HogQLGlobalSettings]
 
@@ -57,10 +58,7 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             {key: ast.Constant(value=value) for key, value in self.query.values.items()} if self.query.values else None
         )
         with self.timings.measure("parse_select"):
-            if isinstance(self.query, HogQLQuery):
-                parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
-            elif isinstance(self.query, HogQLASTQuery):
-                parsed_select = cast(ast.SelectQuery, deserialize_hx_ast(self.query.query))
+            parsed_select = parse_select(self.query.query, timings=self.timings, placeholders=values)
 
         finder = find_placeholders(parsed_select)
         with self.timings.measure("filters"):
@@ -104,14 +102,23 @@ class HogQLQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
             # p95 duration of HogQL query is 2.78sec
             self.settings.max_execution_time = 10
 
+        if self.query.connectionId:
+            source = get_direct_external_data_source_for_connection(
+                team_id=self.team.pk, connection_id=self.query.connectionId
+            )
+            if source is None:
+                raise ExposedHogQLError("Invalid connectionId for this team")
+
         response = func(
             query_type="HogQLQuery",
             query=query,
             filters=self.query.filters,
             modifiers=self.query.modifiers or self.modifiers,
             team=self.team,
+            user=self.user,
             timings=self.timings,
             variables=self.query.variables,
+            connection_id=self.query.connectionId,
             limit_context=self.limit_context,
             workload=self.workload,
             settings=self.settings,

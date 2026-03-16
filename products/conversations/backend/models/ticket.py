@@ -66,6 +66,9 @@ class Ticket(UUIDTModel):
     session_id = models.CharField(max_length=64, null=True, blank=True)  # PostHog session ID
     session_context = models.JSONField(default=dict, blank=True)  # session_replay_url, current_url, etc.
 
+    # SLA deadline — set via workflows, null means no SLA
+    sla_due_at = models.DateTimeField(null=True, blank=True)
+
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -86,6 +89,8 @@ class Ticket(UUIDTModel):
             models.Index(fields=["team", "-updated_at"], name="posthog_con_team_updated_idx"),
             # Dashboard filtered + ordered queries
             models.Index(fields=["team", "status", "-updated_at"], name="posthog_con_status_upd_idx"),
+            # SLA sort/filter queries
+            models.Index(fields=["team", "sla_due_at"], name="posthog_con_team_sla_idx"),
         ]
         constraints = [
             models.UniqueConstraint(fields=["team", "ticket_number"], name="unique_ticket_number_per_team"),

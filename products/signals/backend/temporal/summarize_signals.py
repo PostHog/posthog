@@ -13,31 +13,38 @@ logger = structlog.get_logger(__name__)
 
 class SummarizeSignalsResponse(BaseModel):
     title: str = Field(description="A short, descriptive title for the report (max 75 chars)", max_length=75)
-    summary: str = Field(description="A 2-4 sentence summary of the key findings")
+    summary: str = Field(
+        description="An Axios-style summary with 'Why it matters', 'What's happening', and 'The bottom line' sections"
+    )
 
 
-# This prompt is also biased towards actionability quite a bit. I think thats ok, for now.
-SUMMARIZE_SYSTEM_PROMPT = """You are a product analytics assistant. Your job is to summarize a collection of related signals into a concise report.
+SUMMARIZE_SYSTEM_PROMPT = """You are a product analytics assistant. Your job is to summarize a collection of related signals into a concise report, written in the Axios Smart Brevity style.
 
 Signals come from diverse sources: exceptions, experiments, insight alerts, session behaviour analysis, and more.
 They have been grouped together because they share a common underlying cause.
-
-Given a list of signals, produce:
-1. A short, descriptive title (max 75 characters) that captures the essence of what these signals are about
-2. A 2-4 sentence summary that explains:
-   - What the signals indicate
-   - The potential impact or significance
-   - Any patterns or trends observed
 
 Signals have a weight - this is a number, between 0 and 1, representing how important the signal is. Signals with higher weights are more important.
 
 Signal groups have a weight equal to the sum of all their signals' weights, and when the group has a weight of 1, you're asked to produce a report about them.
 
 The report you produce will be consumed by both humans and coding agents with access to the underlying codebase.
-Be specific and actionable. Avoid generic phrases like "various issues detected". The goal of the report is to give the jumping off point for a
-code change, or other specific action, in response to some observed pattern or trend in the users product.
 
-Respond with a JSON object containing "title" and "summary" fields. Return ONLY valid JSON, no other text. The first token of output must be {"""
+Given a list of signals, produce a JSON object with two fields:
+
+1. "title": A short, declarative headline (max 75 chars). Lead with the most newsworthy takeaway, not a label.
+
+2. "summary": An Axios-style brief using these sections, each on its own line:
+   - **Why it matters:** One sentence on the business or user impact. This is the most important part — lead with it.
+   - **What's happening:** 1-2 sentences on the concrete facts. Reference specific signals, error types, metrics, or patterns.
+   - **The bottom line:** One sentence with the specific, actionable next step — a code change, investigation, or decision.
+
+Style rules:
+- Be direct and specific. Every sentence must carry information.
+- No filler phrases ("various issues detected", "it's worth noting", "in summary").
+- Use plain language. No jargon unless the audience needs it (they're engineers).
+- Bold the section labels exactly as shown above.
+
+Respond with ONLY valid JSON, no other text. The first token of output must be {"""
 
 
 def _build_summarize_prompt(signals: list[SignalData]) -> str:

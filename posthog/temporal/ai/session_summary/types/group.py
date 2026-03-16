@@ -1,6 +1,6 @@
 import dataclasses
 from enum import Enum
-from typing import Literal
+from typing import Literal, TypedDict
 
 from posthog.temporal.ai.session_summary.types.single import SingleSessionSummaryInputs
 
@@ -12,6 +12,7 @@ class SessionSummaryStreamUpdate(Enum):
 
     UI_STATUS = "ui_status"  # Status messages for UI progress display
     FINAL_RESULT = "final_result"  # Final summarization result
+    SESSION_PROGRESS = "session_progress"  # Structured per-session progress data
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)
@@ -54,6 +55,29 @@ class SessionGroupSummaryOfSummariesInputs:
     redis_key_base: str
     model_to_use: str
     extra_summary_context: ExtraSummaryContext | None = None
+
+
+class SessionStatusChange(TypedDict):
+    id: str
+    status: str
+
+
+class SessionProgressStreamData(TypedDict):
+    """Structured progress data yielded with SESSION_PROGRESS updates, consumed by the frontend widget."""
+
+    type: Literal["progress"]
+    status_changes: list[SessionStatusChange]
+    phase: str
+    completed_count: int
+    total_count: int
+    patterns_found: list[str]
+
+
+class WorkflowProgress(TypedDict):
+    session_statuses: dict[str, str]  # session_id → status
+    phase: str
+    total_sessions: int
+    patterns_found: list[str]  # pattern names discovered so far
 
 
 @dataclasses.dataclass(frozen=True, kw_only=True)

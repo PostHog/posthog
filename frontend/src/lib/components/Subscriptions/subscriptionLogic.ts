@@ -1,4 +1,4 @@
-import { kea, key, listeners, path, props } from 'kea'
+import { actions, events, kea, key, listeners, path, props, reducers } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { beforeUnload, router, urlToAction } from 'kea-router'
@@ -9,7 +9,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail, isURL } from 'lib/utils'
 import { getInsightId } from 'scenes/insights/utils'
 
-import { SubscriptionType } from '~/types'
+import { ExportedAssetType, ExporterFormat, SubscriptionType } from '~/types'
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
@@ -22,15 +22,52 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     target_type: 'email',
     byweekday: ['monday'],
     bysetpos: 1,
+    dashboard_export_insights: [],
+    integration_id: null,
 }
 
-export interface SubscriptionsLogicProps extends SubscriptionBaseProps {
+export interface SubscriptionLogicProps extends SubscriptionBaseProps {
     id: number | 'new'
 }
 export const subscriptionLogic = kea<subscriptionLogicType>([
     path(['lib', 'components', 'Subscriptions', 'subscriptionLogic']),
-    props({} as SubscriptionsLogicProps),
+    props({} as SubscriptionLogicProps),
     key(({ id, insightShortId, dashboardId }) => `${insightShortId || dashboardId}-${id ?? 'new'}`),
+
+    actions({
+        generatePreview: true,
+        setPreviewAsset: (asset: ExportedAssetType | null) => ({ asset }),
+        setPreviewLoading: (loading: boolean) => ({ loading }),
+        setPreviewError: (error: string | null) => ({ error }),
+        setPreviewImageUrl: (url: string | null) => ({ url }),
+    }),
+
+    reducers({
+        previewAsset: [
+            null as ExportedAssetType | null,
+            {
+                setPreviewAsset: (_, { asset }) => asset,
+            },
+        ],
+        previewLoading: [
+            false,
+            {
+                setPreviewLoading: (_, { loading }) => loading,
+            },
+        ],
+        previewError: [
+            null as string | null,
+            {
+                setPreviewError: (_, { error }) => error,
+            },
+        ],
+        previewImageUrl: [
+            null as string | null,
+            {
+                setPreviewImageUrl: (_, { url }) => url,
+            },
+        ],
+    }),
 
     loaders(({ props }) => ({
         subscription: {
@@ -47,7 +84,15 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
     forms(({ props, actions }) => ({
         subscription: {
             defaults: {} as unknown as SubscriptionType,
-            errors: ({ frequency, interval, target_value, target_type, title, start_date }) => ({
+            errors: ({
+                frequency,
+                interval,
+                target_value,
+                target_type,
+                title,
+                start_date,
+                dashboard_export_insights,
+            }) => ({
                 frequency: !frequency ? 'You need to set a schedule frequency' : undefined,
                 title: !title ? 'You need to give your subscription a name' : undefined,
                 interval: !interval ? 'You need to set an interval' : undefined,
@@ -72,6 +117,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
                               ? 'Must be a valid URL'
                               : undefined
                           : undefined,
+                dashboard_export_insights:
+                    props.dashboardId && (!dashboard_export_insights || dashboard_export_insights.length === 0)
+                        ? ('Select at least one insight' as any)
+                        : undefined,
             }),
             submit: async (subscription, breakpoint) => {
                 const insightId = props.insightShortId ? await getInsightId(props.insightShortId) : undefined
@@ -106,7 +155,7 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values, props }) => ({
         setSubscriptionValue: ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
             if (key === 'frequency') {
@@ -126,10 +175,83 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
             if (key === 'target_type') {
                 actions.setSubscriptionValues({
                     target_value: '',
+                    integration_id: null,
                 })
             }
         },
+
+        generatePreview: async (_, breakpoint) => {
+            const subscription = values.subscription
+            if (!subscription) {
+                return
+            }
+
+            actions.setPreviewLoading(true)
+            actions.setPreviewError(null)
+            if (values.previewImageUrl) {
+                URL.revokeObjectURL(values.previewImageUrl)
+            }
+            actions.setPreviewImageUrl(null)
+
+            try {
+                const insightId =
+                    subscription.insight ??
+                    (props.insightShortId ? await getInsightId(props.insightShortId) : undefined)
+                const dashboardId = subscription.dashboard ?? props.dashboardId
+
+                const exportData: Partial<ExportedAssetType> = {
+                    export_format: ExporterFormat.PNG,
+                    ...(insightId ? { insight: insightId } : {}),
+                    ...(dashboardId ? { dashboard: dashboardId } : {}),
+                    export_context: {
+                        path: '',
+                    },
+                }
+
+                const asset = await api.exports.create(exportData)
+                breakpoint()
+
+                if (asset.has_content) {
+                    actions.setPreviewAsset(asset)
+                    await fetchPreviewImage(asset, actions)
+                } else if (asset.exception) {
+                    actions.setPreviewError(asset.exception)
+                } else {
+                    const maxAttempts = 30
+                    for (let i = 0; i < maxAttempts; i++) {
+                        await new Promise((resolve) => setTimeout(resolve, 3000))
+                        breakpoint()
+
+                        const updated = await api.exports.get(asset.id)
+                        if (updated.has_content) {
+                            actions.setPreviewAsset(updated)
+                            await fetchPreviewImage(updated, actions)
+                            return
+                        }
+                        if (updated.exception) {
+                            actions.setPreviewError(updated.exception)
+                            return
+                        }
+                    }
+                    actions.setPreviewError('Preview generation timed out. Please try again.')
+                }
+            } catch (e) {
+                breakpoint()
+                actions.setPreviewError(e instanceof Error ? e.message : 'Failed to generate preview')
+            } finally {
+                actions.setPreviewLoading(false)
+            }
+        },
     })),
+
+    events(({ values }) => ({
+        beforeUnmount: () => {
+            if (values.previewImageUrl) {
+                URL.revokeObjectURL(values.previewImageUrl)
+            }
+        },
+    })),
+
     beforeUnload(({ actions, values }) => ({
         enabled: () => values.subscriptionChanged,
         message: 'Changes you made will be discarded.',
@@ -150,3 +272,18 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
         },
     })),
 ])
+
+async function fetchPreviewImage(
+    asset: ExportedAssetType,
+    actions: { setPreviewImageUrl: (url: string | null) => void; setPreviewError: (error: string | null) => void }
+): Promise<void> {
+    const url = api.exports.determineExportUrl(asset.id)
+    const response = await fetch(url, { credentials: 'include' })
+    if (!response.ok) {
+        actions.setPreviewError('Failed to load preview image')
+        return
+    }
+    const blob = await response.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    actions.setPreviewImageUrl(objectUrl)
+}

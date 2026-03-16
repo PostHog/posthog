@@ -6,8 +6,12 @@ import type { Context, ToolBase } from '@/tools/types'
 const schema = ExperimentDeleteSchema
 
 type Params = z.infer<typeof schema>
+type Result = { success: boolean; message: string }
 
-export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context: Context, { experimentId }: Params) => {
+export const deleteHandler: ToolBase<typeof schema, Result>['handler'] = async (
+    context: Context,
+    { experimentId }: Params
+) => {
     const projectId = await context.stateManager.getProjectId()
 
     const deleteResult = await context.api.experiments({ projectId }).delete({
@@ -21,7 +25,7 @@ export const deleteHandler: ToolBase<typeof schema>['handler'] = async (context:
     return deleteResult.data
 }
 
-const tool = (): ToolBase<typeof schema> => ({
+const tool = (): ToolBase<typeof schema, Result> => ({
     name: 'experiment-delete',
     schema,
     handler: deleteHandler,

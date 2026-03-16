@@ -46,6 +46,7 @@ export function FunnelTooltip({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     return (
         <div
+            data-attr="funnel-tooltip"
             className={clsx('FunnelTooltip InsightTooltip', {
                 'p-2': !embedded,
                 'border-none': embedded,

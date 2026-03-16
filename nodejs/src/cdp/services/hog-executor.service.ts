@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { AsyncLocalStorage } from 'node:async_hooks'
 import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
@@ -9,7 +8,7 @@ import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
 import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
 import { tryCatch } from '~/utils/try-catch'
 
-import { Hub } from '../../types'
+import { PluginsServerConfig } from '../../types'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
 import { TeamManager } from '../../utils/team-manager'
@@ -27,8 +26,7 @@ import {
     MinimalAppMetric,
     MinimalLogEntry,
 } from '../types'
-import { destinationE2eLagMsSummary } from '../utils'
-import { createAddLogFunction, sanitizeLogMessage } from '../utils'
+import { createAddLogFunction, destinationE2eLagMsSummary, sanitizeLogMessage } from '../utils'
 import { execHog } from '../utils/hog-exec'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../utils/hog-function-filtering'
 import { createInvocation, createInvocationResult } from '../utils/invocation-utils'
@@ -37,7 +35,10 @@ import { EmailService } from './messaging/email.service'
 import { RecipientTokensService } from './messaging/recipient-tokens.service'
 
 /** Narrowed config type for CDP fetch retry settings, used by native/segment destination executors */
-export type CdpFetchConfig = Pick<Hub, 'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'>
+export type CdpFetchConfig = Pick<
+    PluginsServerConfig,
+    'CDP_FETCH_RETRIES' | 'CDP_FETCH_BACKOFF_BASE_MS' | 'CDP_FETCH_BACKOFF_MAX_MS'
+>
 
 export interface HogExecutorConfig {
     hogCostTimingUpperMs: number
@@ -64,7 +65,23 @@ const cdpHttpRequestTiming = new Histogram({
     buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
 })
 
-export const shadowFetchContext = new AsyncLocalStorage<boolean>()
+const cdpHttpRequestTimingRetried = new Histogram({
+    name: 'cdp_http_request_timing_retried_ms',
+    help: 'Timing of HTTP requests that required immediate retry after a connection-level error',
+    buckets: [0, 10, 20, 50, 100, 200, 500, 1000, 2000, 3000, 5000, 10000],
+})
+
+// Stale keep-alive connections produce these errors when the server has closed its end before
+// we reuse the socket. A single in-process retry on a fresh connection may resolve them immediately.
+export function isConnectionLevelError(error: any): boolean {
+    return (
+        error?.code === 'UND_ERR_SOCKET' || // undici SocketError ("other side closed")
+        error?.code === 'ECONNRESET' ||
+        error?.code === 'EPIPE' ||
+        error?.message === 'other side closed' ||
+        error?.message === 'socket hang up'
+    )
+}
 
 export async function cdpTrackedFetch({
     url,
@@ -75,25 +92,25 @@ export async function cdpTrackedFetch({
     fetchParams: FetchOptions
     templateId: string
 }): Promise<{ fetchError: Error | null; fetchResponse: FetchResponse | null; fetchDuration: number }> {
-    if (shadowFetchContext.getStore()) {
-        return {
-            fetchError: null,
-            fetchResponse: {
-                status: 200,
-                headers: {},
-                text: () => Promise.resolve(''),
-                json: () => Promise.resolve(null),
-                dump: () => Promise.resolve(),
-            },
-            fetchDuration: 0,
-        }
-    }
-
     const start = performance.now()
-    const [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+
+    let [fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+
     const fetchDuration = performance.now() - start
     cdpHttpRequestTiming.observe(fetchDuration)
     cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
+
+    if (fetchError && isConnectionLevelError(fetchError)) {
+        logger.warn('🦔', '[cdpTrackedFetch] Connection-level error detected, immediately retrying fetch once', {
+            url,
+            error: fetchError,
+        })
+        ;[fetchError, fetchResponse] = await tryCatch(async () => await fetch(url, fetchParams))
+        const retryDuration = performance.now() - start
+        cdpHttpRequestTimingRetried.observe(retryDuration)
+        cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
+        return { fetchError, fetchResponse, fetchDuration: retryDuration }
+    }
 
     return { fetchError, fetchResponse, fetchDuration }
 }
@@ -219,7 +236,7 @@ export class HogExecutorService {
                     ...triggerGlobals,
                     source: {
                         name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
-                        url: `${triggerGlobals.project.url}/pipeline/destinations/hog-${hogFunction.id}/configuration/`,
+                        url: `${triggerGlobals.project.url}/functions/${hogFunction.id}/configuration/`,
                     },
                 }
 
@@ -363,7 +380,13 @@ export class HogExecutorService {
         options: HogExecutorExecuteOptions = {},
         previousResult: Pick<
             Partial<CyclotronJobInvocationResult>,
-            'finished' | 'capturedPostHogEvents' | 'logs' | 'metrics' | 'error' | 'execResult'
+            | 'finished'
+            | 'capturedPostHogEvents'
+            | 'warehouseWebhookPayloads'
+            | 'logs'
+            | 'metrics'
+            | 'error'
+            | 'execResult'
         > = {}
     ): Promise<CyclotronJobInvocationResult<CyclotronJobInvocationHogFunction>> {
         const loggingContext = {
@@ -719,7 +742,7 @@ export class HogExecutorService {
 
         result.metrics.push({
             team_id: invocation.teamId,
-            app_source_id: invocation.functionId,
+            app_source_id: invocation.parentRunId ?? invocation.functionId,
             metric_kind: 'other',
             metric_name: 'fetch',
             count: 1,

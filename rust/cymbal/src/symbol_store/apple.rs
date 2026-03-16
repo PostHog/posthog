@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::{Cursor, Read};
 
 use axum::async_trait;
+use serde::Deserialize;
 use symbolic::debuginfo::Archive;
 use symbolic::demangle::{Demangle, DemangleOptions};
 use symbolic::symcache::{SymCache, SymCacheConverter};
@@ -12,8 +14,20 @@ use crate::{
     symbol_store::{Fetcher, Parser},
 };
 
+/// Manifest format for source files bundled in the dSYM ZIP under `__source/`
+#[derive(Deserialize)]
+struct SourceManifest {
+    #[allow(dead_code)]
+    version: u32,
+    /// Maps absolute DWARF source path → ZIP-relative path
+    files: HashMap<String, String>,
+}
+
 pub struct ParsedAppleSymbols {
     symcache_data: Vec<u8>,
+    /// Source file contents indexed by DWARF absolute path.
+    /// None if the bundle doesn't contain source files.
+    sources: Option<HashMap<String, String>>,
 }
 
 pub struct AppleProvider {}
@@ -54,7 +68,52 @@ impl ParsedAppleSymbols {
 
         let symcache_data = Self::convert_to_symcache(&dwarf_data)?;
 
-        Ok(Self { symcache_data })
+        // Try to load source files from the bundle (graceful — old bundles without source still work)
+        let sources = Self::extract_sources_from_zip(&mut archive);
+
+        Ok(Self {
+            symcache_data,
+            sources,
+        })
+    }
+
+    /// Extract source files from a dSYM ZIP that contains a `__source/manifest.json`.
+    /// Returns None if no source manifest is found (backward compatible).
+    fn extract_sources_from_zip(
+        archive: &mut ZipArchive<Cursor<Vec<u8>>>,
+    ) -> Option<HashMap<String, String>> {
+        // Read and parse manifest
+        let manifest: SourceManifest = {
+            let mut manifest_file = archive.by_name("__source/manifest.json").ok()?;
+            let mut manifest_data = Vec::new();
+            manifest_file.read_to_end(&mut manifest_data).ok()?;
+            serde_json::from_slice(&manifest_data).ok()?
+        };
+
+        let mut sources = HashMap::new();
+
+        for (dwarf_path, zip_path) in &manifest.files {
+            if let Ok(mut file) = archive.by_name(zip_path) {
+                let mut content = String::new();
+                if file.read_to_string(&mut content).is_ok() {
+                    sources.insert(dwarf_path.clone(), content);
+                }
+            }
+        }
+
+        if sources.is_empty() {
+            None
+        } else {
+            Some(sources)
+        }
+    }
+
+    /// Get the source content for a given DWARF absolute path.
+    pub fn get_source(&self, dwarf_path: &str) -> Option<&str> {
+        self.sources
+            .as_ref()
+            .and_then(|s| s.get(dwarf_path))
+            .map(|s| s.as_str())
     }
 
     fn extract_dwarf_from_zip(
@@ -109,20 +168,27 @@ impl ParsedAppleSymbols {
 
         match lookup_result {
             Some(result) => {
-                // Demangle Swift/C++ symbols for readability
                 let raw_name = result.function().name_for_demangling();
-                let symbol = raw_name
+
+                // Short name (no params/return type) for display as resolved_name
+                let display_name = raw_name
+                    .demangle(DemangleOptions::name_only())
+                    .unwrap_or_else(|| raw_name.to_string());
+
+                // Full demangled name for mangled_name (includes params and return type)
+                let full_name = raw_name
                     .demangle(DemangleOptions::complete())
                     .unwrap_or_else(|| raw_name.to_string());
 
-                let filename = result
-                    .file()
-                    .map(|f| f.full_path())
-                    .and_then(|path| extract_filename(&path));
+                let full_path = result.file().map(|f| f.full_path());
+
+                let filename = full_path.as_ref().and_then(|path| extract_filename(path));
 
                 Ok(Some(SymbolInfo {
-                    symbol,
+                    display_name,
+                    full_name,
                     filename,
+                    full_path,
                     line: result.line(),
                 }))
             }
@@ -141,8 +207,13 @@ fn extract_filename(full_path: &str) -> Option<String> {
 
 #[derive(Debug, Clone)]
 pub struct SymbolInfo {
-    pub symbol: String,
+    /// Short demangled name (no params/return type) for display
+    pub display_name: String,
+    /// Full demangled name (with params and return type)
+    pub full_name: String,
     pub filename: Option<String>,
+    /// The full absolute path from DWARF debug info, used for source lookup
+    pub full_path: Option<String>,
     pub line: u32,
 }
 

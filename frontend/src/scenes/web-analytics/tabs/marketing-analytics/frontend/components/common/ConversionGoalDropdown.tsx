@@ -28,9 +28,15 @@ interface ConversionGoalDropdownProps {
     value: ConversionGoalFilter
     onChange: (filter: ConversionGoalFilter) => void
     typeKey: string
+    disabledReason?: string | null
 }
 
-export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionGoalDropdownProps): JSX.Element {
+export function ConversionGoalDropdown({
+    value,
+    onChange,
+    typeKey,
+    disabledReason,
+}: ConversionGoalDropdownProps): JSX.Element {
     const [error, setError] = useState<string | null>(null)
 
     // Create a proper ActionFilter-compatible filter object
@@ -177,6 +183,7 @@ export function ConversionGoalDropdown({ value, onChange, typeKey }: ConversionG
                 excludedProperties={{
                     [TaxonomicFilterGroupType.Events]: [null],
                 }}
+                disabled={!!disabledReason}
             />
             {error && <div className="text-danger mt-2 text-sm">{error}</div>}
         </div>

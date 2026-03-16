@@ -253,6 +253,13 @@ describe('lib/utils', () => {
     })
 
     describe('dateFilterToText()', () => {
+        beforeEach(() => {
+            tk.freeze(new Date('2026-06-15T12:00:00.000Z'))
+        })
+        afterEach(() => {
+            tk.reset()
+        })
+
         describe('not formatted', () => {
             it('handles dayjs dates', () => {
                 const from = dayjs('2018-04-04T16:00:00.000Z')

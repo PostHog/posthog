@@ -227,7 +227,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
         miniFiltersByKey: [
             (s) => [s.miniFilters],
             (miniFilters): { [key: string]: SharedListMiniFilter } => {
-                return miniFilters.reduce((acc, filter) => {
+                return miniFilters.reduce<Record<string, SharedListMiniFilter>>((acc, filter) => {
                     acc[filter.key] = filter
                     return acc
                 }, {})
@@ -241,7 +241,7 @@ export const miniFiltersLogic = kea<miniFiltersLogicType>([
                 miniFiltersForType
             ): ((tab: FilterableInspectorListItemTypes) => { [key: string]: SharedListMiniFilter }) => {
                 return (tab) => {
-                    return miniFiltersForType(tab).reduce((acc, filter) => {
+                    return miniFiltersForType(tab).reduce<Record<string, SharedListMiniFilter>>((acc, filter) => {
                         acc[filter.key] = filter
                         return acc
                     }, {})

@@ -20,6 +20,9 @@ class FeatureFlagAdmin(admin.ModelAdmin):
     readonly_fields = ("usage_dashboard",)
     ordering = ("-created_at",)
 
+    def get_queryset(self, request):
+        return FeatureFlag.objects_including_soft_deleted.all()
+
     @admin.display(description="Team")
     def team_link(self, flag: FeatureFlag):
         return format_html(

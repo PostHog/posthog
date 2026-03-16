@@ -5,6 +5,7 @@ import { ReactNode, useRef, useState } from 'react'
 import { IconFolder, IconFolderOpen } from '@posthog/icons'
 
 import { dayjs } from 'lib/dayjs'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
@@ -85,7 +86,7 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
     )
     const { setSearchTerm, setExpandedSearchFolders, setExpandedFolders, setEditingItemId, rename, toggleFolderOpen } =
         useActions(projectTreeLogic(props))
-
+    const isAIFirst = useFeatureFlag('AI_FIRST')
     const treeRef = useRef<LemonTreeRef>(null)
 
     useOnMountEffect(() => {
@@ -136,7 +137,8 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                       : undefined
                             }
                         >
-                            Add {selectedItem?.name.toLowerCase() || selectedItem?.displayName} shortcut
+                            Add {selectedItem?.name.toLowerCase() || selectedItem?.displayName}{' '}
+                            {isAIFirst ? 'to starred' : 'shortcut'}
                         </LemonButton>
                     </>
                 }
@@ -212,7 +214,6 @@ export function ItemSelectModal({ className, includeProtocol, includeRoot }: Ite
                                         selectMode="all"
                                         className="px-0 py-1"
                                         data={fullFileSystemFiltered}
-                                        mode="tree"
                                         defaultSelectedFolderOrNodeId=""
                                         isItemActive={() => false}
                                         isItemEditing={(item) => {

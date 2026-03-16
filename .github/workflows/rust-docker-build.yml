@@ -120,7 +120,7 @@ jobs:
                   platforms: all
 
             - name: Login to ghcr.io
-              uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -179,9 +179,12 @@ jobs:
 
             - name: Container image digest
               id: digest
+              env:
+                  IMAGE_DIGEST: ${{ steps.docker_build.outputs.digest }}
+                  IMAGE_NAME: ${{ matrix.image }}
               run: |
-                  echo ${{ steps.docker_build.outputs.digest }}
-                  echo "${{matrix.image}}_digest=${{ steps.docker_build.outputs.digest }}" >> $GITHUB_OUTPUT
+                  echo "$IMAGE_DIGEST"
+                  echo "${IMAGE_NAME}_digest=$IMAGE_DIGEST" >> $GITHUB_OUTPUT
                   cat $GITHUB_OUTPUT
 
     deploy:

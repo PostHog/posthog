@@ -27,7 +27,7 @@ export function SceneContent({ children, className }: SceneContentProps): JSX.El
 
     return (
         <SceneContentContext.Provider value={{ productKey: sceneProductKey }}>
-            <div className={cn('scene-content flex flex-col gap-y-4 relative', className)}>{children}</div>
+            <div className={cn('scene-content flex flex-col gap-y-4 relative z-10', className)}>{children}</div>
         </SceneContentContext.Provider>
     )
 }

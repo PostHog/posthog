@@ -3,6 +3,7 @@ import { DashboardFilter, HogQLVariable, QuerySchema } from '~/queries/schema/sc
 import { integer } from '~/queries/schema/type-utils'
 import { ActionType, DashboardType, EventDefinition, InsightShortId, QueryBasedInsightModel } from '~/types'
 
+// eslint-disable-next-line import/no-cycle
 import { RevenueAnalyticsQuery } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 export enum MaxContextType {
@@ -11,6 +12,8 @@ export enum MaxContextType {
     EVENT = 'event',
     ACTION = 'action',
     ERROR_TRACKING_ISSUE = 'error_tracking_issue',
+    EVALUATION = 'evaluation',
+    NOTEBOOK = 'notebook',
 }
 
 export type InsightWithQuery = Pick<Partial<QueryBasedInsightModel>, 'query'> & Partial<QueryBasedInsightModel>
@@ -55,6 +58,21 @@ export interface MaxErrorTrackingIssueContext {
     name?: string | null
 }
 
+export interface MaxEvaluationContext {
+    type: MaxContextType.EVALUATION
+    id: string
+    name?: string | null
+    description?: string | null
+    evaluation_type: 'hog' | 'llm_judge'
+    hog_source?: string | null
+}
+
+export interface MaxNotebookContext {
+    type: MaxContextType.NOTEBOOK
+    id: string // short_id
+    name?: string | null
+}
+
 // The main shape for the UI context sent to the backend
 export interface MaxUIContext {
     dashboards?: MaxDashboardContext[]
@@ -62,6 +80,8 @@ export interface MaxUIContext {
     events?: MaxEventContext[]
     actions?: MaxActionContext[]
     error_tracking_issues?: MaxErrorTrackingIssueContext[]
+    evaluations?: MaxEvaluationContext[]
+    notebooks?: MaxNotebookContext[]
     form_answers?: Record<string, string> // question_id -> answer for create_form tool responses
 }
 
@@ -81,6 +101,8 @@ export type MaxContextItem =
     | MaxEventContext
     | MaxActionContext
     | MaxErrorTrackingIssueContext
+    | MaxEvaluationContext
+    | MaxNotebookContext
 
 type MaxInsightContextInput = {
     type: MaxContextType.INSIGHT
@@ -105,12 +127,28 @@ type MaxErrorTrackingIssueContextInput = {
     type: MaxContextType.ERROR_TRACKING_ISSUE
     data: { id: string; name?: string | null }
 }
+type MaxEvaluationContextInput = {
+    type: MaxContextType.EVALUATION
+    data: {
+        id: string
+        name?: string | null
+        description?: string | null
+        evaluation_type: 'hog' | 'llm_judge'
+        hog_source?: string | null
+    }
+}
+type MaxNotebookContextInput = {
+    type: MaxContextType.NOTEBOOK
+    data: { short_id: string; title?: string | null }
+}
 export type MaxContextInput =
     | MaxInsightContextInput
     | MaxDashboardContextInput
     | MaxEventContextInput
     | MaxActionContextInput
     | MaxErrorTrackingIssueContextInput
+    | MaxEvaluationContextInput
+    | MaxNotebookContextInput
 
 /**
  * Helper functions to create maxContext items safely
@@ -154,6 +192,22 @@ export const createMaxContextHelpers = {
     errorTrackingIssue: (issue: { id: string; name?: string | null }): MaxErrorTrackingIssueContextInput => ({
         type: MaxContextType.ERROR_TRACKING_ISSUE,
         data: issue,
+    }),
+
+    evaluation: (evaluation: {
+        id: string
+        name?: string | null
+        description?: string | null
+        evaluation_type: 'hog' | 'llm_judge'
+        hog_source?: string | null
+    }): MaxEvaluationContextInput => ({
+        type: MaxContextType.EVALUATION,
+        data: evaluation,
+    }),
+
+    notebook: (notebook: { short_id: string; title?: string | null }): MaxNotebookContextInput => ({
+        type: MaxContextType.NOTEBOOK,
+        data: notebook,
     }),
 }
 

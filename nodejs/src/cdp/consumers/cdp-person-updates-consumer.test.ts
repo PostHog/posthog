@@ -35,7 +35,7 @@ describe('CDP Person Updates Consumer', () => {
         })
         team = await getFirstTeam(hub)
 
-        processor = new CdpPersonUpdatesConsumer(hub)
+        processor = new CdpPersonUpdatesConsumer(hub, hub)
         await processor.start()
 
         hogFunction = createHogFunction({

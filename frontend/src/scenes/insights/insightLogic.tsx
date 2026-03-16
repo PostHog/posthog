@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -13,6 +14,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { isEmptyObject, isObject, objectsEqual } from 'lib/utils'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
+import { deleteInsightWithUndo } from 'lib/utils/deleteWithUndo'
 import { InsightEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -65,7 +67,7 @@ export const createEmptyInsight = (
     shortId: InsightShortId | `new-${string}` | 'new'
 ): Partial<QueryBasedInsightModel> => ({
     short_id: shortId !== 'new' && !shortId.startsWith('new-') ? (shortId as InsightShortId) : undefined,
-    name: '',
+    name: undefined,
     description: '',
     tags: [],
     dashboards: [],
@@ -156,6 +158,8 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             insight,
             redirectToInsight,
         }),
+        deleteInsight: (dashboardId: number | null) => ({ dashboardId }),
+        confirmDeleteInsight: (dashboardId: number | null) => ({ dashboardId }),
         setInsightFeedback: (feedback: 'liked' | 'disliked') => ({ feedback }),
     }),
     loaders(({ actions, values, props }) => ({
@@ -278,8 +282,10 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                           query: null,
                       },
             setInsight: (state, { insight }) => {
-                // Preserve the user-edited name when loading new data
-                if (!insight.name && state.name) {
+                // Preserve the user-edited name when loading new data for the same insight,
+                // but not when switching to a brand new insight
+                const isSameInsight = insight.short_id && insight.short_id === state.short_id
+                if (!insight.name && state.name && isSameInsight) {
                     return {
                         ...insight,
                         name: state.name,
@@ -302,7 +308,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                 if (item.id === state.id) {
-                    return { ...state, name: item.name }
+                    return { ...state, name: item.name, description: item.description }
                 }
                 return state
             },
@@ -422,7 +428,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                     mathDefinitions,
                 }).slice(0, 400),
         ],
-        insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name || derivedName],
+        insightName: [(s) => [s.insight, s.derivedName], (insight, derivedName) => insight.name ?? derivedName],
         insightId: [(s) => [s.insight], (insight) => insight?.id || null],
         canEditInsight: [
             (s) => [s.insight],
@@ -540,6 +546,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
+                if (e instanceof ApiError) {
+                    lemonToast.error(e.detail ?? 'Could not save insight')
+                } else {
+                    lemonToast.error('Could not save insight')
+                }
                 throw e
             }
 
@@ -690,11 +701,61 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             }
         },
         duplicateInsight: async ({ insight, redirectToInsight }) => {
-            const newInsight = await insightsApi.duplicate(insight)
+            let insightToDuplicate = insight
+            if (insight.short_id) {
+                try {
+                    const cleanInsight = await insightsApi.getByShortId(insight.short_id)
+                    if (cleanInsight) {
+                        insightToDuplicate = cleanInsight
+                    }
+                } catch {
+                    // Fall through to duplicate the original insight
+                }
+            }
+            const newInsight = await insightsApi.duplicate(insightToDuplicate)
             for (const logic of savedInsightsLogic.findAllMounted()) {
                 logic.actions.addInsight(newInsight)
             }
             redirectToInsight && router.actions.push(urls.insightEdit(newInsight.short_id))
+        },
+        deleteInsight: ({ dashboardId }) => {
+            LemonDialog.open({
+                title: 'Delete insight?',
+                description: 'Are you sure you want to delete this insight? This action can be undone.',
+                primaryButton: {
+                    children: 'Delete',
+                    status: 'danger',
+                    onClick: () => actions.confirmDeleteInsight(dashboardId),
+                },
+                secondaryButton: { children: 'Cancel' },
+            })
+        },
+        confirmDeleteInsight: async ({ dashboardId }) => {
+            const { insight, currentTeamId } = values
+            await deleteInsightWithUndo({
+                object: insight as QueryBasedInsightModel,
+                endpoint: `projects/${currentTeamId}/insights`,
+                callback: (undo: boolean) => {
+                    if (undo && dashboardId) {
+                        dashboardsModel
+                            .findMounted()
+                            ?.actions.updateDashboardInsight(
+                                { ...(insight as QueryBasedInsightModel), deleted: false },
+                                [dashboardId]
+                            )
+                    }
+                    actions.reloadSavedInsights()
+                },
+            })
+            if (dashboardId) {
+                router.actions.push(urls.dashboard(dashboardId))
+                dashboardsModel.actions.updateDashboardInsight(
+                    { ...(insight as QueryBasedInsightModel), deleted: true, dashboards: [] },
+                    [dashboardId]
+                )
+            } else {
+                router.actions.push(urls.savedInsights())
+            }
         },
         setInsightFeedback: ({ feedback }) => {
             const eventName = `customer-analytics-insight-${feedback}`

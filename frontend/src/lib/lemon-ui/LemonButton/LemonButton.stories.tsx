@@ -5,11 +5,10 @@ import { IconGear, IconInfo, IconPlus } from '@posthog/icons'
 import { Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { useAsyncHandler } from 'lib/hooks/useAsyncHandler'
 import { IconCalculate, IconLink } from 'lib/lemon-ui/icons'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
-import { capitalizeFirstLetter, delay, range } from 'lib/utils'
+import { capitalizeFirstLetter, range } from 'lib/utils'
 import { urls } from 'scenes/urls'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
@@ -141,25 +140,6 @@ Loading.parameters = {
     testOptions: {
         waitForLoadersToDisappear: false,
     },
-}
-
-export const LoadingViaOnClick = (): JSX.Element => {
-    const { loading, onEvent } = useAsyncHandler(async () => await delay(1000))
-
-    return (
-        <div className="deprecated-space-y-2">
-            <p>
-                For simple use-cases, you may want to use a button click to trigger something async and show a loading
-                state. Generally speaking this should exist in a <code>kea logic</code> but for simple cases you can use
-                the <code>useAsyncHandler</code>
-            </p>
-            <div className="flex items-center gap-2">
-                <LemonButton type="secondary" loading={loading} onClick={onEvent}>
-                    I load for one second
-                </LemonButton>
-            </div>
-        </div>
-    )
 }
 
 export const Active = (): JSX.Element => {

@@ -1,7 +1,6 @@
 import uuid
 import dataclasses
 from datetime import timedelta
-from enum import Enum
 
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
@@ -25,12 +24,6 @@ from posthog.models.activity_logging.model_activity import get_current_user, get
 from posthog.models.batch_imports import BatchImport, ContentType, DateRangeExportSource
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
-
-
-class BatchImportKafkaTopic(str, Enum):
-    MAIN = "main"
-    HISTORICAL = "historical"
-    OVERFLOW = "overflow"
 
 
 class BatchImportSerializer(serializers.ModelSerializer):
@@ -163,11 +156,7 @@ class BatchImportS3SourceCreateSerializer(BatchImportSerializer):
                 .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", False))
             )
 
-        config_builder.to_kafka(
-            topic=BatchImportKafkaTopic.HISTORICAL,
-            send_rate=1000,
-            transaction_timeout_seconds=60,
-        )
+        config_builder.to_capture(send_rate=1000)
 
         batch_import.save()
         return batch_import
@@ -258,11 +247,7 @@ class BatchImportS3GzipSourceCreateSerializer(BatchImportSerializer):
                 .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", False))
             )
 
-        config_builder.to_kafka(
-            topic=BatchImportKafkaTopic.HISTORICAL,
-            send_rate=1000,
-            transaction_timeout_seconds=60,
-        )
+        config_builder.to_capture(send_rate=1000)
 
         batch_import.save()
         return batch_import
@@ -383,11 +368,7 @@ class BatchImportDateRangeSourceCreateSerializer(BatchImportSerializer):
                     .with_generate_group_identify_events(validated_data.get("generate_group_identify_events", True))
                 )
 
-            config_builder.to_kafka(
-                topic=BatchImportKafkaTopic.HISTORICAL,
-                send_rate=1000,
-                transaction_timeout_seconds=60,
-            )
+            config_builder.to_capture(send_rate=1000)
 
             batch_import.save()
             return batch_import

@@ -8,6 +8,7 @@ import {
     Agent,
     Dispatcher,
     type HeadersInit,
+    ProxyAgent,
     RequestInfo,
     RequestInit,
     Response,
@@ -222,7 +223,7 @@ export async function raiseIfUserProvidedUrlUnsafe(url: string): Promise<void> {
 class SecureAgent extends Agent {
     constructor() {
         super({
-            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            keepAliveTimeout: Number(defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS),
             connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
             connect: {
                 lookup: httpStaticLookup,
@@ -245,7 +246,25 @@ class InsecureAgent extends Agent {
     }
 }
 
-const sharedSecureAgent = new SecureAgent()
+// When a proxy URL is available, external requests go through a CONNECT tunnel.
+// The proxy handles SSRF blocking (private IP rejection) at the network level,
+// so we skip the DNS lookup (httpStaticLookup) which would be redundant.
+function makeSecureDispatcher(): Dispatcher {
+    const proxyUrl =
+        process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
+
+    if (proxyUrl) {
+        return new ProxyAgent({
+            uri: proxyUrl,
+            keepAliveTimeout: defaultConfig.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS,
+            connections: defaultConfig.EXTERNAL_REQUEST_CONNECTIONS,
+            requestTls: {},
+        })
+    }
+    return new SecureAgent()
+}
+
+const sharedSecureAgent = makeSecureDispatcher()
 const sharedInsecureAgent = new InsecureAgent()
 
 export async function _fetch(url: string, options: FetchOptions = {}, dispatcher: Dispatcher): Promise<FetchResponse> {

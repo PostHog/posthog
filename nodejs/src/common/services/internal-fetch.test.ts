@@ -1,24 +1,28 @@
 import { INTERNAL_SERVICE_CALL_HEADER_NAME } from '~/api/middleware/internal-api-auth'
-import { cdpTrackedFetch } from '~/cdp/services/hog-executor.service'
+import { internalFetch } from '~/utils/request'
 
 import { InternalFetchService } from './internal-fetch'
 
-jest.mock('~/cdp/services/hog-executor.service', () => ({
-    cdpTrackedFetch: jest.fn(),
+jest.mock('~/utils/request', () => ({
+    internalFetch: jest.fn(),
 }))
 
 describe('InternalFetchService', () => {
-    it('calls cdpTrackedFetch with internal auth header and templateId', async () => {
+    it('calls internalFetch with internal auth header', async () => {
         const internalFetchService = new InternalFetchService({
             INTERNAL_API_SECRET: 'secret-123',
             INTERNAL_API_BASE_URL: 'https://internal.example.com',
         })
-        const mockedCdpTrackedFetch = jest.mocked(cdpTrackedFetch)
+        const mockedInternalFetch = jest.mocked(internalFetch)
 
-        mockedCdpTrackedFetch.mockResolvedValueOnce({
-            fetchError: null,
-            fetchResponse: { status: 200 } as any,
-            fetchDuration: 12,
+        mockedInternalFetch.mockImplementationOnce((_url, _fetchParams) => {
+            return Promise.resolve({
+                status: 200,
+                headers: { 'Content-Type': 'application/json' },
+                json: async () => Promise.resolve({ success: true }),
+                text: async () => Promise.resolve(JSON.stringify({ success: true })),
+                dump: async () => {},
+            })
         })
 
         await internalFetchService.fetch({
@@ -26,34 +30,31 @@ describe('InternalFetchService', () => {
             fetchParams: { method: 'POST', headers: { 'X-Test': 'abc' } } as any,
         })
 
-        expect(mockedCdpTrackedFetch).toHaveBeenCalledTimes(1)
-        expect(mockedCdpTrackedFetch.mock.calls[0][0]).toMatchObject({
-            url: 'https://internal.example.com/health',
-            templateId: 'InternalFetchService',
-            fetchParams: {
-                method: 'POST',
-                headers: {
-                    'X-Test': 'abc',
-                    [INTERNAL_SERVICE_CALL_HEADER_NAME.toLowerCase()]: 'secret-123',
-                },
+        expect(mockedInternalFetch).toHaveBeenCalledTimes(1)
+        expect(mockedInternalFetch.mock.calls[0][0]).toEqual('https://internal.example.com/health')
+        expect(mockedInternalFetch.mock.calls[0][1]).toMatchObject({
+            method: 'POST',
+            headers: {
+                'X-Test': 'abc',
+                [INTERNAL_SERVICE_CALL_HEADER_NAME.toLowerCase()]: 'secret-123',
             },
         })
     })
 
-    it('rethrows exceptions from cdpTrackedFetch', async () => {
+    it('returns exceptions from internalFetch', async () => {
         const internalFetchService = new InternalFetchService({
             INTERNAL_API_SECRET: 'secret-123',
             INTERNAL_API_BASE_URL: 'https://internal.example.com',
         })
-        const mockedCdpTrackedFetch = jest.mocked(cdpTrackedFetch)
+        const mockedInternalFetch = jest.mocked(internalFetch)
 
-        mockedCdpTrackedFetch.mockRejectedValueOnce(new Error('boom'))
+        mockedInternalFetch.mockRejectedValueOnce(new Error('boom'))
 
         await expect(
             internalFetchService.fetch({
                 urlPath: '/boom' as const,
                 fetchParams: { method: 'GET' } as any,
             })
-        ).rejects.toThrow('boom')
+        ).resolves.toEqual({ fetchError: new Error('boom'), fetchResponse: null })
     })
 })

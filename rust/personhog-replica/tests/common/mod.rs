@@ -114,14 +114,19 @@ impl TestContext {
     ) -> Result<(), sqlx::Error> {
         sqlx::query(
             r#"INSERT INTO posthog_grouptypemapping
-            (team_id, project_id, group_type, group_type_index, name_singular, name_plural)
-            VALUES ($1, $2, $3, $4, NULL, NULL)
+            (team_id, project_id, group_type, group_type_index,
+             name_singular, name_plural, default_columns, detail_dashboard_id)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ON CONFLICT DO NOTHING"#,
         )
         .bind(self.team_id)
         .bind(self.team_id)
         .bind(group_type)
         .bind(group_type_index)
+        .bind(format!("{group_type} (singular)"))
+        .bind(format!("{group_type}s"))
+        .bind(vec!["col_a".to_string(), "col_b".to_string()])
+        .bind(group_type_index + 1000)
         .execute(&self.pool)
         .await?;
 

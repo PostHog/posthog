@@ -4,14 +4,14 @@ import logging
 import functools
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any, Optional, TypedDict, Union
-from urllib.parse import parse_qs, urlparse, urlsplit
+from urllib.parse import parse_qs, urlparse
 
 from django.apps import apps
 from django.conf import settings
 from django.contrib.auth.backends import BaseBackend
 from django.contrib.auth.models import AnonymousUser
 from django.core.exceptions import ValidationError
-from django.db import transaction
+from django.db import models, transaction
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.utils import timezone
 
@@ -28,7 +28,12 @@ from posthog.clickhouse.query_tagging import tag_queries
 from posthog.helpers.two_factor_session import enforce_two_factor
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAuthBrand
-from posthog.models.personal_api_key import PERSONAL_API_KEY_MODES_TO_TRY, PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import (
+    PERSONAL_API_KEY_AUTH_COUNTER,
+    PERSONAL_API_KEY_MODES_TO_TRY,
+    PersonalAPIKey,
+    hash_key_value,
+)
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.user import User
 from posthog.models.webauthn_credential import WebauthnCredential
@@ -80,7 +85,6 @@ def get_auth_brand_from_next_param(next_param: str | None) -> str | None:
         client_id = parse_qs(parsed.query).get("client_id", [None])[0]
         return get_auth_brand_for_client_id(client_id)
     except (ValueError, IndexError, KeyError):
-        # Only catch expected parsing errors
         return None
 
 
@@ -166,6 +170,18 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
 
     keyword = "Bearer"
     personal_api_key: PersonalAPIKey
+    personal_api_key_source: Optional[str] = None
+
+    # Normalized source identifiers returned by find_key_with_source
+    SOURCE_HEADER = "header"
+    SOURCE_BODY = "body"
+    SOURCE_QUERY_STRING = "query_string"
+
+    _SOURCE_DISPLAY = {
+        SOURCE_HEADER: "Authorization header",
+        SOURCE_BODY: "body",
+        SOURCE_QUERY_STRING: "query string",
+    }
 
     message = "Invalid personal API key."
 
@@ -186,13 +202,13 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                     "pha_"
                 ):  # TRICKY: This returns None to allow the next authentication method to have a go. This should be `if not token.startswith("phx_")`, but we need to support legacy personal api keys that may not have been prefixed with phx_.
                     return None
-                return token, "Authorization header"
+                return token, cls.SOURCE_HEADER
         data = request.data if request_data is None and isinstance(request, Request) else request_data
 
         if data and "personal_api_key" in data:
-            return data["personal_api_key"], "body"
+            return data["personal_api_key"], cls.SOURCE_BODY
         if "personal_api_key" in request.GET:
-            return request.GET["personal_api_key"], "query string"
+            return request.GET["personal_api_key"], cls.SOURCE_QUERY_STRING
         return None
 
     @classmethod
@@ -224,12 +240,14 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
                     .get(secure_value=secure_value)
                 )
                 mode_used = mode
+                PERSONAL_API_KEY_AUTH_COUNTER.labels(hash_mode=mode).inc()
                 break
             except PersonalAPIKey.DoesNotExist:
                 pass
 
         if not personal_api_key_object:
-            raise AuthenticationFailed(detail=f"Personal API key found in request {source} is invalid.")
+            source_display = cls._SOURCE_DISPLAY.get(source, source)
+            raise AuthenticationFailed(detail=f"Personal API key found in request {source_display} is invalid.")
 
         # Upgrade the key if it's not in the latest mode. We can do this since above we've already checked
         # that the key is valid in some mode, and we do check for all modes one by one.
@@ -238,7 +256,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
             key_to_update.secure_value = hash_key_value(personal_api_key)
             key_to_update.save(update_fields=["secure_value"])
 
-        if source == "query string":
+        if source == cls.SOURCE_QUERY_STRING:
             PERSONAL_API_KEY_QUERY_PARAM_COUNTER.labels(personal_api_key_object.user.uuid).inc()
 
         return personal_api_key_object
@@ -248,6 +266,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         if not personal_api_key_with_source:
             return None
 
+        _, source = personal_api_key_with_source
         personal_api_key_object = self.validate_key(personal_api_key_with_source)
 
         now = timezone.now()
@@ -269,6 +288,7 @@ class PersonalAPIKeyAuthentication(authentication.BaseAuthentication):
         )
 
         self.personal_api_key = personal_api_key_object
+        self.personal_api_key_source = source
 
         return personal_api_key_object.user, None
 
@@ -357,39 +377,6 @@ class ProjectSecretAPIKeyUser:
         return False
 
 
-class TemporaryTokenAuthentication(authentication.BaseAuthentication):
-    def authenticate(self, request: Request):
-        # if the Origin is different, the only authentication method should be temporary_token
-        # This happens when someone is trying to create actions from the editor on their own website
-        if (
-            request.headers.get("Origin")
-            and urlsplit(request.headers["Origin"]).netloc not in urlsplit(request.build_absolute_uri("/")).netloc
-        ):
-            if not request.GET.get("temporary_token"):
-                # Bearer tokens are explicit opt-in (not auto-sent like cookies),
-                # so there is no CSRF risk — let the next authenticator handle them.
-                if request.headers.get("Authorization", "").startswith("Bearer "):
-                    return None
-                raise AuthenticationFailed(
-                    detail="No temporary_token set. "
-                    + "That means you're either trying to access this API from a different site, "
-                    + "or it means your proxy isn't sending the correct headers. "
-                    + "See https://posthog.com/docs/deployment/running-behind-proxy for more information."
-                )
-        if request.GET.get("temporary_token"):
-            User = apps.get_model(app_label="posthog", model_name="User")
-            user = User.objects.filter(is_active=True, temporary_token=request.GET.get("temporary_token"))
-            if not user.exists():
-                raise AuthenticationFailed(detail="User doesn't exist")
-            return (user.first(), None)
-
-        return None
-
-    # NOTE: This appears first in the authentication chain often so we want to define an authenticate_header to ensure 401 and not 403
-    def authenticate_header(self, request: Request):
-        return "Bearer"
-
-
 class JwtAuthentication(authentication.BaseAuthentication):
     """
     A way of authenticating with a JWT, primarily by background jobs impersonating a User
@@ -435,9 +422,9 @@ class SharingAccessTokenAuthentication(authentication.BaseAuthentication):
             if request.method not in ["GET", "HEAD"]:
                 raise AuthenticationFailed(detail="Sharing access token can only be used for GET requests.")
             try:
-                sharing_configuration = SharingConfiguration.objects.get(
-                    access_token=sharing_access_token, enabled=True
-                )
+                sharing_configuration = SharingConfiguration.objects.filter(
+                    models.Q(expires_at__isnull=True) | models.Q(expires_at__gt=timezone.now())
+                ).get(access_token=sharing_access_token, enabled=True)
 
                 # If password is required, don't authenticate via direct access_token
                 # Let the view handle showing the unlock page
@@ -484,12 +471,19 @@ class SharingPasswordProtectedAuthentication(authentication.BaseAuthentication):
 
             from posthog.models.share_password import SharePassword
 
-            share_password = SharePassword.objects.select_related("sharing_configuration").get(
-                id=payload["share_password_id"],
-                sharing_configuration__team_id=payload["team_id"],
-                sharing_configuration__enabled=True,
-                sharing_configuration__password_required=True,
-                is_active=True,
+            share_password = (
+                SharePassword.objects.select_related("sharing_configuration")
+                .filter(
+                    models.Q(sharing_configuration__expires_at__isnull=True)
+                    | models.Q(sharing_configuration__expires_at__gt=timezone.now())
+                )
+                .get(
+                    id=payload["share_password_id"],
+                    sharing_configuration__team_id=payload["team_id"],
+                    sharing_configuration__enabled=True,
+                    sharing_configuration__password_required=True,
+                    is_active=True,
+                )
             )
 
             sharing_configuration = share_password.sharing_configuration

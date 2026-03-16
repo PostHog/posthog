@@ -126,11 +126,14 @@ def semver_range_compare(
 
 
 def _tilde_bounds(value: str) -> tuple[str, str]:
-    """~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)"""
+    """
+    ~1.2.3 means >=1.2.3 <1.3.0 (allows patch-level changes)
+    ~1 means >=1.0.0 <2.0.0 (bare major: allows minor+patch changes)
+    """
+    major, minor, patch = parse_semver(value)
     parts = value.split("-")[0].split(".")
     if len(parts) < 2:
-        raise ValueError("Tilde operator requires at least major.minor version")
-    major, minor, patch = parse_semver(value)
+        return f"{major}.0.0", f"{int(major) + 1}.0.0"
     next_minor = str(int(minor) + 1)
     return f"{major}.{minor}.{patch}", f"{major}.{next_minor}.0"
 

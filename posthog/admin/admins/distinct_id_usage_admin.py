@@ -90,7 +90,7 @@ def _query_high_cardinality(dt_from: datetime, dt_to: datetime, threshold: int) 
     )
 
 
-def _query_bursts(dt_from: datetime, dt_to: datetime, threshold: int) -> list[tuple]:
+def _query_bursts_by_distinct_id(dt_from: datetime, dt_to: datetime, threshold: int) -> list[tuple]:
     table = _escaped_table()
     query = """
         SELECT team_id, distinct_id, minute, event_count
@@ -98,6 +98,28 @@ def _query_bursts(dt_from: datetime, dt_to: datetime, threshold: int) -> list[tu
         WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
           AND event_count >= %(threshold)s
         ORDER BY event_count DESC
+        LIMIT 100
+        """.format(table=table)
+    return sync_execute(
+        query,
+        {
+            "dt_from": dt_from,
+            "dt_to": dt_to,
+            "threshold": threshold,
+        },
+        settings=QUERY_SETTINGS,
+    )
+
+
+def _query_bursts_by_team(dt_from: datetime, dt_to: datetime, threshold: int) -> list[tuple]:
+    table = _escaped_table()
+    query = """
+        SELECT team_id, minute, sum(event_count) as total_events
+        FROM {table}
+        WHERE minute >= %(dt_from)s AND minute < %(dt_to)s
+        GROUP BY team_id, minute
+        HAVING total_events >= %(threshold)s
+        ORDER BY total_events DESC
         LIMIT 100
         """.format(table=table)
     return sync_execute(
@@ -172,11 +194,17 @@ class DistinctIdUsageForm(forms.Form):
         label="High cardinality threshold",
         help_text="Unique distinct_ids per team",
     )
-    burst_threshold = forms.IntegerField(
+    burst_distinct_id_threshold = forms.IntegerField(
         initial=100_000,
         min_value=1,
-        label="Burst threshold",
+        label="Burst by distinct ID threshold",
         help_text="Events per minute from a single (team, distinct_id)",
+    )
+    burst_team_threshold = forms.IntegerField(
+        initial=500_000,
+        min_value=1,
+        label="Burst by team threshold",
+        help_text="Total events per minute from a single team",
     )
 
 
@@ -257,7 +285,8 @@ def distinct_id_usage_view(request):
 
     high_usage_rows: list[dict] = []
     high_cardinality_rows: list[dict] = []
-    burst_rows: list[dict] = []
+    burst_distinct_id_rows: list[dict] = []
+    burst_team_rows: list[dict] = []
     errors: list[str] = []
     queried = False
 
@@ -268,7 +297,8 @@ def distinct_id_usage_view(request):
 
         high_usage_raw: list[tuple] = []
         high_cardinality_raw: list[tuple] = []
-        burst_raw: list[tuple] = []
+        burst_distinct_id_raw: list[tuple] = []
+        burst_team_raw: list[tuple] = []
 
         try:
             high_usage_raw = _query_high_usage(
@@ -291,10 +321,18 @@ def distinct_id_usage_view(request):
             errors.append(f"High cardinality query failed: {e}")
 
         try:
-            burst_raw = _query_bursts(dt_from, dt_to, threshold=form.cleaned_data["burst_threshold"])
+            burst_distinct_id_raw = _query_bursts_by_distinct_id(
+                dt_from, dt_to, threshold=form.cleaned_data["burst_distinct_id_threshold"]
+            )
         except Exception as e:
-            logger.exception("Distinct ID usage: burst query failed")
-            errors.append(f"Burst query failed: {e}")
+            logger.exception("Distinct ID usage: burst by distinct ID query failed")
+            errors.append(f"Burst by distinct ID query failed: {e}")
+
+        try:
+            burst_team_raw = _query_bursts_by_team(dt_from, dt_to, threshold=form.cleaned_data["burst_team_threshold"])
+        except Exception as e:
+            logger.exception("Distinct ID usage: burst by team query failed")
+            errors.append(f"Burst by team query failed: {e}")
 
         # Batch-lookup team API tokens
         all_team_ids: set[int] = set()
@@ -302,7 +340,9 @@ def distinct_id_usage_view(request):
             all_team_ids.add(row[0])
         for row in high_cardinality_raw:
             all_team_ids.add(row[0])
-        for row in burst_raw:
+        for row in burst_distinct_id_raw:
+            all_team_ids.add(row[0])
+        for row in burst_team_raw:
             all_team_ids.add(row[0])
 
         team_tokens: dict[int, str] = {}
@@ -384,10 +424,10 @@ def distinct_id_usage_view(request):
                 }
             )
 
-        for row in burst_raw:
+        for row in burst_distinct_id_raw:
             team_id, distinct_id, minute, event_count = row
             token = team_tokens.get(team_id, "")
-            burst_rows.append(
+            burst_distinct_id_rows.append(
                 {
                     "team_id": team_id,
                     "distinct_id": distinct_id,
@@ -398,6 +438,19 @@ def distinct_id_usage_view(request):
                 }
             )
 
+        for row in burst_team_raw:
+            team_id, minute, total_events = row
+            token = team_tokens.get(team_id, "")
+            burst_team_rows.append(
+                {
+                    "team_id": team_id,
+                    "minute": str(minute),
+                    "event_count": f"{total_events:,}",
+                    "token": token,
+                    **_build_restriction_info(token),
+                }
+            )
+
     context = {
         **admin.site.each_context(request),
         "title": "Distinct ID usage",
@@ -405,7 +458,8 @@ def distinct_id_usage_view(request):
         "queried": queried,
         "high_usage_rows": high_usage_rows,
         "high_cardinality_rows": high_cardinality_rows,
-        "burst_rows": burst_rows,
+        "burst_distinct_id_rows": burst_distinct_id_rows,
+        "burst_team_rows": burst_team_rows,
         "errors": errors,
         "return_querystring": request.GET.urlencode(),
     }

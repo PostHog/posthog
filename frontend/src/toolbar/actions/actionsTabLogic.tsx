@@ -220,7 +220,6 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                 }
 
                 if (values.newActionName) {
-                    // newActionName is programmatically set, but they may already have an existing action with that name. Append an index.
                     actionToSave.name = findUniqueActionName(values.newActionName)
                 }
 
@@ -239,7 +238,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     throw new Error(errorData.detail || `Request failed: ${res.status}`)
                 }
                 const response: ActionType = await res.json()
-                breakpoint()
+                breakpoint() // guard against stale async after unmount
 
                 actions.selectAction(null)
                 actionsLogic.actions.updateAction({ action: response })

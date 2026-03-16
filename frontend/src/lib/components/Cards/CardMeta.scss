@@ -14,21 +14,74 @@
             svg {
                 transform: rotate(90deg) translateX(0.75rem);
             }
+
+            &.top {
+                align-items: flex-start;
+
+                svg {
+                    transform: rotate(90deg) translateX(-0.75rem);
+                }
+            }
         }
 
         &.vertical {
             flex-direction: column;
 
-            svg {
-                transform: translateX(0.5rem);
+            &.right {
+                align-items: flex-end;
+                justify-content: center;
+
+                svg {
+                    transform: translateX(0.5rem);
+                }
+            }
+
+            &.left {
+                align-items: flex-start;
+                justify-content: center;
+
+                svg {
+                    transform: translateX(-0.5rem);
+                }
             }
         }
 
         &.corner {
+            align-items: flex-end;
+
+            // default bottom-right positioning
             justify-content: flex-end;
 
             svg {
                 transform: translate(0.5rem, 0.5rem);
+            }
+
+            /* Mirror the corner handle graphic while keeping the same anchor point */
+            &.bottom-left {
+                align-items: flex-end;
+                justify-content: flex-start;
+
+                svg {
+                    transform: translate(-0.5rem, 0.5rem) rotateY(180deg);
+                }
+            }
+
+            &.top-right {
+                align-items: flex-start;
+                justify-content: flex-end;
+
+                svg {
+                    transform: translate(0.5rem, -0.5rem) rotateX(180deg);
+                }
+            }
+
+            &.top-left {
+                align-items: flex-start;
+                justify-content: flex-start;
+
+                svg {
+                    transform: translate(-0.5rem, -0.5rem) rotateX(180deg) rotateY(180deg);
+                }
             }
         }
     }
@@ -101,6 +154,56 @@
         .CardMeta__details__content {
             overflow-y: auto;
             pointer-events: none;
+        }
+    }
+
+    &.CardMeta--compact {
+        container-type: inline-size;
+
+        .CardMeta__primary {
+            padding: 0.5rem 2.5rem 0.125rem 0.75rem;
+        }
+
+        .CardMeta__ribbon {
+            width: 0.25rem;
+            margin: 0 0.5rem 0.25rem -0.25rem;
+        }
+
+        .CardMeta__heading {
+            display: none;
+            font-family: var(--font-title);
+            font-size: 0.6875rem;
+            font-weight: 700;
+            line-height: 1rem;
+            color: var(--color-text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        .CardMeta__top {
+            height: auto;
+        }
+
+        .CardMeta__controls {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.75rem;
+        }
+
+        .CardMeta__divider {
+            margin: 0;
+            opacity: 1;
+        }
+
+        h4 {
+            height: auto;
+            margin: 0;
+        }
+
+        @container (min-width: 14rem) {
+            .CardMeta__heading {
+                display: block;
+            }
         }
     }
 

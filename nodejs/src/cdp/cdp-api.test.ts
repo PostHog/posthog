@@ -76,7 +76,7 @@ describe('CDP API', () => {
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
         team = await getFirstTeam(hub)
 
-        api = new CdpApi(hub)
+        api = new CdpApi(hub, hub)
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})

@@ -63,6 +63,9 @@ test.describe('Insights list', () => {
             await page.locator('table tbody tr').first().hover()
             await page.locator('table tbody tr').first().getByTestId('more-button').click()
             await page.getByRole('button', { name: 'Delete' }).click()
+
+            const dialog = page.locator('.LemonModal').filter({ hasText: 'Delete insight?' })
+            await dialog.getByRole('button', { name: 'Delete' }).click()
         })
 
         await test.step('verify the insight is removed', async () => {

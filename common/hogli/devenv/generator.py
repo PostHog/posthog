@@ -161,6 +161,10 @@ class MprocsGenerator(ConfigGenerator):
             if name == "nodejs":
                 proc_config = self._add_nodejs_capability_groups(proc_config, resolved)
 
+            # Special handling for backend - wire up personhog env vars when capability is active
+            if name == "backend":
+                proc_config = self._add_personhog_env(proc_config, resolved)
+
             # Add logging wrapper if enabled
             if source_config and source_config.log_to_files:
                 proc_config = self._add_logging(proc_config, name)
@@ -257,10 +261,11 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             message = "echo '▶ docker-compose: core services only (configure via: hogli dev:setup)' && "
 
         up_cmd = build_docker_compose_command(profiles, "up --pull always -d")
-        logs_cmd = build_docker_compose_command(profiles, "logs --tail=0 -f")
+        logs_cmd = build_docker_compose_command(profiles, "logs --tail=100 -f")
 
         return {
-            "shell": f"{message}{up_cmd} && {logs_cmd}",
+            "shell": f"{message}{up_cmd} && echo 'docker-compose ready' && {logs_cmd}",
+            "ready_pattern": "docker-compose ready",
         }
 
     def _add_nodejs_capability_groups(
@@ -285,6 +290,20 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
         original_shell = proc_config.get("shell", "")
         if original_shell:
             proc_config["shell"] = f"export NODEJS_CAPABILITY_GROUPS='{groups_value}' && {original_shell}"
+
+        return proc_config
+
+    def _add_personhog_env(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Add PERSONHOG_* env vars to backend when personhog capability is active."""
+        if "personhog" not in resolved.capabilities:
+            return proc_config
+
+        original_shell = proc_config.get("shell", "")
+        if original_shell:
+            env_exports = (
+                "export PERSONHOG_ADDR='127.0.0.1:50052' PERSONHOG_ENABLED='true' PERSONHOG_ROLLOUT_PERCENTAGE='100'"
+            )
+            proc_config["shell"] = f"{env_exports} && {original_shell}"
 
         return proc_config
 

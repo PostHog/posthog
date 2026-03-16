@@ -11,7 +11,10 @@ use metrics::counter;
 
 impl FeatureFlagList {
     pub fn new(flags: Vec<FeatureFlag>) -> Self {
-        Self { flags }
+        Self {
+            flags,
+            ..Default::default()
+        }
     }
 
     /// Parses a JSON Value from hypercache into a list of feature flags.
@@ -91,19 +94,14 @@ impl FeatureFlagList {
                   f.version,
                   f.evaluation_runtime,
                   COALESCE(
-                      ARRAY_AGG(tag.name) FILTER (WHERE tag.name IS NOT NULL),
+                      ARRAY_AGG(ctx.name) FILTER (WHERE ctx.name IS NOT NULL),
                       '{}'::text[]
                   ) AS evaluation_tags,
                   bucketing_identifier
               FROM posthog_featureflag AS f
               JOIN posthog_team AS t ON (f.team_id = t.id)
-              -- Evaluation tags are distinct from organizational tags. This bridge table links
-              -- flags to tags that constrain runtime evaluation. We use LEFT JOIN to retain flags
-              -- with zero evaluation tags, so ARRAY_AGG(...) returns an empty array rather than
-              -- dropping the flag row entirely.
-              LEFT JOIN posthog_featureflagevaluationtag AS et ON (f.id = et.feature_flag_id)
-              -- Only fetch names for tags that are evaluation constraints (not all org tags)
-              LEFT JOIN posthog_tag AS tag ON (et.tag_id = tag.id)
+              LEFT JOIN posthog_featureflagevaluationcontext AS ec ON (f.id = ec.feature_flag_id)
+              LEFT JOIN posthog_evaluationcontext AS ctx ON (ec.evaluation_context_id = ctx.id)
             WHERE t.id = $1
               AND f.deleted = false
               -- Exclude encrypted remote config flags - they can only be accessed via
@@ -188,7 +186,6 @@ mod tests {
             setup_redis_client, TestContext,
         },
     };
-    use rand::Rng;
 
     #[tokio::test]
     async fn test_fetch_flags_from_redis() {
@@ -302,11 +299,8 @@ mod tests {
             .await
             .expect("Failed to insert team");
 
-        let random_id_1 = rand::thread_rng().gen_range(1_000_000..100_000_000);
-        let random_id_2 = rand::thread_rng().gen_range(1_000_000..100_000_000);
-
         let flag1 = FeatureFlagRow {
-            id: random_id_1,
+            id: 0,
             team_id: team.id,
             name: Some("Test Flag".to_string()),
             key: "test_flag".to_string(),
@@ -321,7 +315,7 @@ mod tests {
         };
 
         let flag2 = FeatureFlagRow {
-            id: random_id_2,
+            id: 0,
             team_id: team.id,
             name: Some("Test Flag 2".to_string()),
             key: "test_flag_2".to_string(),
@@ -414,14 +408,12 @@ mod tests {
             .expect("Failed to get connection");
 
         // Insert a regular feature flag via raw SQL (is_remote_configuration = false)
-        let regular_flag_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
-            (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
              is_remote_configuration, has_encrypted_payloads, created_at)
-            VALUES ($1, $2, $3, $4, $5, false, true, false, false, false, '2024-06-17')"#,
+            VALUES ($1, $2, $3, $4, false, true, false, false, false, '2024-06-17')"#,
         )
-        .bind(regular_flag_id)
         .bind(team.id)
         .bind("Regular Flag")
         .bind("regular_flag")
@@ -431,14 +423,12 @@ mod tests {
         .expect("Failed to insert regular flag");
 
         // Insert an unencrypted remote config flag via raw SQL
-        let unencrypted_remote_config_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
-            (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
              is_remote_configuration, has_encrypted_payloads, created_at)
-            VALUES ($1, $2, $3, $4, $5, false, true, false, true, false, '2024-06-17')"#,
+            VALUES ($1, $2, $3, $4, false, true, false, true, false, '2024-06-17')"#,
         )
-        .bind(unencrypted_remote_config_id)
         .bind(team.id)
         .bind("Unencrypted Remote Config Flag")
         .bind("unencrypted_remote_config_flag")
@@ -448,14 +438,12 @@ mod tests {
         .expect("Failed to insert unencrypted remote config flag");
 
         // Insert an encrypted remote config flag via raw SQL
-        let encrypted_remote_config_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
-            (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
              is_remote_configuration, has_encrypted_payloads, created_at)
-            VALUES ($1, $2, $3, $4, $5, false, true, false, true, true, '2024-06-17')"#,
+            VALUES ($1, $2, $3, $4, false, true, false, true, true, '2024-06-17')"#,
         )
-        .bind(encrypted_remote_config_id)
         .bind(team.id)
         .bind("Encrypted Remote Config Flag")
         .bind("encrypted_remote_config_flag")
@@ -497,14 +485,12 @@ mod tests {
             .expect("Failed to get connection");
 
         // Insert flag with is_remote_configuration = NULL, has_encrypted_payloads = false
-        let null_remote_config_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
-            (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
              is_remote_configuration, has_encrypted_payloads, created_at)
-            VALUES ($1, $2, $3, $4, $5, false, true, false, NULL, false, '2024-06-17')"#,
+            VALUES ($1, $2, $3, $4, false, true, false, NULL, false, '2024-06-17')"#,
         )
-        .bind(null_remote_config_id)
         .bind(team.id)
         .bind("Null Remote Config Flag")
         .bind("null_remote_config")
@@ -514,14 +500,12 @@ mod tests {
         .expect("Failed to insert null remote config flag");
 
         // Insert flag with is_remote_configuration = true, has_encrypted_payloads = NULL
-        let null_encrypted_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
-            (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
              is_remote_configuration, has_encrypted_payloads, created_at)
-            VALUES ($1, $2, $3, $4, $5, false, true, false, true, NULL, '2024-06-17')"#,
+            VALUES ($1, $2, $3, $4, false, true, false, true, NULL, '2024-06-17')"#,
         )
-        .bind(null_encrypted_id)
         .bind(team.id)
         .bind("Null Encrypted Flag")
         .bind("null_encrypted")
@@ -531,14 +515,12 @@ mod tests {
         .expect("Failed to insert null encrypted flag");
 
         // Insert legacy flag with both fields NULL
-        let legacy_flag_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
-            (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
              is_remote_configuration, has_encrypted_payloads, created_at)
-            VALUES ($1, $2, $3, $4, $5, false, true, false, NULL, NULL, '2024-06-17')"#,
+            VALUES ($1, $2, $3, $4, false, true, false, NULL, NULL, '2024-06-17')"#,
         )
-        .bind(legacy_flag_id)
         .bind(team.id)
         .bind("Legacy Flag")
         .bind("legacy_flag")
@@ -549,14 +531,12 @@ mod tests {
 
         // Insert flag with is_remote_configuration = NULL, has_encrypted_payloads = true
         // This should still be included because is_remote_configuration is not TRUE
-        let null_remote_encrypted_true_id = rand::thread_rng().gen_range(1_000_000..100_000_000);
         sqlx::query(
             r#"INSERT INTO posthog_featureflag
-            (id, team_id, name, key, filters, deleted, active, ensure_experience_continuity,
+            (team_id, name, key, filters, deleted, active, ensure_experience_continuity,
              is_remote_configuration, has_encrypted_payloads, created_at)
-            VALUES ($1, $2, $3, $4, $5, false, true, false, NULL, true, '2024-06-17')"#,
+            VALUES ($1, $2, $3, $4, false, true, false, NULL, true, '2024-06-17')"#,
         )
-        .bind(null_remote_encrypted_true_id)
         .bind(team.id)
         .bind("Null Remote Encrypted True Flag")
         .bind("null_remote_encrypted_true")

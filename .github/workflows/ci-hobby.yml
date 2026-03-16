@@ -57,6 +57,8 @@ jobs:
             - name: Check for preview label
               id: check-label
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  HOBBY_CHANGED: ${{ steps.filter.outputs.hobby }}
               with:
                   script: |
                       const labels = context.payload.pull_request.labels || [];
@@ -66,7 +68,7 @@ jobs:
                       const labelRemoved = context.payload.action === 'unlabeled' &&
                           context.payload.label?.name?.toLowerCase() === 'hobby-preview';
 
-                      console.log(`hobby-preview label: ${hasLabel}, label removed: ${labelRemoved}, hobby files changed: ${{ steps.filter.outputs.hobby }}`);
+                      console.log(`hobby-preview label: ${hasLabel}, label removed: ${labelRemoved}, hobby files changed: ${process.env.HOBBY_CHANGED}`);
                       core.setOutput('has_label', hasLabel.toString());
                       core.setOutput('label_removed', labelRemoved.toString());
 
@@ -80,6 +82,7 @@ jobs:
             preview-mode: ${{ steps.check-preview.outputs.preview }}
             comment-id: ${{ steps.post-comment.outputs.comment-id }}
             deployment-id: ${{ steps.create-deployment.outputs.deployment-id }}
+            conclusion: ${{ steps.wait-for-image.outputs.conclusion }}
         steps:
             - name: 'Check for preview mode'
               id: check-preview
@@ -120,10 +123,12 @@ jobs:
               id: post-comment
               if: steps.check-preview.outputs.preview == 'true'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  PREVIEW_MODE: ${{ steps.check-preview.outputs.preview }}
               with:
                   script: |
                       const commentMarker = '<!-- hobby-ci-comment -->';
-                      const previewMode = '${{ steps.check-preview.outputs.preview }}' === 'true';
+                      const previewMode = process.env.PREVIEW_MODE === 'true';
 
                       // Find existing comment to update (in case of workflow retry)
                       const { data: comments } = await github.rest.issues.listComments({
@@ -224,11 +229,14 @@ jobs:
             - name: Update comment - Docker build failed
               if: always() && steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion != 'success'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  COMMENT_ID: ${{ steps.post-comment.outputs.comment-id }}
+                  BUILD_CONCLUSION: ${{ steps.wait-for-image.outputs.conclusion }}
               with:
                   script: |
                       const commentMarker = '<!-- hobby-ci-comment -->';
-                      const commentId = '${{ steps.post-comment.outputs.comment-id }}';
-                      const buildConclusion = '${{ steps.wait-for-image.outputs.conclusion }}';
+                      const commentId = process.env.COMMENT_ID;
+                      const buildConclusion = process.env.BUILD_CONCLUSION;
 
                       const errorBody = `${commentMarker}
                       ## 🦔 Preview instance
@@ -253,19 +261,29 @@ jobs:
                           comment_id: parseInt(commentId),
                           body: errorBody,
                       });
-            - name: Fail if Docker build failed
-              if: steps.wait-for-image.outputs.conclusion != 'success'
+            - name: Check Docker image build result
+              env:
+                  BUILD_CONCLUSION: ${{ steps.wait-for-image.outputs.conclusion }}
               run: |
-                  echo "Docker image build failed with conclusion: ${{ steps.wait-for-image.outputs.conclusion }}"
-                  exit 1
+                  conclusion="$BUILD_CONCLUSION"
+                  if [ "$conclusion" = "skipped" ]; then
+                    echo "Docker image build skipped"
+                    exit 0
+                  elif [ "$conclusion" != "success" ]; then
+                    echo "Docker image build failed with conclusion: $conclusion"
+                    exit 1
+                  fi
             - name: Update comment - Docker image ready
               if: steps.check-preview.outputs.preview == 'true' && steps.wait-for-image.outputs.conclusion == 'success'
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  COMMENT_ID: ${{ steps.post-comment.outputs.comment-id }}
+                  PREVIEW_MODE: ${{ steps.check-preview.outputs.preview }}
               with:
                   script: |
                       const commentMarker = '<!-- hobby-ci-comment -->';
-                      const commentId = '${{ steps.post-comment.outputs.comment-id }}';
-                      const previewMode = '${{ steps.check-preview.outputs.preview }}' === 'true';
+                      const commentId = process.env.COMMENT_ID;
+                      const previewMode = process.env.PREVIEW_MODE === 'true';
 
                       const updatedBody = `${commentMarker}
                       ## 🦔 Preview instance
@@ -290,7 +308,7 @@ jobs:
         timeout-minutes: 60
         name: Setup DO Hobby Instance and test
         needs: [wait-for-docker-image, changes]
-        if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.result == 'success') || github.event_name == 'push')
+        if: always() && ((needs.changes.outputs.should_run == 'true' && needs.wait-for-docker-image.outputs.conclusion == 'success') || github.event_name == 'push')
         steps:
             - uses: actions/checkout@v6
               with:
