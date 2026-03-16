@@ -63,6 +63,12 @@ class BingAdsSource(SimpleSource[BingAdsSourceConfig], OAuthMixin):
         if not config.account_id or not config.bing_ads_integration_id:
             return False, "Account ID and Bing Ads integration are required"
 
+        if not config.account_id.isdigit():
+            return (
+                False,
+                f"Invalid Account ID '{config.account_id}'. Bing Ads Account IDs are numeric. You can find your Account ID in the Bing Ads dashboard under Settings > Account.",
+            )
+
         try:
             self.get_oauth_integration(config.bing_ads_integration_id, team_id)
             return True, None

@@ -1,3 +1,4 @@
+mod event_name;
 mod fan_out;
 mod identity;
 mod ingestion;

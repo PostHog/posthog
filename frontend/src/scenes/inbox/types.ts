@@ -46,11 +46,16 @@ export interface SignalSourceConfig {
 export enum SignalSourceProduct {
     SESSION_REPLAY = 'session_replay',
     LLM_ANALYTICS = 'llm_analytics',
+    GITHUB = 'github',
+    LINEAR = 'linear',
+    ZENDESK = 'zendesk',
 }
 
 export enum SignalSourceType {
     SESSION_ANALYSIS_CLUSTER = 'session_analysis_cluster',
     EVALUATION = 'evaluation',
+    ISSUE = 'issue',
+    TICKET = 'ticket',
 }
 
 export interface ToggleSignalSourceParams {
