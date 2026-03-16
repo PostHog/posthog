@@ -2702,9 +2702,9 @@ export namespace Schemas {
     export type FunnelsDataWarehouseNodeResponse = { [key: string]: unknown } | null | null;
 
     export interface FunnelsDataWarehouseNode {
+      aggregation_target_field: string;
       /** @nullable */
       custom_name?: string | null;
-      distinct_id_field: string;
       /** @nullable */
       dw_source_type?: string | null;
       /**
