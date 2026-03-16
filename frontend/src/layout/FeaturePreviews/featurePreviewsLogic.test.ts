@@ -113,20 +113,13 @@ describe('featurePreviewsLogic - conceptEnrollments reducer', () => {
         userLogic.actions.loadUserSuccess(MOCK_DEFAULT_USER)
     })
 
-    test('tracks concept stage enrollments locally', async () => {
-        logic.actions.updateEarlyAccessFeatureEnrollment('concept-flag', true, 'concept')
-
-        await expectLogic(logic).toMatchValues({
-            conceptEnrollments: { 'concept-flag': true },
-        })
-    })
-
-    test('does not track non-concept stage enrollments', async () => {
-        logic.actions.updateEarlyAccessFeatureEnrollment('beta-flag', true, 'beta')
-
-        await expectLogic(logic).toMatchValues({
-            conceptEnrollments: {},
-        })
+    test.each([
+        ['concept', true, { 'concept-flag': true }],
+        ['beta', true, {}],
+        ['concept', false, { 'concept-flag': false }],
+    ])('stage=%s enabled=%s → conceptEnrollments=%j', async (stage, enabled, expected) => {
+        logic.actions.updateEarlyAccessFeatureEnrollment('concept-flag', enabled, stage)
+        await expectLogic(logic).toMatchValues({ conceptEnrollments: expected })
     })
 
     test('tracks multiple concept enrollments', async () => {

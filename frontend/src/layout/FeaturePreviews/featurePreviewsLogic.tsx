@@ -156,8 +156,9 @@ export const featurePreviewsLogic = kea<featurePreviewsLogicType>([
                         const flag = featureFlags[flagKey]
                         const isConceptEnrolled =
                             feature.stage === 'concept' &&
-                            (!!conceptEnrollments[flagKey] ||
-                                storedPersonProps[`$feature_enrollment/${flagKey}`] === 'true')
+                            (flagKey in conceptEnrollments
+                                ? !!conceptEnrollments[flagKey]
+                                : storedPersonProps[`$feature_enrollment/${flagKey}`] === 'true')
 
                         return {
                             ...feature,
