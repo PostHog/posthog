@@ -1197,6 +1197,141 @@
             "readOnlyHint": false
         }
     },
+    "warehouse-saved-queries-list": {
+        "description": "List all data warehouse saved queries (views) in the project. Returns each view's name, materialization status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available views before querying them in HogQL.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List saved queries",
+        "title": "List saved queries",
+        "required_scopes": ["warehouse_view:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "warehouse-saved-queries-create": {
+        "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced by name in other HogQL queries.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Create saved query",
+        "title": "Create saved query",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-retrieve": {
+        "description": "Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL query, column schema, materialization status, sync frequency, and run history metadata.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get saved query",
+        "title": "Get saved query",
+        "required_scopes": ["warehouse_view:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "warehouse-saved-queries-partial-update": {
+        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '24hour', '12hour', '6hour', '1hour', '30min', or 'never'. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Update saved query",
+        "title": "Update saved query",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-destroy": {
+        "description": "Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed. Cannot delete views that have downstream dependencies or views from managed viewsets.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Delete saved query",
+        "title": "Delete saved query",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-materialize-create": {
+        "description": "Enable materialization for a saved query. This creates a physical table from the view's query and sets up a 24-hour sync schedule to keep it refreshed. Materialized views are faster to query but use storage. Use 'warehouse-saved-queries-revert-materialization-create' to undo. Rate limited.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Materialize saved query",
+        "title": "Materialize saved query",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-revert-materialization-create": {
+        "description": "Undo materialization for a saved query. Deletes the materialized table and removes the sync schedule, reverting the view back to a virtual query that runs on each access. The view definition itself is preserved. Rate limited.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Revert materialization",
+        "title": "Revert materialization",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-run-create": {
+        "description": "Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table with the latest data. The view must already be materialized. Use 'warehouse-saved-queries-run-history-retrieve' to check run status.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Run saved query",
+        "title": "Run saved query",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-run-history-retrieve": {
+        "description": "Get the 5 most recent materialization run statuses for a saved query. Each entry includes the run status and timestamp. Use this to monitor whether materialization is running successfully.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get run history",
+        "title": "Get run history",
+        "required_scopes": ["warehouse_view:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",

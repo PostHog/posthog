@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::async_trait;
+use async_trait::async_trait;
 use kafka_deduplicator::kafka::{
     batch_consumer::*,
     batch_context::{ConsumerCommand, ConsumerCommandSender},

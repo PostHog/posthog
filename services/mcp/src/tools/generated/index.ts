@@ -7,6 +7,7 @@ import { GENERATED_TOOLS as cdp_function_templates } from './cdp_function_templa
 import { GENERATED_TOOLS as cdp_functions } from './cdp_functions'
 import { GENERATED_TOOLS as cohorts } from './cohorts'
 import { GENERATED_TOOLS as dashboards } from './dashboards'
+import { GENERATED_TOOLS as data_warehouse } from './data_warehouse'
 import { GENERATED_TOOLS as error_tracking } from './error_tracking'
 import { GENERATED_TOOLS as feature_flags } from './feature_flags'
 import { GENERATED_TOOLS as prompts } from './prompts'
@@ -20,6 +21,7 @@ export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = 
     ...cdp_functions,
     ...cohorts,
     ...dashboards,
+    ...data_warehouse,
     ...error_tracking,
     ...feature_flags,
     ...prompts,

@@ -105,4 +105,5 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'user:read',
     'warehouse_table:read',
     'warehouse_view:read',
+    'warehouse_view:write',
 ] as const

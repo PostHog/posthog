@@ -124,6 +124,9 @@ frontend/public/Matter*.woff*
 frontend/tmp
 frontend/types/
 
+# Watchman cache
+.watchman-cookie-*
+
 # Dist release target dir
 target/*
 
