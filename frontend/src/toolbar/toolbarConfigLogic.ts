@@ -336,6 +336,7 @@ function initInstrumentation(
     }
 
     const loadStart = (window as any).__posthog_toolbar_load_start as number | undefined
+    delete (window as any).__posthog_toolbar_load_start
     const loadDurationMs = loadStart ? Math.round(performance.now() - loadStart) : undefined
 
     toolbarPosthogJS.capture('toolbar loaded', {
