@@ -16,7 +16,9 @@ logger = get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Optional[int] = None) -> int:
+def refresh_affected_hog_functions(
+    team_id: Optional[int] = None, action_id: Optional[int] = None, cohort_id: Optional[int] = None
+) -> int:
     from posthog.models.hog_functions.hog_function import HogFunction
 
     affected_hog_functions: list[HogFunction] = []
@@ -29,6 +31,37 @@ def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Opt
             .filter(team_id=action.team_id)
             .filter(filters__contains={"actions": [{"id": str(action_id)}]})
         )
+    elif cohort_id:
+        from posthog.models.cohort import Cohort
+        from posthog.models.team.team import Team
+
+        cohort = Cohort.objects.select_related("team").get(id=cohort_id)
+        # Pre-filter at DB level for teams with any cohort in test_account_filters,
+        # then verify the specific cohort ID in Python (matches pattern in posthog/api/cohort.py)
+        teams = Team.objects.filter(
+            project_id=cohort.team.project_id, test_account_filters__contains=[{"type": "cohort"}]
+        )
+        affected_team_ids: list[int] = []
+        for team in teams:
+            for f in team.test_account_filters:
+                if f.get("type") == "cohort" and f.get("value") == cohort.id:
+                    affected_team_ids.append(team.id)
+                    break
+
+        if not affected_team_ids:
+            return 0
+
+        # If multiple teams are affected, dispatch separate tasks for each beyond the first
+        if len(affected_team_ids) > 1:
+            for extra_team_id in affected_team_ids[1:]:
+                refresh_affected_hog_functions.delay(team_id=extra_team_id)
+
+        team_id = affected_team_ids[0]
+        affected_hog_functions = list(
+            HogFunction.objects.select_related("team")
+            .filter(team_id=team_id)
+            .filter(filters__contains={"filter_test_accounts": True})
+        )
     elif team_id:
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
@@ -37,7 +70,7 @@ def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Opt
         )
 
     if team_id is None:
-        raise Exception("Either team_id or action_id must be provided")
+        raise Exception("Either team_id, action_id, or cohort_id must be provided")
 
     if not affected_hog_functions:
         return 0
