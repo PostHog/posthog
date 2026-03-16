@@ -2,18 +2,11 @@ import { useActions } from 'kea'
 import { router } from 'kea-router'
 import { useState } from 'react'
 
-import {
-    IconBug,
-    IconCheckCircle,
-    IconComment,
-    IconLink,
-    IconNotification,
-    IconPlug,
-    IconWarning,
-} from '@posthog/icons'
+import { IconBug, IconCheckCircle, IconComment, IconNotification, IconPlug, IconWarning } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
+import { IconOpenInNew } from 'lib/lemon-ui/icons'
 
 import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { InAppNotification } from '~/types'
@@ -77,7 +70,7 @@ export function NotificationRow({
                                     className="p-0.5 rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary"
                                     onClick={handleNavigate}
                                 >
-                                    <IconLink className="size-3.5" />
+                                    <IconOpenInNew className="size-3.5" />
                                 </button>
                             </Tooltip>
                         )}
