@@ -200,13 +200,16 @@ async def increment_trial_eval_count_activity(team_id: int) -> bool:
     """Increment trial eval counter after successful execution with PostHog key.
 
     Returns True if this increment caused the trial limit to be reached.
+    Uses == rather than >= so that only the exact transition triggers the
+    notification. Concurrent increments may overshoot, but MessagingRecord
+    deduplication prevents duplicate emails regardless.
     """
     from django.db.models import F
 
     def _increment() -> bool:
         EvaluationConfig.objects.filter(team_id=team_id).update(trial_evals_used=F("trial_evals_used") + 1)
         config = EvaluationConfig.objects.get(team_id=team_id)
-        return config.trial_evals_used >= config.trial_eval_limit
+        return config.trial_evals_used == config.trial_eval_limit
 
     return await database_sync_to_async(_increment)()
 
@@ -914,6 +917,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                         await temporalio.workflow.execute_activity(
                             send_trial_exhausted_email_activity,
                             evaluation["team_id"],
+                            activity_id=f"send-trial-exhausted-email-{evaluation['team_id']}",
                             schedule_to_close_timeout=timedelta(seconds=30),
                             retry_policy=RetryPolicy(maximum_attempts=2),
                         )

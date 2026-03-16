@@ -955,33 +955,29 @@ class TestExecuteHogEvalActivityAllowsNA:
 class TestIncrementTrialEvalCountActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_returns_false_when_limit_not_reached(self, setup_data):
+    @pytest.mark.parametrize(
+        "trial_eval_limit, trial_evals_used, expected_result, expected_used_after",
+        [
+            (100, 0, False, 1),
+            (5, 4, True, 5),
+            (5, 5, False, 6),  # already exceeded — should not re-trigger
+        ],
+        ids=["not_reached", "just_reached", "already_exceeded"],
+    )
+    async def test_increment_trial_eval_count(
+        self, setup_data, trial_eval_limit, trial_evals_used, expected_result, expected_used_after
+    ):
         team = setup_data["team"]
         config, _ = await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
-        config.trial_eval_limit = 100
-        config.trial_evals_used = 0
+        config.trial_eval_limit = trial_eval_limit
+        config.trial_evals_used = trial_evals_used
         await sync_to_async(config.save)()
 
         result = await increment_trial_eval_count_activity(team.id)
 
-        assert result is False
+        assert result is expected_result
         config = await sync_to_async(EvaluationConfig.objects.get)(team_id=team.id)
-        assert config.trial_evals_used == 1
-
-    @pytest.mark.asyncio
-    @pytest.mark.django_db(transaction=True)
-    async def test_returns_true_when_limit_just_reached(self, setup_data):
-        team = setup_data["team"]
-        config, _ = await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
-        config.trial_eval_limit = 5
-        config.trial_evals_used = 4
-        await sync_to_async(config.save)()
-
-        result = await increment_trial_eval_count_activity(team.id)
-
-        assert result is True
-        config = await sync_to_async(EvaluationConfig.objects.get)(team_id=team.id)
-        assert config.trial_evals_used == 5
+        assert config.trial_evals_used == expected_used_after
 
 
 class TestSendTrialExhaustedEmailActivity:
