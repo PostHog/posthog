@@ -2,7 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from products.conversations.backend.models import Ticket
-from products.conversations.backend.models.constants import Channel
+from products.conversations.backend.models.constants import Channel, ChannelDetail
 from products.conversations.backend.slack import handle_support_message
 
 
@@ -58,3 +58,21 @@ class TestSlackMessageRouting(BaseTest):
         )
 
         mock_create_or_update.assert_not_called()
+
+    @patch("products.conversations.backend.slack.create_or_update_slack_ticket")
+    def test_top_level_message_passes_channel_detail(self, mock_create_or_update):
+        handle_support_message(
+            {
+                "type": "message",
+                "channel": "C_CONFIG",
+                "ts": "1700000000.000100",
+                "user": "U123",
+                "text": "New support request",
+            },
+            self.team,
+            "T123",
+        )
+
+        mock_create_or_update.assert_called_once()
+        assert mock_create_or_update.call_args.kwargs["channel_detail"] == ChannelDetail.SLACK_CHANNEL_MESSAGE
+        assert mock_create_or_update.call_args.kwargs["is_thread_reply"] is False
