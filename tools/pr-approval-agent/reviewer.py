@@ -285,7 +285,8 @@ class Reviewer:
                     status = " [resolved]"
                 elif c.get("is_outdated"):
                     status = " [outdated]"
-                lines.append(f"  - @{safe_user}{reply}{status} on {c['path']}: {safe_body}")
+                safe_path = _sanitize_untrusted(c["path"], max_len=200)
+                lines.append(f"  - @{safe_user}{reply}{status} on {safe_path}: {safe_body}")
             review_comments = "\n".join(lines)
 
         ownership = self._format_ownership(cl)

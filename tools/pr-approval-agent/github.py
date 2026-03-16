@@ -67,14 +67,46 @@ def _gh_api(endpoint: str, *, paginate: bool = False) -> dict | list:
     return json.loads(result.stdout)
 
 
-def _gh_graphql(query: str) -> dict:
-    """Run a GraphQL query via gh api graphql."""
-    result = subprocess.run(
-        ["gh", "api", "graphql", "-f", f"query={query}"],
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
+_REVIEW_THREADS_QUERY = """
+query($owner: String!, $name: String!, $pr: Int!, $threadCursor: String) {
+  repository(owner: $owner, name: $name) {
+    pullRequest(number: $pr) {
+      reviewThreads(first: 100, after: $threadCursor) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          isResolved
+          isOutdated
+          path
+          line
+          comments(first: 50) {
+            pageInfo { hasNextPage }
+            nodes {
+              author { login __typename }
+              authorAssociation
+              body
+              databaseId
+              replyTo { databaseId }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def _gh_graphql(query: str, variables: dict | None = None) -> dict:
+    """Run a GraphQL query via gh api graphql with proper variable passing."""
+    cmd = ["gh", "api", "graphql", "-f", f"query={query}"]
+    for key, value in (variables or {}).items():
+        if value is None:
+            cmd.extend(["-F", f"{key}=null"])
+        elif isinstance(value, int):
+            cmd.extend(["-F", f"{key}={value}"])
+        else:
+            cmd.extend(["-f", f"{key}={value}"])
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
     if result.returncode != 0:
         raise RuntimeError(f"gh api graphql failed: {result.stderr.strip()}")
     data = json.loads(result.stdout)
@@ -87,56 +119,48 @@ def _fetch_review_threads(repo: str, pr_number: int) -> list[dict]:
     """Fetch review threads with resolution status via GraphQL.
 
     Returns a flat list of comment dicts enriched with is_resolved and
-    is_outdated from their parent thread.
+    is_outdated from their parent thread. Paginates through all threads
+    and raises if any comment page is truncated.
     """
     owner, name = repo.split("/", 1)
-    query = f"""
-    {{
-      repository(owner: "{owner}", name: "{name}") {{
-        pullRequest(number: {pr_number}) {{
-          reviewThreads(first: 100) {{
-            nodes {{
-              isResolved
-              isOutdated
-              path
-              line
-              comments(first: 50) {{
-                nodes {{
-                  author {{ login __typename }}
-                  authorAssociation
-                  body
-                  databaseId
-                  replyTo {{ databaseId }}
-                }}
-              }}
-            }}
-          }}
-        }}
-      }}
-    }}
-    """
-    data = _gh_graphql(query)
-    threads = data["data"]["repository"]["pullRequest"]["reviewThreads"]["nodes"]
+    variables: dict = {"owner": owner, "name": name, "pr": pr_number, "threadCursor": None}
 
     comments: list[dict] = []
-    for thread in threads:
-        for c in thread["comments"]["nodes"]:
-            assoc = c.get("authorAssociation", "")
-            is_bot = (c.get("author") or {}).get("__typename") == "Bot"
-            if assoc not in _TRUSTED_ASSOCIATIONS and assoc != "BOT" and not is_bot:
-                continue
-            reply_to = c.get("replyTo")
-            comments.append(
-                {
-                    "user": (c.get("author") or {}).get("login", "ghost"),
-                    "body": c.get("body", ""),
-                    "path": thread.get("path", ""),
-                    "line": thread.get("line"),
-                    "in_reply_to_id": reply_to["databaseId"] if reply_to else None,
-                    "is_resolved": thread["isResolved"],
-                    "is_outdated": thread["isOutdated"],
-                }
-            )
+    while True:
+        data = _gh_graphql(_REVIEW_THREADS_QUERY, variables)
+        review_threads = data["data"]["repository"]["pullRequest"]["reviewThreads"]
+        threads = review_threads["nodes"]
+
+        for thread in threads:
+            comment_page = thread["comments"]
+            if comment_page["pageInfo"]["hasNextPage"]:
+                raise RuntimeError(
+                    f"Review thread on {thread.get('path')}:{thread.get('line')} "
+                    f"has >50 comments — pagination not implemented, escalate to human review"
+                )
+            for c in comment_page["nodes"]:
+                assoc = c.get("authorAssociation", "")
+                is_bot = (c.get("author") or {}).get("__typename") == "Bot"
+                if assoc not in _TRUSTED_ASSOCIATIONS and assoc != "BOT" and not is_bot:
+                    continue
+                reply_to = c.get("replyTo")
+                comments.append(
+                    {
+                        "user": (c.get("author") or {}).get("login", "ghost"),
+                        "body": c.get("body", ""),
+                        "path": thread.get("path", ""),
+                        "line": thread.get("line"),
+                        "in_reply_to_id": reply_to["databaseId"] if reply_to else None,
+                        "is_resolved": thread["isResolved"],
+                        "is_outdated": thread["isOutdated"],
+                    }
+                )
+
+        page_info = review_threads["pageInfo"]
+        if not page_info["hasNextPage"]:
+            break
+        variables["threadCursor"] = page_info["endCursor"]
+
     return comments
 
 
