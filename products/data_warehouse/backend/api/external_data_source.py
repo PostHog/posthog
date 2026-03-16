@@ -2,7 +2,6 @@ import uuid
 import dataclasses
 from typing import Any
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Prefetch, Q
 
@@ -27,7 +26,6 @@ from posthog.models.activity_logging.external_data_utils import (
     get_external_data_source_created_by_info,
     get_external_data_source_detail_name,
 )
-from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.user import User
@@ -52,6 +50,10 @@ from products.data_warehouse.backend.direct_postgres import (
     postgres_schema_metadata,
     reconcile_direct_postgres_schemas,
     upsert_direct_postgres_table,
+)
+from products.data_warehouse.backend.external_data_source.webhooks import (
+    create_and_register_webhook,
+    get_or_create_webhook_hog_function,
 )
 from products.data_warehouse.backend.models import (
     DataWarehouseManagedViewSet,
@@ -395,95 +397,6 @@ class SimpleExternalDataSourceSerializers(serializers.ModelSerializer):
             "source_type",
         ]
         read_only_fields = ["id", "created_by", "created_at", "status", "source_type"]
-
-
-@dataclasses.dataclass
-class WebhookHogFunctionCreateResult:
-    hog_function: HogFunction | None = None
-    webhook_url: str = ""
-    error: str | None = None
-
-
-def get_or_create_webhook_hog_function(
-    team: Any,
-    source: WebhookSource,
-    eligible_schemas: list[ExternalDataSchema],
-    extra_inputs: dict[str, Any] | None = None,
-) -> WebhookHogFunctionCreateResult:
-    """Create or update a HogFunction for webhook-based data imports."""
-
-    webhook_template = source.webhook_template
-    if not webhook_template:
-        return WebhookHogFunctionCreateResult(error="No webhook template available for this source")
-
-    schema_mapping: dict[str, str] = {}
-    schema_ids: list[str] = []
-    object_type_map = source.webhook_resource_map
-
-    for schema in eligible_schemas:
-        schema_id_str = str(schema.id)
-        schema_ids.append(schema_id_str)
-
-        object_type = object_type_map.get(schema.name)
-        if object_type:
-            schema_mapping[object_type] = schema_id_str
-
-    db_template = HogFunctionTemplate.get_template(webhook_template.id)
-    if not db_template:
-        return WebhookHogFunctionCreateResult(
-            error="Webhook template not found in database. Please run sync_hog_function_templates."
-        )
-
-    inputs: dict[str, Any] = {
-        "schema_mapping": {"value": schema_mapping},
-        "schema_ids": {"value": schema_ids},
-    }
-    if extra_inputs:
-        inputs.update({key: {"value": value} for key, value in extra_inputs.items()})
-
-    hog_function, _ = HogFunction.objects.update_or_create(
-        team=team,
-        type="warehouse_source_webhook",
-        inputs__schema_ids__value__contains=schema_ids[:1] if schema_ids else [],
-        defaults={
-            "name": db_template.name,
-            "description": db_template.description or "",
-            "hog": db_template.code,
-            "icon_url": db_template.icon_url,
-            "enabled": True,
-            "deleted": False,
-            "template_id": db_template.template_id,
-            "hog_function_template": db_template,
-            "inputs_schema": db_template.inputs_schema,
-            "inputs": inputs,
-        },
-    )
-
-    # Merge with any existing schemas from a previous function
-    assert hog_function.inputs is not None
-    existing_mapping = hog_function.inputs.get("schema_mapping", {}).get("value", {})
-    existing_ids = hog_function.inputs.get("schema_ids", {}).get("value", [])
-
-    merged_mapping = {**existing_mapping, **schema_mapping}
-    merged_ids = list(set(existing_ids + schema_ids))
-
-    if merged_mapping != schema_mapping or merged_ids != schema_ids:
-        hog_function.inputs = {
-            **hog_function.inputs,
-            "schema_mapping": {"value": merged_mapping},
-            "schema_ids": {"value": merged_ids},
-        }
-        hog_function.save(update_fields=["inputs"])
-
-    webhooks_host = {
-        "US": "https://webhooks.us.posthog.com",
-        "EU": "https://webhooks.eu.posthog.com",
-        "DEV": "https://app.dev.posthog.dev",
-    }.get((settings.CLOUD_DEPLOYMENT or "").upper(), settings.SITE_URL)
-
-    webhook_url = f"{webhooks_host}/public/webhooks/dwh/{hog_function.id}"
-
-    return WebhookHogFunctionCreateResult(hog_function=hog_function, webhook_url=webhook_url)
 
 
 @extend_schema(tags=[ProductKey.DATA_WAREHOUSE])
@@ -1082,25 +995,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": hog_fn_result.error},
             )
 
-        assert hog_fn_result.hog_function is not None
-        hog_function = hog_fn_result.hog_function
-        webhook_url = hog_fn_result.webhook_url
-
-        result = source.create_webhook(config, webhook_url, self.team_id)
-
-        if result.success and result.extra_inputs:
-            assert hog_function.inputs is not None
-            hog_function.inputs = {
-                **hog_function.inputs,
-                **{key: {"value": value} for key, value in result.extra_inputs.items()},
-            }
-            hog_function.save(update_fields=["inputs", "encrypted_inputs"])
+        result = create_and_register_webhook(source, config, hog_fn_result, self.team_id)
 
         return Response(
             status=status.HTTP_200_OK,
             data={
                 "success": result.success,
-                "webhook_url": webhook_url,
+                "webhook_url": result.webhook_url,
                 "error": result.error,
             },
         )

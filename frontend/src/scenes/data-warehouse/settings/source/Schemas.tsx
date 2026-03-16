@@ -19,17 +19,13 @@ import {
     Tooltip,
 } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
 import { AccessControlAction, AccessControlActionChildrenProps } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
-import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
-import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { pluralize } from 'lib/utils'
-import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
 import { SyncTypeLabelMap, defaultQuery, syncAnchorIntervalToHumanReadable } from 'scenes/data-warehouse/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -329,7 +325,7 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
                                                 Set up
                                             </LemonButton>
                                         </SourceEditorAction>
-                                        <SyncMethodModal schema={schema} source={source!} />
+                                        <SyncMethodModal schema={schema} />
                                     </>
                                 )
                             }
@@ -591,13 +587,7 @@ export const SchemaTable = ({ schemas, isLoading, isDirectQuerySource }: SchemaT
     )
 }
 
-const SyncMethodModal = ({
-    schema,
-    source,
-}: {
-    schema: ExternalDataSourceSchema
-    source: ExternalDataSource
-}): JSX.Element => {
+const SyncMethodModal = ({ schema }: { schema: ExternalDataSourceSchema }): JSX.Element => {
     const logic = dataWarehouseSourcesTableSyncMethodModalLogic({ schema })
 
     const {
@@ -610,40 +600,15 @@ const SyncMethodModal = ({
     const { closeSyncMethodModal, loadSchemaIncrementalFields, resetSchemaIncrementalFields, updateSchema } =
         useActions(logic)
 
-    const [webhookResult, setWebhookResult] = useState<{
-        success: boolean
-        webhook_url: string
-        error?: string
-    } | null>(null)
-    const [webhookLoading, setWebhookLoading] = useState(false)
-
     useEffect(() => {
         if (currentSyncMethodModalSchema?.id) {
             resetSchemaIncrementalFields()
             loadSchemaIncrementalFields(currentSyncMethodModalSchema.id)
-            setWebhookResult(null)
         }
     }, [currentSyncMethodModalSchema?.id, resetSchemaIncrementalFields, loadSchemaIncrementalFields])
 
     const schemaLoading = schemaIncrementalFieldsLoading || !schemaIncrementalFields
     const showForm = !schemaLoading && schemaIncrementalFields
-    const supportsWebhooks = schemaIncrementalFields?.supports_webhooks ?? false
-
-    const handleWebhookSetup = useCallback(async (): Promise<void> => {
-        setWebhookLoading(true)
-        try {
-            const result = await api.externalDataSources.createWebhook(source.id)
-            setWebhookResult(result)
-        } catch (e: any) {
-            setWebhookResult({
-                success: false,
-                webhook_url: '',
-                error: e.data?.message ?? e.message ?? 'Failed to create webhook',
-            })
-        } finally {
-            setWebhookLoading(false)
-        }
-    }, [source.id])
 
     if (!currentSyncMethodModalSchema) {
         return <></>
@@ -652,119 +617,60 @@ const SyncMethodModal = ({
     return (
         <LemonModal
             title={
-                webhookResult ? (
-                    'Webhook setup'
-                ) : (
-                    <>
-                        Sync method for <span className="font-mono">{currentSyncMethodModalSchema.name}</span>
-                    </>
-                )
+                <>
+                    Sync method for <span className="font-mono">{currentSyncMethodModalSchema.name}</span>
+                </>
             }
             isOpen={syncMethodModalIsOpen}
-            onClose={() => {
-                setWebhookResult(null)
-                closeSyncMethodModal()
-            }}
+            onClose={closeSyncMethodModal}
             footer={
-                schemaLoading && !webhookResult ? (
+                schemaLoading ? (
                     <>
                         <LemonSkeleton.Button />
                         <LemonSkeleton.Button />
                     </>
-                ) : webhookResult ? (
-                    <LemonButton
-                        type="primary"
-                        onClick={() => {
-                            setWebhookResult(null)
-                            resetSchemaIncrementalFields()
-                            closeSyncMethodModal()
-                        }}
-                    >
-                        Done
-                    </LemonButton>
                 ) : null
             }
         >
-            {webhookResult ? (
-                <div className="space-y-4">
-                    {webhookResult.success ? (
-                        <LemonBanner type="success">Webhook created successfully</LemonBanner>
-                    ) : (
-                        <LemonBanner type="warning">
-                            {webhookResult.error || 'Could not create webhook automatically.'}
-                        </LemonBanner>
-                    )}
-                    {webhookResult.webhook_url && (
-                        <div>
-                            <label className="font-semibold text-sm">Webhook URL</label>
-                            <div className="font-mono text-sm bg-bg-light rounded border p-2 mt-1 break-all">
-                                {webhookResult.webhook_url}
-                            </div>
-                        </div>
-                    )}
-                    {!webhookResult.success && source.source_type && (
-                        <WebhookSetupCaption sourceType={source.source_type} />
-                    )}
+            {schemaLoading && (
+                <div className="deprecated-space-y-2">
+                    <LemonSkeleton className="w-1/2 h-4" />
+                    <LemonSkeleton.Row repeat={3} />
                 </div>
-            ) : (
-                <>
-                    {schemaLoading && (
-                        <div className="deprecated-space-y-2">
-                            <LemonSkeleton className="w-1/2 h-4" />
-                            <LemonSkeleton.Row repeat={3} />
-                        </div>
-                    )}
-                    {showForm && (
-                        <SyncMethodForm
-                            saveButtonIsLoading={saveButtonIsLoading || webhookLoading}
-                            schema={{
-                                table: currentSyncMethodModalSchema.name,
-                                should_sync: currentSyncMethodModalSchema.should_sync,
-                                sync_type: currentSyncMethodModalSchema.sync_type,
-                                sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
-                                incremental_field: currentSyncMethodModalSchema.incremental_field ?? null,
-                                incremental_field_type: currentSyncMethodModalSchema.incremental_field_type ?? null,
-                                incremental_available: schemaIncrementalFields.incremental_available,
-                                append_available: schemaIncrementalFields.append_available,
-                                incremental_fields: schemaIncrementalFields.incremental_fields,
-                                supports_webhooks: supportsWebhooks,
-                            }}
-                            onClose={() => {
-                                resetSchemaIncrementalFields()
-                                closeSyncMethodModal()
-                            }}
-                            onSave={(syncType, incrementalField, incrementalFieldType) => {
-                                const schemaUpdate = {
-                                    ...currentSyncMethodModalSchema,
-                                    should_sync: true,
-                                    sync_type: syncType,
-                                    incremental_field: syncType === 'full_refresh' ? null : incrementalField,
-                                    incremental_field_type: syncType === 'full_refresh' ? null : incrementalFieldType,
-                                    sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
-                                }
-                                updateSchema(schemaUpdate)
-
-                                if (syncType === 'incremental' && supportsWebhooks) {
-                                    void handleWebhookSetup()
-                                }
-                            }}
-                        />
-                    )}
-                </>
+            )}
+            {showForm && (
+                <SyncMethodForm
+                    saveButtonIsLoading={saveButtonIsLoading}
+                    schema={{
+                        table: currentSyncMethodModalSchema.name,
+                        should_sync: currentSyncMethodModalSchema.should_sync,
+                        sync_type: currentSyncMethodModalSchema.sync_type,
+                        sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
+                        incremental_field: currentSyncMethodModalSchema.incremental_field ?? null,
+                        incremental_field_type: currentSyncMethodModalSchema.incremental_field_type ?? null,
+                        incremental_available: schemaIncrementalFields.incremental_available,
+                        append_available: schemaIncrementalFields.append_available,
+                        incremental_fields: schemaIncrementalFields.incremental_fields,
+                        supports_webhooks: schemaIncrementalFields?.supports_webhooks ?? false,
+                    }}
+                    onClose={() => {
+                        resetSchemaIncrementalFields()
+                        closeSyncMethodModal()
+                    }}
+                    onSave={(syncType, incrementalField, incrementalFieldType) => {
+                        updateSchema({
+                            ...currentSyncMethodModalSchema,
+                            should_sync: true,
+                            sync_type: syncType,
+                            incremental_field: syncType === 'full_refresh' ? null : incrementalField,
+                            incremental_field_type: syncType === 'full_refresh' ? null : incrementalFieldType,
+                            sync_time_of_day: currentSyncMethodModalSchema.sync_time_of_day ?? '00:00:00',
+                        })
+                    }}
+                />
             )}
         </LemonModal>
     )
-}
-
-function WebhookSetupCaption({ sourceType }: { sourceType: string }): JSX.Element | null {
-    const { availableSources } = useValues(availableSourcesDataLogic)
-
-    const caption = availableSources?.[sourceType]?.webhookSetupCaption
-    if (!caption) {
-        return null
-    }
-
-    return <LemonMarkdown className="text-sm">{caption}</LemonMarkdown>
 }
 
 const AnchorTime = ({

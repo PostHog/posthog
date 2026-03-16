@@ -337,6 +337,12 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
     prefixes_set = set(RESOURCE_TO_STRIPE_WEBHOOK_EVENT.values())
     filtered_events = [e for e in possible_event_values if any(e.startswith(f"{p}.") for p in prefixes_set)]
 
+    if not filtered_events:
+        return WebhookCreationResult(
+            success=False,
+            error="Could not determine valid webhook events. Please create the webhook manually.",
+        )
+
     try:
         client = StripeClient(
             config.stripe_secret_key,
