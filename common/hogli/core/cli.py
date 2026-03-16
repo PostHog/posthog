@@ -284,6 +284,8 @@ except ImportError:
 
 def _fire_telemetry(duration_s: float, exit_code: int) -> None:
     """Send a command_executed telemetry event. Never raises."""
+    if _telemetry_command is None and exit_code != 0:
+        return
     try:
         props: dict[str, Any] = {
             "command": _telemetry_command,
@@ -316,6 +318,7 @@ def main() -> None:
         exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
     finally:
         _fire_telemetry(_time.monotonic() - start, exit_code)
+        telemetry.flush()
     if exit_code != 0:
         raise SystemExit(exit_code)
 

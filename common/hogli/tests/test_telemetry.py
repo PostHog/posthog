@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import json
+import time
 import uuid
 from pathlib import Path
 
@@ -85,26 +86,28 @@ class TestTrack:
                 {"POSTHOG_TELEMETRY_HOST": "http://localhost", "POSTHOG_TELEMETRY_API_KEY": "test-key"},
                 clear=False,
             ),
-            patch("hogli.telemetry.threading") as mock_threading,
+            patch.object(telemetry, "_post_event") as mock_post,
         ):
-            mock_thread = MagicMock()
-            mock_threading.Thread.return_value = mock_thread
+            telemetry._pending_threads.clear()
             telemetry.track("command_executed", {"command": "test"})
-            mock_threading.Thread.assert_called_once()
-            mock_thread.start.assert_called_once()
-            # Verify thread was created as daemon
-            _, kwargs = mock_threading.Thread.call_args
-            assert kwargs["daemon"] is True
+            assert len(telemetry._pending_threads) == 1
+            telemetry.flush(timeout=1.0)
+            mock_post.assert_called_once()
+            host, payload = mock_post.call_args[0]
+            assert host == "http://localhost"
+            assert payload["api_key"] == "test-key"
 
     def test_noops_when_disabled(self, tmp_path):
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"enabled": False}))
         with (
             patch.object(telemetry, "_get_config_path", return_value=config_path),
-            patch("hogli.telemetry.threading") as mock_threading,
+            patch.object(telemetry, "_post_event") as mock_post,
         ):
+            telemetry._pending_threads.clear()
             telemetry.track("command_executed")
-            mock_threading.Thread.assert_not_called()
+            assert len(telemetry._pending_threads) == 0
+            mock_post.assert_not_called()
 
     def test_correct_payload_structure(self, tmp_path):
         config_path = tmp_path / "config.json"
@@ -112,13 +115,12 @@ class TestTrack:
         with (
             patch.object(telemetry, "_get_config_path", return_value=config_path),
             patch.dict(os.environ, {"POSTHOG_TELEMETRY_API_KEY": "test-key"}, clear=False),
-            patch("hogli.telemetry.threading") as mock_threading,
+            patch.object(telemetry, "_post_event") as mock_post,
         ):
-            mock_thread = MagicMock()
-            mock_threading.Thread.return_value = mock_thread
+            telemetry._pending_threads.clear()
             telemetry.track("command_executed", {"command": "test"})
-            _, kwargs = mock_threading.Thread.call_args
-            _host, payload = kwargs["args"]
+            telemetry.flush(timeout=1.0)
+            host, payload = mock_post.call_args[0]
             assert payload["api_key"] == "test-key"
             assert payload["distinct_id"] == "test-id-123"
             assert payload["event"] == "command_executed"
@@ -146,6 +148,43 @@ class TestTrack:
             # is_enabled returns True (default), get_anonymous_id creates new one
             # Should not raise
             telemetry.track("command_executed")
+
+
+class TestFlush:
+    def test_joins_pending_threads(self, tmp_path):
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id"}))
+        with (
+            patch.object(telemetry, "_get_config_path", return_value=config_path),
+            patch.object(telemetry, "_post_event"),
+        ):
+            telemetry._pending_threads.clear()
+            telemetry.track("test_event")
+            assert len(telemetry._pending_threads) > 0
+            telemetry.flush(timeout=1.0)
+            assert len(telemetry._pending_threads) == 0
+
+    def test_respects_timeout(self, tmp_path):
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id"}))
+
+        def slow_post(host, payload):
+            time.sleep(5)
+
+        with (
+            patch.object(telemetry, "_get_config_path", return_value=config_path),
+            patch.object(telemetry, "_post_event", side_effect=slow_post),
+        ):
+            telemetry._pending_threads.clear()
+            telemetry.track("test_event")
+            start = time.monotonic()
+            telemetry.flush(timeout=0.1)
+            elapsed = time.monotonic() - start
+            assert elapsed < 1.0
+
+    def test_noops_when_no_pending(self):
+        telemetry._pending_threads.clear()
+        telemetry.flush(timeout=1.0)  # Should not raise
 
 
 class TestFirstRunNotice:

@@ -14,7 +14,9 @@ Config file: $XDG_CONFIG_HOME/posthog/hogli_telemetry.json
 from __future__ import annotations
 
 import os
+import sys
 import json
+import time as _time
 import uuid
 import threading
 from datetime import UTC, datetime
@@ -144,19 +146,45 @@ def track(event: str, properties: dict[str, Any] | None = None) -> None:
         "timestamp": datetime.now(UTC).isoformat(),
     }
 
+    _debug(f"track: {event} → {host}/capture/", payload)
+
     thread = threading.Thread(target=_post_event, args=(host, payload), daemon=True)
     thread.start()
+    _pending_threads.append(thread)
+
+
+_pending_threads: list[threading.Thread] = []
+
+
+def flush(timeout: float = 0.2) -> None:
+    """Block until pending telemetry threads complete or *timeout* elapses."""
+    deadline = _time.monotonic() + timeout
+    while _pending_threads:
+        thread = _pending_threads.pop(0)
+        remaining = deadline - _time.monotonic()
+        if remaining <= 0:
+            break
+        thread.join(timeout=remaining)
+
+
+def _debug(msg: str, payload: dict[str, Any] | None = None) -> None:
+    if os.environ.get("HOGLI_DEBUG") != "1":
+        return
+    sys.stderr.write(f"[telemetry] {msg}\n")
+    if payload:
+        sys.stderr.write(f"[telemetry] payload: {json.dumps(payload, indent=2)}\n")
 
 
 def _post_event(host: str, payload: dict[str, Any]) -> None:
     """POST the event payload to the capture endpoint."""
     try:
-        import requests  # lazy: avoid import cost when telemetry is disabled
+        import requests
 
-        requests.post(
+        resp = requests.post(
             f"{host}/capture/",
             json=payload,
             timeout=2,
         )
-    except Exception:
-        pass
+        _debug(f"POST {host}/capture/ → {resp.status_code}")
+    except Exception as exc:
+        _debug(f"POST failed: {exc}")
