@@ -432,7 +432,7 @@ export function SharingModalContent({
                     </>
                 )}
             </div>
-            {embedCode && (
+            {sharingConfiguration?.enabled && embedCode && (
                 <>
                     <LemonDivider />
                     <TitleWithIcon

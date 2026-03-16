@@ -58,13 +58,7 @@ function ExportHeatmap(): JSX.Element {
     )
 }
 
-function SharedDashboardAutoRefresh({
-    dashboardId,
-    enabled,
-}: {
-    dashboardId: number
-    enabled: boolean
-}): JSX.Element | null {
+function SharedDashboardAutoRefresh({ dashboardId }: { dashboardId: number }): JSX.Element | null {
     const { setAutoRefresh, setPageVisibility } = dashboardLogic({
         id: dashboardId,
         placement: DashboardPlacement.Public,
@@ -74,10 +68,8 @@ function SharedDashboardAutoRefresh({
     usePageVisibilityCb(setPageVisibility)
 
     useEffect(() => {
-        if (enabled) {
-            setAutoRefresh(true, AUTO_REFRESH_INITIAL_INTERVAL_SECONDS)
-        }
-    }, [enabled, setAutoRefresh])
+        setAutoRefresh(true, AUTO_REFRESH_INITIAL_INTERVAL_SECONDS)
+    }, [setAutoRefresh])
 
     return null
 }
@@ -173,7 +165,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                 ) : dashboard ? (
                     <>
                         {type !== ExportType.Image && autoRefreshAllowed && (
-                            <SharedDashboardAutoRefresh dashboardId={dashboard.id} enabled={autoRefreshAllowed} />
+                            <SharedDashboardAutoRefresh dashboardId={dashboard.id} />
                         )}
                         <Dashboard
                             id={String(dashboard.id)}
