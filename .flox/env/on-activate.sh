@@ -31,17 +31,23 @@ _save_failure_log() {
   local label="$1"
   local tmpfile="$2"
   local logdir="$FLOX_ENV_CACHE/activation-error-logs"
-  mkdir -p "$logdir"
-
   local slug="${label// /-}"
   local logfile="$logdir/${slug}-$(date +%Y%m%d-%H%M%S).log"
-  {
-    echo "── ${label} (failed) ──"
-    _strip_ansi < "$tmpfile"
-    echo ""
-  } > "$logfile"
-  echo -e "    ${C_DIM}$(tail -n 15 "$tmpfile" | _strip_ansi)${C_RESET}"
-  echo -e "    ${C_DIM}Full log: ${logfile}${C_RESET}"
+
+  local log_saved=0
+  # Best-effort: failures here must not abort the script under `set -euo pipefail`.
+  if mkdir -p "$logdir" 2>/dev/null; then
+    {
+      echo "── ${label} (failed) ──"
+      _strip_ansi < "$tmpfile"
+      echo ""
+    } 2>/dev/null > "$logfile" && log_saved=1 || true
+  fi
+
+  printf '    %b%s%b\n' "${C_DIM}" "$(tail -n 15 "$tmpfile" 2>/dev/null | _strip_ansi || true)" "${C_RESET}"
+  if [[ "$log_saved" -eq 1 ]]; then
+    printf '    %bFull log: %s%b\n' "${C_DIM}" "$logfile" "${C_RESET}"
+  fi
 }
 
 # ── Step runner ─────────────────────────────────────────────────────
