@@ -9,7 +9,6 @@ mod tests {
     use crate::{
         api::types::{FlagValue, LegacyFlagsResponse},
         cohorts::cohort_cache_manager::CohortCacheManager,
-        cohorts::membership::NoOpCohortMembershipProvider,
         flags::{
             flag_group_type_mapping::GroupTypeMappingCache,
             flag_match_reason::FeatureFlagMatchReason,
@@ -95,7 +94,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -117,7 +115,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -139,7 +136,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -203,7 +199,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let flags = FeatureFlagList {
@@ -279,7 +274,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let flags = FeatureFlagList {
@@ -392,7 +386,6 @@ mod tests {
             cohort_cache,
             None,
             Some(groups),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let flags = FeatureFlagList {
@@ -497,7 +490,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let flags = FeatureFlagList {
@@ -584,7 +576,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let flags = FeatureFlagList {
@@ -755,7 +746,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
@@ -919,7 +909,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let flags = FeatureFlagList {
@@ -1054,7 +1043,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let flags = FeatureFlagList {
@@ -1230,7 +1218,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         let flags = FeatureFlagList {
             flags: vec![leaf_flag.clone(), parent_flag.clone()],
@@ -1337,7 +1324,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
-            Arc::new(NoOpCohortMembershipProvider),
         );
         let variant = matcher.get_matching_variant(&flag, None, &None).unwrap();
         assert!(variant.is_some(), "No variant was selected");
@@ -1374,7 +1360,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let variant = matcher.get_matching_variant(&flag, None, &None).unwrap();
@@ -1426,7 +1411,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         let (is_match, reason) = matcher
             .is_condition_match(&flag, &condition, &HashMap::new(), None, &None)
@@ -1486,7 +1470,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         matcher
             .flag_evaluation_state
@@ -1595,7 +1578,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         reset_fetch_calls_count();
@@ -1678,7 +1660,6 @@ mod tests {
                     cohort_cache_clone,
                     None,
                     None,
-                    Arc::new(NoOpCohortMembershipProvider),
                 );
                 matcher.get_match(&flag_clone, None, None, &None).unwrap()
             }));
@@ -1761,7 +1742,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -1812,7 +1792,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -1860,7 +1839,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -1915,7 +1893,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let mut control_count = 0;
@@ -1994,7 +1971,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -2059,7 +2035,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -2106,7 +2081,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let (is_match, reason) = matcher
@@ -2187,7 +2161,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -2421,7 +2394,6 @@ mod tests {
                 cohort_cache.clone(),
                 None,
                 None,
-                Arc::new(NoOpCohortMembershipProvider),
             );
 
             matcher
@@ -2537,7 +2509,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -2548,7 +2519,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -2559,7 +2529,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher_test_id
@@ -2680,7 +2649,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -2792,7 +2760,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let mut matcher_example_id = FeatureFlagMatcher::new(
@@ -2803,7 +2770,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let mut matcher_another_id = FeatureFlagMatcher::new(
@@ -2814,7 +2780,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher_test_id
@@ -2946,7 +2911,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -3043,7 +3007,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -3140,7 +3103,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -3258,7 +3220,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -3355,7 +3316,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -3452,7 +3412,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -3541,7 +3500,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -3625,7 +3583,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -3724,7 +3681,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
@@ -3817,7 +3773,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -3913,7 +3868,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(flags, None, None, None, Uuid::new_v4(), None, false)
         .await
@@ -4044,7 +3998,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -4153,7 +4106,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -4385,7 +4337,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -4410,7 +4361,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher2
@@ -4527,7 +4477,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
         assert_eq!(
@@ -4551,7 +4500,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
         assert_eq!(
@@ -4575,7 +4523,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         let result = matcher.get_match(&flag, None, None, &None).unwrap();
         assert_eq!(
@@ -4671,7 +4618,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -4738,7 +4684,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result = matcher
@@ -4813,7 +4758,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_numeric),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher_numeric
@@ -4834,7 +4778,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_string),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher_string
@@ -4867,7 +4810,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_float),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher_float
@@ -4889,7 +4831,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups_bool),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher_bool
@@ -5034,7 +4975,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -5060,7 +5000,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -5086,7 +5025,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -5160,7 +5098,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher
@@ -5218,7 +5155,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         matcher
             .prepare_flag_evaluation_state(&[&flag])
@@ -5240,7 +5176,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         matcher_same_device
             .prepare_flag_evaluation_state(&[&flag])
@@ -5264,7 +5199,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         matcher_low
             .prepare_flag_evaluation_state(&[&flag])
@@ -5298,7 +5232,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         matcher
             .prepare_flag_evaluation_state(&[&flag])
@@ -5320,7 +5253,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         matcher_high
             .prepare_flag_evaluation_state(&[&flag])
@@ -5356,7 +5288,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         matcher
             .prepare_flag_evaluation_state(&[&flag])
@@ -5378,7 +5309,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         matcher_low
             .prepare_flag_evaluation_state(&[&flag])
@@ -5499,7 +5429,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let flags = FeatureFlagList {
@@ -5548,7 +5477,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result2 = matcher2
@@ -5585,7 +5513,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result3 = matcher3
@@ -5624,7 +5551,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result4 = matcher4
@@ -5780,7 +5706,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let flags = FeatureFlagList {
@@ -5828,7 +5753,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result2 = matcher2
@@ -5871,7 +5795,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result3 = matcher3
@@ -5910,7 +5833,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache.clone()),
             Some(groups.clone()),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result4 = matcher4
@@ -5953,7 +5875,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             Some(groups),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let result5 = matcher5
@@ -6060,7 +5981,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         // Pass email as a property override to avoid database lookup
@@ -6091,7 +6011,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         let mut other_properties = HashMap::new();
@@ -6137,7 +6056,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         // Create flags: one with experience continuity enabled, one without
@@ -6240,16 +6158,8 @@ mod tests {
             .expect("Failed to insert team in pg");
 
         let distinct_id = "user_distinct_id".to_string();
-        let mut matcher = FeatureFlagMatcher::new(
-            distinct_id,
-            None,
-            team.id,
-            router,
-            cohort_cache,
-            None,
-            None,
-            Arc::new(NoOpCohortMembershipProvider),
-        );
+        let mut matcher =
+            FeatureFlagMatcher::new(distinct_id, None, team.id, router, cohort_cache, None, None);
 
         // A filtered-out flag with experience continuity should not trigger
         // hash-key-override error handling or appear in the response.
@@ -6387,7 +6297,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         // The base flag is user-disabled (active=false in DB), so it's in the filter set
@@ -6489,7 +6398,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         matcher.filtered_out_flag_ids = filtered_out;
 
@@ -6586,7 +6494,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         matcher.filtered_out_flag_ids = filtered_out;
 
@@ -6688,7 +6595,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         // The standalone flag is user-disabled (active=false in DB), so it's in the filter set
@@ -6782,7 +6688,6 @@ mod tests {
             cohort_cache,
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         );
         matcher.filtered_out_flag_ids = filtered_out;
 
@@ -6877,7 +6782,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -6970,7 +6874,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7076,7 +6979,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7187,7 +7089,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7282,7 +7183,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7417,7 +7317,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7556,7 +7455,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7701,7 +7599,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7804,7 +7701,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -7916,7 +7812,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -8021,7 +7916,6 @@ mod tests {
             cohort_cache.clone(),
             None,
             None,
-            Arc::new(NoOpCohortMembershipProvider),
         )
         .evaluate_all_feature_flags(
             flags,
@@ -8178,7 +8072,6 @@ mod tests {
             cohort_cache.clone(),
             Some(group_type_mapping_cache),
             Some(groups),
-            Arc::new(NoOpCohortMembershipProvider),
         );
 
         matcher

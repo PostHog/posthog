@@ -120,16 +120,21 @@ pub async fn serve<F>(
     ));
 
     // Initialize the cohort membership provider for realtime/behavioral cohorts.
-    // Uses the behavioral cohorts DB pool when configured, otherwise falls back to NoOp
-    // which conservatively returns false for all membership checks.
+    // Requires both the behavioral cohorts DB pool AND the explicit feature gate.
+    // When the gate is off (default), NoOp is used regardless of DB availability,
+    // so no realtime cohort queries hit the hot path until you flip the env var.
     let cohort_membership_provider: Arc<dyn CohortMembershipProvider> =
-        if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
-            let realtime = RealtimeCohortMembershipProvider::new(pool);
-            Arc::new(CachedCohortMembershipProvider::new(
-                realtime,
-                Some(config.cohort_membership_cache_ttl_seconds),
-                Some(config.cohort_membership_cache_max_entries),
-            ))
+        if config.enable_realtime_cohort_evaluation {
+            if let Some(pool) = database_pools.behavioral_cohorts_reader.clone() {
+                let realtime = RealtimeCohortMembershipProvider::new(pool);
+                Arc::new(CachedCohortMembershipProvider::new(
+                    realtime,
+                    Some(config.cohort_membership_cache_ttl_seconds),
+                    Some(config.cohort_membership_cache_max_entries),
+                ))
+            } else {
+                Arc::new(NoOpCohortMembershipProvider)
+            }
         } else {
             Arc::new(NoOpCohortMembershipProvider)
         };

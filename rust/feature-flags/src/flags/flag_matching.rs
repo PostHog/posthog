@@ -3,7 +3,7 @@ use crate::api::types::{FlagDetails, FlagValue, FlagsResponse, FromFeatureAndMat
 use crate::cohorts::cohort_cache_manager::CohortCacheManager;
 use crate::cohorts::cohort_models::{Cohort, CohortId};
 use crate::cohorts::cohort_operations::{apply_cohort_membership_logic, evaluate_dynamic_cohorts};
-use crate::cohorts::membership::CohortMembershipProvider;
+use crate::cohorts::membership::{CohortMembershipProvider, NoOpCohortMembershipProvider};
 use crate::database::PostgresRouter;
 use crate::flags::flag_group_type_mapping::{GroupTypeIndex, GroupTypeMappingCache};
 use crate::flags::flag_match_reason::FeatureFlagMatchReason;
@@ -296,7 +296,6 @@ impl FeatureFlagMatcher {
         cohort_cache: Arc<CohortCacheManager>,
         group_type_mapping_cache: Option<GroupTypeMappingCache>,
         groups: Option<HashMap<String, Value>>,
-        cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     ) -> Self {
         FeatureFlagMatcher {
             distinct_id,
@@ -308,7 +307,7 @@ impl FeatureFlagMatcher {
                 .unwrap_or_else(|| GroupTypeMappingCache::new(team_id)),
             groups: groups.unwrap_or_default(),
             flag_evaluation_state: FlagEvaluationState::default(),
-            cohort_membership_provider,
+            cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
             parallel_eval_threshold: DEFAULT_PARALLEL_EVAL_THRESHOLD,
             rayon_dispatcher: None,
             skip_writes: false,
@@ -328,6 +327,14 @@ impl FeatureFlagMatcher {
 
     pub fn with_skip_writes(mut self, skip_writes: bool) -> Self {
         self.skip_writes = skip_writes;
+        self
+    }
+
+    pub fn with_cohort_membership_provider(
+        mut self,
+        provider: Arc<dyn CohortMembershipProvider>,
+    ) -> Self {
+        self.cohort_membership_provider = provider;
         self
     }
 
@@ -1846,6 +1853,7 @@ impl FeatureFlagMatcher {
     /// Prepares all database-sourced data needed for flag evaluation.
     /// This includes:
     /// - Static cohort memberships
+    /// - Realtime cohort memberships (via behavioral cohorts database)
     /// - Group type mappings
     /// - Person and group properties
     ///
@@ -1860,6 +1868,8 @@ impl FeatureFlagMatcher {
         self.flag_evaluation_state.set_cohorts(cohorts.clone());
 
         // Get static cohort IDs
+        // NOTE: relies on `is_static` and `uses_realtime_membership()` being mutually exclusive
+        // (a cohort with is_static=true should never have CohortType::Realtime/Behavioral).
         let static_cohort_ids: Vec<CohortId> = cohorts
             .iter()
             .filter(|c| c.is_static)
@@ -1912,34 +1922,33 @@ impl FeatureFlagMatcher {
                 log.realtime_cohorts_evaluated += realtime_cohort_ids.len();
             });
 
-            if let Some(person_uuid) = self.flag_evaluation_state.get_person_uuid() {
+            let all_non_member = || -> HashMap<CohortId, bool> {
+                realtime_cohort_ids.iter().map(|id| (*id, false)).collect()
+            };
+
+            let realtime_memberships = if let Some(person_uuid) =
+                self.flag_evaluation_state.get_person_uuid()
+            {
                 let query_labels = [("team_id".to_string(), self.team_id.to_string())];
                 let realtime_timer = timing_guard(FLAG_REALTIME_COHORT_QUERY_TIME, &query_labels);
                 let realtime_start = std::time::Instant::now();
 
-                match self
+                let result = self
                     .cohort_membership_provider
                     .check_memberships(self.team_id, person_uuid, &realtime_cohort_ids)
-                    .await
-                {
-                    Ok(realtime_results) => {
-                        let duration = realtime_start.elapsed();
-                        realtime_timer.fin();
-                        with_canonical_log(|log| {
-                            log.realtime_cohort_queries += 1;
-                            log.realtime_cohort_query_time_ms += duration.as_millis() as u64;
-                        });
-                        self.flag_evaluation_state
-                            .merge_cohort_matches(realtime_results);
-                    }
+                    .await;
+
+                let duration = realtime_start.elapsed();
+                realtime_timer.fin();
+                with_canonical_log(|log| {
+                    log.realtime_cohort_queries += 1;
+                    log.realtime_cohort_query_time_ms += duration.as_millis() as u64;
+                });
+
+                match result {
+                    Ok(memberships) => memberships,
                     Err(e) => {
-                        let duration = realtime_start.elapsed();
-                        realtime_timer.fin();
                         inc(FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER, &query_labels, 1);
-                        with_canonical_log(|log| {
-                            log.realtime_cohort_queries += 1;
-                            log.realtime_cohort_query_time_ms += duration.as_millis() as u64;
-                        });
                         warn!(
                             team_id = self.team_id,
                             person_uuid = %person_uuid,
@@ -1948,17 +1957,16 @@ impl FeatureFlagMatcher {
                             "Realtime cohort membership lookup failed, treating all as non-members"
                         );
                         // Graceful degradation: treat all realtime cohorts as non-members
-                        let fallback: HashMap<CohortId, bool> =
-                            realtime_cohort_ids.iter().map(|id| (*id, false)).collect();
-                        self.flag_evaluation_state.merge_cohort_matches(fallback);
+                        all_non_member()
                     }
                 }
             } else {
                 // No person UUID available (anonymous user). Realtime cohorts return false.
-                let fallback: HashMap<CohortId, bool> =
-                    realtime_cohort_ids.iter().map(|id| (*id, false)).collect();
-                self.flag_evaluation_state.merge_cohort_matches(fallback);
-            }
+                all_non_member()
+            };
+
+            self.flag_evaluation_state
+                .merge_cohort_matches(realtime_memberships);
         }
 
         Ok(())

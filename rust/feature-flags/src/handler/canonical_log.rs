@@ -212,8 +212,9 @@ pub struct FlagsCanonicalLogLine {
     pub static_cohort_queries: usize,
     /// Number of realtime cohort membership queries made to the behavioral cohorts database.
     pub realtime_cohort_queries: usize,
-    /// Count of realtime cohort IDs checked (may be zero even when realtime cohorts exist,
-    /// e.g. for anonymous users without a person UUID).
+    /// Count of realtime cohort IDs encountered during evaluation.
+    /// Incremented even for anonymous users (no person UUID), where no DB query is made.
+    /// Use `realtime_cohort_queries` to distinguish how many queries actually reached the DB.
     pub realtime_cohorts_evaluated: usize,
     /// Time spent on person property queries in milliseconds.
     pub person_query_time_ms: u64,

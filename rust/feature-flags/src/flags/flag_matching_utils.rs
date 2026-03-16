@@ -240,9 +240,6 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     let person_query_start = Instant::now();
     let person_query_timer = common_metrics::timing_guard(FLAG_PERSON_QUERY_TIME, &query_labels);
     let person = Person::from_distinct_id(&mut conn, team_id, &distinct_id).await?;
-    let (person_id, person_uuid, person_props) = person
-        .map(|p| (Some(p.id), Some(p.uuid), Some(p.properties)))
-        .unwrap_or((None, None, None));
     person_query_timer.fin();
     let person_query_duration = person_query_start.elapsed();
     with_canonical_log(|log| {
@@ -268,12 +265,10 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
         );
     }
     let person_processing_timer = common_metrics::timing_guard(FLAG_PERSON_PROCESSING_TIME, &[]);
-    if let Some(person_id) = person_id {
+    if let Some(ref person) = person {
         // NB: this is where we actually set our person ID and UUID in the flag evaluation state.
-        flag_evaluation_state.set_person_id(person_id);
-        if let Some(uuid) = person_uuid {
-            flag_evaluation_state.set_person_uuid(uuid);
-        }
+        flag_evaluation_state.set_person_id(person.id);
+        flag_evaluation_state.set_person_uuid(person.uuid);
         // If we have static cohort IDs to check and a valid person_id, do the cohort query
         if !static_cohort_ids.is_empty() {
             let cohort_query = r#"
@@ -293,7 +288,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             let cohort_timer = common_metrics::timing_guard(FLAG_COHORT_QUERY_TIME, &query_labels);
             let cohort_rows = sqlx::query(cohort_query)
                 .bind(&static_cohort_ids)
-                .bind(person_id)
+                .bind(person.id)
                 .fetch_all(&mut *conn)
                 .await?;
             cohort_timer.fin();
@@ -306,7 +301,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             if cohort_query_duration.as_millis() > 200 {
                 warn!(
                     duration_ms = cohort_query_duration.as_millis(),
-                    person_id = person_id,
+                    person_id = person.id,
                     cohort_count = static_cohort_ids.len(),
                     sql_summary =
                         "SELECT cohort membership with LEFT JOIN from UNNEST to cohortpeople",
@@ -315,7 +310,7 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
             } else {
                 info!(
                     duration_ms = cohort_query_duration.as_millis(),
-                    person_id = person_id,
+                    person_id = person.id,
                     cohort_count = static_cohort_ids.len(),
                     "Cohort query completed"
                 );
@@ -345,9 +340,9 @@ pub async fn fetch_and_locally_cache_all_relevant_properties(
     }
 
     // if we have person properties, set them
-    let mut all_person_properties: HashMap<String, Value> = if let Some(person_props) = person_props
-    {
-        person_props
+    let mut all_person_properties: HashMap<String, Value> = if let Some(ref person) = person {
+        person
+            .properties
             .as_object()
             .unwrap_or(&serde_json::Map::new())
             .iter()
