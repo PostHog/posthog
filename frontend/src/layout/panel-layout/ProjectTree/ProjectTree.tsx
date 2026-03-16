@@ -453,13 +453,13 @@ export function ProjectTree({
                 if (showDropdownMenu) {
                     if (item.name === 'Product analytics') {
                         return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
                                 <IconPlusSmall className="text-tertiary" />
                             </ButtonPrimitive>
                         )
                     } else if (item.name === 'Dashboards' || item.name === 'Session replay') {
                         return (
-                            <ButtonPrimitive iconOnly isSideActionRight className="z-2">
+                            <ButtonPrimitive iconOnly isSideActionRight className="z-2 -outline-offset-2">
                                 <IconChevronRight className="size-3 text-tertiary rotate-90" />
                             </ButtonPrimitive>
                         )
