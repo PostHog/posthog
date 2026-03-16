@@ -1,6 +1,8 @@
 from datetime import datetime
 
 from freezegun import freeze_time
+from rest_framework.exceptions import ValidationError
+
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -800,6 +802,18 @@ class TestLifecycleQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def _run_lifecycle_query(self, date_from, date_to, interval):
         return self._create_query_runner(date_from, date_to, interval).calculate()
+
+    def test_lifecycle_query_rejects_empty_series(self):
+        query = LifecycleQuery(
+            dateRange=DateRange(date_from="2020-01-09", date_to="2020-01-19"),
+            interval=IntervalType.DAY,
+            series=[],
+        )
+
+        with self.assertRaises(ValidationError) as context:
+            LifecycleQueryRunner(team=self.team, query=query)
+
+        self.assertIn("Lifecycle insights require at least one series.", str(context.exception))
 
     def test_lifecycle_query_whole_range(self):
         self._create_test_events()
