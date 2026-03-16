@@ -11518,8 +11518,7 @@ export namespace Schemas {
       readonly id: string;
       readonly source_id: string;
       readonly target_id: string;
-      /** @nullable */
-      dag?: string | null;
+      dag: string;
       properties?: unknown;
       readonly created_at: string;
       /** @nullable */
@@ -12200,6 +12199,10 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key: number;
+      disabled_data?: unknown | null;
+      sampling_rate?: number;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface ErrorTrackingSymbolSet {
@@ -17072,8 +17075,7 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name: string;
       type?: NodeTypeEnum;
-      /** @nullable */
-      dag?: string | null;
+      dag: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -20444,8 +20446,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_id?: string;
       readonly target_id?: string;
-      /** @nullable */
-      dag?: string | null;
+      dag?: string;
       properties?: unknown;
       readonly created_at?: string;
       /** @nullable */
@@ -20619,6 +20620,10 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key?: number;
+      disabled_data?: unknown | null;
+      sampling_rate?: number;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedErrorTrackingSymbolSet {
@@ -21381,8 +21386,7 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name?: string;
       type?: NodeTypeEnum;
-      /** @nullable */
-      dag?: string | null;
+      dag?: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
