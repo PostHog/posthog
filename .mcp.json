@@ -2,7 +2,7 @@
     "mcpServers": {
         "phrocs": {
             "command": "uv",
-            "args": ["run", "python", "bin/phrocs-mcp-server.py"]
+            "args": ["run", "python", "tools/phrocs/mcp_server.py"]
         }
     }
 }

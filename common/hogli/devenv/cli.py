@@ -169,7 +169,8 @@ def dev_intents() -> None:
 
 
 @cli.command(name="dev:setup", help="Interactive wizard to configure your dev environment")
-def dev_setup() -> None:
+@click.option("--log", "log_to_files", is_flag=True, help="Log process output to /tmp/posthog-*.log files")
+def dev_setup(log_to_files: bool) -> None:
     """Run the interactive setup wizard to configure your development environment."""
     from .wizard import run_setup_wizard
 
@@ -180,7 +181,7 @@ def dev_setup() -> None:
         click.echo("Are you in the PostHog repository root?", err=True)
         raise SystemExit(1)
 
-    run_setup_wizard(intent_map)
+    run_setup_wizard(intent_map, log_to_files=log_to_files)
 
 
 def _get_docker_profiles_from_config() -> list[str]:

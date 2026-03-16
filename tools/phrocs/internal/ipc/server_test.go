@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/posthog/posthog/phrocs/internal/config"
 	"github.com/posthog/posthog/phrocs/internal/process"
@@ -28,24 +27,23 @@ func testManager(t *testing.T, names ...string) *process.Manager {
 	return process.NewManager(cfg)
 }
 
-// startServe launches Serve in a background goroutine and waits until the
-// socket file is visible on disk (up to 1 s). Returns the socket path.
+// startServe launches Listen+Serve in a background goroutine. The listener is
+// cleaned up via t.Cleanup. Returns the socket path.
 func startServe(t *testing.T, mgr *process.Manager) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "test.sock")
-	go func() {
-		_ = Serve(path, mgr)
-	}()
-
-	deadline := time.Now().Add(time.Second)
-	for time.Now().Before(deadline) {
-		if _, err := os.Stat(path); err == nil {
-			return path
-		}
-		time.Sleep(2 * time.Millisecond)
+	ln, err := Listen(path)
+	if err != nil {
+		t.Fatalf("Listen: %v", err)
 	}
-	t.Fatal("timed out waiting for IPC socket to appear")
-	return ""
+	t.Cleanup(func() {
+		_ = ln.Close()
+		_ = os.Remove(path)
+	})
+	go func() {
+		_ = Serve(ln, mgr)
+	}()
+	return path
 }
 
 // send connects to the socket, writes req as newline-delimited JSON, and

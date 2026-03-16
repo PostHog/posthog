@@ -74,9 +74,18 @@ func main() {
 	mgr.SetSend(p.Send)
 	go mgr.StartAll()
 
+	ln, err := ipc.Listen(ipc.SocketPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "phrocs: ipc: %v\n", err)
+		os.Exit(1)
+	}
+	defer func() {
+		_ = ln.Close()
+		_ = os.Remove(ipc.SocketPath)
+	}()
 	go func() {
-		if err := ipc.Serve(ipc.SocketPath, mgr); err != nil {
-			fmt.Fprintf(os.Stderr, "phrocs: ipc: %v\n", err)
+		if err := ipc.Serve(ln, mgr); err != nil {
+			// Accept returns an error when the listener is closed on exit; ignore it.
 		}
 	}()
 

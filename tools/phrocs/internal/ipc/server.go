@@ -42,37 +42,41 @@ type request struct {
 	Grep    string `json:"grep,omitempty"`
 }
 
-// Serve starts the Unix domain socket server at path and handles requests
-// using mgr. It removes any stale socket file before binding. Blocks until
-// the listener is closed; intended to be run in a goroutine.
-func Serve(path string, mgr *process.Manager) error {
+// Binds a Unix domain socket at path and returns the listener.
+// It removes any stale socket owned by the current user before binding.
+// The caller is responsible for closing the listener and removing the socket file.
+func Listen(path string) (net.Listener, error) {
 	// Only remove an existing socket file if it is a Unix socket owned by the
 	// current user. This avoids clobbering arbitrary files in /tmp.
 	if fi, err := os.Lstat(path); err == nil {
 		if fi.Mode()&os.ModeSocket == 0 {
-			return fmt.Errorf("ipc: existing path is not a socket: %s", path)
+			return nil, fmt.Errorf("ipc: existing path is not a socket: %s", path)
 		}
 		if stat, ok := fi.Sys().(*syscall.Stat_t); ok {
 			if stat.Uid != uint32(os.Getuid()) {
-				return fmt.Errorf("ipc: existing socket not owned by current user: %s", path)
+				return nil, fmt.Errorf("ipc: existing socket not owned by current user: %s", path)
 			}
 		}
 		if err := os.Remove(path); err != nil {
-			return err
+			return nil, err
 		}
 	}
 
 	ln, err := net.Listen("unix", path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// Restrict socket permissions so only the owner can connect, independent of umask
 	if err := os.Chmod(path, 0o600); err != nil {
 		_ = ln.Close()
-		return err
+		return nil, err
 	}
-	defer func() { _ = ln.Close() }()
+	return ln, nil
+}
 
+// Accepts connections on ln and handles requests using mgr.
+// Blocks until the listener is closed; intended to be run in a goroutine.
+func Serve(ln net.Listener, mgr *process.Manager) error {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
