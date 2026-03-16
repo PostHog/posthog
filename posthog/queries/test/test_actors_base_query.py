@@ -56,7 +56,7 @@ class TestActorsBaseQuery(ClickhouseTestMixin, APIBaseTest):
         persons_queryset, serialized = get_people(self.team, people_ids)
 
         assert len(serialized) == 2
-        assert persons_queryset.count() == 2
+        assert len(persons_queryset) == 2
 
     @snapshot_postgres_queries
     def test_get_people_with_value_per_actor(self):

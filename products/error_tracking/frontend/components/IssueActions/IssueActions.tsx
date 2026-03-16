@@ -137,6 +137,11 @@ export function IssueActions({ issues, selectedIds }: IssueActionsProps): JSX.El
                         </LemonButton>
                     )}
                 </AssigneeSelect>
+                {issues.some((issue) => selectedIds.includes(issue.id) && issue.assignee != null) && (
+                    <LemonButton type="secondary" size="small" onClick={() => assignIssues(selectedIds, null)}>
+                        Unassign
+                    </LemonButton>
+                )}
             </div>
             <LemonButton type="secondary" size="small" onClick={excludeSelectedIssues}>
                 Hide from search

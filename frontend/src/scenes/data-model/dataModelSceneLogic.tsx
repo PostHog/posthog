@@ -1,4 +1,4 @@
-import { actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 
 import api from 'lib/api'
@@ -13,7 +13,11 @@ import { Node } from './types'
 export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
     path(['scenes', 'data-model', 'dataModelSceneLogic']),
     connect(() => ({
-        values: [databaseTableListLogic, ['posthogTablesMap', 'viewsMapById', 'dataWarehouseTablesMapById']],
+        values: [
+            databaseTableListLogic,
+            ['database', 'posthogTablesMap', 'viewsMapById', 'dataWarehouseTablesMapById'],
+        ],
+        actions: [databaseTableListLogic, ['loadDatabase']],
     })),
     actions({
         traverseAncestors: (viewId: DataWarehouseSavedQuery['id'], level: number) => ({ viewId, level }),
@@ -98,4 +102,9 @@ export const dataModelSceneLogic = kea<dataModelSceneLogicType>([
             })
         },
     })),
+    afterMount(({ actions, values }) => {
+        if (!values.database) {
+            actions.loadDatabase()
+        }
+    }),
 ])

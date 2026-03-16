@@ -70,7 +70,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,
         allow_api_keys=True,
     ),
-    "slack-twig": ProductConfig(
+    "slack-posthog-code": ProductConfig(
         allowed_application_ids=None,
         allowed_models=frozenset({"claude-haiku-4-5"}),
         allow_api_keys=True,
@@ -103,6 +103,7 @@ ALLOWED_PRODUCTS: Final[frozenset[str]] = frozenset(PRODUCTS.keys())
 PRODUCT_ALIASES: Final[dict[str, str]] = {
     "array": "posthog_code",
     "twig": "posthog_code",
+    "slack-twig": "slack-posthog-code",
 }
 
 

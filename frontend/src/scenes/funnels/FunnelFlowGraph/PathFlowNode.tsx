@@ -15,35 +15,20 @@ import { funnelFlowGraphLogic } from './funnelFlowGraphLogic'
 import { PathFlowNodeData, PATH_NODE_HEIGHT, PATH_NODE_WIDTH } from './pathFlowUtils'
 import { usePathNodeAddability } from './usePathNodeAddability'
 
-export const PathFlowNode = React.memo(function PathFlowNode({
-    data,
-    id,
-}: {
+export interface PathFlowNodeProps {
     data: PathFlowNodeData
     id: string
-}): JSX.Element {
-    const addable = usePathNodeAddability()
+}
 
-    const { insightProps } = useValues(insightLogic)
-    const { expandedPath, funnelNodes } = useValues(funnelFlowGraphLogic({ ...insightProps, isProfileMode: false }))
-
-    const { stagedNodeIds, stagedNodeOptionalMap } = useValues(journeyEditorLogic)
-    const { stagePathNode, unstagePathNode, toggleStagedNodeOptional } = useActions(journeyEditorLogic)
-
-    const isStaged = stagedNodeIds.has(id)
-    const isOptional = stagedNodeOptionalMap.get(id) ?? false
-    const showAddButton = addable && !isStaged
-    const showStagedIndicator = isStaged
-
+export function PathFlowNodeShell({
+    id,
+    data,
+    className,
+    children,
+}: PathFlowNodeProps & { className?: string; children?: React.ReactNode }): JSX.Element {
     return (
         <div
-            className={`flex items-center rounded border px-2 text-xs ${
-                isStaged
-                    ? isOptional
-                        ? 'border-dashed border-success bg-success-highlight'
-                        : 'border-success bg-success-highlight'
-                    : 'border-border bg-bg-light'
-            }`}
+            className={className ?? 'flex items-center rounded border border-primary bg-bg-light px-2 text-xs'}
             // eslint-disable-next-line react/forbid-dom-props
             style={{ width: PATH_NODE_WIDTH, height: PATH_NODE_HEIGHT }}
         >
@@ -57,6 +42,36 @@ export const PathFlowNode = React.memo(function PathFlowNode({
                 {data.count}
             </span>
 
+            {children}
+        </div>
+    )
+}
+
+export const PathFlowNode = React.memo(function PathFlowNode({ data, id }: PathFlowNodeProps): JSX.Element {
+    const addable = usePathNodeAddability()
+
+    const { insightProps } = useValues(insightLogic)
+    const { expandedPath, funnelNodes } = useValues(funnelFlowGraphLogic(insightProps))
+
+    const { stagedNodeIds, stagedNodeOptionalMap } = useValues(journeyEditorLogic)
+    const { stagePathNode, unstagePathNode, toggleStagedNodeOptional } = useActions(journeyEditorLogic)
+
+    const isStaged = stagedNodeIds.has(id)
+    const isOptional = stagedNodeOptionalMap.get(id) ?? false
+    const showAddButton = addable && !isStaged
+
+    return (
+        <PathFlowNodeShell
+            id={id}
+            data={data}
+            className={`flex items-center rounded border px-2 text-xs ${
+                isStaged
+                    ? isOptional
+                        ? 'border-dashed border-success bg-success-highlight'
+                        : 'border-success bg-success-highlight'
+                    : 'border-primary bg-bg-light'
+            }`}
+        >
             {showAddButton && expandedPath && (
                 <LemonButton
                     size="xsmall"
@@ -66,7 +81,7 @@ export const PathFlowNode = React.memo(function PathFlowNode({
                     tooltip="Add as funnel step"
                 />
             )}
-            {showStagedIndicator && (
+            {isStaged && (
                 <>
                     <More
                         size="xsmall"
@@ -91,6 +106,6 @@ export const PathFlowNode = React.memo(function PathFlowNode({
                     />
                 </>
             )}
-        </div>
+        </PathFlowNodeShell>
     )
 })

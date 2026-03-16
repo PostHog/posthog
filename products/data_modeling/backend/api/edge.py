@@ -18,7 +18,7 @@ class EdgeSerializer(serializers.ModelSerializer):
             "id",
             "source_id",
             "target_id",
-            "dag_id_text",
+            "dag",
             "properties",
             "created_at",
             "updated_at",
@@ -36,15 +36,16 @@ class EdgePagination(PageNumberPagination):
 
 class EdgeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     scope_object = "INTERNAL"
-    queryset = Edge.objects.all()
+    queryset = Edge.objects.select_related("dag").all()
     serializer_class = EdgeSerializer
     pagination_class = EdgePagination
     filter_backends = [filters.SearchFilter]
-    search_fields = ["dag_id_text"]
+    search_fields = ["dag__name"]
     ordering = "-created_at"
 
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(team_id=self.team_id, dag_id_text=f"posthog_{self.team_id}").order_by(self.ordering)
+        # TODO(andrew): remove the dag name filter after you have split up team 2 into multiple DAGs
+        return queryset.filter(team_id=self.team_id, dag__name=f"posthog_{self.team_id}").order_by(self.ordering)

@@ -163,6 +163,33 @@ services:
         ports:
             - '6379:6379'
 
+    redis-cluster:
+        image: redis:7.2
+        restart: on-failure
+        ports:
+            - '127.0.0.1:6399:6379'
+        command: >
+            bash -c "
+            redis-server
+            --port 6379
+            --cluster-enabled yes
+            --cluster-config-file /data/nodes.conf
+            --cluster-node-timeout 5000
+            --cluster-announce-ip 127.0.0.1
+            --cluster-announce-port 6399
+            --appendonly yes &
+            sleep 1 &&
+            redis-cli -p 6379 cluster addslots $$(seq 0 16383) &&
+            tail -f /dev/null
+            "
+        volumes:
+            - redis-cluster-data:/data
+        healthcheck:
+            test: ['CMD', 'redis-cli', '-p', '6379', 'cluster', 'info']
+            interval: 2s
+            timeout: 3s
+            retries: 10
+
     flower:
         extends:
             file: docker-compose.base.yml
@@ -380,6 +407,7 @@ networks:
 
 volumes:
     postgres-15-data:
+    redis-cluster-data:
     redpanda-data:
     seaweedfs-data:
     duckgres-data:

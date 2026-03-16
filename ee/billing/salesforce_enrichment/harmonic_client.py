@@ -6,7 +6,6 @@ from django.conf import settings
 import aiohttp
 
 from posthog.exceptions_capture import capture_exception
-from posthog.security.outbound_proxy import external_aiohttp_session
 
 from .constants import (
     HARMONIC_BASE_URL,
@@ -41,7 +40,7 @@ class AsyncHarmonicClient:
     async def __aenter__(self):
         """Async context manager entry - create session."""
         timeout = aiohttp.ClientTimeout(total=HARMONIC_REQUEST_TIMEOUT_SECONDS)
-        self._session_cm = external_aiohttp_session(timeout=timeout)
+        self._session_cm = aiohttp.ClientSession(trust_env=True, timeout=timeout)
         self.session = await self._session_cm.__aenter__()
         return self
 

@@ -79,7 +79,7 @@ async function layoutNodes(
         id: 'root',
         layoutOptions: { ...ELK_OPTIONS, ...elkOptionsOverride },
         children: nodes.map((node) => {
-            const isPathNode = node.type === 'pathNode'
+            const isPathNode = node.type === 'pathNode' || node.type === 'builderPathNode'
             return {
                 id: node.id,
                 width: isPathNode ? PATH_NODE_WIDTH : (elkNodeSize?.width ?? NODE_WIDTH),
@@ -112,9 +112,10 @@ async function layoutNodes(
     }))
 }
 
+export type FunnelFlowGraphMode = 'profile' | 'builder'
+
 export interface FunnelFlowLogicProps extends InsightLogicProps {
-    /**Whether the funnel is being displayed in a customer profile (person or group profile canvas) */
-    isProfileMode: boolean
+    mode?: FunnelFlowGraphMode
 }
 
 export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
@@ -144,24 +145,29 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
         ],
     }),
 
-    selectors({
+    selectors(({}) => ({
+        isProfileMode: [() => [(_, props) => props.mode], (mode): boolean => mode === 'profile'],
         nodeType: [
-            () => [(_, props) => props.isProfileMode],
-            (isProfileMode): string => (isProfileMode ? 'profile' : 'journey'),
+            () => [(_, props) => props.mode],
+            (mode): string => (mode === 'profile' ? 'profile' : mode === 'builder' ? 'journeyCreate' : 'journey'),
         ],
+        pathNodeType: [
+            () => [(_, props) => props.mode],
+            (mode): string => (mode === 'builder' ? 'builderPathNode' : 'pathNode'),
+        ],
+        edgeType: [(s) => [s.isProfileMode], (isProfileMode): string => (isProfileMode ? 'profile' : 'journey')],
         nodeWidth: [
-            () => [(_, props) => props.isProfileMode],
+            (s) => [s.isProfileMode],
             (isProfileMode): number => (isProfileMode ? PROFILE_NODE_WIDTH : NODE_WIDTH),
         ],
         nodeHeight: [
-            () => [(_, props) => props.isProfileMode],
+            (s) => [s.isProfileMode],
             (isProfileMode): number => (isProfileMode ? PROFILE_NODE_HEIGHT : NODE_HEIGHT),
         ],
         fitViewOptions: [
-            () => [(_, props) => props.isProfileMode],
+            (s) => [s.isProfileMode],
             (isProfileMode) => (isProfileMode ? PROFILE_FIT_VIEW_OPTIONS : FIT_VIEW_OPTIONS),
         ],
-
         funnelNodes: [
             (s) => [
                 s.visibleStepsWithConversionMetrics,
@@ -196,19 +202,19 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
             },
         ],
         funnelEdges: [
-            (s) => [s.funnelNodes, s.nodeType],
-            (nodes, nodeType): Edge<FunnelFlowEdgeData>[] =>
+            (s) => [s.funnelNodes, s.edgeType],
+            (nodes, edgeType): Edge<FunnelFlowEdgeData>[] =>
                 nodes.slice(0, -1).map((node, index) => {
                     const targetNode = nodes[index + 1]
                     const touchesOptionalStep = targetNode.data.isOptional
 
-                    const isProfileMode = nodeType === 'profile'
+                    const isProfileMode = edgeType === 'profile'
 
                     return {
                         id: `edge-${index}`,
                         source: node.id,
                         target: targetNode.id,
-                        type: nodeType,
+                        type: edgeType,
                         sourceHandle: `${node.id}-source`,
                         targetHandle: `${targetNode.id}-target`,
                         markerEnd: {
@@ -232,11 +238,12 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                 }),
         ],
         expandedPathElements: [
-            (s) => [s.funnelNodes, s.expandedPath, s.expandedPathResults],
+            (s) => [s.funnelNodes, s.expandedPath, s.expandedPathResults, s.pathNodeType],
             (
                 funnelNodes,
                 expandedPath,
-                expandedPathResults
+                expandedPathResults,
+                pathNodeType
             ): {
                 nodes: Node<PathFlowNodeData>[]
                 edges: Edge<PathFlowEdgeData>[]
@@ -260,7 +267,8 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                     bridgeConfig.sourceStepId,
                     bridgeConfig.targetStepId,
                     bridgeConfig.isDropOff || undefined,
-                    funnelStepByEventName
+                    funnelStepByEventName,
+                    pathNodeType
                 )
                 return { nodes, edges, hiddenEdgeId: bridgeConfig.hiddenEdgeId }
             },
@@ -286,11 +294,13 @@ export const funnelFlowGraphLogic = kea<funnelFlowGraphLogicType>([
                 return [...visibleFunnelEdges, ...expandedPathElements.edges]
             },
         ],
-    }),
+    })),
 
-    subscriptions(({ actions, values, props }) => ({
+    subscriptions(({ actions, values }) => ({
         nodes: async () => {
-            const elkOverrides = props.isProfileMode ? { 'elk.layered.spacing.nodeNodeBetweenLayers': '40' } : undefined
+            const elkOverrides = values.isProfileMode
+                ? { 'elk.layered.spacing.nodeNodeBetweenLayers': '40' }
+                : undefined
             const elkNodeSize = {
                 width: values.nodeWidth,
                 height: values.nodeHeight,

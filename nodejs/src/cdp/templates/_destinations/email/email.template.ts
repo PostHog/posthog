@@ -35,6 +35,8 @@ export const template: HogFunctionTemplate = {
                     name: '',
                 },
                 replyTo: '',
+                cc: '',
+                bcc: '',
                 subject: '',
                 preheader: '',
                 text: 'Hello from PostHog!',

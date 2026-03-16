@@ -13,8 +13,6 @@ import structlog
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-from posthog.security.outbound_proxy import external_requests_session
-
 from .config import Config
 
 if TYPE_CHECKING:
@@ -87,7 +85,7 @@ class PostHogClient:
 
     def _create_http_session(self) -> requests.Session:
         """Create an HTTP session with urllib3 retry logic for transient failures."""
-        session = external_requests_session()
+        session = requests.Session()
         retry_strategy = Retry(
             total=self.HTTP_RETRY_TOTAL,
             backoff_factor=self.HTTP_RETRY_BACKOFF_FACTOR,

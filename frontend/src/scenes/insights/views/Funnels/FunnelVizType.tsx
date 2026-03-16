@@ -39,6 +39,10 @@ export function FunnelVizType({ insightProps }: Pick<EditorFilterProps, 'insight
 
     const { funnelVizType } = (insightFilter || {}) as FunnelsFilter
 
+    if (funnelVizType === VizType.Flow) {
+        return null
+    }
+
     const options = [
         {
             value: VizType.Steps,

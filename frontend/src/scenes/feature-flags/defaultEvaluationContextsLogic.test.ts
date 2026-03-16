@@ -13,31 +13,36 @@ describe('defaultEvaluationContextsLogic', () => {
 
     beforeEach(() => {
         mockResponse = {
-            default_evaluation_tags: [],
+            default_evaluation_contexts: [],
+            available_contexts: [],
             enabled: false,
         }
 
         useMocks({
             get: {
-                '/api/environments/:team_id/default_evaluation_tags/': () => [200, mockResponse],
+                '/api/environments/:team_id/default_evaluation_contexts/': () => [200, mockResponse],
             },
             post: {
-                '/api/environments/:team_id/default_evaluation_tags/': async (req) => {
+                '/api/environments/:team_id/default_evaluation_contexts/': async (req) => {
                     const body = await req.json()
-                    const tagName = body.tag_name
-                    const newTag = {
+                    const contextName = body.context_name
+                    const newContext = {
                         id: Math.floor(Math.random() * 10000),
-                        name: tagName,
+                        name: contextName,
                     }
-                    mockResponse.default_evaluation_tags.push(newTag)
-                    return [200, { ...newTag, created: true }]
+                    mockResponse.default_evaluation_contexts.push(newContext)
+                    if (!mockResponse.available_contexts.includes(contextName)) {
+                        mockResponse.available_contexts.push(contextName)
+                        mockResponse.available_contexts.sort()
+                    }
+                    return [200, { ...newContext, created: true }]
                 },
             },
             delete: {
-                '/api/environments/:team_id/default_evaluation_tags/': (req) => {
-                    const tagName = req.url.searchParams.get('tag_name')
-                    mockResponse.default_evaluation_tags = mockResponse.default_evaluation_tags.filter(
-                        (t) => t.name !== tagName
+                '/api/environments/:team_id/default_evaluation_contexts/': (req) => {
+                    const contextName = req.url.searchParams.get('context_name')
+                    mockResponse.default_evaluation_contexts = mockResponse.default_evaluation_contexts.filter(
+                        (c) => c.name !== contextName
                     )
                     return [200, { success: true }]
                 },
@@ -66,50 +71,51 @@ describe('defaultEvaluationContextsLogic', () => {
                 .toDispatchActions(['loadDefaultEvaluationContexts', 'loadDefaultEvaluationContextsSuccess'])
                 .toMatchValues({
                     defaultEvaluationContexts: {
-                        default_evaluation_tags: [],
+                        default_evaluation_contexts: [],
+                        available_contexts: [],
                         enabled: false,
                     },
-                    tags: [],
+                    contexts: [],
                     isEnabled: false,
                 })
         })
     })
 
-    describe('adding tags', () => {
-        it('should add a new tag', async () => {
+    describe('adding contexts', () => {
+        it('should add a new context', async () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.addTag('production')
+                logic.actions.addContext('production')
             })
-                .toDispatchActions(['addTag', 'addTagSuccess'])
+                .toDispatchActions(['addContext', 'addContextSuccess'])
                 .toMatchValues({
-                    tags: [{ id: expect.any(Number), name: 'production' }],
+                    contexts: [{ id: expect.any(Number), name: 'production' }],
                 })
         })
 
-        it('should clear input after adding tag', async () => {
+        it('should clear input after adding context', async () => {
             logic.mount()
             await expectLogic(logic).toFinishAllListeners()
 
             await expectLogic(logic, () => {
-                logic.actions.setNewTagInput('production')
+                logic.actions.setNewContextInput('production')
             }).toMatchValues({
-                newTagInput: 'production',
+                newContextInput: 'production',
             })
 
             await expectLogic(logic, () => {
-                logic.actions.addTag('production')
+                logic.actions.addContext('production')
             }).toMatchValues({
-                newTagInput: '',
+                newContextInput: '',
             })
         })
     })
 
-    describe('removing tags', () => {
-        it('should remove a tag', async () => {
-            mockResponse.default_evaluation_tags = [
+    describe('removing contexts', () => {
+        it('should remove a context', async () => {
+            mockResponse.default_evaluation_contexts = [
                 { id: 1, name: 'production' },
                 { id: 2, name: 'staging' },
             ]
@@ -119,11 +125,11 @@ describe('defaultEvaluationContextsLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadDefaultEvaluationContextsSuccess'])
 
             await expectLogic(logic, () => {
-                logic.actions.removeTag('production')
+                logic.actions.removeContext('production')
             })
-                .toDispatchActions(['removeTag', 'removeTagSuccess'])
+                .toDispatchActions(['removeContext', 'removeContextSuccess'])
                 .toMatchValues({
-                    tags: [{ id: 2, name: 'staging' }],
+                    contexts: [{ id: 2, name: 'staging' }],
                 })
         })
     })
@@ -140,21 +146,24 @@ describe('defaultEvaluationContextsLogic', () => {
     })
 
     describe('selectors', () => {
-        it('should correctly determine if more tags can be added', async () => {
-            mockResponse.default_evaluation_tags = Array.from({ length: 9 }, (_, i) => ({ id: i, name: `tag-${i}` }))
+        it('should correctly determine if more contexts can be added', async () => {
+            mockResponse.default_evaluation_contexts = Array.from({ length: 9 }, (_, i) => ({
+                id: i,
+                name: `ctx-${i}`,
+            }))
 
             logic.mount()
 
             await expectLogic(logic).toDispatchActions(['loadDefaultEvaluationContextsSuccess']).toMatchValues({
-                canAddMoreTags: true,
+                canAddMoreContexts: true,
             })
 
             await expectLogic(logic, () => {
-                logic.actions.addTag('tag-9')
+                logic.actions.addContext('ctx-9')
             })
-                .toDispatchActions(['addTagSuccess'])
+                .toDispatchActions(['addContextSuccess'])
                 .toMatchValues({
-                    canAddMoreTags: false,
+                    canAddMoreContexts: false,
                 })
         })
     })

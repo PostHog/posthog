@@ -46,6 +46,11 @@ const meta: Meta = {
                     default_evaluation_tags: [],
                     enabled: false,
                 },
+                '/api/environments/:team_id/default_evaluation_contexts/': {
+                    default_evaluation_contexts: [],
+                    available_contexts: [],
+                    enabled: false,
+                },
             },
             post: {
                 '/api/environments/:team_id/query': {},

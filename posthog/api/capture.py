@@ -4,10 +4,11 @@ from typing import Any, Optional
 
 import structlog
 from prometheus_client import Counter
-from requests import Response, Session
+from requests import Response
 from requests.adapters import HTTPAdapter, Retry
 
 from posthog.logging.timing import timed
+from posthog.security.outbound_proxy import internal_requests_session
 from posthog.settings.ingestion import (
     CAPTURE_INTERNAL_MAX_WORKERS,
     CAPTURE_INTERNAL_URL,
@@ -88,7 +89,7 @@ def capture_internal(
     if event_name in SESSION_RECORDING_EVENT_NAMES:
         resolved_capture_url = f"{CAPTURE_REPLAY_INTERNAL_URL}{REPLAY_CAPTURE_ENDPOINT}"
 
-    with Session() as s:
+    with internal_requests_session() as s:
         s.mount(
             resolved_capture_url,
             HTTPAdapter(

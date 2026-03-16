@@ -7,6 +7,7 @@ import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { groupLogic } from 'scenes/groups/groupLogic'
+import { urls } from 'scenes/urls'
 
 import { Node, NodeKind } from '~/queries/schema/schema-general'
 import { DashboardPlacement, Group, PropertyFilterType, PropertyOperator } from '~/types'
@@ -40,7 +41,11 @@ function GroupDetailDashboard({
     return (
         <div className="flex flex-col gap-0">
             <h2>Insights</h2>
-            <Dashboard id={groupTypeDetailDashboard.toString()} placement={DashboardPlacement.Group} />
+            <Dashboard
+                id={groupTypeDetailDashboard.toString()}
+                placement={DashboardPlacement.Group}
+                backTo={{ url: urls.group(groupData.group_type_index, groupData.group_key), name: groupTypeName }}
+            />
         </div>
     )
 }

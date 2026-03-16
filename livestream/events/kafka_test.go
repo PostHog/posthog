@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -56,7 +57,7 @@ func TestPostHogKafkaConsumer_Consume(t *testing.T) {
 	mockGeoLocator.On("Lookup", "192.0.2.1").Return(geo.GeoLookupResult{Latitude: 37.7749, Longitude: -122.4194, CountryCode: "US"}, nil)
 
 	// Run Consume in a goroutine
-	go consumer.Consume()
+	go consumer.Consume(context.Background())
 
 	// Wait for the message to be processed
 	select {

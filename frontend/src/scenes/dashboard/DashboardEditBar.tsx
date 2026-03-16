@@ -8,8 +8,6 @@ import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { TaxonomicBreakdownFilter } from 'scenes/insights/filters/BreakdownFilter/TaxonomicBreakdownFilter'
@@ -26,8 +24,6 @@ export function DashboardEditBar(): JSX.Element {
     const { setDates, setProperties, setBreakdownFilter, setDashboardMode } = useActions(dashboardLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
 
-    const { featureFlags } = useValues(featureFlagLogic)
-    const canAccessExplicitDateToggle = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DATE_PICKER_EXPLICIT_DATE_TOGGLE]
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
     const insightProps: InsightLogicProps = {
@@ -62,7 +58,7 @@ export function DashboardEditBar(): JSX.Element {
                 >
                     <DateFilter
                         showCustom
-                        showExplicitDateToggle={canAccessExplicitDateToggle}
+                        showExplicitDateToggle
                         allowTimePrecision
                         allowFixedRangeWithTime
                         dateFrom={effectiveEditBarFilters.date_from}

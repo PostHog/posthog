@@ -55,4 +55,15 @@ RetentionEdit.parameters = {
     testOptions: { waitForSelector: '[data-attr=trend-line-graph] > canvas' },
 }
 
+export const RetentionEditViewports: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/retention.json'),
+    'edit'
+)
+RetentionEditViewports.parameters = {
+    testOptions: {
+        waitForSelector: '[data-attr=trend-line-graph] > canvas',
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
+}
+
 /* eslint-enable @typescript-eslint/no-var-requires */

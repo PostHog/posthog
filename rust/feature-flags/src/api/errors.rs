@@ -66,8 +66,8 @@ pub enum FlagError {
     NoTokenError,
     #[error("API key is not valid")]
     TokenValidationError,
-    #[error("Personal API key found in request {0} is invalid")]
-    PersonalApiKeyInvalid(String),
+    #[error("Personal API key is invalid")]
+    PersonalApiKeyInvalid,
     #[error("Secret API token is invalid")]
     SecretApiTokenInvalid,
     #[error("No authentication credentials provided")]
@@ -160,7 +160,7 @@ impl FlagError {
             // Authentication errors (401)
             FlagError::NoTokenError => ("missing_token", 401),
             FlagError::TokenValidationError => ("invalid_token", 401),
-            FlagError::PersonalApiKeyInvalid(_) => ("personal_api_key_invalid", 401),
+            FlagError::PersonalApiKeyInvalid => ("personal_api_key_invalid", 401),
             FlagError::SecretApiTokenInvalid => ("secret_api_token_invalid", 401),
             FlagError::NoAuthenticationProvided => ("no_authentication", 401),
 
@@ -350,7 +350,15 @@ impl IntoResponse for FlagError {
             FlagError::ClientFacing(err) => match err {
                 ClientFacingError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg),
                 ClientFacingError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg),
-                ClientFacingError::BillingLimit => (StatusCode::PAYMENT_REQUIRED, "Billing limit reached. Please upgrade your plan.".to_string()),
+                ClientFacingError::BillingLimit => {
+                    let response = AuthenticationErrorResponse {
+                        error_type: "quota_limited".to_string(),
+                        code: "payment_required".to_string(),
+                        detail: "You have exceeded your feature flag request quota".to_string(),
+                        attr: None,
+                    };
+                    return (StatusCode::PAYMENT_REQUIRED, Json(response)).into_response();
+                }
                 ClientFacingError::RateLimited
                 | ClientFacingError::IpRateLimited
                 | ClientFacingError::TokenRateLimited => {
@@ -386,11 +394,11 @@ impl IntoResponse for FlagError {
             FlagError::TokenValidationError => {
                 (StatusCode::UNAUTHORIZED, "The provided API key is invalid or has expired. Please check your API key and try again.".to_string())
             }
-            FlagError::PersonalApiKeyInvalid(source) => {
+            FlagError::PersonalApiKeyInvalid => {
                 let response = AuthenticationErrorResponse {
                     error_type: "authentication_error".to_string(),
                     code: "authentication_failed".to_string(),
-                    detail: format!("Personal API key found in request {source} is invalid."),
+                    detail: "Personal API key is invalid.".to_string(),
                     attr: None,
                 };
                 return (StatusCode::UNAUTHORIZED, Json(response)).into_response();
@@ -730,7 +738,7 @@ mod tests {
             FlagError::MissingDistinctId,
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
-            FlagError::PersonalApiKeyInvalid("test".to_string()),
+            FlagError::PersonalApiKeyInvalid,
             FlagError::SecretApiTokenInvalid,
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,
@@ -948,7 +956,7 @@ mod tests {
             FlagError::MissingDistinctId,
             FlagError::NoTokenError,
             FlagError::TokenValidationError,
-            FlagError::PersonalApiKeyInvalid("test".to_string()),
+            FlagError::PersonalApiKeyInvalid,
             FlagError::SecretApiTokenInvalid,
             FlagError::NoAuthenticationProvided,
             FlagError::RowNotFound,

@@ -6,6 +6,9 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from posthog.models.dashboard import Dashboard
+from posthog.models.dashboard_tile import DashboardTile
+
 from products.data_warehouse.backend.models import (
     DataWarehouseTable,
     ExternalDataJob,
@@ -13,6 +16,7 @@ from products.data_warehouse.backend.models import (
     ExternalDataSource,
 )
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
+from products.data_warehouse.backend.models.team_data_warehouse_config import TeamDataWarehouseConfig
 
 
 class TestDataWarehouseAPI(APIBaseTest):
@@ -581,3 +585,71 @@ class TestDataWarehouseAPI(APIBaseTest):
 
         response = self.client.get(f"{endpoint}?cutoff_days=invalid")
         self.assertEqual(response.status_code, 400)
+
+    def test_data_ops_dashboard_creates_dashboard_on_first_call(self):
+        endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
+
+        # Config is auto-created by the team extension signal, but starts with no dashboards
+        config = TeamDataWarehouseConfig.objects.get(team=self.team)
+        self.assertEqual(config.overview_dashboards.count(), 0)
+
+        response = self.client.get(endpoint)
+        self.assertEqual(response.status_code, 200)
+
+        data = response.json()
+        self.assertIn("dashboard_id", data)
+        self.assertIsNotNone(data["dashboard_id"])
+
+        dashboard = Dashboard.objects.get(id=data["dashboard_id"])
+        self.assertEqual(dashboard.team_id, self.team.pk)
+        self.assertEqual(dashboard.name, "Data ops overview")
+        self.assertEqual(dashboard.creation_mode, "template")
+
+        config = TeamDataWarehouseConfig.objects.get(team=self.team)
+        self.assertEqual(config.overview_dashboards.filter(id=data["dashboard_id"]).count(), 1)
+
+    def test_data_ops_dashboard_returns_existing_dashboard_on_subsequent_calls(self):
+        endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
+
+        first_response = self.client.get(endpoint)
+        self.assertEqual(first_response.status_code, 200)
+        first_dashboard_id = first_response.json()["dashboard_id"]
+
+        second_response = self.client.get(endpoint)
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(second_response.json()["dashboard_id"], first_dashboard_id)
+
+        self.assertEqual(Dashboard.objects.filter(team=self.team, name="Data ops overview").count(), 1)
+
+    def test_data_ops_dashboard_seeds_starter_tile(self):
+        endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
+
+        response = self.client.get(endpoint)
+        self.assertEqual(response.status_code, 200)
+
+        dashboard_id = response.json()["dashboard_id"]
+        tiles = DashboardTile.objects.filter(dashboard_id=dashboard_id).select_related("insight")
+        self.assertEqual(tiles.count(), 1)
+
+        tile = tiles.first()
+        assert tile is not None
+        assert tile.insight is not None
+        source = tile.insight.query["source"]  # type: ignore[index]
+        self.assertEqual(source["kind"], "TrendsQuery")
+        self.assertEqual(source["trendsFilter"]["display"], "BoldNumber")
+        self.assertTrue(source["compareFilter"]["compare"])
+
+    def test_data_ops_dashboard_recreates_after_dashboard_deleted(self):
+        endpoint = f"/api/projects/{self.team.pk}/data_warehouse/data_ops_dashboard"
+
+        first_response = self.client.get(endpoint)
+        first_id = first_response.json()["dashboard_id"]
+
+        # Deleting the dashboard cascades and removes it from the M2M relationship automatically
+        Dashboard.objects.filter(id=first_id).delete()
+
+        second_response = self.client.get(endpoint)
+        self.assertEqual(second_response.status_code, 200)
+        new_id = second_response.json()["dashboard_id"]
+        self.assertNotEqual(new_id, first_id)
+        self.assertIsNotNone(new_id)

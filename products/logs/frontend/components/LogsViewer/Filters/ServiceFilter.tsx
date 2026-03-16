@@ -1,11 +1,34 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput } from '@posthog/lemon-ui'
+import { LemonButton, LemonCheckbox, LemonDropdown, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
 import { DateRange, LogsQuery } from '~/queries/schema/schema-general'
 
 import { serviceFilterLogic, ServiceFilterLogicProps } from './serviceFilterLogic'
+
+function ServiceOption({
+    name,
+    checked,
+    onClick,
+}: {
+    name: string
+    checked: boolean
+    onClick: () => void
+}): JSX.Element {
+    return (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            fullWidth
+            icon={<LemonCheckbox checked={checked} className="pointer-events-none" />}
+            onClick={onClick}
+            data-attr={`logs-service-option-${name}`}
+        >
+            {name}
+        </LemonButton>
+    )
+}
 
 interface ServiceFilterProps {
     value: LogsQuery['serviceNames']
@@ -60,29 +83,44 @@ function ServiceFilterInner({
                                 {search ? 'No matching services' : 'No services found'}
                             </div>
                         ) : (
-                            serviceNames.map((name: string) => (
-                                <LemonButton
-                                    key={name}
-                                    type="tertiary"
-                                    size="small"
-                                    fullWidth
-                                    icon={
-                                        <LemonCheckbox
-                                            checked={selected.includes(name)}
-                                            className="pointer-events-none"
+                            <>
+                                {selected.length > 0 && (
+                                    <>
+                                        <div className="flex flex-wrap gap-1 px-1 pb-1 max-w-[300px]">
+                                            {selected.map((name: string) => (
+                                                <LemonTag
+                                                    key={`selected-${name}`}
+                                                    type="highlight"
+                                                    closable
+                                                    size="small"
+                                                    onClose={() => {
+                                                        onChange(selected.filter((n) => n !== name))
+                                                    }}
+                                                >
+                                                    {name}
+                                                </LemonTag>
+                                            ))}
+                                        </div>
+                                        <div className="border-b border-border my-1" />
+                                    </>
+                                )}
+                                {serviceNames.map((name: string) => {
+                                    const isSelected = selected.includes(name)
+                                    return (
+                                        <ServiceOption
+                                            key={name}
+                                            name={name}
+                                            checked={isSelected}
+                                            onClick={() => {
+                                                const newNames = isSelected
+                                                    ? selected.filter((n) => n !== name)
+                                                    : [...selected, name]
+                                                onChange(newNames)
+                                            }}
                                         />
-                                    }
-                                    onClick={() => {
-                                        const newNames = selected.includes(name)
-                                            ? selected.filter((n) => n !== name)
-                                            : [...selected, name]
-                                        onChange(newNames)
-                                    }}
-                                    data-attr={`logs-service-option-${name}`}
-                                >
-                                    {name}
-                                </LemonButton>
-                            ))
+                                    )
+                                })}
+                            </>
                         )}
                     </div>
                 </div>

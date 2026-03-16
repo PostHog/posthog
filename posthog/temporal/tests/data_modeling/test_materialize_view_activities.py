@@ -25,7 +25,7 @@ from posthog.temporal.data_modeling.activities import (
 )
 from posthog.temporal.data_modeling.activities.materialize_view import InvalidNodeTypeException
 
-from products.data_modeling.backend.models import Node, NodeType
+from products.data_modeling.backend.models import DAG, Node, NodeType
 from products.data_warehouse.backend.models import DataModelingJob, DataWarehouseSavedQuery, DataWarehouseTable
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJobStatus
 
@@ -45,11 +45,18 @@ async def asaved_query(ateam, auser):
 
 
 @pytest_asyncio.fixture
-async def anode(ateam, asaved_query):
+async def adag(ateam):
+    dag = await database_sync_to_async(DAG.objects.create)(team=ateam, name="test-dag")
+    yield dag
+    await database_sync_to_async(dag.delete)()
+
+
+@pytest_asyncio.fixture
+async def anode(ateam, asaved_query, adag):
     node = await database_sync_to_async(Node.objects.create)(
         team=ateam,
         saved_query=asaved_query,
-        dag_id_text="test-dag",
+        dag=adag,
         name="test_model",
         type=NodeType.MAT_VIEW,
     )
@@ -70,11 +77,11 @@ async def ajob(ateam, asaved_query):
 
 
 class TestCreateDataModelingJobActivity:
-    async def test_creates_job_with_running_status(self, activity_environment, ateam, auser, anode, asaved_query):
+    async def test_creates_job_with_running_status(self, activity_environment, ateam, auser, anode, asaved_query, adag):
         inputs = CreateDataModelingJobInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
-            dag_id="test-dag",
+            dag_id=str(adag.id),
         )
         with unittest.mock.patch("temporalio.activity.info") as mock_info:
             mock_info.return_value.workflow_id = "test-workflow-id"
@@ -92,11 +99,11 @@ class TestCreateDataModelingJobActivity:
 
 
 class TestFailMaterializationActivity:
-    async def test_marks_job_as_failed(self, activity_environment, ateam, anode, ajob):
+    async def test_marks_job_as_failed(self, activity_environment, ateam, anode, ajob, adag):
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
-            dag_id="test-dag",
+            dag_id=str(adag.id),
             job_id=str(ajob.id),
             error="Test error message",
         )
@@ -105,11 +112,11 @@ class TestFailMaterializationActivity:
         assert ajob.status == DataModelingJob.Status.FAILED
         assert ajob.error == "Test error message"
 
-    async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob):
+    async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob, adag):
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
-            dag_id="test-dag",
+            dag_id=str(adag.id),
             job_id=str(ajob.id),
             error="Query failed: timeout",
         )
@@ -121,11 +128,11 @@ class TestFailMaterializationActivity:
         assert system_props["last_run_error"] == "Query failed: timeout"
         assert "last_run_at" in system_props
 
-    async def test_sends_failure_notification_email(self, activity_environment, ateam, anode, ajob, asaved_query):
+    async def test_sends_failure_notification_email(self, activity_environment, ateam, anode, ajob, asaved_query, adag):
         inputs = FailMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
-            dag_id="test-dag",
+            dag_id=str(adag.id),
             job_id=str(ajob.id),
             error="Test error message",
         )
@@ -135,11 +142,11 @@ class TestFailMaterializationActivity:
 
 
 class TestSucceedMaterializationActivity:
-    async def test_marks_job_as_completed(self, activity_environment, ateam, anode, ajob):
+    async def test_marks_job_as_completed(self, activity_environment, ateam, anode, ajob, adag):
         inputs = SucceedMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
-            dag_id="test-dag",
+            dag_id=str(adag.id),
             job_id=str(ajob.id),
             row_count=1000,
             duration_seconds=45.5,
@@ -150,11 +157,11 @@ class TestSucceedMaterializationActivity:
         assert ajob.error is None
         assert ajob.last_run_at is not None
 
-    async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob):
+    async def test_updates_node_system_properties(self, activity_environment, ateam, anode, ajob, adag):
         inputs = SucceedMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
-            dag_id="test-dag",
+            dag_id=str(adag.id),
             job_id=str(ajob.id),
             row_count=500,
             duration_seconds=30.0,
@@ -169,13 +176,13 @@ class TestSucceedMaterializationActivity:
         assert system_props.get("last_run_error") is None
         assert "last_run_at" in system_props
 
-    async def test_clears_previous_error(self, activity_environment, ateam, anode, ajob):
+    async def test_clears_previous_error(self, activity_environment, ateam, anode, ajob, adag):
         anode.properties = {"system": {"last_run_error": "Previous error"}}
         await database_sync_to_async(anode.save)()
         inputs = SucceedMaterializationInputs(
             team_id=ateam.pk,
             node_id=str(anode.id),
-            dag_id="test-dag",
+            dag_id=str(adag.id),
             job_id=str(ajob.id),
             row_count=100,
             duration_seconds=10.0,
@@ -251,16 +258,16 @@ class TestPrepareQueryableTableActivity:
 
 
 class TestMaterializeViewActivity:
-    async def test_rejects_table_node_type(self, activity_environment, ateam, ajob):
+    async def test_rejects_table_node_type(self, activity_environment, ateam, ajob, adag):
         table_node = await database_sync_to_async(Node.objects.create)(
             team=ateam,
-            dag_id_text="test-dag",
+            dag=adag,
             name="source_table",
             type=NodeType.TABLE,
         )
         inputs = MaterializeViewInputs(
             team_id=ateam.pk,
-            dag_id="test-dag",
+            dag_id=str(adag.id),
             node_id=str(table_node.id),
             job_id=str(ajob.id),
         )
@@ -269,7 +276,7 @@ class TestMaterializeViewActivity:
         await database_sync_to_async(table_node.delete)()
 
     async def test_materializes_view_to_delta_table(
-        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name
+        self, activity_environment, ateam, anode, asaved_query, ajob, bucket_name, adag
     ):
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs
@@ -301,7 +308,7 @@ class TestMaterializeViewActivity:
         ):
             inputs = MaterializeViewInputs(
                 team_id=ateam.pk,
-                dag_id="test-dag",
+                dag_id=str(adag.id),
                 node_id=str(anode.id),
                 job_id=str(ajob.id),
             )
@@ -314,7 +321,7 @@ class TestMaterializeViewActivity:
             assert len(result.file_uris) > 0
 
     async def test_updates_job_progress_during_materialization(
-        self, activity_environment, ateam, anode, ajob, bucket_name
+        self, activity_environment, ateam, anode, ajob, bucket_name, adag
     ):
         def mock_hogql_table(*args, **kwargs):
             del args, kwargs  # unused
@@ -344,7 +351,7 @@ class TestMaterializeViewActivity:
         ):
             inputs = MaterializeViewInputs(
                 team_id=ateam.pk,
-                dag_id="test-dag",
+                dag_id=str(adag.id),
                 node_id=str(anode.id),
                 job_id=str(ajob.id),
             )

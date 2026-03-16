@@ -3,8 +3,13 @@ Security tests for sharing access tokens - ensuring they cannot be abused to acc
 """
 
 import json
+from datetime import timedelta
 
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+
+from django.conf import settings
+from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import Insight
@@ -32,6 +37,97 @@ class SharingAccessTokenSecurityTest(APIBaseTest):
             [401, 403],
             f"Expected 401/403 for logged out user, got {response.status_code}. User may still be logged in!",
         )
+
+    def test_expired_sharing_token_rejected_by_api(self):
+        insight = Insight.objects.create(
+            name="Shared Insight",
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+        )
+        self.dashboard.tiles.create(
+            insight=insight,
+            layouts={"sm": {"w": 6, "h": 5, "x": 0, "y": 0, "minW": 3, "minH": 3}},
+        )
+
+        sharing_config = SharingConfiguration.objects.create(team=self.team, dashboard=self.dashboard, enabled=True)
+        old_token = sharing_config.access_token
+
+        # Rotate — old config gets expires_at set to now + grace period
+        new_config = sharing_config.rotate_access_token()
+        new_token = new_config.access_token
+
+        # Jump past the grace period so the old token is fully expired
+        future = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS + 60)
+        with freeze_time(future):
+            # Old token must be rejected
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                {"sharing_access_token": old_token},
+            )
+            assert response.status_code in [401, 403], (
+                f"Expired sharing token should be rejected. Got {response.status_code}"
+            )
+
+            # New token must still work
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                {"sharing_access_token": new_token},
+            )
+            assert response.status_code == 200, f"New sharing token should still work. Got {response.status_code}"
+
+    def test_expired_password_protected_sharing_token_rejected_by_api(self):
+        insight = Insight.objects.create(
+            name="Shared Insight",
+            team=self.team,
+            created_by=self.user,
+            query={"kind": "TrendsQuery", "series": [{"event": "test_event"}]},
+        )
+        self.dashboard.tiles.create(
+            insight=insight,
+            layouts={"sm": {"w": 6, "h": 5, "x": 0, "y": 0, "minW": 3, "minH": 3}},
+        )
+
+        from posthog.models.share_password import SharePassword
+
+        sharing_config = SharingConfiguration.objects.create(
+            team=self.team, dashboard=self.dashboard, enabled=True, password_required=True
+        )
+        share_password, _ = SharePassword.create_password(sharing_config, created_by=self.user)
+
+        # Generate a JWT for the password-protected share
+        jwt_token = sharing_config.generate_password_protected_token(share_password)
+        old_access_token = sharing_config.access_token
+
+        # Rotate — old config gets expires_at set
+        new_config = sharing_config.rotate_access_token()
+        new_config.password_required = True
+        new_config.save()
+        new_share_password, _ = SharePassword.create_password(new_config, created_by=self.user)
+        new_jwt_token = new_config.generate_password_protected_token(new_share_password)
+
+        # Jump past the grace period
+        future = timezone.now() + timedelta(seconds=settings.SHARING_TOKEN_GRACE_PERIOD_SECONDS + 60)
+        with freeze_time(future):
+            # Old JWT against expired config must be rejected
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                {"sharing_access_token": old_access_token},
+                HTTP_AUTHORIZATION=f"Bearer {jwt_token}",
+            )
+            assert response.status_code in [401, 403], (
+                f"Expired password-protected sharing token should be rejected. Got {response.status_code}"
+            )
+
+            # New JWT against active config must still work
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/insights/{insight.id}/",
+                {"sharing_access_token": new_config.access_token},
+                HTTP_AUTHORIZATION=f"Bearer {new_jwt_token}",
+            )
+            assert response.status_code == 200, (
+                f"New password-protected sharing token should still work. Got {response.status_code}"
+            )
 
     def test_sharing_access_token_cannot_access_insights_not_on_dashboard(self):
         """

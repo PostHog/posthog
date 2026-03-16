@@ -77,7 +77,7 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             ClusteringJob.objects.filter(
                 team_id=self.team_id,
                 analysis_level=instance.analysis_level,
-                name__startswith="Default (",
+                name__startswith="Default - ",
                 enabled=True,
             )
             .exclude(id=instance.id)

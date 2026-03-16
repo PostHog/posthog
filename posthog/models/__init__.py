@@ -30,6 +30,7 @@ from .dashboard_tile import DashboardTile, Text
 from .element import Element
 from .element_group import ElementGroup
 from .entity import Entity
+from .evaluation_context import EvaluationContext, FeatureFlagEvaluationContext, TeamDefaultEvaluationContext
 from .event.event import Event
 from .event_buffer import EventBuffer
 from products.event_definitions.backend.models import EventDefinition
@@ -136,6 +137,9 @@ __all__ = [
     "Element",
     "ElementGroup",
     "Entity",
+    "EvaluationContext",
+    "FeatureFlagEvaluationContext",
+    "TeamDefaultEvaluationContext",
     "Event",
     "EventBuffer",
     "EventDefinition",

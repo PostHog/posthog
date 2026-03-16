@@ -95,7 +95,8 @@ export function buildPathFlowElements(
     sourceStepId: string | null,
     targetStepId: string | null,
     isDropOff?: boolean,
-    funnelStepByEventName?: Map<string, string>
+    funnelStepByEventName?: Map<string, string>,
+    nodeType: string = 'pathNode'
 ): PathFlowGraphElements {
     if (pathsLinks.length === 0) {
         return { nodes: [], edges: [] }
@@ -143,7 +144,7 @@ export function buildPathFlowElements(
         }
         nodes.push({
             id: `path-${rawName}`,
-            type: 'pathNode',
+            type: nodeType,
             data: {
                 eventName: data.eventName,
                 displayName: data.displayName,

@@ -221,6 +221,8 @@ const resolveIncrementalField = (fields: IncrementalField[]): IncrementalField |
 export interface SourceWizardLogicProps {
     onComplete?: () => void
     availableSources: Record<string, SourceConfig>
+    /** When set, only these tables will be pre-selected and they cannot be deselected */
+    requiredTables?: string[]
 }
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
@@ -393,6 +395,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
     }),
     selectors({
         availableSources: [() => [(_, p) => p.availableSources], (availableSources) => availableSources],
+        requiredTables: [() => [(_, p) => p.requiredTables], (requiredTables) => requiredTables ?? null],
         suggestedTablesMap: [
             (s) => [s.selectedConnector],
             (selectedConnector: SourceConfig | null): Record<string, string | null> => {
@@ -735,13 +738,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     source_type: values.selectedConnector.name,
                 })
 
-                lemonToast.success('New data resource created')
-
                 actions.setSourceId(id)
                 actions.resetSourceConnectionDetails()
                 actions.loadSources()
                 actions.markTaskAsCompleted(SetupTaskId.ConnectSource)
-                actions.onNext()
+
+                // When requiredTables is set (e.g. signals setup), skip step 4 and complete directly
+                if (values.requiredTables && props.onComplete) {
+                    props.onComplete()
+                } else {
+                    lemonToast.success('New data resource created')
+                    actions.onNext()
+                }
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
             } finally {
@@ -804,10 +812,42 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     }
                 }
 
-                if (showToast) {
+                if (showToast && !values.requiredTables) {
                     lemonToast.info(
                         "We've setup some defaults for you! Please take a look to make sure you're happy with the results."
                     )
+                }
+
+                // If required tables are specified (e.g. signals setup), skip the schema selection step
+                // entirely and create the source with only those tables, using their default sync settings
+                if (values.requiredTables) {
+                    const requiredSchemas = schemas.filter((schema) => values.requiredTables!.includes(schema.table))
+                    if (requiredSchemas.length !== values.requiredTables.length) {
+                        const missingTables = values.requiredTables.filter(
+                            (table: string) => !requiredSchemas.some((schema) => schema.table === table)
+                        )
+                        lemonToast.error(`Required tables not found in source: ${missingTables.join(', ')}`)
+                        actions.setIsLoading(false)
+                        return
+                    }
+
+                    actions.updateSource({
+                        payload: {
+                            schemas: requiredSchemas.map((schema) => ({
+                                name: schema.table,
+                                should_sync: true,
+                                sync_type: schema.sync_type,
+                                incremental_field: schema.incremental_field,
+                                incremental_field_type: schema.incremental_field_type,
+                                sync_time_of_day: schema.sync_time_of_day ?? null,
+                            })),
+                        },
+                    })
+                    // Jump to step 3 so that createSource's onNext() advances to step 4 (sync progress)
+                    actions.setStep(3)
+                    actions.setIsLoading(true)
+                    actions.createSource()
+                    return
                 }
 
                 actions.setDatabaseSchemas(schemas)

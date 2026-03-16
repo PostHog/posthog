@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCode2 } from '@posthog/icons'
+import { IconEndpoints } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -162,7 +162,7 @@ export function Endpoint({ tabId }: EndpointProps): JSX.Element {
                     />
                 </LemonField.Pure>
 
-                <LemonButton type="primary" onClick={handleSubmit} icon={<IconCode2 />} size="medium">
+                <LemonButton type="primary" onClick={handleSubmit} icon={<IconEndpoints />} size="medium">
                     {isUpdateMode ? 'Update endpoint' : 'Create endpoint'}
                 </LemonButton>
             </div>

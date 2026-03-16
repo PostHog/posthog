@@ -781,6 +781,20 @@ class CodeInviteThrottle(UserRateThrottle):
     rate = "20000/hour"
 
 
+class RunSavedQueryRateThrottle(PersonalApiKeyRateThrottle):
+    # Rate limit running a saved query per saved query per team.
+    # Prevents agents from running the same query repeatedly without reason.
+    scope = "saved_query"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        pk = view.kwargs.get("pk", "")
+        if team_id and pk:
+            return self.cache_format % {"scope": self.scope, "ident": f"{team_id}_{pk}"}
+        return super().get_cache_key(request, view)
+
+
 class MaterializationRateThrottle(PersonalApiKeyRateThrottle):
     # Rate limit materialization toggle actions (materialize / revert) per saved query per team.
     # Prevents agents from thrashing materialization state on the same query.

@@ -44,7 +44,6 @@ describe('Feature Routing Integration', () => {
                 'dashboard-update',
                 'dashboard-delete',
                 'dashboard-reorder-tiles',
-                'add-insight-to-dashboard',
             ],
         },
         {

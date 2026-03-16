@@ -116,6 +116,21 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
     return [instance.root, instance.element]
 }
 
+export function showTooltip(id: string): void {
+    const instance = tooltipInstances.get(id)
+    if (!instance) {
+        return
+    }
+
+    // Cancel any pending hide so a returning mouse doesn't get hidden
+    if (instance.hideTimeout) {
+        clearTimeout(instance.hideTimeout)
+        instance.hideTimeout = null
+    }
+
+    instance.element.style.opacity = '1'
+}
+
 export function hideTooltip(id?: string): void {
     if (!id) {
         // Fallback to old behavior - hide all tooltips
@@ -226,6 +241,7 @@ export function positionTooltip(
 export function useInsightTooltip(): {
     tooltipId: string
     getTooltip: () => [Root, HTMLElement]
+    showTooltip: () => void
     hideTooltip: () => void
     cleanupTooltip: () => void
     positionTooltip: typeof positionTooltip
@@ -240,8 +256,9 @@ export function useInsightTooltip(): {
     })
 
     const getTooltip = useCallback((): [Root, HTMLElement] => ensureTooltip(tooltipId), [tooltipId])
+    const show = useCallback((): void => showTooltip(tooltipId), [tooltipId])
     const hide = useCallback((): void => hideTooltip(tooltipId), [tooltipId])
     const cleanup = useCallback((): void => cleanupTooltip(tooltipId), [tooltipId])
 
-    return { tooltipId, getTooltip, hideTooltip: hide, cleanupTooltip: cleanup, positionTooltip }
+    return { tooltipId, getTooltip, showTooltip: show, hideTooltip: hide, cleanupTooltip: cleanup, positionTooltip }
 }

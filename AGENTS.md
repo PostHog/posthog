@@ -56,6 +56,10 @@ Examples:
 - `chore(ci): update GitHub Actions workflow`
 - `chore: update AGENTS.md instructions`
 
+### PR descriptions
+
+Follow the PR description template in `.github/pull_request_template.md` when creating or updating PR descriptions. Keep the descriptions of changes higher-level, focusing on key details for the human reviewer to evaluate the rationale for the approach, and the overall architecture.
+
 ### Rules
 
 - Scope is optional but encouraged when the change is specific to a feature area

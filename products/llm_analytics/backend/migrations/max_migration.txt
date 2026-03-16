@@ -1,1 +1,1 @@
-0018_migrate_clustering_configs_to_jobs
+0020_scoredefinition

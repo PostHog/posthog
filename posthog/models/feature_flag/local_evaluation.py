@@ -38,13 +38,12 @@ from prometheus_client import Counter
 
 from posthog.models.cohort.cohort import Cohort, CohortOrEmpty
 from posthog.models.cohort.util import get_nested_cohort_ids
+from posthog.models.evaluation_context import EvaluationContext, FeatureFlagEvaluationContext
 from posthog.models.feature_flag import FeatureFlag
-from posthog.models.feature_flag.feature_flag import FeatureFlagEvaluationTag
 from posthog.models.feature_flag.flags_cache import _compare_flag_fields, get_teams_with_flags_queryset
 from posthog.models.feature_flag.types import FlagFilters, FlagProperty, PropertyFilterType
 from posthog.models.group_type_mapping import GroupTypeMapping
 from posthog.models.surveys.survey import Survey
-from posthog.models.tag import Tag
 from posthog.models.team import Team
 from posthog.person_db_router import PERSONS_DB_FOR_READ
 from posthog.storage.hypercache import HyperCache, emit_cache_sync_metrics
@@ -537,8 +536,8 @@ def _get_flags_response_for_local_evaluation_batch(
         .exclude(id__in=survey_flag_ids)
         .annotate(
             evaluation_tag_names_agg=ArrayAgg(
-                "evaluation_tags__tag__name",
-                filter=Q(evaluation_tags__isnull=False),
+                "flag_evaluation_contexts__evaluation_context__name",
+                filter=Q(flag_evaluation_contexts__isnull=False),
                 distinct=True,
             )
         )
@@ -867,34 +866,22 @@ def cohort_changed(sender, instance: "Cohort", **kwargs):
     transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))
 
 
-@receiver(post_save, sender=FeatureFlagEvaluationTag)
-@receiver(post_delete, sender=FeatureFlagEvaluationTag)
-def evaluation_tag_changed(sender, instance: "FeatureFlagEvaluationTag", **kwargs):
+@receiver(post_save, sender=FeatureFlagEvaluationContext)
+@receiver(post_delete, sender=FeatureFlagEvaluationContext)
+def evaluation_context_changed(sender, instance: "FeatureFlagEvaluationContext", **kwargs):
     from posthog.tasks.feature_flags import update_team_flags_cache
 
     team_id = instance.feature_flag.team_id
     transaction.on_commit(lambda: update_team_flags_cache.delay(team_id))
 
 
-@receiver(post_save, sender=Tag)
-def tag_changed(sender, instance: "Tag", created: bool, **kwargs):
-    """
-    Invalidate flags cache when a tag is renamed.
-
-    Tag names are cached in evaluation_tags, so if a tag used by any flag
-    is renamed, we need to refresh those teams' caches.
-    """
+@receiver(post_save, sender=EvaluationContext)
+def evaluation_context_name_changed(sender, instance: "EvaluationContext", created: bool, **kwargs):
+    """Invalidate cache when an EvaluationContext's name changes, so flags
+    referencing it pick up the new name on the next evaluation."""
     if created:
-        return  # New tags can't be used by any flags yet
-
-    # In practice, update_fields is rarely specified when saving Tags,
-    # but this check follows the pattern used elsewhere in the codebase.
-    update_fields = kwargs.get("update_fields")
-    if update_fields is not None and "name" not in update_fields:
-        return
+        return  # New contexts can't be referenced by any flags yet
 
     from posthog.tasks.feature_flags import update_team_flags_cache
 
-    for team_id in FeatureFlagEvaluationTag.get_team_ids_using_tag(instance):
-        # Capture team_id in closure to avoid late binding issues
-        transaction.on_commit(lambda tid=team_id: update_team_flags_cache.delay(tid))  # type: ignore[misc]
+    transaction.on_commit(lambda: update_team_flags_cache.delay(instance.team_id))

@@ -26,6 +26,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { ContextMenuGroup, ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
 import { DropdownMenuGroup } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { cn } from 'lib/utils/css-classes'
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
 import { sceneConfigurations } from 'scenes/scenes'
 import { teamLogic } from 'scenes/teamLogic'
@@ -338,6 +339,14 @@ export function ProjectTree({
                     if (path) {
                         loadFolder(path)
                     }
+                }
+
+                if (item?.id.startsWith('shortcuts')) {
+                    eventUsageLogic.actions.reportNavbarStarredItemClicked(
+                        item?.record?.type || 'unknown',
+                        item?.name || 'unknown',
+                        !!isAIFirst
+                    )
                 }
 
                 // False, because we handle focus of content in LemonTree with mainContentRef prop

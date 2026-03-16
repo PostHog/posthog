@@ -30,7 +30,7 @@ def _fail_node_and_data_modeling_job(inputs: FailMaterializationInputs):
     # strip hostnames from error for user-facing storage while preserving original for logging
     sanitized_error = strip_hostname_from_error(inputs.error)
 
-    node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id)
+    node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
     status = DataModelingJobStatus.CANCELLED if inputs.cancelled else DataModelingJobStatus.FAILED
     update_node_system_properties(
         node,

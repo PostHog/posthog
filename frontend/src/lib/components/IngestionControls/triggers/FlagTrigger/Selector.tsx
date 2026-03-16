@@ -25,7 +25,7 @@ export const FlagTriggerSelector = (): JSX.Element => {
                 onChange={(id, key) => {
                     onChange({ id, key, variant: null })
                 }}
-                disabledReason={(restrictedReason ?? featureFlagLoading) ? 'Loading...' : undefined}
+                disabledReason={restrictedReason ?? (featureFlagLoading ? 'Loading...' : undefined)}
                 readOnly={!!restrictedReason || featureFlagLoading}
             />
             {flag && (

@@ -80,6 +80,7 @@ class Dashboard(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.M
         through="DashboardTile",
         blank=True,
     )
+    quick_filter_ids = models.JSONField(default=list, blank=True, null=True)
 
     # Deprecated in favour of app-wide tagging model. See EnterpriseTaggedItem
     deprecated_tags: ArrayField = ArrayField(models.CharField(max_length=32), null=True, blank=True, default=list)

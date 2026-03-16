@@ -17,13 +17,13 @@ from django.conf import settings
 
 import aiohttp
 import pyarrow as pa
-import requests
 from structlog import get_logger
 from temporalio import activity
 
 import posthog.temporal.common.asyncpa as asyncpa
 from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import QueryTags, TemporalTags, get_query_tags
+from posthog.security.outbound_proxy import internal_requests_session
 
 LOGGER = get_logger(__name__)
 
@@ -528,7 +528,7 @@ class ClickHouseClient:
                     params[f"param_{key}"] = str(value)
         add_log_comment_param(params)
 
-        with requests.Session() as s:
+        with internal_requests_session() as s:
             response = s.post(
                 url=self.url,
                 params=params,
@@ -826,7 +826,7 @@ class ClickHouseClient:
             return sock
 
         self.connector = aiohttp.TCPConnector(ssl=self.ssl, socket_factory=socket_factory)
-        self.session = aiohttp.ClientSession(connector=self.connector, timeout=self.timeout)
+        self.session = aiohttp.ClientSession(connector=self.connector, timeout=self.timeout, trust_env=False)
         return self
 
     async def __aexit__(self, exc_type, exc_value, tb):

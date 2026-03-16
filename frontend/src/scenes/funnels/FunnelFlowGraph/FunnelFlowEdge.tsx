@@ -64,7 +64,7 @@ export function JourneyFlowEdge({
             <BaseEdge path={edgePath} markerEnd={markerEnd} style={style} />
             <EdgeLabelRenderer>
                 <div
-                    className="flex items-center gap-1 rounded bg-bg-light border border-border text-xs shadow-sm pointer-events-auto nopan px-2 py-0.5"
+                    className="flex items-center gap-1 rounded bg-bg-light border border-primary text-xs shadow-sm pointer-events-auto nopan px-2 py-0.5"
                     style={{
                         position: 'absolute',
                         transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,

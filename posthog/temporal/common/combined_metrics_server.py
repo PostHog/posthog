@@ -44,7 +44,8 @@ class CombinedMetricsServer:
             # Fetch Temporal SDK metrics from its Prometheus endpoint asynchronously
             temporal_output = b""
             try:
-                async with aiohttp.ClientSession() as session:
+                # nosemgrep: aiohttp-missing-trust-env -- internal metrics scrape
+                async with aiohttp.ClientSession(trust_env=False) as session:
                     async with session.get(self._temporal_metrics_url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
                         if resp.status == 200:
                             temporal_output = await resp.read()

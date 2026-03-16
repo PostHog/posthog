@@ -1354,3 +1354,39 @@ class TestOrganizationInvitesAPI(APIBaseTest):
         )
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert "organization_member:write" in response.json()["detail"]
+
+    def test_cross_org_invite_permission_bypass(self):
+        """
+        Org A has members_can_invite=True and ORGANIZATION_INVITE_SETTINGS.
+        Org B has members_can_invite=False and ORGANIZATION_INVITE_SETTINGS.
+        User is member in both, active org = A.
+        POST invite to Org B → 403.
+        """
+        org_b = Organization.objects.create(name="Org B")
+        org_b.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        org_b.members_can_invite = False
+        org_b.save()
+        OrganizationMembership.objects.create(
+            user=self.user, organization=org_b, level=OrganizationMembership.Level.MEMBER
+        )
+
+        # Org A allows members to invite
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ORGANIZATION_INVITE_SETTINGS},
+            {"key": AvailableFeature.ADVANCED_PERMISSIONS},
+        ]
+        self.organization.members_can_invite = True
+        self.organization.save()
+
+        # Switch active org to A
+        self.user.current_organization = self.organization
+        self.user.save()
+
+        response = self.client.post(
+            f"/api/organizations/{org_b.id}/invites/",
+            {"target_email": "cross_org_test@posthog.com"},
+        )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)

@@ -24,6 +24,9 @@ SignalEmitter = Callable[[int, dict[str, Any]], SignalEmitterOutput | None]
 class SignalSourceTableConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
+    # Must match SignalSourceConfig.SourceProduct and SignalSourceConfig.SourceType choices
+    source_product: str
+    source_type: str
     emitter: SignalEmitter
     # Should match the source table's partition field for efficient ClickHouse queries
     partition_field: str
@@ -79,6 +82,11 @@ def get_signal_config(source_type: str, schema_name: str) -> SignalSourceTableCo
 
 def is_signal_emission_registered(source_type: str, schema_name: str) -> bool:
     return (source_type, schema_name) in _SIGNAL_TABLE_CONFIGS
+
+
+def get_signal_source_identity(source_type: str, schema_name: str) -> tuple[str, str] | None:
+    config = _SIGNAL_TABLE_CONFIGS.get((source_type, schema_name))
+    return (config.source_product, config.source_type) if config else None
 
 
 def _register_all_emitters() -> None:

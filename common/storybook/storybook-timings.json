@@ -699,6 +699,30 @@
         "chromium": 6.4,
         "webkit": 2.5
     },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/BuilderPathFlowNode.stories.tsx": {
+        "chromium": 8.0,
+        "webkit": 3.0
+    },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/BuilderStepNode.stories.tsx": {
+        "chromium": 8.0,
+        "webkit": 3.0
+    },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/FunnelFlowGraph.stories.tsx": {
+        "chromium": 30.0,
+        "webkit": 8.0
+    },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/JourneyFlowNode.stories.tsx": {
+        "chromium": 8.0,
+        "webkit": 3.0
+    },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/PathFlowNode.stories.tsx": {
+        "chromium": 10.0,
+        "webkit": 3.5
+    },
+    "frontend/src/scenes/funnels/FunnelFlowGraph/ProfileFlowNode.stories.tsx": {
+        "chromium": 8.0,
+        "webkit": 3.0
+    },
     "frontend/src/scenes/funnels/FunnelTooltip.stories.tsx": {
         "chromium": 8.9,
         "webkit": 2.9
@@ -790,6 +814,10 @@
     "frontend/src/scenes/max/Max.stories.tsx": {
         "chromium": 176.6,
         "webkit": 13.5
+    },
+    "frontend/src/scenes/notebooks/Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney.stories.tsx": {
+        "chromium": 40.0,
+        "webkit": 10.0
     },
     "frontend/src/scenes/notebooks/Notebook/Notebook.stories.tsx": {
         "chromium": 49.1,
@@ -985,6 +1013,10 @@
     "products/actions/frontend/pages/Action.stories.tsx": {
         "chromium": 26.4,
         "webkit": 3.4
+    },
+    "products/customer_analytics/frontend/components/CustomerJourneys/CustomerJourneys.stories.tsx": {
+        "chromium": 25.0,
+        "webkit": 7.0
     },
     "products/early_access_features/frontend/EarlyAccessFeatures.stories.tsx": {
         "chromium": 17.0,

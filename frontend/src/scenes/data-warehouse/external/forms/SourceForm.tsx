@@ -23,6 +23,7 @@ import { SourceConfig, SourceFieldConfig } from '~/queries/schema/schema-general
 
 import { SSH_FIELD, sourceWizardLogic } from '../../new/sourceWizardLogic'
 import { DataWarehouseIntegrationChoice } from './DataWarehouseIntegrationChoice'
+import { GitHubRepositorySelector } from './GitHubRepositorySelector'
 import { parseConnectionString } from './parseConnectionString'
 
 export interface SourceFormProps {
@@ -211,6 +212,11 @@ const sourceFieldToElement = (
             lastValue,
             isUpdateMode
         )
+    }
+
+    if (field.type === 'text' && field.name === 'repository' && sourceConfig.name === 'Github') {
+        // Special case, this is the GitHub repository field
+        return <GitHubRepositorySelector key={field.name} />
     }
 
     return (

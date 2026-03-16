@@ -16,7 +16,7 @@ from temporalio.client import (
     ScheduleSpec,
     ScheduleState,
 )
-from temporalio.common import RetryPolicy
+from temporalio.common import RetryPolicy, SearchAttributePair, TypedSearchAttributes
 
 from posthog.temporal.common.client import async_connect, sync_connect
 from posthog.temporal.common.schedule import (
@@ -29,6 +29,9 @@ from posthog.temporal.common.schedule import (
     unpause_schedule,
     update_schedule,
 )
+from posthog.temporal.common.search_attributes import POSTHOG_DAG_ID_KEY, POSTHOG_ORG_ID_KEY, POSTHOG_TEAM_ID_KEY
+
+from products.data_modeling.backend.models.node import Node
 
 if TYPE_CHECKING:
     from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -85,16 +88,34 @@ def get_saved_query_schedule(saved_query: "DataWarehouseSavedQuery") -> Schedule
     )
 
 
+def get_saved_query_search_attributes(saved_query: "DataWarehouseSavedQuery") -> TypedSearchAttributes:
+    dag_id = Node.objects.filter(saved_query=saved_query).values_list("dag_id", flat=True).first()
+    search_attributes: list[SearchAttributePair] = [
+        SearchAttributePair(key=POSTHOG_TEAM_ID_KEY, value=saved_query.team_id),
+        SearchAttributePair(key=POSTHOG_ORG_ID_KEY, value=str(saved_query.team.organization_id)),
+    ]
+    if dag_id:
+        search_attributes.append(SearchAttributePair(key=POSTHOG_DAG_ID_KEY, value=str(dag_id)))
+    return TypedSearchAttributes(search_attributes=search_attributes)
+
+
 def sync_saved_query_workflow(
     saved_query: "DataWarehouseSavedQuery", create: bool = False
 ) -> "DataWarehouseSavedQuery":
     temporal = sync_connect()
     schedule = get_saved_query_schedule(saved_query)
+    search_attributes = get_saved_query_search_attributes(saved_query)
 
     if create:
-        create_schedule(temporal, id=str(saved_query.id), schedule=schedule, trigger_immediately=True)
+        create_schedule(
+            temporal,
+            id=str(saved_query.id),
+            schedule=schedule,
+            trigger_immediately=True,
+            search_attributes=search_attributes,
+        )
     else:
-        update_schedule(temporal, id=str(saved_query.id), schedule=schedule)
+        update_schedule(temporal, id=str(saved_query.id), schedule=schedule, search_attributes=search_attributes)
 
     return saved_query
 

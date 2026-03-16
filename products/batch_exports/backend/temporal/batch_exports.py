@@ -17,7 +17,15 @@ from temporalio import activity, exceptions, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.batch_exports.models import BatchExportRun
-from posthog.batch_exports.service import (
+from posthog.kafka_client.topics import KAFKA_APP_METRICS2
+from posthog.models.team.team import Team
+from posthog.settings.base_variables import TEST
+from posthog.sync import database_sync_to_async
+from posthog.temporal.common.clickhouse import ClickHouseClient
+from posthog.temporal.common.client import connect
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BackfillDetails,
     BatchExportField,
     BatchExportInsertInputs,
@@ -28,14 +36,6 @@ from posthog.batch_exports.service import (
     running_backfills_for_batch_export,
     update_batch_export_run,
 )
-from posthog.kafka_client.topics import KAFKA_APP_METRICS2
-from posthog.models.team.team import Team
-from posthog.settings.base_variables import TEST
-from posthog.sync import database_sync_to_async
-from posthog.temporal.common.clickhouse import ClickHouseClient
-from posthog.temporal.common.client import connect
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.metrics import get_export_finished_metric, get_export_started_metric
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult
 from products.batch_exports.backend.temporal.spmc import use_distributed_events_recent_table

@@ -25,7 +25,7 @@ from posthog.models.comment import Comment
 from posthog.models.team.team import Team
 from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
 
-from .formatting import slack_to_content_and_rich_content
+from .formatting import extract_slack_user_ids, slack_to_content_and_rich_content
 from .models import Ticket
 from .models.constants import Channel, Status
 from .support_slack import (
@@ -340,8 +340,19 @@ def create_or_update_slack_ticket(
     # Resolve Slack user info for this message author
     user_info = resolve_slack_user(client, slack_user_id)
 
+    # Resolve in-message @mentions to display names
+    mentioned_ids = extract_slack_user_ids(text, blocks)
+    user_names: dict[str, str] = {}
+    for uid in mentioned_ids:
+        if uid == slack_user_id and user_info["name"] != "Unknown":
+            user_names[uid] = user_info["name"]
+        elif uid not in user_names:
+            info = resolve_slack_user(client, uid)
+            if info["name"] != "Unknown":
+                user_names[uid] = info["name"]
+
     # Convert Slack payload to markdown content and rich_content
-    cleaned_text, rich_content = slack_to_content_and_rich_content(text, blocks)
+    cleaned_text, rich_content = slack_to_content_and_rich_content(text, blocks, user_names=user_names)
 
     if is_thread_reply:
         ticket = Ticket.objects.filter(
@@ -589,6 +600,93 @@ def handle_support_mention(event: dict, team: Team, slack_team_id: str) -> None:
     )
 
 
+def _backfill_thread_replies(
+    client: WebClient,
+    team: Team,
+    ticket: Ticket,
+    channel: str,
+    thread_ts: str,
+) -> None:
+    """Fetch existing thread replies and add them as comments on the ticket."""
+    try:
+        result = client.conversations_replies(channel=channel, ts=thread_ts, limit=200)
+        replies: list[dict] = result.get("messages", [])
+    except Exception:
+        logger.warning("slack_support_reaction_backfill_failed", channel=channel, thread_ts=thread_ts)
+        return
+
+    thread_replies = [r for r in replies if r.get("ts") != thread_ts]
+    if not thread_replies:
+        return
+
+    logger.info(
+        "slack_support_reaction_backfill_started",
+        channel=channel,
+        thread_ts=thread_ts,
+        ticket_id=str(ticket.id),
+        thread_reply_count=len(thread_replies),
+    )
+
+    user_cache: dict[str, dict] = {}
+    backfilled = 0
+
+    for reply in thread_replies:
+        # Match the bot/subtype filtering from handle_support_message
+        if reply.get("bot_id") or reply.get("subtype") in ("bot_message", "message_changed", "message_deleted"):
+            continue
+
+        reply_user = reply.get("user", "")
+        reply_text = reply.get("text", "")
+        reply_blocks = reply.get("blocks")
+        reply_files = reply.get("files")
+
+        if not reply_text.strip() and not reply_files:
+            continue
+
+        images = extract_slack_files(reply_files, team, client)
+
+        if reply_user not in user_cache:
+            user_cache[reply_user] = resolve_slack_user(client, reply_user)
+        user_info = user_cache[reply_user]
+
+        cleaned_text, rich_content = slack_to_content_and_rich_content(reply_text, reply_blocks)
+        if not cleaned_text and not images:
+            continue
+
+        content, rich_content = _build_content_with_images(cleaned_text, rich_content, images)
+
+        Comment.objects.create(
+            team=team,
+            scope="conversations_ticket",
+            item_id=str(ticket.id),
+            content=content,
+            rich_content=rich_content,
+            item_context={
+                "author_type": "customer",
+                "is_private": False,
+                "slack_user_id": reply_user,
+                "slack_author_name": user_info["name"],
+                "slack_author_email": user_info.get("email"),
+                "slack_author_avatar": user_info.get("avatar"),
+                "slack_images": images if images else None,
+            },
+        )
+        backfilled += 1
+
+    if backfilled:
+        Ticket.objects.filter(id=ticket.id).update(
+            unread_team_count=F("unread_team_count") + backfilled,
+        )
+
+    logger.info(
+        "slack_support_reaction_backfill_completed",
+        channel=channel,
+        thread_ts=thread_ts,
+        ticket_id=str(ticket.id),
+        backfilled_count=backfilled,
+    )
+
+
 def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None:
     """
     Handle a Slack 'reaction_added' event to create a ticket from a reacted message.
@@ -651,7 +749,7 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
     if not original_text.strip() and not original_files:
         return
 
-    create_or_update_slack_ticket(
+    ticket = create_or_update_slack_ticket(
         team=team,
         slack_channel_id=channel,
         thread_ts=message_ts,
@@ -662,3 +760,6 @@ def handle_support_reaction(event: dict, team: Team, slack_team_id: str) -> None
         is_thread_reply=False,
         slack_team_id=slack_team_id,
     )
+
+    if ticket:
+        _backfill_thread_replies(client, team, ticket, channel, message_ts)

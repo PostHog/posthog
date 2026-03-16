@@ -28,8 +28,6 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
     props({} as CustomerJourneysLogicProps),
     key((props) => props.key ?? 'default'),
     actions({
-        showAddJourneyModal: true,
-        hideAddJourneyModal: true,
         setActiveJourneyId: (journeyId: string | null) => ({ journeyId }),
         selectFirstJourneyIfNeeded: (journeys: CustomerJourneyApi[]) => ({ journeys }),
     }),
@@ -70,14 +68,6 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         },
     })),
     reducers({
-        isAddJourneyModalOpen: [
-            false,
-            {
-                showAddJourneyModal: () => true,
-                hideAddJourneyModal: () => false,
-                addJourneySuccess: () => false,
-            },
-        ],
         activeJourneyId: [
             null as string | null,
             {

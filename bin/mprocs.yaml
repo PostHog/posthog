@@ -70,6 +70,7 @@ procs:
         shell: |-
             bin/wait-for-docker temporal && \
             bin/check_ducklake_up && \
+            python manage.py register_temporal_search_attributes && \
             if [ -n "$TEMPORAL_DISABLE_HOT_RELOAD" ] || ! command -v nodemon >/dev/null 2>&1; then \
                 python manage.py start_temporal_worker --task-queue development-task-queue; \
             else \
@@ -106,16 +107,6 @@ procs:
             bin/start-rust-service cyclotron-janitor
         capability: cyclotron
 
-    cyclotron-janitor-shadow:
-        shell: |-
-            bin/wait-for-docker && \
-            DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron_shadow \
-            BIND_PORT=3304 \
-            JANITOR_ID=shadow-janitor \
-            SHARD_ID=shadow \
-            bin/start-rust-service cyclotron-janitor
-        capability: cyclotron
-
     cymbal:
         shell: |-
             bin/wait-for-docker && \
@@ -137,7 +128,7 @@ procs:
 
     livestream:
         shell: |-
-            bin/wait-for-docker && \
+            bin/wait-for-docker redis-cluster && \
             bin/start-go-service livestream
         capability: livestream
 
@@ -214,10 +205,6 @@ procs:
 
     migrate-cyclotron:
         shell: 'bin/wait-for-docker && bin/migrate --scope=cyclotron'
-        capability: cyclotron
-
-    migrate-cyclotron-shadow:
-        shell: 'bin/wait-for-docker && bin/migrate --scope=cyclotron-shadow'
         capability: cyclotron
 
     migrate-persons-db:

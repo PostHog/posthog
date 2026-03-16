@@ -14,7 +14,7 @@ from temporalio.testing import WorkflowEnvironment
 
 from posthog.sync import database_sync_to_async
 from posthog.temporal.data_modeling.activities import GetDAGStructureInputs, get_dag_structure_activity
-from posthog.temporal.data_modeling.activities.get_dag_structure import DAG
+from posthog.temporal.data_modeling.activities.get_dag_structure import DAG as DAGPlan
 from posthog.temporal.data_modeling.workflows.execute_dag import (
     EmptyDAGOrCycleError,
     ExecuteDAGInputs,
@@ -31,6 +31,7 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
 )
 
 from products.data_modeling.backend.models import Edge, Node, NodeType
+from products.data_modeling.backend.models.dag import DAG
 from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
@@ -53,13 +54,18 @@ class TestGetDagStructureActivity:
             await database_sync_to_async(query.delete)()
 
     @pytest_asyncio.fixture
-    async def dag_nodes(self, ateam, saved_queries):
-        dag_id = "test-dag"
+    async def adag(self, ateam):
+        dag = await database_sync_to_async(DAG.objects.create)(team=ateam, name="test-dag")
+        yield dag
+        await database_sync_to_async(dag.delete)()
+
+    @pytest_asyncio.fixture
+    async def dag_nodes(self, ateam, saved_queries, adag):
         nodes = []
         # source table (not executable)
         source_node = await database_sync_to_async(Node.objects.create)(
             team=ateam,
-            dag_id_text=dag_id,
+            dag=adag,
             name="events",
             type=NodeType.TABLE,
         )
@@ -68,7 +74,7 @@ class TestGetDagStructureActivity:
         for query in saved_queries:
             node = await database_sync_to_async(Node.objects.create)(
                 team=ateam,
-                dag_id_text=dag_id,
+                dag=adag,
                 name=query.name,
                 type=NodeType.MAT_VIEW,
                 saved_query=query,
@@ -79,28 +85,27 @@ class TestGetDagStructureActivity:
             await database_sync_to_async(node.delete)()
 
     @pytest_asyncio.fixture
-    async def dag_edges(self, ateam, dag_nodes):
-        dag_id = "test-dag"
+    async def dag_edges(self, ateam, dag_nodes, adag):
         edges = []
         # events -> model_a, model_a -> model_b, model_a -> model_c
         source, model_a, model_b, model_c = dag_nodes
         edge1 = await database_sync_to_async(Edge.objects.create)(
             team=ateam,
-            dag_id_text=dag_id,
+            dag=adag,
             source=source,
             target=model_a,
         )
         edges.append(edge1)
         edge2 = await database_sync_to_async(Edge.objects.create)(
             team=ateam,
-            dag_id_text=dag_id,
+            dag=adag,
             source=model_a,
             target=model_b,
         )
         edges.append(edge2)
         edge3 = await database_sync_to_async(Edge.objects.create)(
             team=ateam,
-            dag_id_text=dag_id,
+            dag=adag,
             source=model_a,
             target=model_c,
         )
@@ -109,15 +114,15 @@ class TestGetDagStructureActivity:
         for edge in edges:
             await database_sync_to_async(edge.delete)()
 
-    async def test_retrieves_all_nodes(self, activity_environment, ateam, dag_nodes):
-        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id="test-dag")
+    async def test_retrieves_all_nodes(self, activity_environment, ateam, dag_nodes, adag):
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id))
         dag = await activity_environment.run(get_dag_structure_activity, inputs)
         assert len(dag.nodes) == 4
         node_ids = {str(node.id) for node in dag_nodes}
         assert set(dag.nodes) == node_ids
 
-    async def test_filters_executable_nodes(self, activity_environment, ateam, dag_nodes):
-        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id="test-dag")
+    async def test_filters_executable_nodes(self, activity_environment, ateam, dag_nodes, adag):
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id))
         dag = await activity_environment.run(get_dag_structure_activity, inputs)
         # only MAT_VIEW nodes are executable (model_a, model_b, model_c)
         assert len(dag.executable_nodes) == 3
@@ -125,15 +130,15 @@ class TestGetDagStructureActivity:
         assert str(source_node.id) not in dag.executable_nodes
 
     @pytest.mark.usefixtures("dag_edges")  # avoids type checking unused arg
-    async def test_excludes_source_table_edges(self, activity_environment, ateam):
-        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id="test-dag")
+    async def test_excludes_source_table_edges(self, activity_environment, ateam, adag):
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(adag.id))
         dag = await activity_environment.run(get_dag_structure_activity, inputs)
         # edges from TABLE nodes are excluded
         # only model_a -> model_b and model_a -> model_c should be present
         assert len(dag.edges) == 2
 
     async def test_empty_dag(self, activity_environment, ateam):
-        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id="nonexistent-dag")
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(uuid.uuid4()))
         dag = await activity_environment.run(get_dag_structure_activity, inputs)
         assert len(dag.nodes) == 0
         assert len(dag.executable_nodes) == 0
@@ -141,7 +146,7 @@ class TestGetDagStructureActivity:
 
     async def test_identifies_ephemeral_nodes(self, activity_environment, ateam, auser):
         """Test that ephemeral (VIEW) nodes are correctly identified."""
-        dag_id = "test-ephemeral-dag"
+        dag = await database_sync_to_async(DAG.objects.create)(team=ateam, name="test-ephemeral-dag")
         mat_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
             team=ateam,
             name="mat_view_ephemeral_test",
@@ -156,25 +161,26 @@ class TestGetDagStructureActivity:
         )
         mat_node = await database_sync_to_async(Node.objects.create)(
             team=ateam,
-            dag_id_text=dag_id,
+            dag=dag,
             type=NodeType.MAT_VIEW,
             saved_query=mat_query,
         )
         ephemeral_node = await database_sync_to_async(Node.objects.create)(
             team=ateam,
-            dag_id_text=dag_id,
+            dag=dag,
             type=NodeType.VIEW,
             saved_query=ephemeral_query,
         )
-        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=dag_id)
-        dag = await activity_environment.run(get_dag_structure_activity, inputs)
-        assert len(dag.executable_nodes) == 2
-        assert len(dag.ephemeral_nodes) == 1
-        assert str(ephemeral_node.id) in dag.ephemeral_nodes
-        assert str(mat_node.id) not in dag.ephemeral_nodes
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(dag.id))
+        result = await activity_environment.run(get_dag_structure_activity, inputs)
+        assert len(result.executable_nodes) == 2
+        assert len(result.ephemeral_nodes) == 1
+        assert str(ephemeral_node.id) in result.ephemeral_nodes
+        assert str(mat_node.id) not in result.ephemeral_nodes
         # delete nodes first (they reference queries with PROTECT)
         await database_sync_to_async(mat_node.delete)()
         await database_sync_to_async(ephemeral_node.delete)()
+        await database_sync_to_async(dag.delete)()
         await database_sync_to_async(mat_query.delete)()
         await database_sync_to_async(ephemeral_query.delete)()
 
@@ -378,8 +384,8 @@ class TestExecuteDAGWorkflow:
         """Test that the workflow returns early with empty result when no executable nodes exist."""
 
         @temporal_activity.defn(name="get_dag_structure_activity")
-        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAG:
-            return DAG(nodes=[], executable_nodes=[], edges=[])
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(nodes=[], executable_nodes=[], edges=[])
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
             async with temporalio.worker.Worker(
@@ -441,8 +447,8 @@ class TestExecuteDAGWorkflowWithMocks:
         node_c_id = str(uuid.uuid4())
 
         @temporal_activity.defn(name="get_dag_structure_activity")
-        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAG:
-            return DAG(
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(
                 nodes=[node_a_id, node_b_id, node_c_id],
                 executable_nodes=[node_a_id, node_b_id, node_c_id],
                 edges=[(node_a_id, node_b_id), (node_b_id, node_c_id)],
@@ -483,8 +489,8 @@ class TestExecuteDAGWorkflowWithMocks:
         node_c_id = str(uuid.uuid4())
 
         @temporal_activity.defn(name="get_dag_structure_activity")
-        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAG:
-            return DAG(
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(
                 nodes=[node_a_id, node_b_id, node_c_id],
                 executable_nodes=[node_a_id, node_b_id, node_c_id],
                 edges=[],
@@ -519,8 +525,8 @@ class TestExecuteDAGWorkflowWithMocks:
         node_b_id = str(uuid.uuid4())
 
         @temporal_activity.defn(name="get_dag_structure_activity")
-        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAG:
-            return DAG(
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(
                 nodes=[node_a_id, node_b_id],
                 executable_nodes=[node_a_id, node_b_id],
                 edges=[(node_a_id, node_b_id)],
@@ -564,8 +570,8 @@ class TestExecuteDAGWorkflowWithMocks:
         node_c_id = str(uuid.uuid4())
 
         @temporal_activity.defn(name="get_dag_structure_activity")
-        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAG:
-            return DAG(
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(
                 nodes=[node_a_id, node_b_id, node_c_id],
                 executable_nodes=[node_a_id, node_b_id, node_c_id],
                 edges=[(node_a_id, node_c_id), (node_b_id, node_c_id)],
@@ -606,9 +612,9 @@ class TestExecuteDAGWorkflowWithMocks:
         downstream_id = str(uuid.uuid4())
 
         @temporal_activity.defn(name="get_dag_structure_activity")
-        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAG:
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
             # mat_view -> ephemeral_view -> downstream
-            return DAG(
+            return DAGPlan(
                 nodes=[mat_view_id, ephemeral_view_id, downstream_id],
                 executable_nodes=[mat_view_id, ephemeral_view_id, downstream_id],
                 ephemeral_nodes=[ephemeral_view_id],

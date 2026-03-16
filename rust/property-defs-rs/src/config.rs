@@ -9,18 +9,9 @@ pub struct Config {
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
 
-    // this maps to the original, shared CLOUD PG DB instance in production. When
-    // we migrate to the new persons DB, this won't change.
+    // this maps to the original, shared CLOUD PG DB instance in production.
     #[envconfig(default = "postgres://posthog:posthog@localhost:5432/posthog")]
     pub database_url: String,
-
-    // when true, the service will point group type mappings resolution to the new persons DB
-    #[envconfig(default = "false")]
-    pub read_groups_from_persons_db: bool,
-
-    // connection string for the new persons DB; unused if not enabled with read_groups_from_persons_db
-    #[envconfig(default = "")]
-    pub database_persons_url: String,
 
     #[envconfig(default = "10")]
     pub max_pg_connections: u32,
@@ -123,9 +114,6 @@ pub struct Config {
 
     #[envconfig(default = "5000")]
     pub personhog_connect_timeout_ms: u64,
-
-    #[envconfig(default = "0")]
-    pub personhog_rollout_percentage: u32,
 }
 
 #[derive(Clone)]

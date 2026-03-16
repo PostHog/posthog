@@ -336,8 +336,9 @@ def simulate_clickhouse_cannot_connect():
     """
     Simulates ClickHouse being unreachable by returning a 500 error response
     """
+    from posthog.security.outbound_proxy import internal_requests
 
-    with patch.object(requests, "get") as requests_mock:
+    with patch.object(internal_requests, "get") as requests_mock:
         response = requests.Response()
         response.status_code = 500
         requests_mock.return_value = response

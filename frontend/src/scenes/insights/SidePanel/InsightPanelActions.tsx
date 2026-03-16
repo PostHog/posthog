@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconCode2, IconPencil, IconPeople } from '@posthog/icons'
+import { IconCode2, IconEndpoints, IconPencil, IconPeople } from '@posthog/icons'
 
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
 import { SceneAddToDashboardButton } from 'lib/components/Scenes/InsightOrDashboard/SceneAddToDashboardButton'
@@ -158,7 +158,7 @@ export function InsightPanelActions({ insightLogicProps }: { insightLogicProps: 
                             : undefined
                     }
                 >
-                    <IconCode2 />
+                    <IconEndpoints />
                     Create endpoint
                 </ButtonPrimitive>
             ) : null}
