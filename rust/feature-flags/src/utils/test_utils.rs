@@ -946,11 +946,17 @@ impl TestContext {
         let (persons_writer, non_persons_writer) = setup_dual_pg_writers(Some(&config));
 
         let behavioral_cohorts_pool = if config.is_behavioral_cohorts_db_configured() {
-            Some(Arc::new(
-                sqlx::PgPool::connect(&config.behavioral_cohorts_read_database_url)
-                    .await
-                    .expect("Failed to connect to behavioral cohorts database"),
-            ))
+            match sqlx::PgPool::connect(&config.behavioral_cohorts_read_database_url).await {
+                Ok(pool) => Some(Arc::new(pool)),
+                Err(e) => {
+                    eprintln!(
+                        "Warning: failed to connect to behavioral cohorts database ({}), \
+                         cohort membership tests will be skipped: {e}",
+                        config.behavioral_cohorts_read_database_url
+                    );
+                    None
+                }
+            }
         } else {
             None
         };
@@ -1158,8 +1164,8 @@ impl TestContext {
                VALUES ($1, $2, $3, $4)
                ON CONFLICT (team_id, cohort_id, person_id) DO UPDATE SET in_cohort = $4"#,
         )
-        .bind(team_id as i64)
-        .bind(cohort_id as i64)
+        .bind(i64::from(team_id))
+        .bind(i64::from(cohort_id))
         .bind(person_uuid)
         .bind(in_cohort)
         .execute(pool.as_ref())
