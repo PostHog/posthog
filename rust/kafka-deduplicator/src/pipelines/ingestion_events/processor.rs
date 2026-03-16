@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use axum::async_trait;
+use async_trait::async_trait;
 use common_kafka::kafka_producer::KafkaContext;
 use common_types::{CapturedEvent, EventWithLibraryInfo, RawEvent};
 use futures::future::join_all;
