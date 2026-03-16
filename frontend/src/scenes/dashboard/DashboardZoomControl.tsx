@@ -38,7 +38,7 @@ export function DashboardZoomControl({ layoutZoom, setLayoutZoom }: DashboardZoo
                     type="secondary"
                     active={layoutZoom < 1}
                     onClick={() => {
-                        const nextZoom = layoutZoom <= 0.75 ? 1 : 0.25
+                        const nextZoom = layoutZoom < 1 ? 1 : 0.25
                         setLayoutZoom(nextZoom)
                         eventUsageLogic.actions.reportDashboardLayoutZoomChanged(dashboard ?? null, nextZoom, 'button')
                     }}
