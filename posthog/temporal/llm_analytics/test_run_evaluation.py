@@ -30,7 +30,9 @@ from .run_evaluation import (
     execute_hog_eval_activity,
     execute_llm_judge_activity,
     fetch_evaluation_activity,
+    increment_trial_eval_count_activity,
     run_hog_eval,
+    send_trial_exhausted_email_activity,
 )
 
 
@@ -948,3 +950,92 @@ class TestExecuteHogEvalActivityAllowsNA:
 
         with pytest.raises(ApplicationError, match="Must return boolean"):
             await execute_hog_eval_activity(evaluation, event_data)
+
+
+class TestIncrementTrialEvalCountActivity:
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_returns_false_when_limit_not_reached(self, setup_data):
+        team = setup_data["team"]
+        config, _ = await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+        config.trial_eval_limit = 100
+        config.trial_evals_used = 0
+        await sync_to_async(config.save)()
+
+        result = await increment_trial_eval_count_activity(team.id)
+
+        assert result is False
+        config = await sync_to_async(EvaluationConfig.objects.get)(team_id=team.id)
+        assert config.trial_evals_used == 1
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_returns_true_when_limit_just_reached(self, setup_data):
+        team = setup_data["team"]
+        config, _ = await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+        config.trial_eval_limit = 5
+        config.trial_evals_used = 4
+        await sync_to_async(config.save)()
+
+        result = await increment_trial_eval_count_activity(team.id)
+
+        assert result is True
+        config = await sync_to_async(EvaluationConfig.objects.get)(team_id=team.id)
+        assert config.trial_evals_used == 5
+
+
+class TestSendTrialExhaustedEmailActivity:
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_sends_email_to_org_members(self, setup_data):
+        team = setup_data["team"]
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            mock_message = MagicMock()
+            mock_email_class.return_value = mock_message
+
+            await send_trial_exhausted_email_activity(team.id)
+
+            mock_email_class.assert_called_once()
+            call_kwargs = mock_email_class.call_args[1]
+            assert "trial_exhausted" in call_kwargs["campaign_key"]
+            assert call_kwargs["template_name"] == "llm_analytics_trial_exhausted"
+            mock_message.send.assert_called_once()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_skips_when_email_not_available(self, setup_data):
+        team = setup_data["team"]
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+
+        with (
+            patch("posthog.email.is_email_available", return_value=False),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            await send_trial_exhausted_email_activity(team.id)
+
+            mock_email_class.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.django_db(transaction=True)
+    async def test_deduplicates_via_campaign_key(self, setup_data):
+        """The campaign key is per-organization, so the same org only gets one email."""
+        team = setup_data["team"]
+        await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            mock_message = MagicMock()
+            mock_email_class.return_value = mock_message
+
+            await send_trial_exhausted_email_activity(team.id)
+
+            call_kwargs = mock_email_class.call_args[1]
+            org_id = str(setup_data["organization"].id)
+            assert call_kwargs["campaign_key"] == f"llm_analytics_trial_exhausted_{org_id}"

@@ -1,0 +1,29 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block preheader %}Your trial evaluations for LLM analytics have been used up{% endblock %}
+{% block heading %}Your trial evaluations have been used up{% endblock %}
+{% block section %}
+<p>
+    Your team has used all <strong>{{ trial_eval_limit }}</strong> trial evaluations for LLM analytics. Any active evaluations using trial credits have been paused.
+</p>
+<p>
+    To resume running evaluations, add your own provider API key in the LLM analytics settings. Your existing evaluation configurations will be preserved and start running again once a key is added.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{% absolute_uri settings_url %}">Add your API key</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{% absolute_uri settings_url %}">{% absolute_uri settings_url %}</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs/ai-engineering?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.
+{% endblock %}
