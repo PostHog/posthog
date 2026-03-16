@@ -2,7 +2,6 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
-import React from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -239,11 +238,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 const attr = errorObject.attr
                 const detail = errorObject.detail
                 if (attr && detail) {
-                    lemonToast.error(`${identifierToHuman(attr)}: ${detail}`)
+                    const message = detail.replace(/^This field/, identifierToHuman(attr))
+                    lemonToast.error(`Could not save early access feature: ${message}`)
                     return
                 }
                 if (detail) {
-                    lemonToast.error(detail)
+                    lemonToast.error(`Could not save early access feature: ${detail}`)
                     return
                 }
             }
