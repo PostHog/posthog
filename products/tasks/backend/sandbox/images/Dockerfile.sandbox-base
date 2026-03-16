@@ -79,7 +79,7 @@ RUN mkdir -p /scripts && \
     CACHE_BUST=${COMMIT_HASH} npm install @posthog/agent@latest
 
 # Pull PostHog skills from GitHub releases and install into the plugin directory
-COPY pull-skills.sh /tmp/pull-skills.sh
+COPY products/tasks/backend/sandbox/images/pull-skills.sh /tmp/pull-skills.sh
 RUN chmod +x /tmp/pull-skills.sh && \
     /tmp/pull-skills.sh && \
     rm /tmp/pull-skills.sh
