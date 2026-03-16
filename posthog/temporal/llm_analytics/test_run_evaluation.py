@@ -1,6 +1,6 @@
 import json
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -590,7 +590,7 @@ class TestDynamicKeyResolution:
             name="Recently Used Key",
             state=LLMProviderKey.State.OK,
             encrypted_config={"api_key": "sk-old"},
-            last_used_at=datetime(2025, 1, 15, 11, 55),
+            last_used_at=datetime(2025, 1, 15, 11, 55, tzinfo=UTC),
         )
         await sync_to_async(LLMProviderKey.objects.create)(
             team=team,

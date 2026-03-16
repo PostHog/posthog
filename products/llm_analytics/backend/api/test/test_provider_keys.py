@@ -675,6 +675,15 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
             model="gpt-5-mini",
             provider_key=key1,
         )
+        evaluation = Evaluation.objects.create(
+            team=self.team,
+            name="Test Evaluation",
+            evaluation_type="llm_judge",
+            evaluation_config={"prompt": "Is this good?"},
+            output_type="boolean",
+            model_configuration=model_config,
+            enabled=True,
+        )
 
         response = self.client.delete(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key1.id}/?replacement_key_id={key2.id}"
@@ -684,6 +693,11 @@ class TestLLMProviderKeyDependentConfigs(APIBaseTest):
         model_config.refresh_from_db()
         self.assertEqual(model_config.provider_key, key2)
         self.assertEqual(LLMProviderKey.objects.filter(id=key1.id).count(), 0)
+
+        # Evaluation stays enabled and keeps its model configuration when a replacement is provided
+        evaluation.refresh_from_db()
+        self.assertTrue(evaluation.enabled)
+        self.assertEqual(evaluation.model_configuration, model_config)
 
     def test_delete_without_replacement_disables_evaluations(self):
         key = LLMProviderKey.objects.create(
