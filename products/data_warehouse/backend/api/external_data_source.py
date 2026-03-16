@@ -964,8 +964,21 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 data={"message": "This source type does not support webhooks"},
             )
 
-        config = source.parse_config(instance.job_inputs)
-        source_schemas = source.get_schemas(config, self.team_id)
+        try:
+            config = source.parse_config(instance.job_inputs)
+            source_schemas = source.get_schemas(config, self.team_id)
+        except ValidationError as e:
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Invalid source configuration", "details": getattr(e, "detail", str(e))},
+            )
+        except Exception as e:
+            capture_exception(e)
+            return Response(
+                status=status.HTTP_400_BAD_REQUEST,
+                data={"message": "Failed to load source configuration or schemas"},
+            )
+
         webhook_source_schemas = {s.name: s for s in source_schemas if s.supports_webhooks}
 
         db_schemas = ExternalDataSchema.objects.filter(
