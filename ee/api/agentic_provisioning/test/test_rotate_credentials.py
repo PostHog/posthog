@@ -82,7 +82,7 @@ class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
             token=token,
         )
         assert res.status_code == 200
-        assert res.json()["service_id"] == "posthog"
+        assert res.json()["service_id"] == "analytics"
 
     @patch("posthog.models.team.team.Team.reset_token_and_save", side_effect=Exception("db error"))
     def test_rotate_returns_500_when_reset_token_fails(self, _mock_reset):

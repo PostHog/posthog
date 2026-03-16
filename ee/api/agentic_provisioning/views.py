@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import time
 import secrets
 from datetime import timedelta
 from typing import Any
@@ -15,7 +14,6 @@ from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
 
-import requests
 import structlog
 import posthoganalytics
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -30,8 +28,6 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
 from posthog.utils import get_instance_region
-
-from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
 from .region_proxy import stripe_region_proxy
@@ -54,127 +50,27 @@ ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
 
 # ---------------------------------------------------------------------------
-# Service catalog — a parent "posthog" service with component children per
-# product. Users provision "posthog" and get all products; individual products
-# use component pricing with their Stripe price IDs so the orchestrator can
-# display pricing info.
+# Service catalog — single "analytics" service that provisions a PostHog
+# project. All products (analytics, replay, flags, etc.) are included; paid
+# component services deferred to V2 once Stripe Projects supports SPT.
 # ---------------------------------------------------------------------------
 
-SERVICES_CACHE_KEY = "agentic_provisioning:services"
-SERVICES_CACHE_TTL = 3600  # 1 hour
-SERVICES_CACHE_RETRY_TTL = 300  # 5 min retry window when billing is down
-
-# Products that shouldn't be listed as provisionable services
-_EXCLUDED_PRODUCT_TYPES = {"platform_and_support", "integrations"}
-
-# Billing product type -> APP service categories
-_CATEGORY_MAP: dict[str, list[str]] = {
-    "product_analytics": ["analytics"],
-    "session_replay": ["observability"],
-    "feature_flags": ["feature_flags"],
-    "surveys": ["analytics"],
-    "data_warehouse": ["database"],
-    "error_tracking": ["observability"],
-    "llm_analytics": ["analytics", "ai"],
-    "logs": ["observability"],
-    "posthog_ai": ["ai"],
-    "realtime_destinations": ["messaging"],
-    "workflows_emails": ["email"],
-}
-
-POSTHOG_SERVICE_ID = "posthog"
+POSTHOG_SERVICE_ID = "analytics"
 
 POSTHOG_PARENT_SERVICE: dict[str, Any] = {
     "id": POSTHOG_SERVICE_ID,
-    "description": "PostHog — product analytics, session replay, feature flags, A/B testing, surveys, and more",
-    "categories": ["analytics", "observability", "feature_flags", "ai"],
+    "description": "PostHog — product analytics, session replay, feature flags, A/B testing, surveys, and more. "
+    "Includes a generous free tier for every product. Upgrade to paid plans in-app as you grow.",
+    "categories": ["analytics", "feature_flags", "ai"],
     "pricing": {"type": "free"},
 }
 
 
-def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
-    """Fetch product catalog from billing. Returns None on failure."""
-    try:
-        res = requests.get(
-            f"{BILLING_SERVICE_URL}/api/products-v2",
-            params={"plan": "standard"},
-        )
-        res.raise_for_status()
-        products = res.json().get("products", [])
-    except Exception:
-        logger.exception("agentic_provisioning.services.billing_fetch_failed")
-        return None
-
-    services: list[dict[str, Any]] = [POSTHOG_PARENT_SERVICE]
-    for product in products:
-        product_type = product.get("type", "")
-        if product_type in _EXCLUDED_PRODUCT_TYPES:
-            continue
-        if product.get("inclusion_only"):
-            continue
-
-        paid_plan = next((p for p in product.get("plans", []) if p.get("price_id")), None)
-        if not paid_plan:
-            continue
-
-        services.append(
-            {
-                "id": product_type,
-                "description": product.get("headline") or product.get("description", ""),
-                "categories": _CATEGORY_MAP.get(product_type, ["analytics"]),
-                "pricing": {
-                    "type": "component",
-                    "component": {
-                        "options": [
-                            {
-                                "parent_service_ids": [POSTHOG_SERVICE_ID],
-                                "type": "paid",
-                                "paid": {
-                                    "type": "stripe_price",
-                                    "stripe_price": paid_plan["price_id"],
-                                },
-                            }
-                        ]
-                    },
-                },
-            }
-        )
-
-    return services
-
-
-SERVICES_CACHE_EXPIRES_KEY = "agentic_provisioning:services:expires_at"
-SERVICES_CACHE_STORE_TTL = 86400  # store data for 24h so stale reads work
-
-
 def _get_services() -> list[dict[str, Any]]:
-    cached = cache.get(SERVICES_CACHE_KEY)
-    expires_at = cache.get(SERVICES_CACHE_EXPIRES_KEY)
-
-    now = time.time()
-    if cached is not None and expires_at is not None and now < expires_at:
-        return cached
-
-    services = _fetch_services_from_billing()
-    if services is not None:
-        cache.set(SERVICES_CACHE_KEY, services, SERVICES_CACHE_STORE_TTL)
-        cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_TTL, SERVICES_CACHE_STORE_TTL)
-        return services
-
-    # Billing failed — serve stale data, retry after SERVICES_CACHE_RETRY_TTL
-    if cached is not None:
-        logger.warning("agentic_provisioning.services.serving_stale_cache")
-        cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_STORE_TTL)
-        return cached
-
-    logger.warning("agentic_provisioning.services.no_cache_fallback")
-    fallback = [POSTHOG_PARENT_SERVICE]
-    cache.set(SERVICES_CACHE_KEY, fallback, SERVICES_CACHE_RETRY_TTL)
-    cache.set(SERVICES_CACHE_EXPIRES_KEY, now + SERVICES_CACHE_RETRY_TTL, SERVICES_CACHE_RETRY_TTL)
-    return fallback
+    return [POSTHOG_PARENT_SERVICE]
 
 
-VALID_SERVICE_IDS: set[str] = {POSTHOG_SERVICE_ID} | set(_CATEGORY_MAP.keys())
+VALID_SERVICE_IDS: set[str] = {POSTHOG_SERVICE_ID}
 
 
 # ---------------------------------------------------------------------------
