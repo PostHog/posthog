@@ -59,67 +59,75 @@ function hrTimeNano(): string {
 }
 
 function sendLog(level: LogLevel, context: string, message: string, properties?: Record<string, unknown>): void {
-    const config = toolbarPosthogJS?.config
-    if (!config) {
-        return
-    }
-    const apiHost = config.api_host?.replace(/\/+$/, '') || ''
-    const token = config.token
+    try {
+        if (!toolbarPosthogJS?.has_opted_in_capturing?.()) {
+            return
+        }
 
-    if (!apiHost || !token) {
-        return
-    }
+        const config = toolbarPosthogJS?.config
+        if (!config) {
+            return
+        }
+        const apiHost = config.api_host?.replace(/\/+$/, '') || ''
+        const token = config.token
 
-    const severity = SEVERITY_MAP[level]
-    const timeNano = hrTimeNano()
+        if (!apiHost || !token) {
+            return
+        }
 
-    const distinctId = toolbarPosthogJS.get_distinct_id?.()
+        const severity = SEVERITY_MAP[level]
+        const timeNano = hrTimeNano()
 
-    const attributes = toAttributes({
-        'toolbar.context': context,
-        ...properties,
-    })
+        const distinctId = toolbarPosthogJS.get_distinct_id?.()
 
-    const body = {
-        resourceLogs: [
-            {
-                resource: {
-                    attributes: toAttributes({
-                        'service.name': 'posthog-toolbar',
-                        host: window.location.host,
-                        ...(distinctId ? { 'posthog.distinct_id': distinctId } : {}),
-                    }),
-                },
-                scopeLogs: [
-                    {
-                        scope: { name: 'toolbar' },
-                        logRecords: [
-                            {
-                                timeUnixNano: timeNano,
-                                observedTimeUnixNano: timeNano,
-                                severityNumber: severity.number,
-                                severityText: severity.text,
-                                body: { stringValue: message },
-                                attributes,
-                            },
-                        ],
-                    },
-                ],
-            },
-        ],
-    }
-
-    const url = `${apiHost}/i/v1/logs?token=${token}`
-
-    if (navigator.sendBeacon) {
-        navigator.sendBeacon(url, new Blob([JSON.stringify(body)], { type: 'application/json' }))
-    } else {
-        void fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-            keepalive: true,
+        const attributes = toAttributes({
+            'toolbar.context': context,
+            ...properties,
         })
+
+        const body = {
+            resourceLogs: [
+                {
+                    resource: {
+                        attributes: toAttributes({
+                            'service.name': 'posthog-toolbar',
+                            host: window.location.host,
+                            ...(distinctId ? { 'posthog.distinct_id': distinctId } : {}),
+                        }),
+                    },
+                    scopeLogs: [
+                        {
+                            scope: { name: 'toolbar' },
+                            logRecords: [
+                                {
+                                    timeUnixNano: timeNano,
+                                    observedTimeUnixNano: timeNano,
+                                    severityNumber: severity.number,
+                                    severityText: severity.text,
+                                    body: { stringValue: message },
+                                    attributes,
+                                },
+                            ],
+                        },
+                    ],
+                },
+            ],
+        }
+
+        const url = `${apiHost}/i/v1/logs?token=${token}`
+
+        if (navigator.sendBeacon) {
+            navigator.sendBeacon(url, new Blob([JSON.stringify(body)], { type: 'application/json' }))
+        } else {
+            void fetch(url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(body),
+                keepalive: true,
+            })
+        }
+    } catch {
+        // Never throw on customer pages — matches the contract of toolbarPosthogJS.capture()
     }
 }
 
