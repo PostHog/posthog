@@ -464,6 +464,11 @@ def test_evolve_pyarrow_schema_decimal_integration_table_from_py_list():
             [decimal.Decimal("12345678901.23"), decimal.Decimal("89.00")],
             pa.decimal128(38, 2),
         ),
+        (
+            pa.decimal128(10, 3),
+            [decimal.Decimal("1234567.123"), decimal.Decimal("89.00")],
+            pa.decimal128(11, 3),
+        ),
     ],
 )
 def test_evolve_pyarrow_schema_decimal_does_not_widen_unnecessarily_and_can_widen_when_needed(

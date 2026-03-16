@@ -236,6 +236,7 @@ def _evolve_pyarrow_schema(incoming_table: pa.Table, delta_schema: deltalake.Sch
                     pass
 
             incoming_column = incoming_table.column(delta_field.name)
+            incoming_dec = cast(pa.Decimal128Type | pa.Decimal256Type, incoming_column.type)
             delta_int_digits = delta_dec.precision - delta_dec.scale
             incoming_int_digits = incoming_dec.precision - incoming_dec.scale
             max_int_digits = max(delta_int_digits, incoming_int_digits)
