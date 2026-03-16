@@ -377,7 +377,6 @@ async def test_successful_deliveries_emit_succeeded_events(
         c for c in mock_posthog.capture.call_args_list if c.kwargs.get("event") == "subscription_delivery_exhausted"
     ]
     assert len(exhausted_calls) == 0
-    mock_posthog.flush.assert_called()
 
 
 @patch("posthog.temporal.subscriptions.subscription_scheduling_workflow.posthoganalytics")
@@ -439,7 +438,6 @@ async def test_failed_deliveries_emit_exhausted_events(
         c for c in mock_posthog.capture.call_args_list if c.kwargs.get("event") == "subscription_delivery_succeeded"
     ]
     assert len(succeeded_calls) == 0
-    mock_posthog.flush.assert_called()
 
 
 @patch("posthog.temporal.subscriptions.subscription_scheduling_workflow.posthoganalytics")

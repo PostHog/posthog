@@ -135,7 +135,7 @@ async def emit_subscription_delivery_outcome_events_activity(
             },
         )
 
-    posthoganalytics.flush()
+    await asyncio.to_thread(posthoganalytics.flush)
 
 
 @dataclasses.dataclass
@@ -242,6 +242,7 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
     async def run(self, inputs: DeliverSubscriptionReportActivityInputs) -> None:
         succeeded: list[int] = []
         failed: list[dict[str, typing.Any]] = []
+        delivery_error: Exception | None = None
 
         try:
             await temporalio.workflow.execute_activity(
@@ -256,6 +257,7 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
             )
             succeeded.append(inputs.subscription_id)
         except Exception as e:
+            delivery_error = e
             failed.append(
                 {
                     "subscription_id": inputs.subscription_id,
@@ -277,3 +279,6 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
                 maximum_attempts=3,
             ),
         )
+
+        if delivery_error is not None:
+            raise delivery_error
