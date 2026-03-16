@@ -511,7 +511,7 @@ def table_from_iterator(data_iterator: Iterator[dict], schema: Optional[pa.Schem
     if not batch:
         return pa.Table.from_pylist([])
 
-    processed_batch = _process_batch(list(batch), schema)
+    processed_batch = _process_batch(batch, schema)
 
     return processed_batch
 

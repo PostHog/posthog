@@ -332,6 +332,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             # Add header comment for log mode
             if config.posthog_config and config.posthog_config.log_to_files:
                 f.write("# Log mode: Output logged to /tmp/posthog-*.log\n")
+
             yaml.dump(config.to_yaml_dict(), f, default_flow_style=False, sort_keys=False)
         return output_path
 
