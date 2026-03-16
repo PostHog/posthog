@@ -20,7 +20,7 @@ fi
 echo "Downloading and exporting sentiment ONNX model to $CACHE_DIR..."
 echo "This requires the sentiment dependency group (uv sync --group sentiment)"
 
-python - <<'PYEOF'
+python3 - <<'PYEOF'
 import os, torch
 from transformers import AutoTokenizer, pipeline
 from optimum.onnxruntime import ORTModelForSequenceClassification
