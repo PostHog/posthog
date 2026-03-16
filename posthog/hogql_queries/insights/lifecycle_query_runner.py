@@ -38,7 +38,12 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
     def __post_init__(self) -> None:
         super().__post_init__()
+        self._validate_query()
         self._validate_data_warehouse_settings()
+
+    def _validate_query(self) -> None:
+        if not self.query.series:
+            raise ValidationError("Lifecycle insights require at least one series.")
 
     def _validate_data_warehouse_settings(self) -> None:
         if not self.is_data_warehouse_series:
@@ -174,6 +179,7 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
         )
 
     def _calculate(self) -> LifecycleQueryResponse:
+        series = self.first_series
         query = self.to_query()
         hogql = to_printed_hogql(query, self.team)
 
@@ -202,8 +208,8 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
             # legacy response compatibility object
             action_object = {}
             label = "{} - {}".format("", val[2])
-            if isinstance(self.query.series[0], ActionsNode):
-                action = Action.objects.get(pk=int(self.query.series[0].id), team__project_id=self.team.project_id)
+            if isinstance(series, ActionsNode):
+                action = Action.objects.get(pk=int(series.id), team__project_id=self.team.project_id)
                 label = "{} - {}".format(action.name, val[2])
                 action_object = {
                     "id": str(action.pk),
@@ -212,11 +218,11 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "order": 0,
                     "math": "total",
                 }
-                custom_name = getattr(self.query.series[0], "custom_name", None)
+                custom_name = getattr(series, "custom_name", None)
                 if custom_name is not None:
                     action_object["custom_name"] = custom_name
-            elif isinstance(self.query.series[0], EventsNode):
-                event = self.query.series[0].event
+            elif isinstance(series, EventsNode):
+                event = series.event
                 label = "{} - {}".format("All events" if event is None else event, val[2])
                 action_object = {
                     "id": event,
@@ -225,11 +231,11 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
                     "order": 0,
                     "math": "total",
                 }
-                custom_name = getattr(self.query.series[0], "custom_name", None)
+                custom_name = getattr(series, "custom_name", None)
                 if custom_name is not None:
                     action_object["custom_name"] = custom_name
-            elif isinstance(self.query.series[0], LifecycleDataWarehouseNode):
-                data_warehouse_node = self.query.series[0]
+            elif isinstance(series, LifecycleDataWarehouseNode):
+                data_warehouse_node = series
                 label = "{} - {}".format(data_warehouse_node.table_name, val[2])
                 action_object = {
                     "id": data_warehouse_node.id,
@@ -268,11 +274,16 @@ class LifecycleQueryRunner(AnalyticsQueryRunner[LifecycleQueryResponse]):
 
     @property
     def is_data_warehouse_series(self) -> bool:
-        return isinstance(self.query.series[0], LifecycleDataWarehouseNode)
+        return isinstance(self.first_series, LifecycleDataWarehouseNode)
+
+    @property
+    def first_series(self) -> ActionsNode | EventsNode | LifecycleDataWarehouseNode:
+        assert self.query.series, "There should be at least one series in the query"
+        return self.query.series[0]
 
     @property
     def data_warehouse_series(self) -> LifecycleDataWarehouseNode:
-        series = self.query.series[0]
+        series = self.first_series
         if not isinstance(series, LifecycleDataWarehouseNode):
             raise ValueError("Expected a data warehouse series")
         return series
