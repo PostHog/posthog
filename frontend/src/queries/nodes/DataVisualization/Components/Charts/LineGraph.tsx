@@ -545,7 +545,7 @@ export const LineGraph = ({
                                             />
                                         </div>
                                         {totalLabel && (
-                                            <div className="flex space-between px-5 py-2 text-xs font-bold border-t border-primary">
+                                            <div className="flex justify-between px-5 py-2 text-xs font-bold border-t border-primary">
                                                 <span className="flex-1">Total</span>
                                                 <span className="text-right">{totalLabel}</span>
                                             </div>
