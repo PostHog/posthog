@@ -101,15 +101,7 @@ export const getDisplayNameFromEntityFilter = (
     const customName = ensureStringIsNotBlank(filter?.custom_name)
 
     let name = ensureStringIsNotBlank(filter?.name)
-    name =
-        name &&
-        name
-            .split(',')
-            .map((eventName) => {
-                const trimmedEventName = eventName.trim()
-                return CORE_FILTER_DEFINITIONS_BY_GROUP.events?.[trimmedEventName]?.label || trimmedEventName
-            })
-            .join(', ')
+    name = formatEventName(name) ?? name
 
     if (isAllEventsEntityFilter(filter)) {
         name = 'All events'
