@@ -33,30 +33,18 @@ def refresh_affected_hog_functions(
         )
     elif cohort_id:
         from posthog.models.cohort import Cohort
-        from posthog.models.team.team import Team
 
         cohort = Cohort.objects.select_related("team").get(id=cohort_id)
-        # Pre-filter at DB level for teams with any cohort in test_account_filters,
-        # then verify the specific cohort ID in Python (matches pattern in posthog/api/cohort.py)
-        teams = Team.objects.filter(
-            project_id=cohort.team.project_id, test_account_filters__contains=[{"type": "cohort"}]
-        )
-        affected_team_ids: list[int] = []
-        for team in teams:
-            for f in team.test_account_filters:
-                if f.get("type") == "cohort" and f.get("value") == cohort.id:
-                    affected_team_ids.append(team.id)
-                    break
+        team = cohort.team
 
-        if not affected_team_ids:
+        # Check if this team references the cohort in its test_account_filters
+        uses_cohort = any(
+            f.get("type") == "cohort" and f.get("value") == cohort.id for f in (team.test_account_filters or [])
+        )
+        if not uses_cohort:
             return 0
 
-        # If multiple teams are affected, dispatch separate tasks for each beyond the first
-        if len(affected_team_ids) > 1:
-            for extra_team_id in affected_team_ids[1:]:
-                refresh_affected_hog_functions.delay(team_id=extra_team_id)
-
-        team_id = affected_team_ids[0]
+        team_id = team.id
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
             .filter(team_id=team_id)

@@ -335,17 +335,26 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             team=self.team,
             filters={"filter_test_accounts": True},
         )
-        original_updated_at = hog_function.updated_at
 
-        # The task should find this team and attempt to recompile its hog functions.
-        # Cohort inlining isn't on master yet so compilation produces a bytecode_error,
-        # but the key behavior is that the task found the right hog function and attempted
-        # recompilation. When cohort inlining lands, this will produce valid bytecode.
+        original_bytecode = json.dumps(hog_function.filters["bytecode"])
+        assert hog_function.filters.get("bytecode_error") is None
+        assert "%@posthog.com%" in original_bytecode
+
+        # Update the cohort — the task should recompile with the new filter value
+        cohort.filters = {
+            "properties": {
+                "type": "AND",
+                "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@newdomain.com"}],
+            }
+        }
+        cohort.save()
         result = refresh_affected_hog_functions(cohort_id=cohort.id)
 
         hog_function.refresh_from_db()
-        assert result == 0  # 0 successful compilations (cohort inlining not yet supported)
-        assert hog_function.updated_at == original_updated_at
+        assert result == 1
+        new_bytecode = json.dumps(hog_function.filters["bytecode"])
+        assert "%@newdomain.com%" in new_bytecode
+        assert "%@posthog.com%" not in new_bytecode
 
     def test_cohort_refresh_skips_unrelated_teams(self):
         from posthog.tasks.hog_functions import refresh_affected_hog_functions
