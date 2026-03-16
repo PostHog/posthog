@@ -198,10 +198,6 @@
         h4 {
             height: auto;
             margin: 0;
-
-            &.inline-flex {
-                overflow: visible;
-            }
         }
 
         @container (min-width: 14rem) {
