@@ -379,18 +379,18 @@ export function EarlyAccessFeature({ id }: EarlyAccessFeatureLogicProps): JSX.El
                         any functionality.
                     </LemonBanner>
                 )}
-                {!isEditingFeature &&
-                    (earlyAccessFeature.stage === EarlyAccessFeatureStage.Alpha ||
-                        earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta) && (
-                        <LemonBanner type="info">
-                            This feature is in{' '}
-                            <LemonTag type="warning" className="uppercase">
-                                {earlyAccessFeature.stage}
-                            </LemonTag>
-                            . Opted-in users have the feature flag enabled. When you change the stage, enrolled users
-                            will receive a notification event (<code>$feature_enrollment_update</code>).
-                        </LemonBanner>
-                    )}
+                {!isEditingFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Alpha && (
+                    <LemonBanner type="info">
+                        Opted-in users have the feature flag enabled for early testing. When you change the stage,
+                        enrolled users will receive a notification event (<code>$feature_enrollment_update</code>).
+                    </LemonBanner>
+                )}
+                {!isEditingFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.Beta && (
+                    <LemonBanner type="info">
+                        Opted-in users have the feature flag enabled for wider testing. When you change the stage,
+                        enrolled users will receive a notification event (<code>$feature_enrollment_update</code>).
+                    </LemonBanner>
+                )}
                 {!isEditingFeature && earlyAccessFeature.stage === EarlyAccessFeatureStage.GeneralAvailability && (
                     <LemonBanner type="success">
                         This feature has been promoted to general availability and can no longer be edited. Opted-in
