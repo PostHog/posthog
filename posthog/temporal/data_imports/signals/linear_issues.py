@@ -130,6 +130,8 @@ def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
 
 
 LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
+    source_product="linear",
+    source_type="issue",
     emitter=linear_issue_emitter,
     partition_field="created_at",
     partition_field_is_datetime_string=True,

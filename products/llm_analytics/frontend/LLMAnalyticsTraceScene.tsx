@@ -1298,6 +1298,12 @@ function DisplayOptionsSelect(): JSX.Element {
             'data-attr': 'llma-trace-display-expand-all',
         },
         {
+            value: DisplayOption.ExpandUserOnly,
+            label: 'Expand user only',
+            tooltip: 'Show only user messages in expanded view',
+            'data-attr': 'llma-trace-display-expand-user-only',
+        },
+        {
             value: DisplayOption.CollapseExceptOutputAndLastInput,
             label: 'Collapse except output and last input',
             tooltip: 'Focus on the most recent input and final output',

@@ -293,7 +293,7 @@ def execute_video_segment_clustering_workflow(team_id: int, skip_priming: bool =
         raise
 
 
-def execute_twig_agent_relay_workflow(
+def execute_posthog_code_agent_relay_workflow(
     run_id: str,
     text: str,
     relay_id: str | None = None,
@@ -302,12 +302,12 @@ def execute_twig_agent_relay_workflow(
     reaction_emoji: str = "white_check_mark",
 ) -> str:
     relay_id = relay_id or str(uuid.uuid4())
-    workflow_id = f"twig-agent-relay-{run_id}-{relay_id}"
+    workflow_id = f"posthog-code-agent-relay-{run_id}-{relay_id}"
 
     client = sync_connect()
     asyncio.run(
         client.start_workflow(
-            "twig-agent-relay",
+            "posthog-code-agent-relay",
             RelaySlackMessageInput(
                 run_id=run_id,
                 relay_id=relay_id,

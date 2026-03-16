@@ -22,10 +22,10 @@ const fs = require('fs')
 const SMALL_THRESHOLD_SECONDS = 2 * 60
 const TARGET_SHARD_SECONDS = 10 * 60
 // Per-product overhead not captured by .test_durations: turbo dispatch, pytest
-// collection, Django init. First product pays ~45s, subsequent ~15s; use 20s
+// collection, Django init. First product pays ~45s, subsequent ~15s; use 60s
 // as a conservative average. Durations also underpredict by ~2x because
 // pytest-split data was collected under Django Core's shared session.
-const SETUP_OVERHEAD_SECONDS = 20
+const SETUP_OVERHEAD_SECONDS = 60
 const DURATION_SAFETY_FACTOR = 2
 // Tests under these paths need special infrastructure (Temporal server, etc.)
 // and are handled by Django CI's dedicated segments — exclude from duration estimates

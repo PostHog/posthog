@@ -19,7 +19,7 @@ import * as fs from 'node:fs'
 import * as path from 'node:path'
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 
-import { CategoryConfigSchema, type ToolConfig } from './yaml-config-schema'
+import { CategoryConfigSchema } from './yaml-config-schema'
 
 const MCP_ROOT = path.resolve(__dirname, '..')
 const REPO_ROOT = path.resolve(MCP_ROOT, '../..')
@@ -259,8 +259,10 @@ function generateFreshYaml(ops: DiscoveredOperation[], tag: string): string {
 function mergeWithExisting(
     existingPath: string,
     ops: DiscoveredOperation[],
-    tag: string
-): { content: string; added: number; removed: number } {
+    tag: string,
+    validOperationIds: Set<string>,
+    subset = false
+): { content: string; added: number; removed: number; updated: number; matched: number; unmatchedTools: string[] } {
     const parsed = parseYaml(fs.readFileSync(existingPath, 'utf-8'))
     const result = CategoryConfigSchema.safeParse(parsed)
     if (!result.success) {
@@ -273,36 +275,54 @@ function mergeWithExisting(
     const existing = result.data
     const existingTools = existing.tools
 
-    // Map base operationId → existing tool entry (name + config)
-    // Uses base (strip _N suffix) so dedup changes don't lose existing config
-    const byBaseOperationId = new Map<string, { name: string; config: ToolConfig }>()
-    for (const [name, config] of Object.entries(existingTools)) {
-        const base = config.operation.replace(/_\d+$/, '')
-        byBaseOperationId.set(base, { name, config })
-    }
-
-    const openApiBaseIds = new Set(ops.map((op) => op.operationId.replace(/_\d+$/, '')))
+    const openApiByBase = new Map(ops.map((op) => [op.operationId.replace(/_\d+$/, ''), op]))
     const mergedTools: Record<string, unknown> = {}
     let added = 0
+    let removed = 0
+    let updated = 0
+    let matched = 0
+    const unmatchedTools: string[] = []
 
-    // Add operations in OpenAPI order
-    for (const op of ops) {
-        const base = op.operationId.replace(/_\d+$/, '')
-        const existing = byBaseOperationId.get(base)
-        if (existing) {
-            // Preserve MCP-specific config, update operationId to the deduplicated one
-            mergedTools[existing.name] = { ...existing.config, operation: op.operationId }
-        } else {
-            mergedTools[operationIdToToolName(op.operationId)] = {
-                operation: op.operationId,
-                enabled: false,
+    // Preserve existing tool order and hand-authored operation values
+    for (const [name, config] of Object.entries(existingTools)) {
+        const base = config.operation.replace(/_\d+$/, '')
+        const op = openApiByBase.get(base)
+        if (op) {
+            // Keep the author's chosen operation variant if it still exists in
+            // OpenAPI — they may have picked a specific _N suffix deliberately
+            // (e.g. _2 for /api/projects/ path). Fall back to the deduped
+            // operationId when their variant was renumbered or removed.
+            const operation = validOperationIds.has(config.operation) ? config.operation : op.operationId
+            mergedTools[name] = { ...config, operation }
+            if (operation !== config.operation) {
+                updated++
             }
-            added++
+            matched++
+        } else if (subset) {
+            // Subset files: keep unmatched tools (they may reference ops from a
+            // different tag/URL space) but warn so missing tags get noticed
+            mergedTools[name] = { ...config }
+            unmatchedTools.push(`${name} (${config.operation})`)
+        } else {
+            unmatchedTools.push(`${name} (${config.operation})`)
+            removed++
         }
     }
 
-    // Count removed (in old YAML but not in OpenAPI anymore)
-    const removed = [...byBaseOperationId.keys()].filter((id) => !openApiBaseIds.has(id)).length
+    // Append new operations (not yet in YAML) at the end — skip for subset files
+    if (!subset) {
+        const existingBaseIds = new Set(Object.values(existingTools).map((c) => c.operation.replace(/_\d+$/, '')))
+        for (const op of ops) {
+            const base = op.operationId.replace(/_\d+$/, '')
+            if (!existingBaseIds.has(base)) {
+                mergedTools[operationIdToToolName(op.operationId)] = {
+                    operation: op.operationId,
+                    enabled: false,
+                }
+                added++
+            }
+        }
+    }
 
     const merged = {
         category: existing.category ?? tag.charAt(0).toUpperCase() + tag.slice(1),
@@ -311,7 +331,14 @@ function mergeWithExisting(
         tools: mergedTools,
     }
 
-    return { content: YAML_HEADER + stringifyYaml(merged, { indent: 4, lineWidth: 120 }), added, removed }
+    return {
+        content: YAML_HEADER + stringifyYaml(merged, { indent: 4, lineWidth: 120 }),
+        added,
+        removed,
+        updated,
+        matched,
+        unmatchedTools,
+    }
 }
 
 // ------------------------------------------------------------------
@@ -329,6 +356,8 @@ function syncAll(spec: OpenApiSpec): void {
     interface SyncTarget {
         product: string
         filePath: string
+        /** Subset files (filename != tools.yaml) only validate — no adds/removes */
+        subset: boolean
     }
 
     const targets: SyncTarget[] = []
@@ -342,11 +371,14 @@ function syncAll(spec: OpenApiSpec): void {
             targets.push({
                 product: file.replace(/\.ya?ml$/, ''),
                 filePath: path.join(DEFINITIONS_DIR, file),
+                subset: false,
             })
         }
     }
 
-    // Product definitions — product derived from directory name
+    // Product definitions — product always from directory name.
+    // Non-tools.yaml files are subset files that own a curated slice of the
+    // product's operations (e.g. prompts.yaml inside llm_analytics/mcp/).
     if (fs.existsSync(PRODUCTS_DIR)) {
         for (const entry of fs.readdirSync(PRODUCTS_DIR, { withFileTypes: true })) {
             if (!entry.isDirectory() || entry.name.startsWith('_')) {
@@ -360,9 +392,8 @@ function syncAll(spec: OpenApiSpec): void {
                 if (!file.endsWith('.yaml') && !file.endsWith('.yml')) {
                     continue
                 }
-                const product =
-                    file === 'tools.yaml' || file === 'tools.yml' ? entry.name : file.replace(/\.ya?ml$/, '')
-                targets.push({ product, filePath: path.join(mcpDir, file) })
+                const subset = file !== 'tools.yaml' && file !== 'tools.yml'
+                targets.push({ product: entry.name, filePath: path.join(mcpDir, file), subset })
             }
         }
     }
@@ -374,27 +405,52 @@ function syncAll(spec: OpenApiSpec): void {
 
     const writtenFiles: string[] = []
 
-    for (const { product, filePath } of targets) {
+    for (const { product, filePath, subset } of targets) {
         const rawOps = findOperationsByProduct(spec, product)
         const ops = deduplicateOperations(rawOps)
         if (ops.length === 0) {
             process.stdout.write(`${product}: no operations found in OpenAPI, skipping\n`)
             continue
         }
-        const { content, added, removed } = mergeWithExisting(filePath, ops, product)
-        fs.writeFileSync(filePath, content)
-        writtenFiles.push(filePath)
-        const parts = [`${ops.length} operation(s)`]
+        const label = path.relative(REPO_ROOT, filePath)
+        const validIds = new Set(rawOps.map((op) => op.operationId))
+        const { content, added, removed, updated, matched, unmatchedTools } = mergeWithExisting(
+            filePath,
+            ops,
+            product,
+            validIds,
+            subset
+        )
+        // Only write when there are semantic changes (avoids formatting-only rewrites)
+        if (added > 0 || removed > 0 || updated > 0) {
+            fs.writeFileSync(filePath, content)
+            writtenFiles.push(filePath)
+        }
+        const total = matched + unmatchedTools.length
+        const parts = [
+            subset ? (total === 0 ? '0 tool(s)' : `${matched}/${total} tool(s) matched`) : `${ops.length} operation(s)`,
+        ]
         if (added > 0) {
             parts.push(`${added} new`)
         }
         if (removed > 0) {
             parts.push(`${removed} removed`)
         }
-        if (added === 0 && removed === 0) {
+        if (updated > 0) {
+            parts.push(`${updated} operation ID(s) updated`)
+        }
+        if (added === 0 && removed === 0 && updated === 0 && unmatchedTools.length === 0) {
             parts.push('no changes')
         }
-        process.stdout.write(`${product}: ${parts.join(', ')}\n`)
+        process.stdout.write(`${label}: ${parts.join(', ')}\n`)
+        if (unmatchedTools.length > 0) {
+            process.stderr.write(
+                `  ⚠ ${unmatchedTools.length} tool(s) not found in OpenAPI — add @extend_schema(tags=["${product}"]) to the ViewSet\n`
+            )
+            for (const tool of unmatchedTools) {
+                process.stderr.write(`    - ${tool}\n`)
+            }
+        }
     }
 
     formatWithPrettier(writtenFiles)
@@ -446,8 +502,10 @@ function main(): void {
         ? path.resolve(MCP_ROOT, outputPath)
         : path.join(DEFINITIONS_DIR, `${name.replace(/-/g, '_')}.yaml`)
 
+    const validIds = new Set(rawOps.map((op) => op.operationId))
+
     if (fs.existsSync(resolvedOutput)) {
-        const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, name)
+        const { content, added, removed } = mergeWithExisting(resolvedOutput, ops, name, validIds)
         fs.writeFileSync(resolvedOutput, content)
         const parts = [`${ops.length} operation(s)`]
         if (added > 0) {

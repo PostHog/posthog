@@ -1,7 +1,10 @@
 import re
 import itertools
 from collections.abc import Iterable, Iterator, Sequence
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+
+if TYPE_CHECKING:
+    from posthog.event_usage import AnalyticsProps
 
 from posthoganalytics import feature_enabled
 
@@ -43,9 +46,7 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         self.source_query_runner: Optional[QueryRunner] = None
 
         if self.query.source:
-            self.source_query_runner = get_query_runner(
-                self.query.source, self.team, self.timings, self.limit_context, request=self.request
-            )
+            self.source_query_runner = get_query_runner(self.query.source, self.team, self.timings, self.limit_context)
             self.modifiers = self.source_query_runner.modifiers
         else:
             # For direct person queries (no source), ensure we use V2 to get latest person data only
@@ -71,9 +72,18 @@ class ActorsQueryRunner(AnalyticsQueryRunner[ActorsQueryResponse]):
         insight_id: Optional[int] = None,
         dashboard_id: Optional[int] = None,
         cache_age_seconds: Optional[int] = None,
+        analytics_props: Optional["AnalyticsProps"] = None,
     ):
         self.user = user
-        return super().run(execution_mode, user, query_id, insight_id, dashboard_id, cache_age_seconds)
+        return super().run(
+            execution_mode,
+            user,
+            query_id,
+            insight_id,
+            dashboard_id,
+            cache_age_seconds,
+            analytics_props=analytics_props,
+        )
 
     @property
     def group_type_index(self) -> int | None:

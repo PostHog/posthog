@@ -1,5 +1,6 @@
 import type { ApiClient } from '@/api/client'
 import { ErrorCode } from '@/lib/errors'
+import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
 
@@ -49,8 +50,9 @@ export class StateManager {
 
         const { scope, scoped_teams, scoped_organizations, client_name } = introspectionResult.data
 
-        if (client_name) {
-            await this._cache.set('clientName', client_name)
+        const sanitizedClientName = sanitizeHeaderValue(client_name)
+        if (sanitizedClientName) {
+            await this._cache.set('clientName', sanitizedClientName)
         }
 
         return {

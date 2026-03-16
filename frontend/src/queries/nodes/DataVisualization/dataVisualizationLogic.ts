@@ -867,7 +867,8 @@ export const dataVisualizationLogic = kea<dataVisualizationLogicType>([
                     }
                 }
 
-                const data = 'results' in response ? response.results : 'result' in response ? response.result : []
+                const data =
+                    ('results' in response ? response.results : 'result' in response ? response.result : null) ?? []
 
                 if (xSeries === null) {
                     return {

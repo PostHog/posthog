@@ -20,6 +20,7 @@ if not os.environ.get("GOOGLE_API_KEY") and os.environ.get("GEMINI_API_KEY"):
 
 def pytest_addoption(parser):
     parser.addoption("--case-ids", default=None, help="Comma-separated ticket IDs to run (e.g. 00005,00010)")
+    parser.addoption("--limit", default=None, type=int, help="Limit number of items to process (e.g. --limit 3)")
 
 
 @pytest.fixture
@@ -31,10 +32,15 @@ def case_ids(request):
 
 
 @pytest.fixture
+def limit(request):
+    return request.config.getoption("--limit")
+
+
+@pytest.fixture
 def posthog_client():
     api_key = os.environ.get("POSTHOG_PROJECT_API_KEY", "")
     host = os.environ.get("POSTHOG_HOST", "http://localhost:8010")
-    client = Posthog(api_key, host=host, disabled=False)
+    client = Posthog(api_key, host=host, disabled=False, debug=bool(os.environ.get("POSTHOG_DEBUG")))
     yield client
     client.shutdown()
 

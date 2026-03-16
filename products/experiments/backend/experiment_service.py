@@ -6,6 +6,7 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
+from django.db.models import Count, Prefetch, Q, QuerySet
 
 import pydantic
 from rest_framework.exceptions import ValidationError
@@ -17,12 +18,14 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.models.cohort import Cohort
+from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.experiment import (
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
     ExperimentSavedMetric,
     ExperimentTimeseriesRecalculation,
+    holdout_filters_for_flag,
 )
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
@@ -113,6 +116,32 @@ class ExperimentService:
                 except pydantic.ValidationError as e:
                     raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
 
+    @staticmethod
+    def validate_saved_metrics_ids(saved_metrics_ids: list | None, team_id: int) -> None:
+        """Validate saved metric references accepted by the API layer."""
+        if saved_metrics_ids is None:
+            return
+
+        if not isinstance(saved_metrics_ids, list):
+            raise ValidationError("Saved metrics must be a list")
+
+        for saved_metric in saved_metrics_ids:
+            if not isinstance(saved_metric, dict):
+                raise ValidationError("Saved metric must be an object")
+            if "id" not in saved_metric:
+                raise ValidationError("Saved metric must have an id")
+            if "metadata" in saved_metric and not isinstance(saved_metric["metadata"], dict):
+                raise ValidationError("Metadata must be an object")
+            if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
+                raise ValidationError("Metadata must have a type key")
+
+        saved_metrics = ExperimentSavedMetric.objects.filter(
+            id__in=[saved_metric["id"] for saved_metric in saved_metrics_ids],
+            team_id=team_id,
+        )
+        if saved_metrics.count() != len(saved_metrics_ids):
+            raise ValidationError("Saved metric does not exist or does not belong to this project")
+
     @transaction.atomic
     def create_experiment(
         self,
@@ -145,6 +174,7 @@ class ExperimentService:
         event_source: EventSource | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
+        self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
         feature_flag, used_variants = self._ensure_feature_flag(
@@ -281,7 +311,6 @@ class ExperimentService:
             variants = parameters.get("feature_flag_variants", [])
             aggregation_group_type_index = parameters.get("aggregation_group_type_index")
 
-        holdout_groups = holdout.filters if holdout else None
         params = parameters or {}
         experiment_rollout_percentage = params.get("rollout_percentage", DEFAULT_ROLLOUT_PERCENTAGE)
 
@@ -289,7 +318,7 @@ class ExperimentService:
             "groups": [{"properties": [], "rollout_percentage": experiment_rollout_percentage}],
             "multivariate": {"variants": variants or list(DEFAULT_VARIANTS)},
             "aggregation_group_type_index": aggregation_group_type_index,
-            "holdout_groups": holdout_groups,
+            **holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None),
         }
 
         feature_flag_data: dict[str, Any] = {
@@ -484,6 +513,9 @@ class ExperimentService:
         ``ExperimentSerializer``.  The caller is responsible for DRF-level input
         validation (field types, metric schema, etc.) before calling this method.
         """
+        if "saved_metrics_ids" in update_data:
+            self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
+
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
 
@@ -521,9 +553,9 @@ class ExperimentService:
 
         # --- feature flag variant sync for draft experiments ---------------
         if experiment.is_draft:
-            holdout_groups = experiment.holdout.filters if experiment.holdout else None
+            holdout = experiment.holdout
             if "holdout" in update_data:
-                holdout_groups = update_data["holdout"].filters if update_data["holdout"] else None
+                holdout = update_data["holdout"]
 
             if update_data.get("parameters"):
                 variants = update_data["parameters"].get("feature_flag_variants", [])
@@ -538,7 +570,9 @@ class ExperimentService:
                 feature_flag_filters["groups"] = existing_groups
                 feature_flag_filters["multivariate"] = {"variants": variants or list(DEFAULT_VARIANTS)}
                 feature_flag_filters["aggregation_group_type_index"] = aggregation_group_type_index
-                feature_flag_filters["holdout_groups"] = holdout_groups
+                feature_flag_filters.update(
+                    holdout_filters_for_flag(holdout.id if holdout else None, holdout.filters if holdout else None)
+                )
 
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
@@ -551,7 +585,14 @@ class ExperimentService:
             elif "holdout" in update_data:
                 existing_flag_serializer = FeatureFlagSerializer(
                     feature_flag,
-                    data={"filters": {**feature_flag.filters, "holdout_groups": holdout_groups}},
+                    data={
+                        "filters": {
+                            **feature_flag.filters,
+                            **holdout_filters_for_flag(
+                                holdout.id if holdout else None, holdout.filters if holdout else None
+                            ),
+                        }
+                    },
                     partial=True,
                     context=context,
                 )
@@ -814,6 +855,110 @@ class ExperimentService:
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return cohort
+
+    # ------------------------------------------------------------------
+    # Eligible feature flags
+    # ------------------------------------------------------------------
+
+    def get_eligible_feature_flags(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        excluded_flag_ids: list[int] | set[int] | None = None,
+        search: str | None = None,
+        active: str | bool | None = None,
+        created_by_id: str | int | None = None,
+        order: str | None = None,
+        evaluation_runtime: str | None = None,
+        has_evaluation_tags: str | bool | None = None,
+    ) -> dict[str, Any]:
+        """Get feature flags eligible for use in experiments."""
+        queryset = self._get_eligible_feature_flags_queryset(
+            excluded_flag_ids=excluded_flag_ids,
+            search=search,
+            active=active,
+            created_by_id=created_by_id,
+            order=order,
+            evaluation_runtime=evaluation_runtime,
+            has_evaluation_tags=has_evaluation_tags,
+        )
+
+        return {
+            "results": queryset[offset : offset + limit],
+            "count": queryset.count(),
+        }
+
+    def _get_eligible_feature_flags_queryset(
+        self,
+        *,
+        excluded_flag_ids: list[int] | set[int] | None,
+        search: str | None,
+        active: str | bool | None,
+        created_by_id: str | int | None,
+        order: str | None,
+        evaluation_runtime: str | None,
+        has_evaluation_tags: str | bool | None,
+    ) -> QuerySet[FeatureFlag]:
+        queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id)
+
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
+        queryset = queryset.extra(
+            where=[
+                """
+                jsonb_array_length(filters->'multivariate'->'variants') >= 2
+                AND filters->'multivariate'->'variants'->0->>'key' = 'control'
+                """
+            ]
+        )
+
+        if excluded_flag_ids:
+            queryset = queryset.exclude(id__in=excluded_flag_ids)
+
+        if search:
+            queryset = queryset.filter(Q(key__icontains=search) | Q(name__icontains=search))
+
+        if active is not None:
+            active_bool = active if isinstance(active, bool) else str(active).lower() == "true"
+            queryset = queryset.filter(active=active_bool)
+
+        if created_by_id:
+            queryset = queryset.filter(created_by_id=created_by_id)
+
+        if evaluation_runtime:
+            queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
+
+        if has_evaluation_tags is not None:
+            filter_value = (
+                has_evaluation_tags
+                if isinstance(has_evaluation_tags, bool)
+                else str(has_evaluation_tags).lower() in ("true", "1", "yes")
+            )
+            queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
+            if filter_value:
+                queryset = queryset.filter(eval_tag_count__gt=0)
+            else:
+                queryset = queryset.filter(eval_tag_count=0)
+
+        queryset = queryset.order_by(order or "-created_at")
+
+        return queryset.prefetch_related(
+            Prefetch(
+                "experiment_set", queryset=Experiment.objects.filter(deleted=False), to_attr="_active_experiments"
+            ),
+            "features",
+            "analytics_dashboards",
+            "surveys_linked_flag",
+            Prefetch(
+                "flag_evaluation_contexts",
+                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+            ),
+            Prefetch(
+                "team__cohort_set",
+                queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
+                to_attr="available_cohorts",
+            ),
+        ).select_related("created_by", "last_modified_by")
 
     # ------------------------------------------------------------------
     # Timeseries

@@ -29,18 +29,18 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
+from posthog.models.integration import DatabricksIntegration, Integration
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     DatabricksBatchExportInputs,
 )
-from posthog.models.integration import DatabricksIntegration, Integration
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     StartBatchExportRunInputs,
     events_model_default_fields,

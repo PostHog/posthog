@@ -1,7 +1,11 @@
 import json
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Union
 
 from django.conf import settings
+
+import tiktoken
+import temporalio
 
 from posthog.schema import EmbeddingModelName, SignalInput
 
@@ -13,10 +17,13 @@ from posthog.models import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
-from products.signals.backend.temporal.grouping import TeamSignalGroupingWorkflow
-from products.signals.backend.temporal.types import EmitSignalInputs, TeamSignalGroupingInput
+from products.signals.backend.temporal.buffer import BufferSignalsWorkflow
+from products.signals.backend.temporal.emitter import SignalEmitterInput, SignalEmitterWorkflow
+from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
 
 EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
+MAX_SIGNAL_DESCRIPTION_TOKENS = 8000
+_tiktoken_encoding = tiktoken.get_encoding("cl100k_base")
 
 
 def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None:
@@ -32,7 +39,7 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
             document_id,
             content,
             metadata,
-            toString(timestamp) as timestamp
+            timestamp
         FROM (
             SELECT
                 document_id,
@@ -61,7 +68,7 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
     )
 
     for row in result.results or []:
-        document_id, content, metadata_str, timestamp_str = row
+        document_id, content, metadata_str, timestamp_raw = row
         metadata = json.loads(metadata_str)
         metadata["deleted"] = True
 
@@ -73,9 +80,18 @@ def soft_delete_report_signals(report_id: str, team_id: int, team: Team) -> None
             rendering="plain",
             document_id=document_id,
             models=[m.value for m in EmbeddingModelName],
-            timestamp=datetime.fromisoformat(timestamp_str),
+            timestamp=_ensure_tz_aware(timestamp_raw),
             metadata=metadata,
         )
+
+
+def _ensure_tz_aware(value: Union[datetime, str]) -> datetime:
+    """Coerce a ClickHouse timestamp (usually a datetime, occasionally a string) to a tz-aware datetime."""
+    if isinstance(value, str):
+        value = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if value.tzinfo is None:
+        value = value.replace(tzinfo=UTC)
+    return value
 
 
 async def emit_signal(
@@ -114,6 +130,18 @@ async def emit_signal(
             extra={"html_url": "https://github.com/posthog/posthog/issues/12345", "number": 12345, ...},
         )
     """
+
+    organization = await database_sync_to_async(lambda: team.organization)()
+    if not organization.is_ai_data_processing_approved:
+        return
+
+    token_count = len(_tiktoken_encoding.encode(description))
+    if token_count > MAX_SIGNAL_DESCRIPTION_TOKENS:
+        raise ValueError(
+            f"Signal description exceeds {MAX_SIGNAL_DESCRIPTION_TOKENS} tokens ({token_count} tokens). "
+            f"Truncate the description before calling emit_signal."
+        )
+
     # Raise if signal doesn't match any known schema
     SignalInput.model_validate(
         {
@@ -125,10 +153,6 @@ async def emit_signal(
             "extra": extra or {},
         }
     )
-
-    organization = await database_sync_to_async(lambda: team.organization)()
-    if not organization.is_ai_data_processing_approved:
-        return
 
     client = await async_connect()
 
@@ -142,16 +166,24 @@ async def emit_signal(
         extra=extra or {},
     )
 
-    workflow_id = TeamSignalGroupingWorkflow.workflow_id_for(team.id)
+    # Ensure the buffer workflow is running (idempotent)
+    try:
+        await client.start_workflow(
+            BufferSignalsWorkflow.run,
+            BufferSignalsInput(team_id=team.id),
+            id=BufferSignalsWorkflow.workflow_id_for(team.id),
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            run_timeout=timedelta(hours=1),
+        )
+    except temporalio.exceptions.WorkflowAlreadyStartedError:
+        pass
 
+    # Fire-and-forget: the emitter workflow will submit the signal to the buffer
+    # via update, blocking if the buffer is full (backpressure).
     await client.start_workflow(
-        TeamSignalGroupingWorkflow.run,
-        TeamSignalGroupingInput(team_id=team.id),
-        id=workflow_id,
+        SignalEmitterWorkflow.run,
+        SignalEmitterInput(team_id=team.id, signal=signal_input),
+        id=SignalEmitterWorkflow.workflow_id_for(team.id),
         task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
-        # run_timeout resets on each continue_as_new; execution_timeout would span all
-        # continuations and eventually kill a healthy long-running entity workflow.
-        run_timeout=timedelta(hours=1),
-        start_signal="submit_signal",
-        start_signal_args=[signal_input],
+        run_timeout=timedelta(minutes=10),
     )

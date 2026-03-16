@@ -194,15 +194,6 @@ impl FlagEvaluationState {
     }
 }
 
-/// Represents the group-related data needed for feature flag evaluation
-#[derive(Debug)]
-struct GroupEvaluationData {
-    /// Set of group type indexes required for flag evaluation
-    type_indexes: HashSet<GroupTypeIndex>,
-    /// Set of group keys that need to be evaluated
-    keys: HashSet<String>,
-}
-
 /// Evaluates feature flags for a specific user/group context.
 ///
 /// This struct maintains the state and logic needed to evaluate feature flags, including:
@@ -1292,20 +1283,18 @@ impl FeatureFlagMatcher {
         // experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
         // Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
         // a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
-        if let Some(holdout_groups) = &flag.filters.holdout_groups {
-            if !holdout_groups.is_empty() {
-                let (is_match, holdout_value, evaluation_reason) =
-                    self.is_holdout_condition_match(flag, request_hash_key_override)?;
-                if is_match {
-                    let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
-                    return Ok(FeatureFlagMatch {
-                        matches: true,
-                        variant: holdout_value,
-                        reason: evaluation_reason,
-                        condition_index: None,
-                        payload,
-                    });
-                }
+        if flag.filters.holdout.is_some() || flag.filters.holdout_groups.is_some() {
+            let (is_match, holdout_value, evaluation_reason) =
+                self.is_holdout_condition_match(flag, request_hash_key_override)?;
+            if is_match {
+                let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
+                return Ok(FeatureFlagMatch {
+                    matches: true,
+                    variant: holdout_value,
+                    reason: evaluation_reason,
+                    condition_index: None,
+                    payload,
+                });
             }
         }
         let conditions: Vec<(usize, &FlagPropertyGroup)> =
@@ -1564,9 +1553,28 @@ impl FeatureFlagMatcher {
         flag: &FeatureFlag,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
-        // TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
+        // New format takes precedence: `holdout` has explicit id and exclusion_percentage.
+        // During the migration, Django writes both formats, so both may be present.
+        if let Some(holdout) = &flag.filters.holdout {
+            let percentage = holdout.exclusion_percentage.clamp(0.0, 100.0);
 
-        if let Some(holdout_groups) = &flag.filters.holdout_groups {
+            if percentage < 100.0
+                && self.get_holdout_hash(flag, None, request_hash_key_override)?
+                    > (percentage / 100.0)
+            {
+                // User's hash is above the exclusion threshold — not in holdout
+                return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
+            }
+
+            // User is in holdout — variant name is derived from the holdout id
+            return Ok((
+                true,
+                Some(format!("holdout-{}", holdout.id)),
+                FeatureFlagMatchReason::HoldoutConditionValue,
+            ));
+        }
+        // Legacy format fallback: original holdout_groups logic, unchanged.
+        else if let Some(holdout_groups) = &flag.filters.holdout_groups {
             if !holdout_groups.is_empty() {
                 let condition = &holdout_groups[0];
                 // TODO: Check properties and match based on them
@@ -1863,8 +1871,7 @@ impl FeatureFlagMatcher {
             self.router.get_persons_reader().clone(),
             self.distinct_id.clone(),
             self.team_id,
-            &group_data.type_indexes,
-            &group_data.keys,
+            &group_data,
             static_cohort_ids,
         )
         .await
@@ -1885,52 +1892,45 @@ impl FeatureFlagMatcher {
         }
     }
 
-    /// Analyzes flags and prepares required group type data for flag evaluation.
-    /// This includes:
-    /// - Extracting required group type indexes from flags
-    /// - Mapping group names to group_type_index and group_keys
+    /// Builds a paired mapping from group type index to group key for flag
+    /// evaluation, filtered to only the group types required by the given flags.
     fn prepare_group_data(
         &mut self,
         flags: &[&FeatureFlag],
-    ) -> Result<GroupEvaluationData, FlagError> {
-        // Extract required group type indexes from flags
-        let type_indexes: HashSet<GroupTypeIndex> = flags
+    ) -> Result<HashMap<GroupTypeIndex, String>, FlagError> {
+        let required_type_indexes: HashSet<GroupTypeIndex> = flags
             .iter()
             .filter_map(|flag| flag.get_group_type_index())
             .collect();
 
-        // Map group names to group_type_index and group_keys
-        let group_type_to_key_map: HashMap<GroupTypeIndex, String> = self
+        if required_type_indexes.is_empty() {
+            return Ok(HashMap::new());
+        }
+
+        let types_to_indexes = match self.group_type_mapping_cache.get_group_types_to_indexes() {
+            Ok(map) => map,
+            Err(FlagError::NoGroupTypeMappings) => return Ok(HashMap::new()),
+            Err(e) => return Err(e),
+        };
+
+        let group_type_to_key: HashMap<GroupTypeIndex, String> = self
             .groups
             .iter()
             .filter_map(|(group_type, group_key_value)| {
                 let group_key = match group_key_value {
                     Value::String(s) => s.clone(),
                     Value::Number(n) => n.to_string(),
-                    _ => return None, // Skip non-string, non-number group keys
+                    _ => return None,
                 };
-                self.group_type_mapping_cache
-                    .get_group_types_to_indexes()
-                    .ok()?
+                types_to_indexes
                     .get(group_type)
                     .cloned()
+                    .filter(|idx| required_type_indexes.contains(idx))
                     .map(|group_type_index| (group_type_index, group_key))
             })
             .collect();
 
-        // Extract group_keys that are relevant to the required group_type_indexes
-        let keys: HashSet<String> = group_type_to_key_map
-            .iter()
-            .filter_map(|(group_type_index, group_key)| {
-                if type_indexes.contains(group_type_index) {
-                    Some(group_key.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        Ok(GroupEvaluationData { type_indexes, keys })
+        Ok(group_type_to_key)
     }
 
     /// Get person properties from the `FlagEvaluationState` only, returning empty HashMap if not found.
