@@ -3,6 +3,7 @@ from typing import Any
 
 from django.conf import settings
 
+from posthog.models import Team
 from posthog.models.hog_function_template import HogFunctionTemplate
 from posthog.models.hog_functions.hog_function import HogFunction
 from posthog.temporal.data_imports.sources.common.base import WebhookCreationResult, WebhookSource
@@ -26,7 +27,7 @@ class WebhookHogFunctionCreateResult:
 
 
 def get_or_create_webhook_hog_function(
-    team: Any,
+    team: Team,
     source: WebhookSource,
     source_id: str,
     eligible_schemas: list[ExternalDataSchema],
@@ -90,7 +91,7 @@ def get_or_create_webhook_hog_function(
             **hog_function.inputs,
             "schema_mapping": {"value": merged_mapping},
         }
-        hog_function.save(update_fields=["inputs"])
+        hog_function.save(update_fields=["inputs", "encrypted_inputs"])
 
     webhooks_host = {
         "US": "https://webhooks.us.posthog.com",
