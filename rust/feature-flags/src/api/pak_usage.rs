@@ -137,6 +137,7 @@ mod tests {
     async fn assert_record_pak(
         set_nx_ex_result: Result<bool, common_redis::CustomRedisError>,
         expect_last_used_set: bool,
+        expect_handle: bool,
     ) {
         let ctx = TestContext::new(None).await;
         let pak_id = create_test_pak(&ctx).await;
@@ -147,6 +148,7 @@ mod tests {
 
         let handle =
             record_pak_last_used(redis, ctx.non_persons_writer.clone(), pak_id.clone()).await;
+        assert_eq!(handle.is_some(), expect_handle);
         if let Some(h) = handle {
             h.await.unwrap();
         }
@@ -166,16 +168,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_record_pak_last_used_writes_when_debounce_key_is_new() {
-        assert_record_pak(Ok(true), true).await;
+        assert_record_pak(Ok(true), true, true).await;
     }
 
     #[tokio::test]
     async fn test_record_pak_last_used_skips_write_when_debounce_key_exists() {
-        assert_record_pak(Ok(false), false).await;
+        assert_record_pak(Ok(false), false, false).await;
     }
 
     #[tokio::test]
     async fn test_record_pak_last_used_skips_write_on_redis_error() {
-        assert_record_pak(Err(common_redis::CustomRedisError::Timeout), false).await;
+        assert_record_pak(Err(common_redis::CustomRedisError::Timeout), false, false).await;
     }
 }
