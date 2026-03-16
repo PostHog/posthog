@@ -47,6 +47,7 @@ pub struct KafkaTraceRow {
     pub links: Vec<String>,
     pub dropped_links_count: i32,
     pub status_code: i32,
+    pub status_message: String,
 }
 
 impl KafkaTraceRow {
@@ -154,6 +155,7 @@ impl KafkaTraceRow {
             .collect();
 
         let status_code = span.status.as_ref().map(|s| s.code).unwrap_or(0);
+        let status_message = span.status.as_ref().map(|s| s.message.clone()).unwrap_or_default();
 
         let row = Self {
             uuid: Uuid::now_v7().to_string(),
@@ -177,6 +179,7 @@ impl KafkaTraceRow {
             links,
             dropped_links_count: span.dropped_links_count as i32,
             status_code,
+            status_message,
         };
         debug!("trace span: {:?}", row);
 
