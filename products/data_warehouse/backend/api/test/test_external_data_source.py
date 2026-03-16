@@ -1746,7 +1746,14 @@ class TestExternalDataSource(APIBaseTest):
             assert len(data) == 1
             assert data[0]["id"] == str(job3.pk)
 
-    def test_source_jobs_schema_filter(self):
+    @parameterized.expand(
+        [
+            ("single_schema", "?schema=Customers", 1),
+            ("multiple_schemas", "?schema=Customers&schema=Invoices", 2),
+            ("no_filter", "", 2),
+        ]
+    )
+    def test_source_jobs_schema_filter(self, _name, query_string, expected_count):
         source = self._create_external_data_source()
         schema1 = ExternalDataSchema.objects.create(
             name="Customers", team_id=self.team.pk, source_id=source.pk, table=None
@@ -1754,7 +1761,7 @@ class TestExternalDataSource(APIBaseTest):
         schema2 = ExternalDataSchema.objects.create(
             name="Invoices", team_id=self.team.pk, source_id=source.pk, table=None
         )
-        job1 = ExternalDataJob.objects.create(
+        ExternalDataJob.objects.create(
             team=self.team,
             pipeline=source,
             schema=schema1,
@@ -1771,30 +1778,11 @@ class TestExternalDataSource(APIBaseTest):
             pipeline_version=ExternalDataJob.PipelineVersion.V1,
         )
 
-        # Filter to single schema
         response = self.client.get(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs?schema=Customers",
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs{query_string}",
         )
-        data = response.json()
         assert response.status_code == status.HTTP_200_OK
-        assert len(data) == 1
-        assert data[0]["id"] == str(job1.pk)
-
-        # Filter to multiple schemas
-        response = self.client.get(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs?schema=Customers&schema=Invoices",
-        )
-        data = response.json()
-        assert response.status_code == status.HTTP_200_OK
-        assert len(data) == 2
-
-        # No filter returns all
-        response = self.client.get(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs",
-        )
-        data = response.json()
-        assert response.status_code == status.HTTP_200_OK
-        assert len(data) == 2
+        assert len(response.json()) == expected_count
 
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
