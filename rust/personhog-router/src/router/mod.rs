@@ -1,11 +1,14 @@
 mod routing;
 
-pub use routing::{DataCategory, OperationType, RouteDecision, RoutingError};
+pub use routing::{DataCategory, OperationType, RouteDecision};
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use metrics::{counter, histogram};
+use personhog_proto::personhog::leader::v1::{
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+};
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
@@ -94,13 +97,20 @@ macro_rules! call_backend {
 /// - `personhog_router_backend_errors_total` - counter by method and backend
 pub struct PersonHogRouter {
     replica_backend: Arc<dyn PersonHogBackend>,
-    // Phase 2: Add leader_backend for person data writes and strong consistency reads
-    // leader_backend: Option<Arc<dyn PersonHogBackend>>,
+    leader_backend: Option<Arc<dyn PersonHogBackend>>,
 }
 
 impl PersonHogRouter {
     pub fn new(replica_backend: Arc<dyn PersonHogBackend>) -> Self {
-        Self { replica_backend }
+        Self {
+            replica_backend,
+            leader_backend: None,
+        }
+    }
+
+    pub fn with_leader(mut self, leader_backend: Arc<dyn PersonHogBackend>) -> Self {
+        self.leader_backend = Some(leader_backend);
+        self
     }
 
     /// Get the appropriate backend for a request based on routing decision.
@@ -108,12 +118,12 @@ impl PersonHogRouter {
     fn get_backend(&self, decision: RouteDecision) -> Result<&dyn PersonHogBackend, Status> {
         match decision {
             RouteDecision::Replica => Ok(self.replica_backend.as_ref()),
-            RouteDecision::Leader => {
-                // Phase 2: Return leader backend when available
-                Err(Status::unimplemented(
-                    "Strong consistency for person data requires personhog-leader (not yet implemented)",
-                ))
-            }
+            RouteDecision::Leader => match &self.leader_backend {
+                Some(leader) => Ok(leader.as_ref()),
+                None => Err(Status::unimplemented(
+                    "leader backend not configured for this router",
+                )),
+            },
         }
     }
 
@@ -451,6 +461,24 @@ impl PersonHogRouter {
             decision,
             "GetGroupTypeMappingsByProjectIds",
             get_group_type_mappings_by_project_ids,
+            request
+        )
+    }
+
+    // ============================================================
+    // Person property updates - Person data, write operations
+    // ============================================================
+
+    pub async fn update_person_properties(
+        &self,
+        request: UpdatePersonPropertiesRequest,
+    ) -> Result<UpdatePersonPropertiesResponse, Status> {
+        let decision = route_request(DataCategory::PersonData, OperationType::Write, None)?;
+        call_backend!(
+            self,
+            decision,
+            "UpdatePersonProperties",
+            update_person_properties,
             request
         )
     }

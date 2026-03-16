@@ -1,11 +1,12 @@
 [package]
-name = "personhog-router"
+name = "personhog-leader"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
 personhog-proto = { path = "../personhog-proto" }
+personhog-coordination = { path = "../personhog-coordination" }
 common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
 lifecycle = { path = "../common/lifecycle" }
@@ -14,21 +15,22 @@ async-trait = { workspace = true }
 axum = { workspace = true }
 dashmap = { workspace = true }
 envconfig = { workspace = true }
-http = { workspace = true }
+foyer = "0.22.3"
 metrics = { workspace = true }
-pin-project = "1.1"
-rand = { workspace = true }
+once_cell = { workspace = true }
+serde_json = { workspace = true }
 tokio = { workspace = true }
 tonic = { workspace = true }
-tower = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 
 [dev-dependencies]
-dashmap = { workspace = true }
-serde_json = { workspace = true }
+assignment-coordination = { path = "../common/assignment-coordination" }
+personhog-coordination = { path = "../personhog-coordination" }
 tokio = { workspace = true, features = ["test-util"] }
 tokio-stream = "0.1"
+tokio-util = { workspace = true }
+uuid = { workspace = true }
 
 [lints]
 workspace = true

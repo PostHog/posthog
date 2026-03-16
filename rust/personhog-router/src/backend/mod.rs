@@ -1,9 +1,14 @@
+mod leader;
 mod replica;
 mod retry;
 
+pub use leader::LeaderBackend;
 pub use replica::ReplicaBackend;
 
 use async_trait::async_trait;
+use personhog_proto::personhog::leader::v1::{
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+};
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
@@ -106,4 +111,14 @@ pub trait PersonHogBackend: Send + Sync {
         &self,
         request: GetGroupTypeMappingsByProjectIdsRequest,
     ) -> Result<GroupTypeMappingsBatchResponse, Status>;
+
+    // Person property updates (leader only)
+    async fn update_person_properties(
+        &self,
+        _request: UpdatePersonPropertiesRequest,
+    ) -> Result<UpdatePersonPropertiesResponse, Status> {
+        Err(Status::unimplemented(
+            "UpdatePersonProperties is not supported by this backend",
+        ))
+    }
 }
