@@ -449,7 +449,9 @@ export function MenuItems({
                     }}
                     data-attr="tree-item-menu-delete-item-button"
                 >
-                    <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                    <ButtonPrimitive menuItem variant="danger" forceVariant>
+                        <IconTrash className="size-4 text-inherit" /> Delete
+                    </ButtonPrimitive>
                 </MenuItem>
             ) : root === 'persons://' && item.record?.category === 'Groups' && item.record?.href ? (
                 <MenuItem
