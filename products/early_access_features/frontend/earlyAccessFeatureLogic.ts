@@ -2,6 +2,7 @@ import { actions, afterMount, connect, kea, key, listeners, path, props, reducer
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
+import React from 'react'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -231,7 +232,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     listeners(({ actions, values }) => ({
         saveEarlyAccessFeatureFailure: ({ error: rawError }) => {
             // kea-loaders types error as string but at runtime it's the API error object
-            const error = rawError as Record<string, any>
+            const error = rawError as unknown as Record<string, any>
             // DRF returns field-level errors as { field_name: ["error message"] }
             if (error?.data && typeof error.data === 'object' && !error.detail) {
                 const fieldErrors = Object.entries(error.data)
@@ -263,8 +264,22 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             const { LemonDialog } = await import('lib/lemon-ui/LemonDialog')
             LemonDialog.open({
                 title: 'Promote to general availability?',
-                description:
-                    'This action is permanent. Once promoted, the feature becomes read-only, opted-in users retain their feature flag access, and enrolled users will receive a stage change notification event.',
+                description: React.createElement(
+                    React.Fragment,
+                    null,
+                    'This action is permanent. Once promoted:',
+                    React.createElement(
+                        'ul',
+                        { className: 'list-disc ml-4 mt-2 space-y-1' },
+                        React.createElement('li', null, 'The feature becomes read-only and can no longer be edited.'),
+                        React.createElement('li', null, 'Opted-in users retain their feature flag access.'),
+                        React.createElement(
+                            'li',
+                            null,
+                            'Enrolled users will receive a stage change notification event.'
+                        )
+                    )
+                ),
                 primaryButton: {
                     children: 'Promote to GA',
                     type: 'primary',
