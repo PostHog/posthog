@@ -268,6 +268,23 @@ export const ChannelSourceEnumApi = {
 } as const
 
 /**
+ * * `slack_channel_message` - Channel message
+ * `slack_bot_mention` - Bot mention
+ * `slack_emoji_reaction` - Emoji reaction
+ * `widget_embedded` - Widget
+ * `widget_api` - API
+ */
+export type ChannelDetailEnumApi = (typeof ChannelDetailEnumApi)[keyof typeof ChannelDetailEnumApi]
+
+export const ChannelDetailEnumApi = {
+    SlackChannelMessage: 'slack_channel_message',
+    SlackBotMention: 'slack_bot_mention',
+    SlackEmojiReaction: 'slack_emoji_reaction',
+    WidgetEmbedded: 'widget_embedded',
+    WidgetApi: 'widget_api',
+} as const
+
+/**
  * * `new` - New
  * `open` - Open
  * `pending` - Pending
@@ -328,6 +345,7 @@ export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
     readonly channel_source: ChannelSourceEnumApi
+    readonly channel_detail: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id: string
     status?: TicketStatusEnumApi
     priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
@@ -376,6 +394,7 @@ export interface PatchedTicketApi {
     readonly id?: string
     readonly ticket_number?: number
     readonly channel_source?: ChannelSourceEnumApi
+    readonly channel_detail?: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id?: string
     status?: TicketStatusEnumApi
     priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null

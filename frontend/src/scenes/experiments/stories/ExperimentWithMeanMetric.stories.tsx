@@ -18,9 +18,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2025-01-27',
         pageUrl: urls.experiment(EXPERIMENT_WITH_MEAN_METRIC.id),
-        testOptions: {
-            waitForSelector: '[data-attr="metrics-chart-tick-labels"]',
-        },
     },
     decorators: [
         mswDecorator({
@@ -50,4 +47,4 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 // Small delay to ensure charts render completely
-export const ExperimentWithMeanMetric: Story = { play: makeDelay(1000) }
+export const ExperimentWithMeanMetric: Story = { play: makeDelay(500) }
