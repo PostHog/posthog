@@ -992,7 +992,7 @@ class SessionRecordingViewSet(
         ):
             raise exceptions.NotFound("Recording not found")
 
-        SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label, is_personal_api_key=is_personal_api_key).inc()
+        SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label, is_personal_api_key=str(is_personal_api_key).lower()).inc()
 
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
