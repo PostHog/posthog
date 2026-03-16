@@ -275,9 +275,6 @@ def cohort_saved(sender, instance, **kwargs):
     # this cohort in their test_account_filters (cohorts are inlined into bytecode).
     # Deletion is handled separately: the cohort API prevents deleting cohorts
     # that are referenced in test_account_filters.
-    #
-    # Quick check before dispatching: skip if the team doesn't reference any
-    # cohort in test_account_filters, avoiding unnecessary task overhead.
     team = instance.team
     if not team.test_account_filters or not any(
         f.get("type") == "cohort" for f in team.test_account_filters if isinstance(f, dict)
