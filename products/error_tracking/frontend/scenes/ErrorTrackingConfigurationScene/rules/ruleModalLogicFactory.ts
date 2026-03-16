@@ -17,8 +17,8 @@ export interface RuleModalLogicFactoryOptions<T extends ErrorTrackingBaseRule> {
     allowEmptyFilters?: boolean
     /** Extra actions beyond the shared ones */
     extraActions?: Record<string, any>
-    /** Extra reducers keyed by reducer name. Each value is [default, handlers] */
-    extraRuleReducerHandlers?: Record<string, (state: T, payload: any) => T>
+    /** Extra reducer handlers for the `rule` reducer, merged at build time */
+    extraRuleReducerHandlers?: Record<string, (...args: any[]) => T>
     /** Extra selectors */
     extraSelectors?: Record<string, any>
 }
@@ -51,11 +51,13 @@ export function createRuleModalLogic<T extends ErrorTrackingBaseRule>(options: R
             isOpen: [false, { openModal: () => true, closeModal: () => false }],
             rule: [
                 emptyRule() as T,
-                {
-                    openModal: (_: T, { rule }: { rule: T | null }) => rule ?? emptyRule(),
-                    updateRule: (_: T, { rule }: { rule: T }) => rule,
-                    ...extraRuleReducerHandlers,
-                },
+                Object.assign(
+                    {
+                        openModal: (_: T, { rule }: { rule: T | null }) => rule ?? emptyRule(),
+                        updateRule: (_: T, { rule }: { rule: T }) => rule,
+                    },
+                    extraRuleReducerHandlers ?? {}
+                ),
             ],
             dateRange: [
                 '-7d' as string,
