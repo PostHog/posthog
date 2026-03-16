@@ -7,7 +7,7 @@ use crate::{
     team::team_models::Team,
 };
 use anyhow::Error;
-use axum::async_trait;
+use async_trait::async_trait;
 use common_database::{get_pool, Client, CustomDatabaseError};
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::{Client as RedisClientTrait, RedisClient};
@@ -169,7 +169,6 @@ pub async fn setup_hypercache_reader(
 pub fn setup_hypercache_reader_with_mock_redis(
     redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Arc<HyperCacheReader> {
-    use axum::async_trait;
     use common_s3::{S3Client, S3Error};
 
     // Create a simple S3 client that always returns NotFound
