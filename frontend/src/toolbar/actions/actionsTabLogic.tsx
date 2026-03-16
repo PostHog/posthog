@@ -262,6 +262,7 @@ export const actionsTabLogic = kea<actionsTabLogicType>([
                     if (e instanceof Error) {
                         lemonToast.error(`Action save failed: ${e.message}`)
                     }
+                    actions.submitActionFormFailure()
                 }
             },
 
