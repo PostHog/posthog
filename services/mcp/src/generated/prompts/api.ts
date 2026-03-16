@@ -38,50 +38,52 @@ export const LlmPromptsListResponse = zod.object({
     previous: zod.string().url().nullish(),
     results: zod.array(
         zod.object({
-            id: zod.string(),
+            id: zod.string().optional(),
             name: zod
                 .string()
                 .max(llmPromptsListResponseResultsItemNameMax)
                 .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
             prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
-            version: zod.number(),
-            created_by: zod.object({
-                id: zod.number(),
-                uuid: zod.string(),
-                distinct_id: zod.string().max(llmPromptsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
-                first_name: zod.string().max(llmPromptsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
-                last_name: zod.string().max(llmPromptsListResponseResultsItemCreatedByOneLastNameMax).optional(),
-                email: zod.string().email().max(llmPromptsListResponseResultsItemCreatedByOneEmailMax),
-                is_email_verified: zod.boolean().nullish(),
-                hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-                role_at_organization: zod
-                    .union([
-                        zod
-                            .enum([
-                                'engineering',
-                                'data',
-                                'product',
-                                'founder',
-                                'leadership',
-                                'marketing',
-                                'sales',
-                                'other',
-                            ])
-                            .describe(
-                                '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                            ),
-                        zod.enum(['']),
-                        zod.literal(null),
-                    ])
-                    .nullish(),
-            }),
-            created_at: zod.string().datetime({}),
-            updated_at: zod.string().datetime({}),
-            deleted: zod.boolean(),
-            is_latest: zod.boolean(),
-            latest_version: zod.number(),
-            version_count: zod.number(),
-            first_version_created_at: zod.string(),
+            version: zod.number().optional(),
+            created_by: zod
+                .object({
+                    id: zod.number().optional(),
+                    uuid: zod.string().optional(),
+                    distinct_id: zod.string().max(llmPromptsListResponseResultsItemCreatedByOneDistinctIdMax).nullish(),
+                    first_name: zod.string().max(llmPromptsListResponseResultsItemCreatedByOneFirstNameMax).optional(),
+                    last_name: zod.string().max(llmPromptsListResponseResultsItemCreatedByOneLastNameMax).optional(),
+                    email: zod.string().email().max(llmPromptsListResponseResultsItemCreatedByOneEmailMax),
+                    is_email_verified: zod.boolean().nullish(),
+                    hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+                    role_at_organization: zod
+                        .union([
+                            zod
+                                .enum([
+                                    'engineering',
+                                    'data',
+                                    'product',
+                                    'founder',
+                                    'leadership',
+                                    'marketing',
+                                    'sales',
+                                    'other',
+                                ])
+                                .describe(
+                                    '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                                ),
+                            zod.enum(['']),
+                            zod.literal(null),
+                        ])
+                        .nullish(),
+                })
+                .optional(),
+            created_at: zod.string().datetime({}).optional(),
+            updated_at: zod.string().datetime({}).optional(),
+            deleted: zod.boolean().optional(),
+            is_latest: zod.boolean().optional(),
+            latest_version: zod.number().optional(),
+            version_count: zod.number().optional(),
+            first_version_created_at: zod.string().optional(),
         })
     ),
 })
@@ -168,39 +170,50 @@ export const llmPromptsNamePartialUpdateResponseCreatedByOneLastNameMax = 150
 export const llmPromptsNamePartialUpdateResponseCreatedByOneEmailMax = 254
 
 export const LlmPromptsNamePartialUpdateResponse = zod.object({
-    id: zod.string(),
+    id: zod.string().optional(),
     name: zod
         .string()
         .max(llmPromptsNamePartialUpdateResponseNameMax)
         .describe('Unique prompt name using letters, numbers, hyphens, and underscores only.'),
     prompt: zod.unknown().describe('Prompt payload as JSON or string data.'),
-    version: zod.number(),
-    created_by: zod.object({
-        id: zod.number(),
-        uuid: zod.string(),
-        distinct_id: zod.string().max(llmPromptsNamePartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
-        first_name: zod.string().max(llmPromptsNamePartialUpdateResponseCreatedByOneFirstNameMax).optional(),
-        last_name: zod.string().max(llmPromptsNamePartialUpdateResponseCreatedByOneLastNameMax).optional(),
-        email: zod.string().email().max(llmPromptsNamePartialUpdateResponseCreatedByOneEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullable(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    created_at: zod.string().datetime({}),
-    updated_at: zod.string().datetime({}),
-    deleted: zod.boolean(),
-    is_latest: zod.boolean(),
-    latest_version: zod.number(),
-    version_count: zod.number(),
-    first_version_created_at: zod.string(),
+    version: zod.number().optional(),
+    created_by: zod
+        .object({
+            id: zod.number().optional(),
+            uuid: zod.string().optional(),
+            distinct_id: zod.string().max(llmPromptsNamePartialUpdateResponseCreatedByOneDistinctIdMax).nullish(),
+            first_name: zod.string().max(llmPromptsNamePartialUpdateResponseCreatedByOneFirstNameMax).optional(),
+            last_name: zod.string().max(llmPromptsNamePartialUpdateResponseCreatedByOneLastNameMax).optional(),
+            email: zod.string().email().max(llmPromptsNamePartialUpdateResponseCreatedByOneEmailMax),
+            is_email_verified: zod.boolean().nullish(),
+            hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
+            role_at_organization: zod
+                .union([
+                    zod
+                        .enum([
+                            'engineering',
+                            'data',
+                            'product',
+                            'founder',
+                            'leadership',
+                            'marketing',
+                            'sales',
+                            'other',
+                        ])
+                        .describe(
+                            '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
+                        ),
+                    zod.enum(['']),
+                    zod.literal(null),
+                ])
+                .nullish(),
+        })
+        .optional(),
+    created_at: zod.string().datetime({}).optional(),
+    updated_at: zod.string().datetime({}).optional(),
+    deleted: zod.boolean().optional(),
+    is_latest: zod.boolean().optional(),
+    latest_version: zod.number().optional(),
+    version_count: zod.number().optional(),
+    first_version_created_at: zod.string().optional(),
 })

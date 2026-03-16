@@ -1,149 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
-        "DashboardAddInsightSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "insightId": {
-                            "type": "string"
-                        },
-                        "dashboardId": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        }
-                    },
-                    "required": ["insightId", "dashboardId"]
-                }
-            },
-            "required": ["data"]
-        },
-        "DashboardCreateSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "minLength": 1
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "pinned": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "required": ["name"]
-                }
-            },
-            "required": ["data"]
-        },
-        "DashboardDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "number"
-                }
-            },
-            "required": ["dashboardId"]
-        },
-        "DashboardGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "search": {
-                            "type": "string"
-                        },
-                        "pinned": {
-                            "type": "boolean"
-                        }
-                    }
-                }
-            }
-        },
-        "DashboardGetSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "number"
-                }
-            },
-            "required": ["dashboardId"]
-        },
-        "DashboardReorderTilesSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991,
-                    "description": "The ID of the dashboard to reorder tiles on"
-                },
-                "tileOrder": {
-                    "minItems": 1,
-                    "type": "array",
-                    "items": {
-                        "type": "integer",
-                        "exclusiveMinimum": 0,
-                        "maximum": 9007199254740991
-                    },
-                    "description": "Array of tile IDs in the desired order from top to bottom"
-                }
-            },
-            "required": ["dashboardId", "tileOrder"]
-        },
-        "DashboardUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "number"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "pinned": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "required": ["dashboardId", "data"]
-        },
         "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {
@@ -1035,331 +892,6 @@
             },
             "required": ["experimentId", "data"]
         },
-        "FeatureFlagCreateSchema": {
-            "type": "object",
-            "properties": {
-                "name": {
-                    "type": "string"
-                },
-                "key": {
-                    "type": "string"
-                },
-                "description": {
-                    "type": "string"
-                },
-                "filters": {
-                    "type": "object",
-                    "properties": {
-                        "groups": {
-                            "minItems": 1,
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "properties": {
-                                        "type": "array",
-                                        "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "key": {
-                                                    "type": "string"
-                                                },
-                                                "value": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
-                                                        },
-                                                        {
-                                                            "type": "number"
-                                                        },
-                                                        {
-                                                            "type": "boolean"
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "string"
-                                                            }
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "number"
-                                                            }
-                                                        }
-                                                    ]
-                                                },
-                                                "operator": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                        "exact",
-                                                        "is_not",
-                                                        "is_set",
-                                                        "is_not_set",
-                                                        "icontains",
-                                                        "not_icontains",
-                                                        "regex",
-                                                        "not_regex",
-                                                        "gt",
-                                                        "gte",
-                                                        "lt",
-                                                        "lte"
-                                                    ]
-                                                }
-                                            },
-                                            "required": ["key", "value"]
-                                        }
-                                    },
-                                    "rollout_percentage": {
-                                        "type": "number"
-                                    },
-                                    "variant": {
-                                        "description": "Variant key to serve for this condition (for multivariate flags)",
-                                        "anyOf": [
-                                            {
-                                                "type": "string"
-                                            },
-                                            {
-                                                "type": "null"
-                                            }
-                                        ]
-                                    }
-                                },
-                                "required": ["properties", "rollout_percentage"]
-                            }
-                        },
-                        "multivariate": {
-                            "description": "Multivariate configuration with variant definitions",
-                            "type": "object",
-                            "properties": {
-                                "variants": {
-                                    "minItems": 2,
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "key": {
-                                                "type": "string",
-                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
-                                            },
-                                            "name": {
-                                                "description": "Human-readable name for this variant",
-                                                "type": "string"
-                                            },
-                                            "rollout_percentage": {
-                                                "type": "integer",
-                                                "minimum": 0,
-                                                "maximum": 100,
-                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer."
-                                            }
-                                        },
-                                        "required": ["key", "rollout_percentage"]
-                                    }
-                                }
-                            },
-                            "required": ["variants"]
-                        }
-                    },
-                    "required": ["groups"]
-                },
-                "active": {
-                    "type": "boolean"
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                }
-            },
-            "required": ["name", "key", "description", "filters", "active"]
-        },
-        "FeatureFlagDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "flagKey": {
-                    "type": "string"
-                }
-            },
-            "required": ["flagKey"]
-        },
-        "FeatureFlagGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                        }
-                    }
-                }
-            }
-        },
-        "FeatureFlagGetDefinitionSchema": {
-            "type": "object",
-            "properties": {
-                "flagId": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991
-                },
-                "flagKey": {
-                    "type": "string"
-                }
-            }
-        },
-        "FeatureFlagUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "flagKey": {
-                    "type": "string"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "filters": {
-                            "type": "object",
-                            "properties": {
-                                "groups": {
-                                    "minItems": 1,
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "properties": {
-                                                "type": "array",
-                                                "items": {
-                                                    "type": "object",
-                                                    "properties": {
-                                                        "key": {
-                                                            "type": "string"
-                                                        },
-                                                        "value": {
-                                                            "anyOf": [
-                                                                {
-                                                                    "type": "string"
-                                                                },
-                                                                {
-                                                                    "type": "number"
-                                                                },
-                                                                {
-                                                                    "type": "boolean"
-                                                                },
-                                                                {
-                                                                    "type": "array",
-                                                                    "items": {
-                                                                        "type": "string"
-                                                                    }
-                                                                },
-                                                                {
-                                                                    "type": "array",
-                                                                    "items": {
-                                                                        "type": "number"
-                                                                    }
-                                                                }
-                                                            ]
-                                                        },
-                                                        "operator": {
-                                                            "type": "string",
-                                                            "enum": [
-                                                                "exact",
-                                                                "is_not",
-                                                                "is_set",
-                                                                "is_not_set",
-                                                                "icontains",
-                                                                "not_icontains",
-                                                                "regex",
-                                                                "not_regex",
-                                                                "gt",
-                                                                "gte",
-                                                                "lt",
-                                                                "lte"
-                                                            ]
-                                                        }
-                                                    },
-                                                    "required": ["key", "value"]
-                                                }
-                                            },
-                                            "rollout_percentage": {
-                                                "type": "number"
-                                            },
-                                            "variant": {
-                                                "description": "Variant key to serve for this condition (for multivariate flags)",
-                                                "anyOf": [
-                                                    {
-                                                        "type": "string"
-                                                    },
-                                                    {
-                                                        "type": "null"
-                                                    }
-                                                ]
-                                            }
-                                        },
-                                        "required": ["properties", "rollout_percentage"]
-                                    }
-                                },
-                                "multivariate": {
-                                    "description": "Multivariate configuration with variant definitions",
-                                    "type": "object",
-                                    "properties": {
-                                        "variants": {
-                                            "minItems": 2,
-                                            "type": "array",
-                                            "items": {
-                                                "type": "object",
-                                                "properties": {
-                                                    "key": {
-                                                        "type": "string",
-                                                        "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
-                                                    },
-                                                    "name": {
-                                                        "description": "Human-readable name for this variant",
-                                                        "type": "string"
-                                                    },
-                                                    "rollout_percentage": {
-                                                        "type": "integer",
-                                                        "minimum": 0,
-                                                        "maximum": 100,
-                                                        "description": "Percentage of users who will see this variant (0-100). Must be an integer."
-                                                    }
-                                                },
-                                                "required": ["key", "rollout_percentage"]
-                                            }
-                                        }
-                                    },
-                                    "required": ["variants"]
-                                }
-                            },
-                            "required": ["groups"]
-                        },
-                        "active": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "required": ["flagKey", "data"]
-        },
         "InsightCreateSchema": {
             "type": "object",
             "properties": {
@@ -1514,8 +1046,12 @@
                         "favorited": {
                             "type": "boolean"
                         },
-                        "dashboard": {
-                            "type": "number"
+                        "dashboards": {
+                            "description": "Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.",
+                            "type": "array",
+                            "items": {
+                                "type": "number"
+                            }
                         },
                         "tags": {
                             "type": "array",
@@ -1523,8 +1059,7 @@
                                 "type": "string"
                             }
                         }
-                    },
-                    "required": ["query"]
+                    }
                 }
             },
             "required": ["insightId", "data"]
@@ -4146,70 +3681,371 @@
                     "type": "object",
                     "properties": {
                         "groups": {
-                            "minItems": 1,
+                            "description": "Release condition groups for the feature flag.",
                             "type": "array",
                             "items": {
                                 "type": "object",
                                 "properties": {
                                     "properties": {
+                                        "description": "Property conditions for this release condition group.",
                                         "type": "array",
                                         "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "key": {
-                                                    "type": "string"
+                                            "anyOf": [
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "type": "string",
+                                                            "enum": ["cohort", "person", "group"]
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "value": {
+                                                            "description": "Comparison value for the property filter. Supports strings, numbers, booleans, and arrays."
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": [
+                                                                "exact",
+                                                                "is_not",
+                                                                "icontains",
+                                                                "not_icontains",
+                                                                "regex",
+                                                                "not_regex",
+                                                                "gt",
+                                                                "gte",
+                                                                "lt",
+                                                                "lte"
+                                                            ],
+                                                            "description": "Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte"
+                                                        }
+                                                    },
+                                                    "required": ["key", "value", "operator"]
                                                 },
-                                                "value": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
                                                         },
-                                                        {
-                                                            "type": "number"
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "type": "string",
+                                                            "enum": ["cohort", "person", "group"]
                                                         },
-                                                        {
-                                                            "type": "boolean"
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
                                                         },
-                                                        {
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": ["is_set", "is_not_set"],
+                                                            "description": "Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set"
+                                                        },
+                                                        "value": {
+                                                            "description": "Optional value. Runtime behavior determines whether this is ignored."
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "type": "string",
+                                                            "enum": ["cohort", "person", "group"]
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": [
+                                                                "is_date_exact",
+                                                                "is_date_after",
+                                                                "is_date_before"
+                                                            ],
+                                                            "description": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before"
+                                                        },
+                                                        "value": {
+                                                            "type": "string",
+                                                            "description": "Date value in ISO format or relative date expression."
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator", "value"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "type": "string",
+                                                            "enum": ["cohort", "person", "group"]
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": [
+                                                                "semver_gt",
+                                                                "semver_gte",
+                                                                "semver_lt",
+                                                                "semver_lte",
+                                                                "semver_eq",
+                                                                "semver_neq",
+                                                                "semver_tilde",
+                                                                "semver_caret",
+                                                                "semver_wildcard"
+                                                            ],
+                                                            "description": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard"
+                                                        },
+                                                        "value": {
+                                                            "type": "string",
+                                                            "description": "Semantic version string."
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator", "value"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "type": "string",
+                                                            "enum": ["cohort", "person", "group"]
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": ["icontains_multi", "not_icontains_multi"],
+                                                            "description": "Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi"
+                                                        },
+                                                        "value": {
                                                             "type": "array",
                                                             "items": {
                                                                 "type": "string"
-                                                            }
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "number"
-                                                            }
+                                                            },
+                                                            "description": "List of strings to evaluate against."
                                                         }
-                                                    ]
+                                                    },
+                                                    "required": ["key", "operator", "value"]
                                                 },
-                                                "operator": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                        "exact",
-                                                        "is_not",
-                                                        "is_set",
-                                                        "is_not_set",
-                                                        "icontains",
-                                                        "not_icontains",
-                                                        "regex",
-                                                        "not_regex",
-                                                        "gt",
-                                                        "gte",
-                                                        "lt",
-                                                        "lte"
-                                                    ]
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "type": "string",
+                                                            "enum": ["cohort"],
+                                                            "description": "Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort"
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": ["in", "not_in"],
+                                                            "description": "Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in"
+                                                        },
+                                                        "value": {
+                                                            "description": "Cohort comparison value (single or list, depending on usage)."
+                                                        }
+                                                    },
+                                                    "required": ["key", "type", "operator", "value"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "type": "string",
+                                                            "enum": ["flag"],
+                                                            "description": "Flag property type required for flag dependency checks.\n\n* `flag` - flag"
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": ["flag_evaluates_to"],
+                                                            "description": "Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to"
+                                                        },
+                                                        "value": {
+                                                            "description": "Value to compare flag evaluation against."
+                                                        }
+                                                    },
+                                                    "required": ["key", "type", "operator", "value"]
                                                 }
-                                            },
-                                            "required": ["key", "value"]
+                                            ]
                                         }
                                     },
                                     "rollout_percentage": {
+                                        "description": "Rollout percentage for this release condition group.",
                                         "type": "number"
                                     },
                                     "variant": {
-                                        "description": "Variant key to serve for this condition (for multivariate flags)",
+                                        "description": "Variant key override for multivariate flags.",
                                         "anyOf": [
                                             {
                                                 "type": "string"
@@ -4219,43 +4055,78 @@
                                             }
                                         ]
                                     }
-                                },
-                                "required": ["properties", "rollout_percentage"]
+                                }
                             }
                         },
                         "multivariate": {
-                            "description": "Multivariate configuration with variant definitions",
-                            "type": "object",
-                            "properties": {
-                                "variants": {
-                                    "minItems": 2,
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "key": {
-                                                "type": "string",
-                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
+                            "description": "Multivariate configuration for variant-based rollouts.",
+                            "anyOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "variants": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "key": {
+                                                        "type": "string",
+                                                        "description": "Unique key for this variant."
+                                                    },
+                                                    "name": {
+                                                        "description": "Human-readable name for this variant.",
+                                                        "type": "string"
+                                                    },
+                                                    "rollout_percentage": {
+                                                        "type": "number",
+                                                        "description": "Variant rollout percentage."
+                                                    }
+                                                },
+                                                "required": ["key", "rollout_percentage"]
                                             },
-                                            "name": {
-                                                "description": "Human-readable name for this variant",
-                                                "type": "string"
-                                            },
-                                            "rollout_percentage": {
-                                                "type": "integer",
-                                                "minimum": 0,
-                                                "maximum": 100,
-                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer."
-                                            }
-                                        },
-                                        "required": ["key", "rollout_percentage"]
-                                    }
+                                            "description": "Variant definitions for multivariate feature flags."
+                                        }
+                                    },
+                                    "required": ["variants"]
+                                },
+                                {
+                                    "type": "null"
                                 }
+                            ]
+                        },
+                        "aggregation_group_type_index": {
+                            "description": "Group type index for group-based feature flags.",
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "payloads": {
+                            "description": "Optional payload values keyed by variant key.",
+                            "type": "object",
+                            "propertyNames": {
+                                "type": "string"
                             },
-                            "required": ["variants"]
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        },
+                        "super_groups": {
+                            "description": "Additional super condition groups used by experiments.",
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
                         }
-                    },
-                    "required": ["groups"]
+                    }
                 }
             },
             "required": ["name", "questions"]
@@ -5079,70 +4950,371 @@
                     "type": "object",
                     "properties": {
                         "groups": {
-                            "minItems": 1,
+                            "description": "Release condition groups for the feature flag.",
                             "type": "array",
                             "items": {
                                 "type": "object",
                                 "properties": {
                                     "properties": {
+                                        "description": "Property conditions for this release condition group.",
                                         "type": "array",
                                         "items": {
-                                            "type": "object",
-                                            "properties": {
-                                                "key": {
-                                                    "type": "string"
+                                            "anyOf": [
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "type": "string",
+                                                            "enum": ["cohort", "person", "group"]
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "value": {
+                                                            "description": "Comparison value for the property filter. Supports strings, numbers, booleans, and arrays."
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": [
+                                                                "exact",
+                                                                "is_not",
+                                                                "icontains",
+                                                                "not_icontains",
+                                                                "regex",
+                                                                "not_regex",
+                                                                "gt",
+                                                                "gte",
+                                                                "lt",
+                                                                "lte"
+                                                            ],
+                                                            "description": "Operator used to compare the property value.\n\n* `exact` - exact\n* `is_not` - is_not\n* `icontains` - icontains\n* `not_icontains` - not_icontains\n* `regex` - regex\n* `not_regex` - not_regex\n* `gt` - gt\n* `gte` - gte\n* `lt` - lt\n* `lte` - lte"
+                                                        }
+                                                    },
+                                                    "required": ["key", "value", "operator"]
                                                 },
-                                                "value": {
-                                                    "anyOf": [
-                                                        {
-                                                            "type": "string"
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
                                                         },
-                                                        {
-                                                            "type": "number"
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "type": "string",
+                                                            "enum": ["cohort", "person", "group"]
                                                         },
-                                                        {
-                                                            "type": "boolean"
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
                                                         },
-                                                        {
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": ["is_set", "is_not_set"],
+                                                            "description": "Existence operator.\n\n* `is_set` - is_set\n* `is_not_set` - is_not_set"
+                                                        },
+                                                        "value": {
+                                                            "description": "Optional value. Runtime behavior determines whether this is ignored."
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "type": "string",
+                                                            "enum": ["cohort", "person", "group"]
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": [
+                                                                "is_date_exact",
+                                                                "is_date_after",
+                                                                "is_date_before"
+                                                            ],
+                                                            "description": "Date comparison operator.\n\n* `is_date_exact` - is_date_exact\n* `is_date_after` - is_date_after\n* `is_date_before` - is_date_before"
+                                                        },
+                                                        "value": {
+                                                            "type": "string",
+                                                            "description": "Date value in ISO format or relative date expression."
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator", "value"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "type": "string",
+                                                            "enum": ["cohort", "person", "group"]
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": [
+                                                                "semver_gt",
+                                                                "semver_gte",
+                                                                "semver_lt",
+                                                                "semver_lte",
+                                                                "semver_eq",
+                                                                "semver_neq",
+                                                                "semver_tilde",
+                                                                "semver_caret",
+                                                                "semver_wildcard"
+                                                            ],
+                                                            "description": "Semantic version comparison operator.\n\n* `semver_gt` - semver_gt\n* `semver_gte` - semver_gte\n* `semver_lt` - semver_lt\n* `semver_lte` - semver_lte\n* `semver_eq` - semver_eq\n* `semver_neq` - semver_neq\n* `semver_tilde` - semver_tilde\n* `semver_caret` - semver_caret\n* `semver_wildcard` - semver_wildcard"
+                                                        },
+                                                        "value": {
+                                                            "type": "string",
+                                                            "description": "Semantic version string."
+                                                        }
+                                                    },
+                                                    "required": ["key", "operator", "value"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "description": "Property filter type. Common values are 'person' and 'cohort'.\n\n* `cohort` - cohort\n* `person` - person\n* `group` - group",
+                                                            "type": "string",
+                                                            "enum": ["cohort", "person", "group"]
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": ["icontains_multi", "not_icontains_multi"],
+                                                            "description": "Multi-contains operator.\n\n* `icontains_multi` - icontains_multi\n* `not_icontains_multi` - not_icontains_multi"
+                                                        },
+                                                        "value": {
                                                             "type": "array",
                                                             "items": {
                                                                 "type": "string"
-                                                            }
-                                                        },
-                                                        {
-                                                            "type": "array",
-                                                            "items": {
-                                                                "type": "number"
-                                                            }
+                                                            },
+                                                            "description": "List of strings to evaluate against."
                                                         }
-                                                    ]
+                                                    },
+                                                    "required": ["key", "operator", "value"]
                                                 },
-                                                "operator": {
-                                                    "type": "string",
-                                                    "enum": [
-                                                        "exact",
-                                                        "is_not",
-                                                        "is_set",
-                                                        "is_not_set",
-                                                        "icontains",
-                                                        "not_icontains",
-                                                        "regex",
-                                                        "not_regex",
-                                                        "gt",
-                                                        "gte",
-                                                        "lt",
-                                                        "lte"
-                                                    ]
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "type": "string",
+                                                            "enum": ["cohort"],
+                                                            "description": "Cohort property type required for in/not_in operators.\n\n* `cohort` - cohort"
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": ["in", "not_in"],
+                                                            "description": "Membership operator for cohort properties.\n\n* `in` - in\n* `not_in` - not_in"
+                                                        },
+                                                        "value": {
+                                                            "description": "Cohort comparison value (single or list, depending on usage)."
+                                                        }
+                                                    },
+                                                    "required": ["key", "type", "operator", "value"]
+                                                },
+                                                {
+                                                    "type": "object",
+                                                    "properties": {
+                                                        "key": {
+                                                            "type": "string",
+                                                            "description": "Property key used in this feature flag condition."
+                                                        },
+                                                        "type": {
+                                                            "type": "string",
+                                                            "enum": ["flag"],
+                                                            "description": "Flag property type required for flag dependency checks.\n\n* `flag` - flag"
+                                                        },
+                                                        "cohort_name": {
+                                                            "description": "Resolved cohort name for cohort-type filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "string"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "group_type_index": {
+                                                            "description": "Group type index when using group-based filters.",
+                                                            "anyOf": [
+                                                                {
+                                                                    "type": "number"
+                                                                },
+                                                                {
+                                                                    "type": "null"
+                                                                }
+                                                            ]
+                                                        },
+                                                        "operator": {
+                                                            "type": "string",
+                                                            "enum": ["flag_evaluates_to"],
+                                                            "description": "Operator for feature flag dependency evaluation.\n\n* `flag_evaluates_to` - flag_evaluates_to"
+                                                        },
+                                                        "value": {
+                                                            "description": "Value to compare flag evaluation against."
+                                                        }
+                                                    },
+                                                    "required": ["key", "type", "operator", "value"]
                                                 }
-                                            },
-                                            "required": ["key", "value"]
+                                            ]
                                         }
                                     },
                                     "rollout_percentage": {
+                                        "description": "Rollout percentage for this release condition group.",
                                         "type": "number"
                                     },
                                     "variant": {
-                                        "description": "Variant key to serve for this condition (for multivariate flags)",
+                                        "description": "Variant key override for multivariate flags.",
                                         "anyOf": [
                                             {
                                                 "type": "string"
@@ -5152,43 +5324,78 @@
                                             }
                                         ]
                                     }
-                                },
-                                "required": ["properties", "rollout_percentage"]
+                                }
                             }
                         },
                         "multivariate": {
-                            "description": "Multivariate configuration with variant definitions",
-                            "type": "object",
-                            "properties": {
-                                "variants": {
-                                    "minItems": 2,
-                                    "type": "array",
-                                    "items": {
-                                        "type": "object",
-                                        "properties": {
-                                            "key": {
-                                                "type": "string",
-                                                "description": "Unique identifier for this variant (e.g., \"control\", \"test\", \"variant_a\")"
+                            "description": "Multivariate configuration for variant-based rollouts.",
+                            "anyOf": [
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "variants": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "properties": {
+                                                    "key": {
+                                                        "type": "string",
+                                                        "description": "Unique key for this variant."
+                                                    },
+                                                    "name": {
+                                                        "description": "Human-readable name for this variant.",
+                                                        "type": "string"
+                                                    },
+                                                    "rollout_percentage": {
+                                                        "type": "number",
+                                                        "description": "Variant rollout percentage."
+                                                    }
+                                                },
+                                                "required": ["key", "rollout_percentage"]
                                             },
-                                            "name": {
-                                                "description": "Human-readable name for this variant",
-                                                "type": "string"
-                                            },
-                                            "rollout_percentage": {
-                                                "type": "integer",
-                                                "minimum": 0,
-                                                "maximum": 100,
-                                                "description": "Percentage of users who will see this variant (0-100). Must be an integer."
-                                            }
-                                        },
-                                        "required": ["key", "rollout_percentage"]
-                                    }
+                                            "description": "Variant definitions for multivariate feature flags."
+                                        }
+                                    },
+                                    "required": ["variants"]
+                                },
+                                {
+                                    "type": "null"
                                 }
+                            ]
+                        },
+                        "aggregation_group_type_index": {
+                            "description": "Group type index for group-based feature flags.",
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "payloads": {
+                            "description": "Optional payload values keyed by variant key.",
+                            "type": "object",
+                            "propertyNames": {
+                                "type": "string"
                             },
-                            "required": ["variants"]
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        },
+                        "super_groups": {
+                            "description": "Additional super condition groups used by experiments.",
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "additionalProperties": {}
+                            }
                         }
-                    },
-                    "required": ["groups"]
+                    }
                 },
                 "remove_targeting_flag": {
                     "description": "Set to true to completely remove all targeting filters from the survey, making it visible to all users (subject to other display conditions like URL matching).",

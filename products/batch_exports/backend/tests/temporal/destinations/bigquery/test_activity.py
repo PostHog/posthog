@@ -9,9 +9,9 @@ import unittest.mock
 
 from google.cloud import bigquery
 
-from posthog.batch_exports.service import BatchExportModel, BatchExportSchema
 from posthog.temporal.tests.utils.events import generate_test_events_in_clickhouse
 
+from products.batch_exports.backend.service import BatchExportModel, BatchExportSchema
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryInsertInputs,
     bigquery_default_fields,

@@ -49,6 +49,7 @@ class AgentMode(StrEnum):
     RESEARCH = "research"
     FLAGS = "flags"
     LLM_ANALYTICS = "llm_analytics"
+    SANDBOX = "sandbox"
 
 
 class AggregationAxisFormat(StrEnum):
@@ -173,6 +174,7 @@ class AssistantEventType(StrEnum):
     NOTEBOOK = "notebook"
     UPDATE = "update"
     APPROVAL = "approval"
+    SANDBOX = "sandbox"
 
 
 class AssistantFormOption(BaseModel):
@@ -1813,6 +1815,7 @@ class FileSystemIconType(StrEnum):
     LIVE_DEBUGGER = "live_debugger"
     LOGS = "logs"
     TRACING = "tracing"
+    METRICS = "metrics"
     WORKFLOWS = "workflows"
     NOTEBOOK = "notebook"
     ACTION = "action"
@@ -2256,7 +2259,7 @@ class IntegrationFilter(BaseModel):
 
 class IntegrationKind(StrEnum):
     SLACK = "slack"
-    SLACK_TWIG = "slack-twig"
+    SLACK_POSTHOG_CODE = "slack-posthog-code"
     SALESFORCE = "salesforce"
     HUBSPOT = "hubspot"
     GOOGLE_PUBSUB = "google-pubsub"
@@ -2467,6 +2470,20 @@ class MarketingAnalyticsConstants(StrEnum):
     GOAL = "Goal"
     COST_PER = "Cost per"
     CONST_ = "const:"
+
+
+class MarketingAnalyticsDrillDownConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columnAlias: str
+    excludedBaseColumns: list[MarketingAnalyticsBaseColumns]
+
+
+class MarketingAnalyticsDrillDownLevel(StrEnum):
+    CHANNEL = "channel"
+    SOURCE = "source"
+    CAMPAIGN = "campaign"
 
 
 class MarketingAnalyticsOrderByEnum(StrEnum):
@@ -3295,6 +3312,7 @@ class ProductKey(StrEnum):
     TEAMS = "teams"
     TOOLBAR = "toolbar"
     TRACING = "tracing"
+    METRICS = "metrics"
     USER_INTERVIEWS = "user_interviews"
     VISUAL_REVIEW = "visual_review"
     WEB_ANALYTICS = "web_analytics"
@@ -5581,6 +5599,10 @@ class FileSystemImport(BaseModel):
     created_at: str | None = Field(
         default=None,
         description="Timestamp when file was added. Used to check persistence",
+    )
+    displayLabel: str | None = Field(
+        default=None,
+        description=("Display label override — when set, shown in the nav instead of the last segment of `path`"),
     )
     flag: str | None = None
     href: str | None = Field(default=None, description="Object's URL")
@@ -16262,6 +16284,10 @@ class MarketingAnalyticsAggregatedQuery(BaseModel):
         default=None,
         description="Draft conversion goal that can be set in the UI without saving",
     )
+    drillDownLevel: MarketingAnalyticsDrillDownLevel | None = Field(
+        default=None,
+        description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
+    )
     filterTestAccounts: bool | None = None
     includeRevenue: bool | None = None
     integrationFilter: IntegrationFilter | None = Field(default=None, description="Filter by integration IDs")
@@ -16305,6 +16331,10 @@ class MarketingAnalyticsTableQuery(BaseModel):
     draftConversionGoal: ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3 | None = Field(
         default=None,
         description="Draft conversion goal that can be set in the UI without saving",
+    )
+    drillDownLevel: MarketingAnalyticsDrillDownLevel | None = Field(
+        default=None,
+        description=("Drill-down hierarchy level: channel, source, or campaign (default)"),
     )
     filterTestAccounts: bool | None = Field(default=None, description="Filter test accounts")
     includeRevenue: bool | None = None
@@ -17130,6 +17160,10 @@ class ErrorTrackingQuery(BaseModel):
     searchQuery: str | None = None
     status: ErrorTrackingIssueStatus | str | None = Field(default=None, title="ErrorTrackingQueryStatus")
     tags: QueryLogTags | None = None
+    useQueryV2: bool | None = Field(
+        default=None,
+        description=("Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)"),
+    )
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
     volumeResolution: int
     withAggregations: bool | None = None

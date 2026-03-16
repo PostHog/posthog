@@ -24,6 +24,7 @@ export const LLM_ANALYTICS_DATA_COLLECTION_NODE_ID = 'llm-analytics-data'
 export type LLMAnalyticsTabId =
     | 'dashboard'
     | 'generations'
+    | 'reviews'
     | 'traces'
     | 'users'
     | 'errors'
@@ -138,6 +139,8 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
             (sceneKey): LLMAnalyticsTabId => {
                 if (sceneKey === 'llmAnalyticsGenerations') {
                     return 'generations'
+                } else if (sceneKey === 'llmAnalyticsReviews') {
+                    return 'reviews'
                 } else if (sceneKey === 'llmAnalyticsTraces') {
                     return 'traces'
                 } else if (sceneKey === 'llmAnalyticsUsers') {
@@ -213,6 +216,7 @@ export const llmAnalyticsSharedLogic = kea<llmAnalyticsSharedLogicType>([
                 })
             },
             [urls.llmAnalyticsGenerations()]: (_, searchParams) => applySearchParams(searchParams),
+            [urls.llmAnalyticsReviews()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsTraces()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsUsers()]: (_, searchParams) => applySearchParams(searchParams),
             [urls.llmAnalyticsErrors()]: (_, searchParams) => applySearchParams(searchParams),
