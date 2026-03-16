@@ -46,6 +46,9 @@ const KIND_TO_CATEGORY: Record<string, HealthIssueCategory> = {
     no_pageleave_events: 'ingestion',
     ingestion_lag: 'ingestion',
 
+    // Pipelines
+    materialized_view_failure: 'pipelines',
+
     // SDKs
     sdk_outdated: 'sdk',
 }
@@ -55,6 +58,7 @@ export const KIND_LABELS: Record<string, string> = {
     no_pageleave_events: 'No pageleave events',
     ingestion_lag: 'Ingestion lag',
     sdk_outdated: 'SDK outdated',
+    materialized_view_failure: 'Materialized view failure',
 }
 
 export const categoryForKind = (kind: string): HealthIssueCategory => {

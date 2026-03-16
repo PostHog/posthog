@@ -14,6 +14,7 @@ _DETECT_FNS: dict[str, BatchDetectFn] = {}
 HEALTH_CHECK_MODULES = [
     "products.web_analytics.backend.temporal.health_checks.no_live_events",
     "products.web_analytics.backend.temporal.health_checks.no_pageleave_events",
+    "products.data_warehouse.backend.temporal.health_checks.materialized_view_failure",
 ]
 
 _registry_loaded = False
