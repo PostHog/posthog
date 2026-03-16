@@ -134,7 +134,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
-                        {['succeeded', 'failed', 'disabled_permanently'].map((key) => (
+                        {['succeeded', 'failed'].map((key) => (
                             <AppMetricSummary
                                 key={key}
                                 name={WORKFLOW_METRICS_INFO[key].name}
