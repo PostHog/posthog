@@ -28,8 +28,11 @@ export function TrendsSeries(): JSX.Element | null {
 
     const { showGroupsOptions: showGroupsOptionsFromModel, groupsTaxonomicTypes } = useValues(groupsModel)
 
-    // Disable groups for calendar heatmap
-    const showGroupsOptions = display === ChartDisplayType.CalendarHeatmap ? false : showGroupsOptionsFromModel
+    // Disable groups for calendar heatmap and box plot
+    const showGroupsOptions =
+        display === ChartDisplayType.CalendarHeatmap || display === ChartDisplayType.BoxPlot
+            ? false
+            : showGroupsOptionsFromModel
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
@@ -61,7 +64,9 @@ export function TrendsSeries(): JSX.Element | null {
           ? MathAvailability.ActorsOnly
           : display === ChartDisplayType.CalendarHeatmap
             ? MathAvailability.CalendarHeatmapOnly
-            : MathAvailability.All
+            : display === ChartDisplayType.BoxPlot
+              ? MathAvailability.BoxPlotOnly
+              : MathAvailability.All
 
     return (
         <>
@@ -104,7 +109,7 @@ export function TrendsSeries(): JSX.Element | null {
                     ...(hasPageview ? [TaxonomicFilterGroupType.PageviewEvents] : []),
                     ...(hasScreen ? [TaxonomicFilterGroupType.ScreenEvents] : []),
                     TaxonomicFilterGroupType.AutocaptureEvents,
-                    ...(isTrends && display !== ChartDisplayType.CalendarHeatmap
+                    ...(isTrends && display !== ChartDisplayType.CalendarHeatmap && display !== ChartDisplayType.BoxPlot
                         ? [TaxonomicFilterGroupType.DataWarehouse]
                         : []),
                 ]}

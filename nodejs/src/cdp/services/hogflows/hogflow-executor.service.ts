@@ -14,6 +14,7 @@ import {
     LogEntryLevel,
     MinimalAppMetric,
     MinimalLogEntry,
+    WarehouseWebhookPayload,
 } from '../../types'
 import { convertToHogFunctionFilterGlobal, filterFunctionInstrumented } from '../../utils/hog-function-filtering'
 import { createInvocationResult } from '../../utils/invocation-utils'
@@ -154,6 +155,7 @@ export class HogFlowExecutorService {
         const metrics: MinimalAppMetric[] = []
         const logs: MinimalLogEntry[] = []
         const capturedPostHogEvents: HogFunctionCapturedEvent[] = []
+        const warehouseWebhookPayloads: WarehouseWebhookPayload[] = []
 
         const earlyExitResult = await this.shouldExitEarly(invocation)
         if (earlyExitResult) {
@@ -170,7 +172,7 @@ export class HogFlowExecutorService {
 
             if (result.finished) {
                 if (result.error) {
-                    this.log(result, 'error', `Workflow encountered an error: ${result.error}`)
+                    this.log(result, 'error', this.logExecutionErrorInfo(result, result.error))
                 } else {
                     this.log(result, 'info', `Workflow completed`)
                 }
@@ -181,6 +183,7 @@ export class HogFlowExecutorService {
             logs.push(...result.logs)
             metrics.push(...result.metrics)
             capturedPostHogEvents.push(...result.capturedPostHogEvents)
+            warehouseWebhookPayloads.push(...result.warehouseWebhookPayloads)
 
             if (this.shouldEndHogFlowExecution(result, logs)) {
                 break
@@ -190,6 +193,7 @@ export class HogFlowExecutorService {
         result.logs = logs
         result.metrics = metrics
         result.capturedPostHogEvents = capturedPostHogEvents
+        result.warehouseWebhookPayloads = warehouseWebhookPayloads
 
         return result
     }
@@ -304,7 +308,7 @@ export class HogFlowExecutorService {
             })
             earlyExitResult.metrics.push({
                 team_id: hogFlow.team_id,
-                app_source_id: hogFlow.id,
+                app_source_id: invocation.parentRunId ?? hogFlow.id,
                 instance_id: invocation.state?.currentAction?.id || 'exit_condition',
                 metric_kind: 'other',
                 metric_name: 'early_exit',
@@ -508,7 +512,7 @@ export class HogFlowExecutorService {
     ): void {
         result.metrics.push({
             team_id: result.invocation.hogFlow.team_id,
-            app_source_id: result.invocation.hogFlow.id,
+            app_source_id: result.invocation.parentRunId ?? result.invocation.hogFlow.id,
             instance_id: action.id,
             metric_kind: metricName === 'failed' ? 'failure' : metricName === 'succeeded' ? 'success' : 'other',
             metric_name: metricName,
@@ -609,10 +613,10 @@ export class HogFlowExecutorService {
         let triggeredForActor = ''
         if (!hasCurrentAction) {
             triggeredForActor = isWebhookTriggered
-                ? ` at request of [Actor:${invocation.state.event?.distinct_id || 'unknown'}]`
+                ? ` at request of [Actor:${invocation.state.event?.distinct_id ?? 'unknown'}]`
                 : ''
             triggeredForActor += hasAssociatedPerson
-                ? ` for [Person:${invocation.person?.id}|${invocation.person?.name}]`
+                ? ` for [Person:${invocation.person?.id}|${invocation.person?.name ?? 'unknown'}]`
                 : ''
         }
 
@@ -621,9 +625,25 @@ export class HogFlowExecutorService {
             : ''
 
         return {
-            level: 'debug',
+            level: 'info',
             message: `${hasCurrentAction ? 'Resuming' : 'Starting'} ${isBatchWorkflow ? 'batch ' : ''}workflow execution at ${currentAction}${triggeredForActor}${triggeredByEvent}`,
             timestamp: DateTime.now(),
         }
+    }
+
+    private logExecutionErrorInfo(
+        result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
+        error: Error
+    ): string {
+        const invocation = result.invocation
+        const currentActionId = invocation.state.currentAction?.id
+        const currentAction = currentActionId ? invocation.hogFlow.actions.find((a) => a.id === currentActionId) : null
+
+        const hasAssociatedEvent = Boolean(invocation.state.event)
+        const triggeredByEvent = hasAssociatedEvent
+            ? `. This workflow was triggered by [Event:${invocation.state.event?.uuid}|${invocation.state.event?.event?.replaceAll('|', '')}|${invocation.state.event?.timestamp}]`
+            : ''
+
+        return `Workflow encountered an error: ${error.message} at ${currentAction ? actionIdForLogging(currentAction) : 'unknown action'}${triggeredByEvent}`
     }
 }

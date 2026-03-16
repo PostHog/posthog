@@ -1,12 +1,12 @@
 import './CardMeta.scss'
 
 import clsx from 'clsx'
-import React from 'react'
+import React, { useCallback, useEffect, useRef, useState } from 'react'
 import { Transition } from 'react-transition-group'
 
-import { IconPieChart } from '@posthog/icons'
+import { IconInfo, IconPieChart } from '@posthog/icons'
 
-import { useDelayedHover } from 'lib/hooks/useDelayedHover'
+import { EditableField } from 'lib/components/EditableField/EditableField'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { IconSubtitles, IconSubtitlesOff } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -19,10 +19,9 @@ import { InsightColor } from '~/types'
 
 export interface Resizeable {
     showResizeHandles?: boolean
-    canResizeWidth?: boolean
 }
 
-export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className'> {
+export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>, 'className' | 'onMouseDown'> {
     compact?: boolean
     areDetailsShown?: boolean
     setAreDetailsShown?: React.Dispatch<React.SetStateAction<boolean>>
@@ -45,10 +44,14 @@ export interface CardMetaProps extends Pick<React.HTMLAttributes<HTMLDivElement>
     extraControls?: JSX.Element | null
     /** Description shown in the compact popover. */
     metaDescription?: JSX.Element | null
+    /** Heading always shown in the popover (e.g. insight type + date range). Falls back to topHeading. */
+    popoverTopHeading?: JSX.Element | null
     /** Insight title shown in the compact popover. */
     metaTitle?: string
-    /** Top heading shown in the compact popover (defaults to topHeading). */
-    popoverTopHeading?: JSX.Element | null
+    /** Raw description text for editing. */
+    metaDescriptionText?: string
+    /** When provided, makes title/description editable in the compact popover. */
+    onMetaSave?: (updates: { name?: string; description?: string }) => void
 }
 
 export function CardMeta({
@@ -65,11 +68,14 @@ export function CardMeta({
     setAreDetailsShown,
     detailsTooltip,
     className,
+    onMouseDown,
     samplingFactor,
     extraControls,
     metaDescription,
     metaTitle,
     popoverTopHeading,
+    metaDescriptionText,
+    onMetaSave,
 }: CardMetaProps): JSX.Element {
     const { ref: primaryRef, width: primaryWidth } = useResizeObserver()
     const { ref: detailsRef, height: detailsHeight } = useResizeObserver()
@@ -91,11 +97,40 @@ export function CardMeta({
         inStorybookTestRunner() ||
         (!!primaryWidth && primaryWidth > 480 && controlsAvailableSpace >= neededWidth)
 
-    const {
-        visible: detailsPopoverVisible,
-        show: showDetails,
-        hide: hideDetails,
-    } = useDelayedHover({ showDelay: 500, hideDelay: 200 })
+    const [popoverVisible, setPopoverVisible] = useState(false)
+    const [pinned, setPinned] = useState(false)
+    const hoverTimerRef = useRef<ReturnType<typeof setTimeout>>()
+
+    useEffect(() => () => clearTimeout(hoverTimerRef.current), [])
+
+    const clearHoverTimer = (): void => clearTimeout(hoverTimerRef.current)
+
+    const showDetails = useCallback(() => {
+        clearHoverTimer()
+        hoverTimerRef.current = setTimeout(() => setPopoverVisible(true), 300)
+    }, [])
+
+    const hideDetails = useCallback(() => {
+        clearHoverTimer()
+        hoverTimerRef.current = setTimeout(() => setPopoverVisible(false), 800)
+    }, [])
+
+    const handleClickInfo = useCallback(
+        (e: React.MouseEvent) => {
+            e.stopPropagation()
+            clearHoverTimer()
+            const newPinned = !pinned
+            setPinned(newPinned)
+            setPopoverVisible(newPinned)
+        },
+        [pinned]
+    )
+
+    const handleClickOutside = useCallback(() => {
+        clearHoverTimer()
+        setPinned(false)
+        setPopoverVisible(false)
+    }, [])
 
     return (
         <div
@@ -103,8 +138,10 @@ export function CardMeta({
                 'CardMeta',
                 className,
                 compact && 'CardMeta--compact',
-                areDetailsShown && 'CardMeta--details-shown'
+                areDetailsShown && 'CardMeta--details-shown',
+                onMouseDown && 'cursor-grab'
             )}
+            onMouseDown={onMouseDown}
         >
             <div className="CardMeta__primary" ref={compact ? undefined : primaryRef}>
                 {ribbonColor &&
@@ -128,29 +165,79 @@ export function CardMeta({
                                         ))}
                                 </div>
                             </div>
-                            <Popover
-                                visible={detailsPopoverVisible}
-                                placement="bottom-start"
-                                showArrow
-                                onMouseEnterInside={showDetails}
-                                onMouseLeaveInside={hideDetails}
-                                overlay={
-                                    <div className="p-4 max-w-md space-y-2" onMouseDown={(e) => e.stopPropagation()}>
-                                        <h4 className="font-semibold m-0 mb-1">{popoverTopHeading ?? topHeading}</h4>
-                                        {metaTitle && <p className="font-semibold m-0">{metaTitle}</p>}
-                                        {metaDescription}
-                                        {metaDetails}
-                                    </div>
-                                }
-                            >
-                                <div
-                                    className="overflow-hidden min-w-0"
-                                    onMouseEnter={showDetails}
-                                    onMouseLeave={hideDetails}
+                            <div className="flex items-start gap-1">
+                                <div className="overflow-hidden min-w-0">{meta}</div>
+                                <Popover
+                                    visible={popoverVisible}
+                                    placement="bottom"
+                                    showArrow
+                                    onClickOutside={handleClickOutside}
+                                    onMouseEnterInside={showDetails}
+                                    onMouseLeaveInside={pinned ? undefined : hideDetails}
+                                    overlay={
+                                        <div
+                                            className="p-4 max-w-md space-y-2"
+                                            onMouseDown={(e) => e.stopPropagation()}
+                                        >
+                                            {(popoverTopHeading ?? topHeading) && (
+                                                <h5 className="uppercase text-xs font-bold text-muted tracking-wide m-0">
+                                                    {popoverTopHeading ?? topHeading}
+                                                </h5>
+                                            )}
+                                            {onMetaSave ? (
+                                                <>
+                                                    <EditableField
+                                                        name="title"
+                                                        value={metaTitle || ''}
+                                                        onSave={(value) => onMetaSave({ name: value })}
+                                                        placeholder="Untitled"
+                                                        saveOnBlur
+                                                        clickToEdit
+                                                        compactButtons
+                                                        compactIcon
+                                                        className="font-semibold text-sm"
+                                                        data-attr="insight-card-title"
+                                                    />
+                                                    <EditableField
+                                                        name="description"
+                                                        value={metaDescriptionText || ''}
+                                                        onSave={(value) => onMetaSave({ description: value })}
+                                                        placeholder="Enter description (optional)"
+                                                        saveOnBlur
+                                                        clickToEdit
+                                                        multiline
+                                                        markdown
+                                                        compactButtons
+                                                        compactIcon
+                                                        className="text-xs w-full"
+                                                        data-attr="insight-card-description"
+                                                    />
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {metaTitle && <p className="font-semibold m-0">{metaTitle}</p>}
+                                                    {metaDescription}
+                                                </>
+                                            )}
+                                            {metaDetails}
+                                        </div>
+                                    }
                                 >
-                                    {meta}
-                                </div>
-                            </Popover>
+                                    <div
+                                        className="pt-0.5"
+                                        onMouseEnter={showDetails}
+                                        onMouseLeave={pinned ? undefined : hideDetails}
+                                    >
+                                        <LemonButton
+                                            icon={<IconInfo />}
+                                            size="small"
+                                            noPadding
+                                            data-attr="card-meta-info"
+                                            onClick={handleClickInfo}
+                                        />
+                                    </div>
+                                </Popover>
+                            </div>
                         </>
                     ) : (
                         <>

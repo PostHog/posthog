@@ -5,7 +5,7 @@
 
 use std::io::prelude::*;
 
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use flate2::read::GzDecoder;
 use metrics;
 use tracing::{debug, error, instrument, warn, Span};
@@ -26,6 +26,72 @@ pub static GZIP_MAGIC_NUMBERS: [u8; 3] = [0x1f, 0x8b, 0x08];
 // Metrics constants
 const METRIC_PAYLOAD_SIZE_EXCEEDED: &str = "capture_payload_size_exceeded";
 const METRIC_GZIP_DECOMPRESSION_RATIO: &str = "capture_gzip_decompression_ratio";
+
+/// Decompression ratios above this threshold are flagged as potential GZIP bombs.
+const GZIP_BOMB_RATIO_THRESHOLD: f64 = 20.0;
+
+/// Decompress GZIP data with chunked reads and bomb detection.
+/// Returns raw bytes -- callers decide whether to convert to String.
+pub fn decompress_gzip_to_bytes(compressed: &[u8], limit: usize) -> Result<Vec<u8>, CaptureError> {
+    let len = compressed.len();
+    let mut zipstream = GzDecoder::new(compressed);
+    let mut chunk = [0; 8192];
+    let mut buf = Vec::new();
+    let mut total_read = 0;
+
+    loop {
+        let got = match zipstream.read(&mut chunk) {
+            Ok(got) => got,
+            Err(e) => {
+                error!("decompress_gzip_to_bytes: failed to read GZIP chunk: {}", e);
+                return Err(CaptureError::RequestDecodingError(String::from(
+                    "invalid GZIP data",
+                )));
+            }
+        };
+        if got == 0 {
+            break;
+        }
+
+        if total_read + got > limit {
+            error!(
+                decompressed_size = total_read + got,
+                compressed_size = len,
+                limit = limit,
+                "decompress_gzip_to_bytes: GZIP decompression would exceed size limit"
+            );
+            metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "gzip").increment(1);
+            metrics::histogram!("capture_full_payload_size", "oversize" => "true")
+                .record((total_read + got) as f64);
+            report_dropped_events("event_too_big", 1);
+
+            return Err(CaptureError::EventTooBig(format!(
+                "Decompressed payload would exceed {} bytes (got {} bytes)",
+                limit,
+                total_read + got
+            )));
+        }
+
+        buf.extend_from_slice(&chunk[..got]);
+        total_read += got;
+    }
+
+    if len > 0 {
+        let ratio = total_read as f64 / len as f64;
+        metrics::histogram!(METRIC_GZIP_DECOMPRESSION_RATIO).record(ratio);
+
+        if ratio > GZIP_BOMB_RATIO_THRESHOLD {
+            warn!(
+                compressed_size = len,
+                decompressed_size = total_read,
+                ratio = ratio,
+                "High GZIP compression ratio detected - potential GZIP bomb"
+            );
+        }
+    }
+
+    Ok(buf)
+}
 
 /// Decompresses and decodes a payload based on compression hint and content detection.
 /// This is shared logic used by both analytics and recording event processing.
@@ -56,75 +122,12 @@ pub fn decompress_payload(
 
     let mut payload = if compression == Compression::Gzip || bytes.starts_with(&GZIP_MAGIC_NUMBERS)
     {
-        let len = bytes.len();
         debug!(
-            payload_len = len,
+            payload_len = bytes.len(),
             "decompress_payload: matched GZIP compression"
         );
 
-        let mut zipstream = GzDecoder::new(bytes.reader());
-        let mut chunk = [0; 8192];
-        let mut buf = Vec::new();
-        let mut total_read = 0;
-
-        loop {
-            let got = match zipstream.read(&mut chunk) {
-                Ok(got) => got,
-                Err(e) => {
-                    error!(
-                        "decompress_payload: failed to read GZIP chunk from stream: {}",
-                        e
-                    );
-                    return Err(CaptureError::RequestDecodingError(String::from(
-                        "invalid GZIP data",
-                    )));
-                }
-            };
-            if got == 0 {
-                break;
-            }
-
-            // Check size BEFORE allocation to prevent memory spikes
-            if total_read + got > limit {
-                error!(
-                    decompressed_size = total_read + got,
-                    compressed_size = len,
-                    limit = limit,
-                    "decompress_payload: GZIP decompression would exceed size limit"
-                );
-
-                // Metric for exceeding payload sizes
-                metrics::counter!(METRIC_PAYLOAD_SIZE_EXCEEDED, "kind" => "gzip").increment(1);
-                metrics::histogram!("capture_full_payload_size", "oversize" => "true")
-                    .record((total_read + got) as f64);
-                report_dropped_events("event_too_big", 1);
-
-                return Err(CaptureError::EventTooBig(format!(
-                    "Decompressed payload would exceed {} bytes (got {} bytes)",
-                    limit,
-                    total_read + got
-                )));
-            }
-
-            buf.extend_from_slice(&chunk[..got]);
-            total_read += got;
-        }
-
-        // Record decompression ratio metric
-        if len > 0 {
-            let ratio = total_read as f64 / len as f64;
-            metrics::histogram!(METRIC_GZIP_DECOMPRESSION_RATIO).record(ratio);
-
-            // Warn on potential GZIP bombs
-            if ratio > 20.0 {
-                warn!(
-                    compressed_size = len,
-                    decompressed_size = total_read,
-                    ratio = ratio,
-                    "High GZIP compression ratio detected - potential GZIP bomb"
-                );
-            }
-        }
+        let buf = decompress_gzip_to_bytes(&bytes, limit)?;
 
         match String::from_utf8(buf) {
             Ok(s) => s,
@@ -227,4 +230,64 @@ pub fn decompress_payload(
     );
 
     Ok(payload)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::write::GzEncoder;
+    use std::io::Write;
+
+    fn gzip_compress(data: &[u8]) -> Vec<u8> {
+        let mut encoder = GzEncoder::new(Vec::new(), flate2::Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    #[test]
+    fn test_decompress_gzip_to_bytes_valid() {
+        let original = b"hello world";
+        let compressed = gzip_compress(original);
+        let result = decompress_gzip_to_bytes(&compressed, 1024).unwrap();
+        assert_eq!(result, original);
+    }
+
+    #[test]
+    fn test_decompress_gzip_to_bytes_rejects_oversized_output() {
+        // 64 KB of zeros compresses to ~80 bytes with gzip
+        let bomb_data = vec![0u8; 65_536];
+        let compressed = gzip_compress(&bomb_data);
+        assert!(compressed.len() < 200);
+
+        let limit = 1024;
+        let result = decompress_gzip_to_bytes(&compressed, limit);
+        assert!(
+            matches!(result, Err(CaptureError::EventTooBig(_))),
+            "expected EventTooBig, got {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_decompress_gzip_to_bytes_exactly_at_limit() {
+        let data = vec![b'A'; 1024];
+        let compressed = gzip_compress(&data);
+        let result = decompress_gzip_to_bytes(&compressed, 1024).unwrap();
+        assert_eq!(result.len(), 1024);
+    }
+
+    #[test]
+    fn test_decompress_gzip_to_bytes_one_over_limit() {
+        let data = vec![b'A'; 1025];
+        let compressed = gzip_compress(&data);
+        let result = decompress_gzip_to_bytes(&compressed, 1024);
+        assert!(matches!(result, Err(CaptureError::EventTooBig(_))));
+    }
+
+    #[test]
+    fn test_decompress_gzip_to_bytes_invalid_gzip() {
+        let garbage = b"not gzip data at all";
+        let result = decompress_gzip_to_bytes(garbage, 4096);
+        assert!(matches!(result, Err(CaptureError::RequestDecodingError(_))));
+    }
 }

@@ -64,6 +64,8 @@ ViewSets in `products/*/backend/` are **automatically tagged** based on their mo
 
 Serializers are the source of truth for response types. Use explicit field types and `help_text` where helpful.
 
+For detailed guidance on serializer patterns, field typing, and annotations that improve OpenAPI generation, see the [`improving-drf-endpoints` skill](https://github.com/PostHog/posthog/blob/master/.agents/skills/improving-drf-endpoints/SKILL.md).
+
 ### Documenting query parameters
 
 For endpoints with query parameters, use `@validated_request` (WIP pattern):

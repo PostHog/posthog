@@ -52,8 +52,10 @@ interface Props {
 
 export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
     const { manualLinkingProvider } = useValues(sourceWizardLogic)
+    const { table } = useValues(dataWarehouseTableLogic)
 
     const provider = manualLinkingProvider ?? 'aws'
+    const isCsvFormat = table?.format === 'CSV' || table?.format === 'CSVWithNames'
 
     return (
         <Form
@@ -114,6 +116,25 @@ export function DatawarehouseTableForm({ onUpdate }: Props): JSX.Element {
                         />
                     )}
                 </LemonField>
+                {isCsvFormat && (
+                    <LemonField
+                        name={['options', 'csv_allow_double_quotes']}
+                        label="CSV quote handling"
+                        className="mb-4 w-max"
+                    >
+                        {({ value, onChange }) => (
+                            <LemonSelect
+                                data-attr="csv-quote-handling"
+                                options={[
+                                    { label: 'RFC 4180 double quotes', value: true },
+                                    { label: 'Literal quotes', value: false },
+                                ]}
+                                value={value ?? false}
+                                onChange={onChange}
+                            />
+                        )}
+                    </LemonField>
+                )}
                 <LemonField name={['credential', 'access_key']} label={ProviderMappings[provider].accessKeyLabel}>
                     {({ value = '', onChange }) => (
                         <LemonInput

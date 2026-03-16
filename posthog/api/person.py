@@ -37,6 +37,7 @@ from posthog.api.utils import action, format_paginated_url, get_pk_or_uuid, get_
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.constants import INSIGHT_FUNNELS, LIMIT, OFFSET, FunnelVizType
 from posthog.decorators import cached_by_filters
+from posthog.event_usage import get_request_analytics_properties
 from posthog.metrics import LABEL_TEAM_ID
 from posthog.models import Cohort, Filter, Person, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
@@ -579,8 +580,11 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             if not key or key.startswith("$virt"):
                 span.set_attribute("result_count", 0)
-                return response.Response([])
+                resp = response.Response({"results": [], "refreshing": False})
+                resp["Cache-Control"] = "max-age=10"
+                return resp
 
+            force_refresh = request.GET.get("force_refresh", "false").lower() == "true"
             runner = PropertyValuesQueryRunner(
                 team=self.team,
                 query=PropertyValuesQuery(
@@ -589,11 +593,22 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     search_value=value,
                 ),
             )
-            result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            execution_mode = (
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                if force_refresh
+                else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(request))
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            is_refreshing = (
+                isinstance(result, CachedPropertyValuesQueryResponse)
+                and result.query_status is not None
+                and not result.query_status.complete
+            )
             results = [item.model_dump(exclude_none=True) for item in result.results]
             span.set_attribute("result_count", len(results))
-            resp = response.Response(results)
+            span.set_attribute("is_refreshing", is_refreshing)
+            resp = response.Response({"results": results, "refreshing": is_refreshing})
             resp["Cache-Control"] = "max-age=10"
             return resp
 
@@ -1068,21 +1083,16 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         MAX_BATCH_SIZE = 200
         distinct_ids = distinct_ids[:MAX_BATCH_SIZE]
 
-        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids).prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=self.team_id).order_by("id"),
-                to_attr="distinct_ids_cache",
-            )
-        )
+        persons = get_persons_by_distinct_ids(self.team_id, distinct_ids)
 
+        requested = set(distinct_ids)
         results: dict[str, Any] = {}
         for person in persons:
             person_data = MinimalPersonSerializer(person, context={"get_team": lambda: self.team}).data
 
-            for did in getattr(person, "distinct_ids_cache", []):
-                if did.distinct_id in distinct_ids:
-                    results[did.distinct_id] = person_data
+            for distinct_id in person.distinct_ids:
+                if distinct_id in requested:
+                    results[distinct_id] = person_data
 
         return response.Response({"results": results})
 

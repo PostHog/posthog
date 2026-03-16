@@ -500,10 +500,11 @@ Use this tool when the user wants to:
                 try:
                     github = GitHubIntegration(integration)
                     org = github.organization()
-                    repo_names = github.list_repositories()
+                    repos = github.list_repositories()
 
-                    for repo_name in repo_names:
-                        full_name = f"{org}/{repo_name}"
+                    for repo in repos:
+                        repo_name = repo["name"]
+                        full_name = repo["full_name"]
                         if search:
                             if search.lower() not in repo_name.lower():
                                 continue

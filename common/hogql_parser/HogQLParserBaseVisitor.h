@@ -299,6 +299,18 @@ public:
     return visitChildren(ctx);
   }
 
+  virtual std::any visitSelectColumnExprList(HogQLParser::SelectColumnExprListContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprAliasBefore(HogQLParser::ColumnExprAliasBeforeContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
+  virtual std::any visitColumnExprSelectValue(HogQLParser::ColumnExprSelectValueContext *ctx) override {
+    return visitChildren(ctx);
+  }
+
   virtual std::any visitColumnExprTernaryOp(HogQLParser::ColumnExprTernaryOpContext *ctx) override {
     return visitChildren(ctx);
   }

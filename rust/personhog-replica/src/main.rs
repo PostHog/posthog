@@ -30,6 +30,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 idle_timeout: config.idle_timeout(),
                 test_before_acquire: true,
                 statement_timeout_ms: config.statement_timeout(),
+                ..Default::default()
             };
 
             // Create primary pool
@@ -91,17 +92,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     let metrics_handle = manager.register(
         "metrics_server",
-        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
+        ComponentOptions::new().is_observability(true),
     );
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
-    let grpc_shutdown = manager.shutdown_signal();
-    let metrics_shutdown = manager.shutdown_signal();
 
     let monitor = manager.monitor_background();
 
-    // Metrics/health HTTP server
+    // Metrics/health HTTP server (observability handle — stays alive during standard drain)
     let metrics_port = config.metrics_port;
     tokio::spawn(async move {
         let _guard = metrics_handle.process_scope();
@@ -123,7 +122,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Failed to bind metrics port");
         tracing::info!("Metrics server listening on {}", bind);
         axum::serve(listener, router)
-            .with_graceful_shutdown(metrics_shutdown)
+            .with_graceful_shutdown(metrics_handle.shutdown_signal())
             .await
             .expect("Metrics server error");
     });
@@ -139,7 +138,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _guard = grpc_handle.process_scope();
         if let Err(e) = Server::builder()
             .add_service(PersonHogReplicaServer::new(service))
-            .serve_with_shutdown(grpc_addr, grpc_shutdown)
+            .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
             .await
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

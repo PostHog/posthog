@@ -16,6 +16,7 @@ this branching so callers don't need to check the mode themselves.
 from __future__ import annotations
 
 import os
+import re
 from typing import TYPE_CHECKING, TypedDict
 
 import duckdb
@@ -309,6 +310,25 @@ def initialize_ducklake(config: dict[str, str] | None = None, *, alias: str = "d
         conn.close()
 
 
+_IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
+
+
+def sanitize_ducklake_identifier(raw: str, *, default_prefix: str) -> str:
+    """Normalize identifiers so they are safe for DuckDB (lowercase alnum + underscores).
+
+    Non-alphanumeric runs are collapsed into a single underscore.
+    If the result is empty, ``default_prefix`` is used as the identifier.
+    If the result starts with a digit, ``default_prefix`` is prepended.
+    Truncated to 63 characters (DuckDB identifier limit).
+    """
+    cleaned = _IDENTIFIER_SANITIZE_RE.sub("_", (raw or "").strip()).strip("_").lower()
+    if not cleaned:
+        cleaned = default_prefix
+    if cleaned[0].isdigit():
+        cleaned = f"{default_prefix}_{cleaned}"
+    return cleaned[:63]
+
+
 __all__ = [
     "attach_catalog",
     "escape",
@@ -323,4 +343,5 @@ __all__ = [
     "parse_postgres_dsn",
     "is_dev_mode",
     "run_smoke_check",
+    "sanitize_ducklake_identifier",
 ]

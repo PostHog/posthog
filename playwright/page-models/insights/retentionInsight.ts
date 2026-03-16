@@ -1,7 +1,10 @@
 import { Locator, Page, expect } from '@playwright/test'
 
-export class RetentionInsight {
-    readonly chart: Locator
+import { TaxonomicFilter } from '../taxonomicFilter'
+
+import { ChartInsightBase } from './chartInsightBase'
+
+export class RetentionInsight extends ChartInsightBase {
     readonly table: Locator
     readonly tableHeaders: Locator
     readonly tableRows: Locator
@@ -10,13 +13,14 @@ export class RetentionInsight {
     readonly breakdownButton: Locator
     readonly alertsButton: Locator
     readonly chartFilter: Locator
-    readonly tooltip: Locator
     readonly personsModal: Locator
     readonly customBracketsCheckbox: Locator
     readonly sectionHeaders: Locator
+    readonly taxonomicFilter: TaxonomicFilter
 
-    constructor(private readonly page: Page) {
-        this.chart = page.getByTestId('trend-line-graph')
+    constructor(page: Page) {
+        super(page, page.getByTestId('trend-line-graph'))
+
         this.table = page.getByTestId('retention-table')
         this.tableHeaders = this.table.locator('th')
         this.tableRows = this.table.locator('tr')
@@ -25,12 +29,12 @@ export class RetentionInsight {
         this.breakdownButton = page.getByTestId('add-breakdown-button')
         this.alertsButton = page.getByTestId('insight-alerts-dropdown-menu-item')
         this.chartFilter = page.getByTestId('chart-filter')
-        this.tooltip = page.locator('.InsightTooltip')
         this.personsModal = page
             .locator('.LemonModal')
             .filter({ has: page.locator('.RetentionTable--non-interactive') })
         this.customBracketsCheckbox = page.locator('.LemonCheckbox', { hasText: 'Use custom return ranges' })
         this.sectionHeaders = this.table.locator('tr.cursor-pointer')
+        this.taxonomicFilter = new TaxonomicFilter(page)
     }
 
     async selectTargetEvent(eventName: string): Promise<void> {
@@ -52,16 +56,16 @@ export class RetentionInsight {
             await this.page.keyboard.press('Escape')
             await button.scrollIntoViewIfNeeded()
             await button.click()
-            const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-            await searchField.waitFor({ state: 'visible', timeout: 3000 })
-            await searchField.fill(eventName)
-            const row = this.page.locator('.taxonomic-list-row', { hasText: eventName })
-            await row.first().click()
+            await this.taxonomicFilter.selectItem(eventName)
         }).toPass({ timeout: 30000 })
     }
 
     async waitForChart(): Promise<void> {
-        await this.page.getByTestId('insight-loading-waiting-message').waitFor({ state: 'detached', timeout: 30000 })
+        const loading = this.page.getByTestId('insight-loading-waiting-message')
+        // Wait for the loading indicator to appear (query started), then disappear.
+        // Short timeout on 'attached' handles cached/instant queries where it never appears.
+        await loading.waitFor({ state: 'attached', timeout: 2000 }).catch(() => {})
+        await loading.waitFor({ state: 'detached', timeout: 30000 })
         await expect(this.table).toBeVisible()
     }
 
@@ -89,25 +93,9 @@ export class RetentionInsight {
         await expect(async () => {
             await this.page.keyboard.press('Escape')
             await this.breakdownButton.click()
-            const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-            await searchField.waitFor({ state: 'visible', timeout: 3000 })
-            await searchField.fill(property)
-            const row = this.page.locator('.taxonomic-list-row').first()
-            await row.waitFor({ state: 'visible', timeout: 5000 })
-            await row.click()
+            await this.taxonomicFilter.selectItem(property)
         }).toPass({ timeout: 30000 })
         await this.waitForChart()
-    }
-
-    async hoverChartAt(xFraction: number, yFraction: number): Promise<void> {
-        const canvas = this.chart.locator('canvas')
-        await expect(canvas).toBeVisible()
-        await expect(async () => {
-            const box = (await canvas.boundingBox())!
-            await this.page.mouse.move(box.x - 5, box.y - 5)
-            await this.page.mouse.move(box.x + box.width * xFraction, box.y + box.height * yFraction)
-            await expect(this.tooltip).toBeVisible({ timeout: 1000 })
-        }).toPass({ timeout: 15000 })
     }
 
     get detailRows(): Locator {

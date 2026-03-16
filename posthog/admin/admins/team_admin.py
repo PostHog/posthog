@@ -22,6 +22,7 @@ from structlog import get_logger
 from temporalio import common
 from temporalio.client import WorkflowExecutionStatus
 
+from posthog.admin.inlines.organization_member_for_related_inline import OrganizationMemberForRelatedInline
 from posthog.admin.inlines.team_marketing_analytics_config_inline import TeamMarketingAnalyticsConfigInline
 from posthog.admin.inlines.user_product_list_inline import UserProductListInline
 from posthog.cloud_utils import is_cloud
@@ -32,6 +33,7 @@ from posthog.models.remote_config import RemoteConfig
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.temporal.common.client import sync_connect
+from posthog.temporal.delete_recordings.object_storage import store_session_id_chunks
 from posthog.temporal.delete_recordings.types import (
     DeletionConfig,
     RecordingsWithPersonInput,
@@ -90,7 +92,7 @@ class TeamAdmin(admin.ModelAdmin):
     ]
 
     exclude = DEPRECATED_ATTRS
-    inlines = [TeamMarketingAnalyticsConfigInline, UserProductListInline]
+    inlines = [OrganizationMemberForRelatedInline, TeamMarketingAnalyticsConfigInline, UserProductListInline]
 
     def changeform_view(self, request, object_id=None, form_url="", extra_context=None):
         self._current_request = request
@@ -626,7 +628,12 @@ class TeamAdmin(admin.ModelAdmin):
         """Return just the workflow table rows as an HTML fragment for AJAX polling."""
         team = Team.objects.get(pk=object_id)
         workflows = self._get_delete_workflows(team.id)
-        context = {"team": team, "workflows": workflows}
+        context = {
+            "team": team,
+            "workflows": workflows,
+            "temporal_ui_host": settings.TEMPORAL_UI_HOST,
+            "temporal_namespace": settings.TEMPORAL_NAMESPACE,
+        }
         return render(request, "admin/posthog/team/_delete_recordings_workflows.html", context)
 
     def delete_recordings_view(self, request, object_id):
@@ -639,6 +646,8 @@ class TeamAdmin(admin.ModelAdmin):
                 "team": team,
                 "title": f"Delete Recordings - {team.name}",
                 "workflows": workflows,
+                "temporal_ui_host": settings.TEMPORAL_UI_HOST,
+                "temporal_namespace": settings.TEMPORAL_NAMESPACE,
             }
             return render(request, "admin/posthog/team/delete_recordings.html", context)
 
@@ -840,9 +849,15 @@ class TeamAdmin(admin.ModelAdmin):
                     messages.error(request, "No session IDs found in CSV file")
                     return redirect(reverse("admin:posthog_team_delete_recordings", args=[object_id]))
 
+                chunk_size = 10_000
+                s3_prefix, total_chunks = store_session_id_chunks(workflow_id, session_ids, chunk_size)
+
                 session_ids_input = RecordingsWithSessionIdsInput(
                     team_id=team.id,
-                    session_ids=session_ids,
+                    s3_prefix=s3_prefix,
+                    total_chunks=total_chunks,
+                    chunk_size=chunk_size,
+                    total_session_ids=len(session_ids),
                     config=config,
                     source_filename=upload_file.name or "unknown.csv",
                 )

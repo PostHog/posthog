@@ -1,5 +1,4 @@
 import logging
-from typing import cast
 
 from django.db import transaction
 from django.db.models import QuerySet
@@ -14,7 +13,6 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
-from posthog.models import User
 from posthog.permissions import AccessControlPermission
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 
@@ -137,13 +135,14 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
     def perform_create(self, serializer):
         instance = serializer.save()
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma provider key created",
             {
                 "provider_key_id": str(instance.id),
                 "provider": instance.provider,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
     def perform_update(self, serializer):
@@ -157,25 +156,27 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
 
         if changed_fields:
             report_user_action(
-                cast(User, self.request.user),
+                self.request.user,
                 "llma provider key updated",
                 {
                     "provider_key_id": str(instance.id),
                     "provider": instance.provider,
                     "changed_fields": changed_fields,
                 },
-                self.team,
+                team=self.team,
+                request=self.request,
             )
 
     def perform_destroy(self, instance):
         report_user_action(
-            cast(User, self.request.user),
+            self.request.user,
             "llma provider key deleted",
             {
                 "provider_key_id": str(instance.id),
                 "provider": instance.provider,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
         instance.delete()
 
@@ -198,14 +199,15 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
         instance.save(update_fields=["state", "error_message"])
 
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "llma provider key validated",
             {
                 "provider_key_id": str(instance.id),
                 "provider": instance.provider,
                 "state": instance.state,
             },
-            self.team,
+            team=self.team,
+            request=self.request,
         )
 
         serializer = self.get_serializer(instance)

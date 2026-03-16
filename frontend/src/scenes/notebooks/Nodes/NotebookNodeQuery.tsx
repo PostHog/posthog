@@ -29,7 +29,7 @@ import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } 
 import { notebookNodeLogic } from './notebookNodeLogic'
 import { SHORT_CODE_REGEX_MATCH_GROUPS } from './utils'
 
-const DEFAULT_QUERY: QuerySchema = {
+export const DEFAULT_QUERY: QuerySchema = {
     kind: NodeKind.DataTableNode,
     source: {
         kind: NodeKind.EventsQuery,

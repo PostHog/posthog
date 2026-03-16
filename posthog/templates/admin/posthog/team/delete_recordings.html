@@ -185,18 +185,37 @@
         margin: 0;
     }
     .refresh-btn {
-        font-size: 12px;
-        color: #6b7280;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        font-size: 14px;
+        line-height: 1;
         text-decoration: none;
         border: 1px solid #e5e7eb;
         border-radius: 4px;
-        padding: 2px 8px;
+        padding: 0;
         cursor: pointer;
+        background: #fff;
     }
     .refresh-btn:hover {
-        color: #111827;
         border-color: #d1d5db;
         background: #f9fafb;
+    }
+    .refresh-btn.is-playing {
+        color: #991b1b;
+        border-color: #fca5a5;
+    }
+    .refresh-btn.is-playing:hover {
+        background: #fef2f2;
+    }
+    .refresh-btn.is-stopped {
+        color: #166534;
+        border-color: #86efac;
+    }
+    .refresh-btn.is-stopped:hover {
+        background: #f0fdf4;
     }
     .empty-state {
         color: #9ca3af;
@@ -208,7 +227,7 @@
 <div class="workflow-section">
     <div class="section-header">
         <h3>Recent deletion workflows</h3>
-        <a class="refresh-btn" id="refresh-btn" href="">Refresh</a>
+        <button class="refresh-btn" id="poll-toggle" title="Start auto-refresh">&#9654;</button>
     </div>
     <p>Previously triggered deletion workflows for this team.</p>
     <div id="workflows-container">
@@ -374,6 +393,8 @@
 (function() {
     var container = document.getElementById("workflows-container");
     var pollUrl = "{% url 'admin:posthog_team_delete_recordings_workflows' team.pk %}";
+    var btn = document.getElementById("poll-toggle");
+    var intervalId = null;
 
     function refresh() {
         fetch(pollUrl, { headers: { "X-Requested-With": "XMLHttpRequest" } })
@@ -382,12 +403,27 @@
             .catch(function() {});
     }
 
-    document.getElementById("refresh-btn").addEventListener("click", function(e) {
-        e.preventDefault();
+    function start() {
+        if (intervalId) return;
         refresh();
-    });
+        intervalId = setInterval(refresh, 5000);
+        btn.innerHTML = "&#9632;";
+        btn.title = "Stop auto-refresh";
+        btn.className = "refresh-btn is-playing";
+    }
 
-    setInterval(refresh, 5000);
+    function stop() {
+        clearInterval(intervalId);
+        intervalId = null;
+        btn.innerHTML = "&#9654;";
+        btn.title = "Start auto-refresh";
+        btn.className = "refresh-btn is-stopped";
+    }
+
+    btn.addEventListener("click", function() {
+        intervalId ? stop() : start();
+    });
+    start();
 })();
 </script>
 {% endblock %}

@@ -89,6 +89,7 @@ class CTE(Expr):
     columns: Optional[list[str]] = field(default=None)  # e.g. ["a", "b"] for `WITH x(a, b) AS (SELECT 1, 2)`
     recursive: bool = field(default=False)
     materialized: Optional[bool] = field(default=None)
+    using_key: Optional[list[str]] = field(default=None)  # e.g. ["a"] for USING KEY (a)
 
 
 @dataclass(kw_only=True)

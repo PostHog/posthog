@@ -18,7 +18,7 @@ from posthog.temporal.ai.video_segment_clustering.models import (
 from posthog.temporal.ai.video_segment_clustering.object_storage import generate_storage_key, store_fetch_result
 from posthog.temporal.common.logger import get_logger
 
-from ..data import fetch_video_segment_rows
+from ..data import fetch_video_segment_rows_paginated
 
 logger = get_logger(__name__)
 
@@ -33,7 +33,7 @@ async def fetch_segments_activity(inputs: FetchSegmentsActivityInputs) -> FetchS
     """
 
     team = await Team.objects.aget(id=inputs.team_id)
-    video_segment_rows = await fetch_video_segment_rows(
+    video_segment_rows = await fetch_video_segment_rows_paginated(
         team=team,
         lookback_hours=inputs.lookback_hours,
     )

@@ -1,4 +1,6 @@
-import { IconDownload, IconWarning } from '@posthog/icons'
+import { useEffect, useState } from 'react'
+
+import { IconDownload } from '@posthog/icons'
 
 import { CodeSnippet, Language } from '~/lib/components/CodeSnippet/CodeSnippet'
 import { LemonBanner } from '~/lib/lemon-ui/LemonBanner'
@@ -74,6 +76,13 @@ export function TerraformExportModal({
     const baseName = getBaseName(resource)
     const state = useTerraformExport(resource, isOpen)
     const handleDownload = useTerraformDownload(state.result, baseName)
+    const [warningsDismissed, setWarningsDismissed] = useState(false)
+
+    useEffect(() => {
+        if (isOpen) {
+            setWarningsDismissed(false)
+        }
+    }, [isOpen])
 
     const filename = `${baseName}.tf`
     const displayFilename = baseName.length > 30 ? `${baseName.slice(0, 30)}….tf` : filename
@@ -111,29 +120,21 @@ export function TerraformExportModal({
 
                 {state.error && (
                     <LemonBanner type="error">
-                        <div className="flex items-start gap-2">
-                            <IconWarning className="text-danger shrink-0 mt-0.5" />
-                            <div>
-                                <strong>Error:</strong> {state.error}
-                            </div>
-                        </div>
+                        <strong>Error:</strong> {state.error}
                     </LemonBanner>
                 )}
 
                 {state.result && (
                     <>
-                        {state.result.warnings.length > 0 && (
-                            <LemonBanner type="warning">
-                                <div className="flex items-start gap-2">
-                                    <IconWarning className="text-warning shrink-0 mt-0.5" />
-                                    <div>
-                                        <strong>Warnings:</strong>
-                                        <ul className="list-disc ml-4 mt-1 mb-0">
-                                            {state.result.warnings.map((warning, index) => (
-                                                <li key={index}>{warning}</li>
-                                            ))}
-                                        </ul>
-                                    </div>
+                        {state.result.warnings.length > 0 && !warningsDismissed && (
+                            <LemonBanner type="warning" onClose={() => setWarningsDismissed(true)}>
+                                <div>
+                                    <strong>Warnings:</strong>
+                                    <ul className="list-disc ml-4 mt-1 mb-0">
+                                        {state.result.warnings.map((warning, index) => (
+                                            <li key={index}>{warning}</li>
+                                        ))}
+                                    </ul>
                                 </div>
                             </LemonBanner>
                         )}

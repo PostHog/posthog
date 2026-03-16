@@ -10,6 +10,6 @@ template: HogFunctionTemplateDC = HogFunctionTemplateDC(
     icon_url="/static/services/webhook.png",
     category=["Data warehouse"],
     code_language="hog",
-    code="return request.body",
+    code="produceToWarehouseWebhooks(request.body)",
     inputs_schema=[],
 )

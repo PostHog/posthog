@@ -14,6 +14,8 @@ const NotebookPanel = lazy(() =>
     import('scenes/notebooks/NotebookPanel/NotebookPanel').then((m) => ({ default: m.NotebookPanel }))
 )
 
+import { useWindowSize } from 'lib/hooks/useWindowSize'
+
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import {
     SidePanelExports,
@@ -174,11 +176,25 @@ export function SidePanel({ className }: { className?: string }): JSX.Element | 
         selectedTab &&
         sidePanelOpen &&
         (visibleTabs.includes(selectedTab) || (selectedTab === SidePanelTab.Info && scenePanelIsPresent))
-    const sidePanelWidth = !visibleTabs.length
+
+    // If the persisted state says the panel is open but the selected tab isn't
+    // available in this context (e.g. Info tab on a scene without a ScenePanel),
+    // close the panel so other components like SceneTitlePanelButton stay in sync.
+    useEffect(() => {
+        if (sidePanelOpen && selectedTab && !sidePanelOpenAndAvailable) {
+            closeSidePanel()
+        }
+    }, [sidePanelOpen, selectedTab, sidePanelOpenAndAvailable, closeSidePanel])
+
+    const { windowSize } = useWindowSize()
+
+    const rawSidePanelWidth = !visibleTabs.length
         ? 0
         : sidePanelOpenAndAvailable
           ? Math.max(desiredSize ?? DEFAULT_WIDTH, SIDE_PANEL_MIN_WIDTH_COMPACT)
           : 0
+
+    const sidePanelWidth = windowSize.width != null ? Math.min(rawSidePanelWidth, windowSize.width) : rawSidePanelWidth
 
     // Update sidepanel width in panelLayoutLogic
     useEffect(() => {

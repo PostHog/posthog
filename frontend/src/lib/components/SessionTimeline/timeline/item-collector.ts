@@ -1,6 +1,7 @@
 import { Dayjs } from 'lib/dayjs'
 import { TimeTree } from 'lib/utils/time-tree'
 
+// eslint-disable-next-line import/no-cycle
 import { ItemCategory, ItemLoader, ItemRenderer, TimelineItem } from '.'
 
 export class ItemCollector {

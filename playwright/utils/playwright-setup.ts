@@ -48,6 +48,11 @@ export interface PlaywrightSetupEvent {
     properties?: Record<string, any>
 }
 
+export interface PlaywrightSetupPerson {
+    distinct_ids: string[]
+    properties?: Record<string, any>
+}
+
 export interface PlaywrightWorkspaceSetupData {
     organization_name?: string
     use_current_time?: boolean
@@ -57,6 +62,7 @@ export interface PlaywrightWorkspaceSetupData {
     insights?: PlaywrightSetupInsight[]
     dashboards?: PlaywrightSetupDashboard[]
     events?: PlaywrightSetupEvent[]
+    persons?: PlaywrightSetupPerson[]
 }
 
 export interface PlaywrightSetupCreatedVariable {
@@ -93,6 +99,15 @@ export interface PlaywrightSetupOptions {
     throwOnError?: boolean
     /** Base URL for the API (defaults to baseURL from config) */
     baseURL?: string
+    /** Number of retry attempts on transient failures (default: 3) */
+    maxRetries?: number
+}
+
+class NonRetryableError extends Error {
+    constructor(message: string) {
+        super(message)
+        this.name = 'NonRetryableError'
+    }
 }
 
 /**
@@ -109,45 +124,88 @@ export class PlaywrightSetup {
     }
 
     /**
-     * Call the Django setup endpoint
+     * Call the Django setup endpoint with automatic retry on transient failures.
+     * Retries up to `maxRetries` times (default 3) with exponential backoff
+     * (2s, 4s between attempts) to handle intermittent API timeouts in CI.
      */
     async callSetupEndpoint(setupType: string, options: PlaywrightSetupOptions = {}): Promise<TestSetupResponse> {
-        const { data = {}, throwOnError = true, baseURL } = options
+        const { data = {}, throwOnError = true, baseURL, maxRetries = 3 } = options
         const url = `${baseURL || this.baseURL}/api/setup_test/${setupType}/`
 
-        try {
-            const response = await this.request.post(url, { data })
+        let lastError: Error | undefined
 
-            const responseText = await response.text()
-
-            let result: TestSetupResponse
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                result = JSON.parse(responseText)
-            } catch (parseError) {
-                console.error(`[PlaywrightSetup] Failed to parse response as JSON:`, parseError)
-                throw new Error(`Invalid JSON response from setup endpoint: ${responseText}`)
-            }
+                const response = await this.request.post(url, { data })
 
-            if (!response.ok() && throwOnError) {
-                console.error(`[PlaywrightSetup] Setup failed - Status: ${response.status()}, Result:`, result)
-                throw new Error(`Playwright setup failed for '${setupType}': ${result.error || 'Unknown error'}`)
-            }
+                const responseText = await response.text()
 
-            return result
-        } catch (error) {
-            const errorMessage = error instanceof Error ? error.message : String(error)
-            console.error(`[PlaywrightSetup] Setup endpoint error:`, errorMessage)
+                let result: TestSetupResponse
+                try {
+                    result = JSON.parse(responseText)
+                } catch (parseError) {
+                    console.error(`[PlaywrightSetup] Failed to parse response as JSON:`, parseError)
+                    throw new Error(`Invalid JSON response from setup endpoint: ${responseText}`)
+                }
 
-            if (throwOnError) {
-                throw new Error(`Failed to call setup endpoint: ${errorMessage}`)
-            }
+                if (!response.ok()) {
+                    // Server errors (5xx) are retryable; client errors (4xx) are not
+                    if (response.status() >= 500 && attempt < maxRetries) {
+                        console.warn(
+                            `[PlaywrightSetup] Server error ${response.status()} on attempt ${attempt}/${maxRetries} for '${setupType}', retrying...`
+                        )
+                        await this.delay(2000 * Math.pow(2, attempt - 1))
+                        continue
+                    }
+                    if (throwOnError) {
+                        console.error(`[PlaywrightSetup] Setup failed - Status: ${response.status()}, Result:`, result)
+                        throw new NonRetryableError(
+                            `Playwright setup failed for '${setupType}': ${result.error || 'Unknown error'}`
+                        )
+                    }
+                }
 
-            return {
-                success: false,
-                test_name: setupType,
-                error: errorMessage,
+                return result
+            } catch (error) {
+                // Non-retryable errors (e.g. 4xx) should not be retried
+                if (error instanceof NonRetryableError) {
+                    throw error
+                }
+
+                lastError = error instanceof Error ? error : new Error(String(error))
+
+                if (attempt < maxRetries) {
+                    const delayMs = 2000 * Math.pow(2, attempt - 1)
+                    console.warn(
+                        `[PlaywrightSetup] Attempt ${attempt}/${maxRetries} failed for '${setupType}': ${lastError.message}. Retrying in ${delayMs}ms...`
+                    )
+                    await this.delay(delayMs)
+                    continue
+                }
+
+                console.error(
+                    `[PlaywrightSetup] All ${maxRetries} attempts failed for '${setupType}':`,
+                    lastError.message
+                )
+
+                if (throwOnError) {
+                    throw new Error(`Failed to call setup endpoint after ${maxRetries} attempts: ${lastError.message}`)
+                }
+
+                return {
+                    success: false,
+                    test_name: setupType,
+                    error: lastError.message,
+                }
             }
         }
+
+        // Should not be reached, but satisfies TypeScript
+        throw lastError || new Error(`Failed to call setup endpoint after ${maxRetries} attempts`)
+    }
+
+    private delay(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms))
     }
 
     /**

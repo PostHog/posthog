@@ -135,7 +135,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_2fa_reset_at",
@@ -278,7 +277,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -379,7 +377,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_2fa_reset_at",
@@ -522,7 +519,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -719,7 +715,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_2fa_reset_at",
@@ -766,7 +761,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",
@@ -867,7 +861,6 @@
          "posthog_user"."current_team_id",
          "posthog_user"."email",
          "posthog_user"."pending_email",
-         "posthog_user"."temporary_token",
          "posthog_user"."distinct_id",
          "posthog_user"."is_email_verified",
          "posthog_user"."requested_2fa_reset_at",
@@ -914,7 +907,6 @@
          "posthog_featureflag"."key",
          "posthog_featureflag"."name",
          "posthog_featureflag"."filters",
-
          "posthog_featureflag"."team_id",
          "posthog_featureflag"."created_by_id",
          "posthog_featureflag"."created_at",

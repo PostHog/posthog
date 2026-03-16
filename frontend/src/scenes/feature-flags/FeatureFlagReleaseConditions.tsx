@@ -5,7 +5,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { Fragment } from 'react'
 
-import { IconCopy, IconFlag, IconPlus, IconTrash } from '@posthog/icons'
+import { IconCopy, IconFlag, IconInfo, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonInput, LemonLabel, LemonSelect, LemonSnack, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { allOperatorsToHumanName } from 'lib/components/DefinitionPopover/utils'
@@ -356,7 +356,9 @@ export function FeatureFlagReleaseConditions({
                                 allowRelativeDateOptions
                                 excludedProperties={
                                     featureFlagKey
-                                        ? { [TaxonomicFilterGroupType.FeatureFlags]: [featureFlagKey] }
+                                        ? {
+                                              [TaxonomicFilterGroupType.FeatureFlags]: [featureFlagKey],
+                                          }
                                         : undefined
                                 }
                                 errorMessages={
@@ -474,6 +476,24 @@ export function FeatureFlagReleaseConditions({
                                     return ''
                                 })()}{' '}
                                 <span>of total {aggregationTargetName}.</span>
+                                {filters.aggregation_group_type_index == null && (
+                                    <Tooltip
+                                        title={
+                                            <>
+                                                A user may have{' '}
+                                                <Link
+                                                    to="https://posthog.com/docs/data/persons#duplicate-person-profiles"
+                                                    target="_blank"
+                                                >
+                                                    multiple profiles
+                                                </Link>
+                                            </>
+                                        }
+                                        interactive
+                                    >
+                                        <IconInfo className="text-muted text-xs ml-0.5" />
+                                    </Tooltip>
+                                )}
                             </div>
                         </div>
                     )}
@@ -690,9 +710,25 @@ export function FeatureFlagReleaseConditions({
                             },
                             {
                                 value: 'device',
-                                label: 'Device',
-                                description:
-                                    'Stable assignment per device. Good fit for experiments on anonymous users.',
+                                label: (
+                                    <span>
+                                        Device{' '}
+                                        <LemonTag type="warning" size="small">
+                                            BETA
+                                        </LemonTag>
+                                    </span>
+                                ),
+                                description: (
+                                    <span>
+                                        Stable assignment per device. Good fit for experiments on anonymous users.{' '}
+                                        <Link
+                                            to="https://posthog.com/docs/feature-flags/device-bucketing"
+                                            target="_blank"
+                                        >
+                                            Learn more
+                                        </Link>
+                                    </span>
+                                ),
                             },
                             {
                                 value: 'group',

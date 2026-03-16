@@ -50,15 +50,12 @@ test.describe('Retention', () => {
 
         await test.step('verify cohort sizes and retention curve', async () => {
             const sizes = await insight.retention.getCohortSizes()
-            // All users first appear on daysAgo(6), so only that cohort has users.
-            // Row 0 = 7-days-ago (empty), Row 1 = 6-days-ago (10 users), rest empty.
             expect(sizes[0]).toBe(0)
             expect(sizes[1]).toBe(10)
 
             const percentages = await insight.retention.getCellPercentages(1)
             expect(percentages).toEqual(['100.0%', '80.0%', '60.0%', '40.0%', '30.0%', '20.0%', '10.0%'])
 
-            // Empty cohorts should show 0%
             const emptyPercentages = await insight.retention.getCellPercentages(0)
             expect(emptyPercentages.every((p) => p === '0.0%')).toBe(true)
         })
@@ -108,7 +105,6 @@ test.describe('Retention', () => {
         })
 
         await test.step('click cohort row and verify persons modal', async () => {
-            // Row 1 = 6-days-ago cohort with 10 users
             await insight.retention.clickCohortRow(1)
             const personLinks = insight.retention.personsModal.locator('[data-attr="retention-person-link"]')
             await expect(personLinks.first()).toBeVisible()

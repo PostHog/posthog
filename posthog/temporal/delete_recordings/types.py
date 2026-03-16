@@ -51,10 +51,12 @@ class RecordingsWithQueryInput(BaseModel):
 
 
 class RecordingsWithSessionIdsInput(BaseModel):
-    session_ids: list[str]
+    s3_prefix: str
+    total_chunks: int
+    chunk_size: int
+    total_session_ids: int
     team_id: int
     config: DeletionConfig
-    page_size: int = 10_000
     source_filename: str | None = None
     progress: DeletionProgress | None = None
 
@@ -96,6 +98,16 @@ class DeletionCertificate(BaseModel):
     total_recordings_found: int
     total_deleted: int
     total_failed: int
+
+
+class LoadChunkInput(BaseModel):
+    s3_prefix: str
+    chunk_index: int
+
+
+class CleanupChunksInput(BaseModel):
+    s3_prefix: str
+    total_chunks: int
 
 
 class LoadRecordingError(Exception):

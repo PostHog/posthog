@@ -42,7 +42,6 @@ from products.data_warehouse.backend.api.lineage import LineageViewSet
 from products.desktop_recordings.backend.api import DesktopRecordingViewSet
 from products.error_tracking.backend.api import (
     ErrorTrackingAssignmentRuleViewSet,
-    ErrorTrackingAutoCaptureControlsViewSet,
     ErrorTrackingExternalReferenceViewSet,
     ErrorTrackingFingerprintViewSet,
     ErrorTrackingGroupingRuleViewSet,
@@ -56,6 +55,7 @@ from products.error_tracking.backend.api import (
 )
 from products.llm_analytics.backend.api import (
     ClusteringConfigViewSet,
+    ClusteringJobViewSet,
     DatasetItemViewSet,
     DatasetViewSet,
     EvaluationConfigViewSet,
@@ -71,12 +71,18 @@ from products.llm_analytics.backend.api import (
     LLMProviderKeyValidationViewSet,
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
+    ScoreDefinitionViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.signals.backend.views import SignalViewSet
+from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
+from products.visual_review.backend.presentation.views import (
+    RepoViewSet as VisualReviewRepoViewSet,
+    RunViewSet as VisualReviewRunViewSet,
+)
 from products.workflows.backend.api import MessageCategoryViewSet, MessagePreferencesViewSet, MessageTemplatesViewSet
 
 from ee.api.session_summaries import SessionGroupSummaryViewSet
@@ -171,6 +177,7 @@ router.register(r"plugin_config", plugin.LegacyPluginConfigViewSet, "legacy_plug
 router.register(r"feature_flag", feature_flag.LegacyFeatureFlagViewSet)  # Used for library side feature flag evaluation
 router.register(r"llm_proxy", LLMProxyViewSet, "llm_proxy")
 router.register(r"oauth_application/metadata", OAuthApplicationPublicMetadataViewSet, "oauth_application_metadata")
+router.register(r"mcp_store/oauth_redirect", mcp_store.MCPOAuthRedirectViewSet, "mcp_oauth_redirect")
 # Nested endpoints shared
 projects_router = router.register(r"projects", project.RootProjectViewSet, "projects")
 projects_router.register(r"environments", team.ProjectEnvironmentsViewSet, "project_environments", ["project_id"])
@@ -273,6 +280,9 @@ project_features_router = projects_router.register(
 # Tasks endpoints
 project_tasks_router = projects_router.register(r"tasks", tasks.TaskViewSet, "project_tasks", ["team_id"])
 project_tasks_router.register(r"runs", tasks.TaskRunViewSet, "project_task_runs", ["team_id", "task_id"])
+
+# PostHog Code invites (not project-scoped)
+router.register(r"code/invites", tasks.CodeInviteViewSet, "code_invites")
 
 # Signal reports endpoints
 projects_router.register(r"signal_reports", signals.SignalReportViewSet, "project_signal_reports", ["team_id"])
@@ -937,13 +947,6 @@ environments_router.register(
 )
 
 environments_router.register(
-    r"error_tracking/autocapture_controls",
-    ErrorTrackingAutoCaptureControlsViewSet,
-    "environment_error_tracking_autocapture_controls",
-    ["team_id"],
-)
-
-environments_router.register(
     r"signals",
     SignalViewSet,
     "environment_signals",
@@ -1096,6 +1099,9 @@ environments_router.register(
 
 # Logs endpoints
 register_grandfathered_environment_nested_viewset(r"logs", logs.LogsViewSet, "environment_logs", ["team_id"])
+register_grandfathered_environment_nested_viewset(
+    r"logs/alerts", logs.LogsAlertViewSet, "environment_logs_alerts", ["team_id"]
+)
 
 environments_router.register(
     r"logs/explainLogWithAI",
@@ -1113,6 +1119,26 @@ environments_router.register(
     UserInterviewViewSet,
     "environment_user_interviews",
     ["team_id"],
+)
+
+projects_router.register(
+    r"visual_review/repos",
+    VisualReviewRepoViewSet,
+    "project_visual_review_repos",
+    ["project_id"],
+)
+projects_router.register(
+    r"visual_review/runs",
+    VisualReviewRunViewSet,
+    "project_visual_review_runs",
+    ["project_id"],
+)
+
+projects_router.register(
+    r"tracing/spans",
+    TracingSpansViewSet,
+    "project_tracing_spans",
+    ["project_id"],
 )
 
 environments_router.register(
@@ -1256,9 +1282,23 @@ environments_router.register(
 )
 
 environments_router.register(
+    r"llm_analytics/clustering_jobs",
+    ClusteringJobViewSet,
+    "environment_llm_analytics_clustering_jobs",
+    ["team_id"],
+)
+
+environments_router.register(
     r"llm_analytics/sentiment",
     LLMAnalyticsSentimentViewSet,
     "environment_llm_analytics_sentiment",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/score_definitions",
+    ScoreDefinitionViewSet,
+    "environment_llm_analytics_score_definitions",
     ["team_id"],
 )
 

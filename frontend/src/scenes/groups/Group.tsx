@@ -1,5 +1,6 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { router } from 'kea-router'
+import { useFeatureFlagVariantKey } from 'posthog-js/react'
 
 import { ActivityLog } from 'lib/components/ActivityLog/ActivityLog'
 import { NotFound } from 'lib/components/NotFound'
@@ -42,6 +43,7 @@ import {
 
 import { GroupProfileCanvas } from 'products/customer_analytics/frontend/components/GroupProfileCanvas'
 
+import { GroupDashboardCard } from './cards/GroupDashboardCard'
 import { GroupNotebookCard } from './cards/GroupNotebookCard'
 import { GroupCaption } from './components/GroupCaption'
 import { GroupOverview } from './GroupOverview'
@@ -68,12 +70,15 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { aggregationLabel } = useValues(groupsModel)
+    const groupProfileVariant = useFeatureFlagVariantKey(FEATURE_FLAGS.GROUP_PROFILE_EXPERIMENT)
+    const isProfileEnabled = groupProfileVariant === 'test'
+    const showProfile = featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] || isProfileEnabled
 
     if (!groupData || !groupType) {
         return groupDataLoading ? <SpinnerOverlay sceneLevel /> : <NotFound object="group" />
     }
 
-    const activeTab = groupTab ?? (featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] ? 'profile' : 'overview')
+    const activeTab = groupTab ?? (showProfile ? 'profile' : 'overview')
 
     return (
         <SceneContent>
@@ -106,7 +111,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                 activeKey={activeTab}
                 onChange={(tab) => router.actions.push(urls.group(String(groupTypeIndex), groupKey, true, tab))}
                 tabs={[
-                    ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS]
+                    ...(showProfile
                         ? [
                               {
                                   key: GroupsTabType.PROFILE,
@@ -124,7 +129,7 @@ export function Group({ tabId }: { tabId?: string }): JSX.Element {
                     {
                         key: GroupsTabType.OVERVIEW,
                         label: <span data-attr="groups-overview-tab">Overview</span>,
-                        content: <GroupOverview groupData={groupData} />,
+                        content: showProfile ? <GroupDashboardCard /> : <GroupOverview groupData={groupData} />,
                     },
                     ...(featureFlags[FEATURE_FLAGS.CUSTOMER_ANALYTICS] && groupData.notebook
                         ? [

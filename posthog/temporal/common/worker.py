@@ -1,4 +1,5 @@
 import socket
+import typing
 import datetime as dt
 import itertools
 import collections.abc
@@ -11,9 +12,15 @@ from temporalio.worker import ResourceBasedSlotConfig, UnsandboxedWorkflowRunner
 
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.combined_metrics_server import CombinedMetricsServer
+from posthog.temporal.common.interceptor import is_task_queue_supported
 from posthog.temporal.common.liveness_tracker import LivenessInterceptor
 from posthog.temporal.common.logger import get_write_only_logger
 from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.delete_recordings.metrics import (
+    DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS,
+    DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
+    DeleteRecordingsMetricsInterceptor,
+)
 from posthog.temporal.llm_analytics.metrics import EvalsMetricsInterceptor
 from posthog.temporal.llm_analytics.sentiment.metrics import (
     SENTIMENT_LATENCY_HISTOGRAM_BUCKETS,
@@ -89,6 +96,18 @@ SUMMARIZATION_LATENCY_HISTOGRAM_BUCKETS = [
 ]
 
 
+ALL_INTERCEPTOR_CLASSES = [
+    LivenessInterceptor,
+    PostHogClientInterceptor,
+    BatchExportsMetricsInterceptor,
+    DeleteRecordingsMetricsInterceptor,
+    EvalsMetricsInterceptor,
+    SummarizationMetricsInterceptor,
+    ClusteringMetricsInterceptor,
+    SentimentMetricsInterceptor,
+]
+
+
 @dataclass
 class ManagedWorker:
     """A Temporal worker bundled with its associated resources for unified lifecycle management."""
@@ -117,7 +136,7 @@ async def create_worker(
     namespace: str,
     task_queue: str,
     workflows: collections.abc.Sequence[type],
-    activities,
+    activities: collections.abc.Sequence[typing.Callable],
     server_root_ca_cert: str | None = None,
     client_cert: str | None = None,
     client_key: str | None = None,
@@ -223,6 +242,12 @@ async def create_worker(
                         itertools.repeat(SENTIMENT_LATENCY_HISTOGRAM_BUCKETS),
                     )
                 )
+                | dict(
+                    zip(
+                        DELETE_RECORDINGS_LATENCY_HISTOGRAM_METRICS,
+                        itertools.repeat(DELETE_RECORDINGS_LATENCY_HISTOGRAM_BUCKETS),
+                    )
+                )
                 | {"batch_exports_activity_attempt": [1.0, 5.0, 10.0, 100.0]},
             ),
         )
@@ -237,6 +262,9 @@ async def create_worker(
         runtime=runtime,
         use_pydantic_converter=use_pydantic_converter,
     )
+    supported_interceptors = [
+        interceptor() for interceptor in ALL_INTERCEPTOR_CLASSES if is_task_queue_supported(task_queue, interceptor)
+    ]
 
     if target_memory_usage is not None:
         worker = Worker(
@@ -246,15 +274,7 @@ async def create_worker(
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-            interceptors=[
-                LivenessInterceptor(),
-                PostHogClientInterceptor(),
-                BatchExportsMetricsInterceptor(),
-                EvalsMetricsInterceptor(),
-                SummarizationMetricsInterceptor(),
-                ClusteringMetricsInterceptor(),
-                SentimentMetricsInterceptor(),
-            ],
+            interceptors=supported_interceptors,
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             tuner=WorkerTuner.create_resource_based(
                 target_memory_usage=target_memory_usage,
@@ -274,15 +294,7 @@ async def create_worker(
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
             graceful_shutdown_timeout=graceful_shutdown_timeout or dt.timedelta(minutes=5),
-            interceptors=[
-                LivenessInterceptor(),
-                PostHogClientInterceptor(),
-                BatchExportsMetricsInterceptor(),
-                EvalsMetricsInterceptor(),
-                SummarizationMetricsInterceptor(),
-                ClusteringMetricsInterceptor(),
-                SentimentMetricsInterceptor(),
-            ],
+            interceptors=supported_interceptors,
             activity_executor=ThreadPoolExecutor(max_workers=max_concurrent_activities or 50),
             max_concurrent_activities=max_concurrent_activities or 50,
             max_concurrent_workflow_tasks=max_concurrent_workflow_tasks or 50,

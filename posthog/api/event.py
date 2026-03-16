@@ -10,7 +10,6 @@ from typing import Any, Iterator, List, Optional, Union  # noqa: UP035
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db.models.query import Prefetch
 from django.utils import timezone
 
 from drf_spectacular.types import OpenApiTypes
@@ -34,8 +33,9 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.clickhouse.client import query_with_columns
 from posthog.clickhouse.client.limit import get_events_list_rate_limiter
+from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Element, Filter, Person, PersonDistinctId, PropertyDefinition
+from posthog.models import Element, Filter, Person, PropertyDefinition
 from posthog.models.event.query_event_list import query_events_list
 from posthog.models.event.sql import SELECT_ONE_EVENT_SQL
 from posthog.models.event.util import ClickhouseEventSerializer
@@ -397,13 +397,6 @@ class EventViewSet(
     def _get_people(self, query_result: List[dict], team: Team) -> dict[str, Any]:  # noqa: UP006
         distinct_ids = [event["distinct_id"] for event in query_result]
         persons = get_persons_by_distinct_ids(team.pk, distinct_ids)
-        persons = persons.prefetch_related(
-            Prefetch(
-                "persondistinctid_set",
-                queryset=PersonDistinctId.objects.filter(team_id=team.pk).order_by("id"),
-                to_attr="distinct_ids_cache",
-            )
-        )
         distinct_to_person: dict[str, Person] = {}
         for person in persons:
             for distinct_id in person.distinct_ids:
@@ -475,18 +468,21 @@ class EventViewSet(
             value=request.GET.get("value"),
         )
 
+        force_refresh = request.GET.get("force_refresh", "false").lower() == "true"
+
         if key == "custom_event":
             return self._custom_event_values(query_params)
         else:
             # Check if this property is hidden (enterprise feature)
             if self._is_property_hidden(key, team):
-                return self._return_with_short_cache([])
+                return self._return_with_short_cache([], refreshing=False)
 
-            return self._event_property_values(query_params)
+            return self._event_property_values(query_params, force_refresh=force_refresh)
 
     def _event_property_values(
         self,
         query_params: EventValueQueryParams,
+        force_refresh: bool = False,
     ) -> response.Response:
         from posthog.hogql_queries.property_values_query_runner import (
             CachedPropertyValuesQueryResponse,
@@ -525,10 +521,23 @@ class EventViewSet(
                     event_names=query_params.event_names or None,
                 ),
             )
-            result = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS)
+            execution_mode = (
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS
+                if force_refresh
+                else ExecutionMode.RECENT_CACHE_CALCULATE_ASYNC_IF_STALE_AND_BLOCKING_ON_MISS
+            )
+            result = runner.run(execution_mode, analytics_props=get_request_analytics_properties(self.request))
             assert isinstance(result, (PropertyValuesQueryResponse, CachedPropertyValuesQueryResponse))
+            is_refreshing = (
+                isinstance(result, CachedPropertyValuesQueryResponse)
+                and result.query_status is not None
+                and not result.query_status.complete
+            )
             span.set_attribute("result_count", len(result.results))
-            return self._return_with_short_cache([item.model_dump(exclude_none=True) for item in result.results])
+            span.set_attribute("is_refreshing", is_refreshing)
+            return self._return_with_short_cache(
+                [item.model_dump(exclude_none=True) for item in result.results], refreshing=is_refreshing
+            )
 
     def _event_property_values_filtered(
         self,
@@ -540,7 +549,7 @@ class EventViewSet(
         # in the future.
         chain: list[str | int] = [query_params.key] if query_params.is_column else ["properties", query_params.key]
         date_from = relative_date_parse("-7d", query_params.team.timezone_info).strftime("%Y-%m-%d 00:00:00")
-        date_to = timezone.now().strftime("%Y-%m-%d 23:59:59")
+        date_to = timezone.now().astimezone(query_params.team.timezone_info).strftime("%Y-%m-%d 23:59:59")
 
         conditions: list[ast.Expr] = [
             ast.CompareOperation(
@@ -580,11 +589,12 @@ class EventViewSet(
             conditions.append(ast.Or(exprs=event_conditions) if len(event_conditions) > 1 else event_conditions[0])
 
         if query_params.value:
+            escaped = query_params.value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.ILike,
                     left=ast.Call(name="toString", args=[ast.Field(chain=chain)]),
-                    right=ast.Constant(value=f"%{query_params.value}%"),
+                    right=ast.Constant(value=f"%{escaped}%"),
                 )
             )
 
@@ -620,11 +630,13 @@ class EventViewSet(
                 except json.JSONDecodeError:
                     values.append(row[0])
 
-        return self._return_with_short_cache([{"name": convert_property_value(v)} for v in flatten(values)])
+        return self._return_with_short_cache(
+            [{"name": convert_property_value(v)} for v in flatten(values)], refreshing=False
+        )
 
     @staticmethod
-    def _return_with_short_cache(values) -> response.Response:
-        resp = response.Response(values)
+    def _return_with_short_cache(values: builtins.list, refreshing: bool = False) -> response.Response:
+        resp = response.Response({"results": values, "refreshing": refreshing})
         resp["Cache-Control"] = "max-age=10"
         return resp
 
@@ -667,7 +679,7 @@ class EventViewSet(
 
         result = execute_hogql_query(query, team=query_params.team)
 
-        return self._return_with_short_cache([{"name": event[0]} for event in result.results])
+        return self._return_with_short_cache([{"name": event[0]} for event in result.results], refreshing=False)
 
 
 class LegacyEventViewSet(EventViewSet):

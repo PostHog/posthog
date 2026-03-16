@@ -8,7 +8,6 @@ import requests
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, MetaAdsIntegration
-from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.typings import PartitionFormat, PartitionMode, SourceResponse
 from posthog.temporal.data_imports.sources.generated_configs import MetaAdsSourceConfig
 from posthog.temporal.data_imports.sources.meta_ads.schemas import RESOURCE_SCHEMAS
@@ -90,8 +89,9 @@ def get_schemas() -> dict[str, MetaAdsSchema]:
     return schemas
 
 
-# Error subcode indicating the request timed out due to too much data
-META_TIMEOUT_ERROR_SUBCODE = 1504018
+# Error subcodes indicating the request timed out due to too much data
+# https://developers.facebook.com/docs/marketing-api/insights/error-codes
+META_TIMEOUT_ERROR_SUBCODES = {1504018, 1504038}
 
 # Chunk sizes for adaptive time-range pagination (in days)
 # Start with 30-day chunks, fall back to smaller chunks on timeout
@@ -100,13 +100,17 @@ TIME_RANGE_CHUNK_SIZES = [30, 7, 1]
 
 def _is_timeout_error(response: requests.Response) -> bool:
     """Check if the response is a Meta API timeout error that can be resolved with smaller date ranges."""
-    if response.status_code != 400:
-        return False
     try:
-        error_data = response.json()
-        error_subcode = error_data.get("error", {}).get("error_subcode")
-        return error_subcode == META_TIMEOUT_ERROR_SUBCODE
-    except (ValueError, KeyError):
+        error = response.json().get("error", {})
+
+        if error.get("error_subcode") in META_TIMEOUT_ERROR_SUBCODES:
+            return True
+
+        # This check is a bit fragile, but the Meta API has been observed to return a 500 response like this:
+        # {"error":{"code":1,"message":"Please reduce the amount of data you're asking for, then retry your request"}}
+        message = str(error.get("message") or "").lower()
+        return error.get("code") == 1 and "reduce the amount of data" in message
+    except (ValueError, KeyError, AttributeError):
         return False
 
 
@@ -132,7 +136,7 @@ def _fetch_time_range_chunk(
     chunk_params["time_range"] = json.dumps(chunk_time_range)
 
     # Make the initial request for this chunk
-    response = external_requests.get(url, params=chunk_params)
+    response = requests.get(url, params=chunk_params)
 
     if response.status_code != 200:
         # Only attempt fallback on the initial request (before any data is yielded)
@@ -150,7 +154,7 @@ def _fetch_time_range_chunk(
     # Handle pagination for remaining pages (no fallback here to avoid duplicates)
     next_url = response_payload.get("paging", {}).get("next")
     while next_url:
-        response = external_requests.get(next_url)
+        response = requests.get(next_url)
 
         if response.status_code != 200:
             raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")
@@ -195,9 +199,9 @@ def _make_paginated_api_request(
         next_url = url
         while next_url:
             if next_url == url:
-                response = external_requests.get(next_url, params=params)
+                response = requests.get(next_url, params=params)
             else:
-                response = external_requests.get(next_url)
+                response = requests.get(next_url)
 
             if response.status_code != 200:
                 raise Exception(f"Meta API request failed: {response.status_code} - {response.text}")

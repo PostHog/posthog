@@ -40,16 +40,22 @@ export interface SignalSourceConfig {
     config: Record<string, any>
     created_at: string
     updated_at: string
+    status: SignalSourceConfigStatus | null
 }
 
 export enum SignalSourceProduct {
     SESSION_REPLAY = 'session_replay',
     LLM_ANALYTICS = 'llm_analytics',
+    GITHUB = 'github',
+    LINEAR = 'linear',
+    ZENDESK = 'zendesk',
 }
 
 export enum SignalSourceType {
     SESSION_ANALYSIS_CLUSTER = 'session_analysis_cluster',
     EVALUATION = 'evaluation',
+    ISSUE = 'issue',
+    TICKET = 'ticket',
 }
 
 export interface ToggleSignalSourceParams {
@@ -57,4 +63,10 @@ export interface ToggleSignalSourceParams {
     sourceType: SignalSourceType
     enabled: boolean
     config?: Record<string, any>
+}
+
+export enum SignalSourceConfigStatus {
+    RUNNING = 'running',
+    COMPLETED = 'completed',
+    FAILED = 'failed',
 }

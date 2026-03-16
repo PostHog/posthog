@@ -413,7 +413,7 @@ export function EditAlertModal({
                                     </div>
                                 </div>
 
-                                <h4 className="mt-4">CDP Destinations</h4>
+                                <h4 className="mt-4">Destinations</h4>
                                 <div className="mt-4">
                                     {inlineNotificationsEnabled ? (
                                         <InlineAlertNotifications alertId={alertId} />

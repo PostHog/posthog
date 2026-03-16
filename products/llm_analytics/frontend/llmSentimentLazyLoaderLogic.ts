@@ -20,18 +20,15 @@ export interface GenerationSentiment {
     label: string
     score: number
     scores: Record<string, number>
-    // Keyed by original position in $ai_input array — stable across
-    // backend extraction and frontend normalizeMessages rendering.
-    messages: Record<number, MessageSentiment>
+    messages: Record<string, MessageSentiment>
+    message_count?: number
 }
 
 export interface SentimentResult {
-    trace_id: string
     label: string
     score: number
     scores: Record<string, number>
-    generations: Record<string, GenerationSentiment>
-    generation_count: number
+    messages: Record<string, MessageSentiment>
     message_count: number
 }
 
@@ -150,13 +147,6 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
                 return (traceId: string) => sentimentByTraceId[traceId]
             },
         ],
-        getGenerationSentiment: [
-            (s) => [s.sentimentByTraceId],
-            (sentimentByTraceId): ((traceId: string, generationEventId: string) => GenerationSentiment | undefined) => {
-                return (traceId: string, generationEventId: string) =>
-                    sentimentByTraceId[traceId]?.generations?.[generationEventId]
-            },
-        ],
     }),
 
     listeners(({ values, actions }) => {
@@ -205,7 +195,8 @@ export const llmSentimentLazyLoaderLogic = kea<llmSentimentLazyLoaderLogicType>(
                                 const response = await api.create<BatchSentimentResponse>(
                                     `api/environments/${teamId}/llm_analytics/sentiment/`,
                                     {
-                                        trace_ids: batch,
+                                        ids: batch,
+                                        analysis_level: 'trace',
                                         date_from: dateRangeForBatch?.dateFrom || undefined,
                                         date_to: dateRangeForBatch?.dateTo || undefined,
                                     }

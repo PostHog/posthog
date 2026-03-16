@@ -1,7 +1,10 @@
 import { Locator, Page, expect } from '@playwright/test'
 
-export class TrendsInsight {
-    readonly chart: Locator
+import { TableHelper } from '../../utils/table-helper'
+import { TaxonomicFilter } from '../taxonomicFilter'
+import { ChartInsightBase } from './chartInsightBase'
+
+export class TrendsInsight extends ChartInsightBase {
     readonly detailsTable: Locator
     readonly detailsLabels: Locator
     readonly firstSeries: Locator
@@ -12,16 +15,19 @@ export class TrendsInsight {
     readonly dateRangeButton: Locator
     readonly chartTypeButton: Locator
     readonly comparisonButton: Locator
+    readonly taxonomicFilter: TaxonomicFilter
+    readonly boldNumber: Locator
+    readonly boldNumberComparison: Locator
 
     private readonly detailsLoader: Locator
     private readonly addSeriesButton: Locator
     private readonly addFormulaButton: Locator
 
-    constructor(private readonly page: Page) {
-        this.chart = page.getByTestId('insights-graph')
+    constructor(page: Page) {
+        super(page, page.getByTestId('insights-graph'))
 
         this.detailsTable = page.getByTestId('insights-table-graph')
-        this.detailsLabels = this.detailsTable.locator('.insights-label')
+        this.detailsLabels = this.detailsTable.getByTestId('insight-label')
         this.detailsLoader = page.locator('.LemonTableLoader')
         this.addSeriesButton = page.getByTestId('add-action-event-button')
         this.firstSeries = page.getByTestId('trend-element-subject-0')
@@ -33,6 +39,9 @@ export class TrendsInsight {
         this.dateRangeButton = page.getByTestId('date-filter')
         this.chartTypeButton = page.getByTestId('chart-filter')
         this.comparisonButton = page.getByTestId('compare-filter')
+        this.taxonomicFilter = new TaxonomicFilter(page)
+        this.boldNumber = page.getByTestId('bold-number-value')
+        this.boldNumberComparison = page.getByTestId('bold-number-comparison')
     }
 
     seriesEventButton(index: number): Locator {
@@ -45,7 +54,7 @@ export class TrendsInsight {
     }
 
     async waitForDetailsTable(): Promise<void> {
-        await this.detailsLabels.first().waitFor()
+        await this.detailsTable.locator('tbody tr').first().waitFor()
         await expect(this.detailsLoader).toHaveCount(0)
     }
 
@@ -54,21 +63,14 @@ export class TrendsInsight {
     }
 
     async selectEvent(seriesIndex: number, eventName: string): Promise<void> {
+        await this.page.keyboard.press('Escape')
         await this.seriesEventButton(seriesIndex).click()
-        const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-        await searchField.waitFor({ state: 'visible' })
-        await searchField.fill(eventName)
-        await this.page.locator('.taxonomic-list-row').first().click()
+        await this.taxonomicFilter.selectItem(eventName)
     }
 
     async addBreakdown(property: string): Promise<void> {
         await this.breakdownButton.click()
-        const searchField = this.page.getByTestId('taxonomic-filter-searchfield')
-        await searchField.waitFor({ state: 'visible' })
-        await searchField.fill(property)
-        const row = this.page.locator('.taxonomic-list-row').first()
-        await row.waitFor({ state: 'visible', timeout: 15000 })
-        await row.click()
+        await this.taxonomicFilter.selectItem(property)
     }
 
     async setFormula(formula: string): Promise<void> {
@@ -83,21 +85,48 @@ export class TrendsInsight {
         return this.page.getByTestId(`math-selector-${seriesIndex}`)
     }
 
+    mathPropertySelect(): Locator {
+        return this.page.getByTestId('math-property-select')
+    }
+
+    async selectMath(seriesIndex: number, mathName: string): Promise<void> {
+        await this.mathSelector(seriesIndex).click()
+        await this.page.getByRole('menuitem', { name: mathName }).click()
+        await this.waitForChart()
+    }
+
+    async selectMathWithAggregation(seriesIndex: number, mathName: RegExp, aggregation: string): Promise<void> {
+        await this.mathSelector(seriesIndex).click()
+        const mathItem = this.page.getByRole('menuitem', { name: mathName })
+        await mathItem.waitFor({ state: 'visible' })
+        await mathItem.getByRole('button').click()
+        await this.page.getByRole('menuitem', { name: aggregation }).click()
+        await this.waitForChart()
+    }
+
+    async selectMathProperty(property: string): Promise<void> {
+        await this.page.keyboard.press('Escape')
+        await this.mathPropertySelect().click()
+        await this.taxonomicFilter.selectItem(property)
+        await this.waitForChart()
+    }
+
     async selectChartType(namePattern: RegExp): Promise<void> {
-        await this.chartTypeButton.click()
-        await this.page.getByRole('menuitem', { name: namePattern }).click()
+        await this.page.keyboard.press('Escape')
+        await expect(async () => {
+            await this.chartTypeButton.click({ timeout: 500 })
+            await this.page.getByRole('menuitem', { name: namePattern }).click({ timeout: 500 })
+            await expect(this.chartTypeButton).toHaveText(namePattern, { timeout: 1000 })
+        }).toPass({ timeout: 15000 })
         await this.waitForChart()
     }
 
     async selectDateRange(text: string): Promise<void> {
         await this.page.keyboard.press('Escape')
         const dataAttr = `date-filter-${text.toLowerCase().replace(/\s+/g, '-')}`
-        // The insight page re-renders a lot, detaching DOM nodes.
-        // Retry the full open+click sequence with force (skips scroll and
-        // stability checks) until both clicks land in a stable window.
         await expect(async () => {
-            await this.dateRangeButton.click({ force: true, timeout: 500 })
-            await this.page.getByTestId(dataAttr).click({ force: true, timeout: 500 })
+            await this.dateRangeButton.click({ timeout: 500 })
+            await this.page.getByTestId(dataAttr).click({ timeout: 500 })
         }).toPass({ timeout: 15000 })
         await this.waitForChart()
     }
@@ -108,13 +137,13 @@ export class TrendsInsight {
 
     async duplicateSeries(seriesIndex: number): Promise<void> {
         await this.seriesEventButton(seriesIndex).hover()
-        await this.page.getByTestId(`more-button-${seriesIndex}`).click({ force: true })
+        await this.page.getByTestId(`more-button-${seriesIndex}`).click()
         await this.page.getByTestId(`show-prop-duplicate-${seriesIndex}`).click()
     }
 
     async deleteSeries(seriesIndex: number): Promise<void> {
         await this.seriesEventButton(seriesIndex).hover()
-        await this.page.getByTestId(`more-button-${seriesIndex}`).click({ force: true })
+        await this.page.getByTestId(`more-button-${seriesIndex}`).click()
         await this.page.getByRole('button', { name: 'Delete' }).click()
         await this.waitForChart()
     }
@@ -137,17 +166,22 @@ export class TrendsInsight {
     }
 
     async removeBreakdown(index: number = 0): Promise<void> {
-        const tag = this.page.locator('.BreakdownTag').nth(index)
-        await tag.hover()
-        await tag.locator('[aria-label="close"]').or(tag.locator('button')).last().click({ force: true })
+        await this.page.keyboard.press('Escape')
+        const tag = this.page.getByTestId('breakdown-tag').nth(index)
+        await tag.getByTestId('breakdown-tag-close').click()
+        await expect(tag).not.toBeVisible()
         await this.waitForChart()
     }
 
     async selectTaxonomicTab(groupType: string): Promise<void> {
-        await this.page.getByTestId(`taxonomic-tab-${groupType}`).last().click()
+        await this.taxonomicFilter.selectTab(groupType)
     }
 
     taxonomicResults(): Locator {
-        return this.page.locator('.taxonomic-list-row')
+        return this.taxonomicFilter.rows
+    }
+
+    get details(): TableHelper {
+        return new TableHelper(this.detailsTable)
     }
 }

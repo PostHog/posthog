@@ -208,6 +208,8 @@ type SceneMainTitleProps = {
      * the AI button in the title section registers the tool with Max
      */
     maxToolProps?: Omit<UseMaxToolOptions, 'active'>
+    /** Max character length for the description field */
+    descriptionMaxLength?: number
 }
 
 export function SceneTitleSection({
@@ -230,6 +232,7 @@ export function SceneTitleSection({
     onGenerateName,
     isGeneratingName,
     maxToolProps,
+    descriptionMaxLength,
 }: SceneMainTitleProps): JSX.Element | null {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { zenMode } = useValues(navigation3000Logic)
@@ -287,11 +290,10 @@ export function SceneTitleSection({
 
             <div
                 className={cn(
-                    'group/scene-title-section bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-10 duration-300',
-                    noPadding ? '' : '-mx-4 px-4 -mt-4 -mb-4',
+                    'group/scene-title-section bg-primary @2xl/main-content:sticky -top-[calc(var(--spacing)*4)] z-30 duration-300',
+                    noPadding ? '' : '-mx-4 px-4 -mt-4',
                     noBorder ? '' : 'border-b border-transparent transition-border',
-                    isScrolled &&
-                        'z-30 @2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
+                    isScrolled && '@2xl/main-content:border-primary [body.storybook-test-runner_&]:border-transparent',
                     'pl-4 pr-2',
                     className
                 )}
@@ -337,7 +339,7 @@ export function SceneTitleSection({
                                         hasDescription ? (
                                             <ButtonPrimitive
                                                 className={cn(
-                                                    'size-[var(--button-height-sm)] shrink-0 -ml-2',
+                                                    'size-[var(--button-height-sm)] shrink-0',
                                                     isScrolled
                                                         ? 'animate-fade-out-subtle pointer-events-none'
                                                         : 'animate-fade-in-subtle group-hover/scene-title-section:opacity-100 opacity-30 transition-opacity duration-200 motion-reduce:transition-none'
@@ -375,7 +377,7 @@ export function SceneTitleSection({
                 {/* Border is handled by the outer container's border-b */}
             </div>
             {hasDescription && (showDescription || forceEdit) && (
-                <div className="[&_svg]:size-6">
+                <div className="[&_svg]:size-6 -mt-4">
                     <SceneDescription
                         description={effectiveDescription}
                         markdown={markdown}
@@ -385,6 +387,7 @@ export function SceneTitleSection({
                         forceEdit={forceEdit}
                         renameDebounceMs={renameDebounceMs}
                         saveOnBlur={saveOnBlur}
+                        maxLength={descriptionMaxLength}
                     />
                 </div>
             )}
@@ -405,7 +408,7 @@ type SceneNameProps = {
     suffix?: React.ReactNode
 }
 
-function SceneName({
+export function SceneName({
     name: initialName,
     isLoading = false,
     onChange,
@@ -418,17 +421,17 @@ function SceneName({
     suffix,
 }: SceneNameProps): JSX.Element {
     const [name, setName] = useState(initialName)
+    const [prevInitialName, setPrevInitialName] = useState(initialName)
+    if (initialName !== prevInitialName) {
+        setPrevInitialName(initialName)
+        setName(initialName)
+    }
+
     const [isEditing, setIsEditing] = useState(forceEdit)
     const containerRef = useRef<HTMLDivElement>(null)
 
     const textClasses =
         'text-lg font-semibold my-0 pl-[var(--button-padding-x-sm)] min-h-[var(--button-height-sm)] leading-[1.4] select-auto'
-
-    useEffect(() => {
-        if (!isLoading) {
-            setName(initialName)
-        }
-    }, [initialName, isLoading])
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
@@ -439,24 +442,19 @@ function SceneName({
     }, [isLoading, forceEdit])
 
     const debouncedOnBlurSave = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const debouncedOnChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const handleBlur = (e: React.FocusEvent): void => {
-        // Check if focus is moving to an element within our container (like the generate button)
         const relatedTarget = e.relatedTarget as HTMLElement | null
         if (relatedTarget && containerRef.current && containerRef.current.contains(relatedTarget)) {
             return
         }
-        if (saveOnBlur && name !== initialName) {
+        if (saveOnBlur && !forceEdit && name !== initialName) {
             debouncedOnBlurSave(name || '')
         }
         if (!forceEdit) {
@@ -477,8 +475,9 @@ function SceneName({
                             value={name || ''}
                             onChange={(e) => {
                                 setName(e.target.value)
-                                if (!saveOnBlur || forceEdit) {
-                                    // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
+                                if (forceEdit) {
+                                    onChange?.(e.target.value)
+                                } else if (!saveOnBlur) {
                                     debouncedOnChange(e.target.value)
                                 }
                             }}
@@ -561,6 +560,7 @@ function SceneName({
 
     return (
         <div
+            data-attr="scene-name"
             className={cn(
                 'scene-name flex items-center flex-1 max-w-full',
                 !isEditing && onChange && canEdit && 'truncate'
@@ -581,6 +581,7 @@ type SceneDescriptionProps = {
     forceEdit?: boolean
     renameDebounceMs?: number
     saveOnBlur?: boolean
+    maxLength?: number
 }
 
 function SceneDescription({
@@ -592,19 +593,20 @@ function SceneDescription({
     forceEdit = false,
     renameDebounceMs = 100,
     saveOnBlur = false,
+    maxLength,
 }: SceneDescriptionProps): JSX.Element | null {
     const [description, setDescription] = useState(initialDescription)
+    const [prevInitialDescription, setPrevInitialDescription] = useState(initialDescription)
+    if (initialDescription !== prevInitialDescription) {
+        setPrevInitialDescription(initialDescription)
+        setDescription(initialDescription)
+    }
+
     const [isEditing, setIsEditing] = useState(forceEdit)
 
     const textClasses = 'text-sm my-0 select-auto'
 
     const emptyText = canEdit ? 'Enter description (optional)' : 'No description'
-
-    useEffect(() => {
-        if (!isLoading) {
-            setDescription(initialDescription)
-        }
-    }, [initialDescription, isLoading])
 
     useEffect(() => {
         if (!isLoading && forceEdit) {
@@ -615,19 +617,15 @@ function SceneDescription({
     }, [isLoading, forceEdit])
 
     const debouncedOnBlurSaveDescription = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const debouncedOnDescriptionChange = useDebouncedCallback((value: string) => {
-        if (onChange) {
-            onChange(value)
-        }
+        onChange?.(value)
     }, renameDebounceMs)
 
     const handleBlur = (): void => {
-        if (saveOnBlur && description !== initialDescription) {
+        if (saveOnBlur && !forceEdit && description !== initialDescription) {
             debouncedOnBlurSaveDescription(description || '')
         }
         if (!forceEdit) {
@@ -643,10 +641,12 @@ function SceneDescription({
                         variant="default"
                         name="description"
                         value={description || ''}
+                        maxLength={maxLength}
                         onChange={(e) => {
                             setDescription(e.target.value)
-                            if (!saveOnBlur || forceEdit) {
-                                // Call onChange immediately if not using saveOnBlur, or if in forceEdit mode
+                            if (forceEdit) {
+                                onChange?.(e.target.value)
+                            } else if (!saveOnBlur) {
                                 debouncedOnDescriptionChange(e.target.value)
                             }
                         }}

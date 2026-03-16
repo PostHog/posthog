@@ -19,6 +19,7 @@ from ee.hogai.registry import get_contextual_tool_class
 from ee.hogai.tool import MaxTool
 from ee.hogai.tools import (
     CreateFormTool,
+    CreateNotebookTool,
     ListDataTool,
     ManageMemoriesTool,
     ReadDataTool,
@@ -31,12 +32,10 @@ from ee.hogai.tools import (
 from ee.hogai.tools.call_mcp_server.tool import CallMCPServerTool
 from ee.hogai.tools.finalize_plan.tool import FinalizePlanTool
 from ee.hogai.utils.feature_flags import (
-    has_create_form_tool_feature_flag,
     has_mcp_servers_feature_flag,
     has_memory_tool_feature_flag,
     has_phai_tasks_feature_flag,
     has_task_tool_feature_flag,
-    has_web_search_feature_flag,
 )
 from ee.hogai.utils.types.base import AssistantState
 
@@ -47,6 +46,8 @@ DEFAULT_TOOLS: list[type[MaxTool]] = [
     ListDataTool,
     TodoWriteTool,
     SwitchModeTool,
+    CreateFormTool,
+    CreateNotebookTool,
 ]
 
 TASK_TOOLS: list[type[MaxTool]] = [
@@ -89,8 +90,6 @@ class ChatAgentToolkit(AgentToolkit):
             tools.append(TaskTool)
         if has_memory_tool_feature_flag(self._team, self._user):
             tools.append(ManageMemoriesTool)
-        if has_create_form_tool_feature_flag(self._team, self._user):
-            tools.append(CreateFormTool)
         return tools
 
 
@@ -141,7 +140,6 @@ class ChatAgentToolkitManager(AgentToolkitManager):
                 available_tools.append(mcp_tool)
 
         # Final tools = available contextual tools + LLM provider server tools
-        if has_web_search_feature_flag(self._team, self._user):
-            available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
+        available_tools.append({"type": "web_search_20250305", "name": "web_search", "max_uses": 5})
 
         return available_tools

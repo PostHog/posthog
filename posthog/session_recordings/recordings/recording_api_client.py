@@ -5,7 +5,6 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 
-import snappy
 import aiohttp
 import structlog
 
@@ -42,21 +41,15 @@ class RecordingApiClient:
 
         return key, int(match.group(1)), int(match.group(2))
 
-    async def fetch_compressed_block(self, block_url: str, session_id: str, team_id: int) -> bytes:
-        """
-        Fetch a recording block via the Recording API.
-
-        Returns the decrypted but still snappy-compressed block bytes.
-
-        Raises:
-            RecordingDeletedError: If the recording has been deleted.
-            BlockFetchError: If the block is not found or other fetch errors occur.
-        """
+    async def fetch_block(self, block_url: str, session_id: str, team_id: int, *, decompress: bool = False) -> bytes:
         key, start, end = self._parse_block_url(block_url)
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/block"
+        params: dict[str, str | int] = {"key": key, "start": start, "end": end}
+        if decompress:
+            params["decompress"] = "true"
 
         try:
-            async with self.session.get(url, params={"key": key, "start": start, "end": end}) as response:
+            async with self.session.get(url, params=params) as response:
                 if response.status == 404:
                     raise BlockFetchError("Block not found")
                 if response.status == 410:
@@ -79,7 +72,7 @@ class RecordingApiClient:
             raise
         except aiohttp.ClientError as e:
             logger.exception(
-                "recording_api_client.fetch_compressed_block_failed",
+                "recording_api_client.fetch_block_failed",
                 url=url,
                 session_id=session_id,
                 team_id=team_id,
@@ -87,32 +80,6 @@ class RecordingApiClient:
                 exc_info=False,
             )
             raise BlockFetchError(f"Failed to fetch block from Recording API: {str(e)}")
-
-    async def fetch_decompressed_block(self, block_url: str, session_id: str, team_id: int) -> str:
-        """
-        Fetch and decompress a recording block via the Recording API.
-
-        Returns the decrypted and decompressed block content as a string.
-
-        Raises:
-            RecordingDeletedError: If the recording has been deleted.
-            BlockFetchError: If the block is not found or other fetch errors occur.
-        """
-        try:
-            compressed_block = await self.fetch_compressed_block(block_url, session_id, team_id)
-            decompressed_block = snappy.decompress(compressed_block).decode("utf-8")
-            return decompressed_block.rstrip("\n")
-        except (RecordingDeletedError, BlockFetchError):
-            raise
-        except Exception as e:
-            logger.exception(
-                "recording_api_client.fetch_block_failed",
-                session_id=session_id,
-                team_id=team_id,
-                error=str(e),
-                exc_info=False,
-            )
-            raise BlockFetchError(f"Failed to decompress block: {str(e)}")
 
     async def delete_recordings(self, session_ids: list[str], team_id: int, deleted_by: str) -> list[str]:
         """
@@ -146,7 +113,7 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
 
     Usage:
         async with recording_api_client() as client:
-            content = await client.fetch_decompressed_block(block_url, session_id, team_id)
+            content = await client.fetch_block(block_url, session_id, team_id, decompress=True)
     """
     if not settings.RECORDING_API_URL:
         raise RuntimeError("RECORDING_API_URL is not configured")
@@ -158,5 +125,6 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
         logger.warning("recording_api_client.missing_internal_api_secret")
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
-    async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+    # nosemgrep: aiohttp-missing-trust-env -- internal service call to recording API
+    async with aiohttp.ClientSession(timeout=timeout, headers=headers, trust_env=False) as session:
         yield RecordingApiClient(session, settings.RECORDING_API_URL)

@@ -216,12 +216,11 @@
     <p style="margin: 0; font-size: 0.9em; color: #6b7280;">{{ excluded_project_count }} other project{{ excluded_project_count|pluralize }} in your organization had no exceptions this week and {{ excluded_project_count|pluralize:"was,were" }} not included in this digest.</p>
     {% endif %}
 </div>
-{% if disabled_project_names %}
+{% endif %}
+
 <div style="margin-bottom: 16px; text-align: center;">
     <a href="{{ settings_url }}" style="color: #6b7280; font-size: 0.85em; text-decoration: underline;">Change notification settings</a>
 </div>
-{% endif %}
-{% endif %}
 
 <div style="margin-bottom: 16px; text-align: center;">
     <a href="{{ feedback_survey_url }}" target="_blank" style="color: #6b7280; font-size: 0.85em; text-decoration: underline;">Share feedback on this digest</a>

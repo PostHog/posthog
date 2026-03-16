@@ -5,6 +5,7 @@ import { RawPropertiesTimelineResult } from 'lib/components/PropertiesTimeline/p
 import { useStorybookMocks } from '~/mocks/browser'
 
 import EXAMPLE_PERSONS_RESPONSE from './__mocks__/examplePersonsResponse.json'
+import EXAMPLE_SESSION_ACTORS_RESPONSE from './__mocks__/exampleSessionActorsResponse.json'
 import { PersonsModal as PersonsModalComponent } from './PersonsModal'
 import { ListActorsResponse } from './personsModalLogic'
 
@@ -68,6 +69,20 @@ export const WithResults: StoryFn = () => {
     return (
         <div className="flex max-h-200">
             <PersonsModalComponent title="Hello!" url={EXAMPLE_PERSONS_RESPONSE.initial} inline />
+        </div>
+    )
+}
+
+export const SessionActorsWithResults: StoryFn = () => {
+    useStorybookMocks({
+        get: {
+            [EXAMPLE_SESSION_ACTORS_RESPONSE.initial]: EXAMPLE_SESSION_ACTORS_RESPONSE,
+        },
+    })
+
+    return (
+        <div className="flex max-h-200">
+            <PersonsModalComponent title="Session actors" url={EXAMPLE_SESSION_ACTORS_RESPONSE.initial} inline />
         </div>
     )
 }

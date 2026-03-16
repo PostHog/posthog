@@ -23,6 +23,7 @@ import { NodeKind } from '~/queries/schema/schema-general'
 import { Experiment, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
+import { isLaunched } from '../../experimentsLogic'
 import { useColumnWidthSync } from '../hooks/useColumnWidthSync'
 import { ChartEmptyState } from '../shared/ChartEmptyState'
 import { ChartLoadingState } from '../shared/ChartLoadingState'
@@ -229,7 +230,7 @@ function CollapsibleBreakdownSection({
                                                                 ) : (
                                                                     <ChartEmptyState
                                                                         height={CELL_HEIGHT}
-                                                                        experimentStarted={!!experiment.start_date}
+                                                                        experimentStarted={isLaunched(experiment)}
                                                                         metric={metric}
                                                                         query={query}
                                                                         onRetry={onRetry}
@@ -674,7 +675,7 @@ export function MetricRowGroup({
                         ) : (
                             <ChartEmptyState
                                 height={noResultHeight}
-                                experimentStarted={!!experiment.start_date}
+                                experimentStarted={isLaunched(experiment)}
                                 metric={metric}
                                 error={error}
                                 query={debugQuery}

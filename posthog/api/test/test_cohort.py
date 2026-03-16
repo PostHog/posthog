@@ -11,7 +11,7 @@ from posthog.test.base import (
     flush_persons_and_events,
 )
 from unittest import mock
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test.client import Client
@@ -155,6 +155,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 "name_length": 8,
                 "deleted": False,
             },
+            team=ANY,
+            request=ANY,
         )
 
         with self.capture_queries_startswith("INSERT INTO cohortpeople") as insert_statements:
@@ -197,6 +199,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
                 "deleted": False,
                 "updated_by_creator": True,
             },
+            team=ANY,
+            request=ANY,
         )
 
     @patch("django.db.transaction.on_commit", side_effect=lambda func: func())

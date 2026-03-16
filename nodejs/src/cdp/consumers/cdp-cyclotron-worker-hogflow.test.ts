@@ -238,7 +238,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         })
 
         it('should make minimal calls to the person manager', async () => {
-            const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersons')
+            const personManagerSpy = jest.spyOn(processor['personsManager'] as any, 'fetchPersonsByDistinctIds')
             await processor.processInvocations(invocations)
             expect(personManagerSpy).toHaveBeenCalledTimes(1)
             expect(personManagerSpy.mock.calls[0][0]).toEqual([

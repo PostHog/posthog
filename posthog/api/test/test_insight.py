@@ -196,14 +196,22 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 response_1.json().items(),
             )
             mock_capture.assert_any_call(
-                "insight created",
                 distinct_id=self.user.distinct_id,
+                event="insight created",
                 properties={
-                    "insight_id": response_1.json()["short_id"],
                     "$current_url": "https://posthog.com/my-referer",
+                    "$host": "posthog.com",
+                    "$pathname": "/my-referer",
                     "$session_id": "my-session-id",
                     "source": "web",
                     "was_impersonated": False,
+                    "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
+                    "insight_id": response_1.json()["short_id"],
+                    "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
             )
@@ -233,14 +241,22 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             insight_short_id = response_2.json()["short_id"]
             # Check that "insight updated" event was called among all capture calls
             mock_capture.assert_any_call(
-                "insight updated",
                 distinct_id=self.user.distinct_id,
+                event="insight updated",
                 properties={
-                    "insight_id": insight_short_id,
                     "$current_url": "https://posthog.com/my-referer",
+                    "$host": "posthog.com",
+                    "$pathname": "/my-referer",
                     "$session_id": "my-session-id",
                     "source": "web",
                     "was_impersonated": False,
+                    "mcp_user_agent": None,
+                    "mcp_client_name": None,
+                    "mcp_client_version": None,
+                    "mcp_protocol_version": None,
+                    "mcp_oauth_client_name": None,
+                    "insight_id": insight_short_id,
+                    "$set_once": {"email": self.user.email},
                 },
                 groups=ANY,
             )
@@ -458,6 +474,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
+                analytics_props=ANY,
             )
 
         with patch(
@@ -473,6 +490,7 @@ class TestInsight(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 filters_override={},
                 variables_override={},
                 tile_filters_override={},
+                analytics_props=ANY,
             )
 
     def test_get_insight_by_short_id(self) -> None:

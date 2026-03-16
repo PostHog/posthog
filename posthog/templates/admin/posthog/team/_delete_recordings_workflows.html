@@ -13,7 +13,10 @@
     <tbody>
         {% for wf in workflows %}
         <tr>
-            <td class="workflow-id">{{ wf.id }}</td>
+            <td class="workflow-id">
+                <a href="{{ temporal_ui_host }}/namespaces/{{ temporal_namespace }}/workflows/{{ wf.id }}/{{ wf.run_id }}"
+                   target="_blank">{{ wf.id }}</a>
+            </td>
             <td>{{ wf.workflow_type }}</td>
             <td>
                 {% if wf.status == "RUNNING" %}
@@ -24,6 +27,8 @@
                     <span class="status-badge status-failed">Failed</span>
                 {% elif wf.status == "CANCELED" %}
                     <span class="status-badge status-canceled">Canceled</span>
+                {% elif wf.status == "CONTINUED_AS_NEW" %}
+                    <span class="status-badge status-running">Continued</span>
                 {% elif wf.status == "TERMINATED" %}
                     <span class="status-badge status-failed">Terminated</span>
                 {% elif wf.status == "TIMED_OUT" %}
@@ -33,7 +38,7 @@
                 {% endif %}
             </td>
             <td>{{ wf.start_time|date:"Y-m-d H:i:s" }}</td>
-            <td>{{ wf.close_time|date:"Y-m-d H:i:s"|default:"\u2014" }}</td>
+            <td>{% if wf.close_time %}{{ wf.close_time|date:"Y-m-d H:i:s" }}{% else %}&mdash;{% endif %}</td>
             <td class="cert-link">
                 {% if wf.status == "COMPLETED" %}
                     <a href="{% url 'admin:posthog_team_deletion_certificate' team.pk wf.id %}">View</a>

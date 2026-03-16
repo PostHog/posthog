@@ -2,7 +2,7 @@ import { actions, afterMount, connect, kea, listeners, path, reducers, selectors
 
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 
-import { RepositoryConfig } from './RepositorySelector'
+import type { RepositoryConfig } from './RepositorySelector'
 import type { repositorySelectorLogicType } from './repositorySelectorLogicType'
 
 export interface AvailableRepo {

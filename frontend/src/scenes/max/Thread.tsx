@@ -40,6 +40,7 @@ import {
 import { TopHeading } from 'lib/components/Cards/InsightCard/TopHeading'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet/CodeSnippet'
 import { NotFound } from 'lib/components/NotFound'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { inStorybookTestRunner, pluralize } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -66,6 +67,8 @@ import { DataVisualizationNode, InsightVizNode } from '~/queries/schema/schema-g
 import { isDataVisualizationNode, isHogQLQuery } from '~/queries/utils'
 import { PendingApproval, Region } from '~/types'
 
+import { LogEntry } from 'products/tasks/frontend/lib/parse-logs'
+
 import { FeedbackDisplay } from './components/FeedbackDisplay'
 import { ContextSummary } from './Context'
 import { DangerousOperationApprovalCard } from './DangerousOperationApprovalCard'
@@ -79,6 +82,7 @@ import { maxThreadLogic } from './maxThreadLogic'
 import { MessageTemplate } from './messages/MessageTemplate'
 import { MultiQuestionFormRecap } from './messages/MultiQuestionForm'
 import { NotebookArtifactAnswer } from './messages/NotebookArtifactAnswer'
+import { SessionSummarizationProgress } from './messages/SessionSummarizationProgress'
 import {
     RecordingsWidget,
     SummarizeSessionsWidget,
@@ -112,7 +116,8 @@ function isErrorMessage(message: ThreadMessage): boolean {
 
 export function Thread({ className }: { className?: string }): JSX.Element | null {
     const { conversationLoading, conversationId } = useValues(maxLogic)
-    const { threadGrouped, streamingActive, threadLoading } = useValues(maxThreadLogic)
+    const { threadGrouped, streamingActive, threadLoading, sandboxEntries } = useValues(maxThreadLogic)
+    const sandboxModeEnabled = useFeatureFlag('PHAI_SANDBOX_MODE')
     const { isPromptVisible, isDetailedFeedbackVisible, isThankYouVisible, traceId } = useFeedback(conversationId)
 
     const ticketPromptData = useMemo(
@@ -226,6 +231,11 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                                             isSlashCommandResponse={isSlashCommandResponse || isTicketConfirmation}
                                         />
                                     </TraceIdProvider>
+                                    {sandboxModeEnabled &&
+                                        sandboxEntries.length > 0 &&
+                                        isAssistantMessage(message) &&
+                                        message.id?.startsWith('sandbox-') &&
+                                        isLastInGroup && <SandboxActivityPanel entries={sandboxEntries} />}
                                     {conversationId &&
                                         isTicketSummaryMessage &&
                                         (ticketSummaryData.discarded ? (
@@ -273,6 +283,70 @@ export function Thread({ className }: { className?: string }): JSX.Element | nul
                         <NotFound object="conversation" className="m-0" />
                     </div>
                 )
+            )}
+        </div>
+    )
+}
+
+function SandboxActivityPanel({ entries }: { entries: LogEntry[] }): JSX.Element | null {
+    const [expanded, setExpanded] = useState(false)
+    const toolEntries = entries.filter((e) => e.type === 'tool')
+    const consoleEntries = entries.filter((e) => e.type === 'console')
+
+    if (toolEntries.length === 0 && consoleEntries.length === 0) {
+        return null
+    }
+
+    const summary = `${toolEntries.length} tool call${toolEntries.length !== 1 ? 's' : ''}${
+        consoleEntries.length > 0 ? `, ${consoleEntries.length} log${consoleEntries.length !== 1 ? 's' : ''}` : ''
+    }`
+
+    return (
+        <div className="ml-1 mt-1 mb-1">
+            <LemonButton
+                size="xsmall"
+                type="secondary"
+                icon={<IconWrench />}
+                sideIcon={<IconChevronRight className={cn('transition-transform', expanded && 'rotate-90')} />}
+                onClick={() => setExpanded(!expanded)}
+            >
+                <span className="text-xs text-muted">{summary}</span>
+            </LemonButton>
+            {expanded && (
+                <div className="mt-1 ml-2 border-l-2 border-border pl-3 space-y-1 max-h-80 overflow-y-auto">
+                    {toolEntries.map((entry) => (
+                        <div key={entry.id} className="text-xs">
+                            <span className="font-semibold">{entry.toolName}</span>
+                            <span
+                                className={cn(
+                                    'ml-1.5',
+                                    entry.toolStatus === 'completed'
+                                        ? 'text-success'
+                                        : entry.toolStatus === 'error'
+                                          ? 'text-danger'
+                                          : 'text-muted'
+                                )}
+                            >
+                                {entry.toolStatus}
+                            </span>
+                        </div>
+                    ))}
+                    {consoleEntries.map((entry) => (
+                        <div
+                            key={entry.id}
+                            className={cn(
+                                'text-xs font-mono',
+                                entry.level === 'error'
+                                    ? 'text-danger'
+                                    : entry.level === 'warn'
+                                      ? 'text-warning'
+                                      : 'text-muted'
+                            )}
+                        >
+                            {entry.message}
+                        </div>
+                    ))}
+                </div>
             )}
         </div>
     )
@@ -402,6 +476,7 @@ function Message({
                                         dashboards={message.ui_context.dashboards}
                                         events={message.ui_context.events}
                                         actions={message.ui_context.actions}
+                                        notebooks={message.ui_context.notebooks}
                                         useCurrentPageContext={false}
                                     />
                                 )}
@@ -616,7 +691,12 @@ function Message({
                             )
                         } else if (isNotebookArtifactContent(message.content)) {
                             return (
-                                <NotebookArtifactAnswer key={key} content={message.content} status={message.status} />
+                                <NotebookArtifactAnswer
+                                    key={key}
+                                    content={message.content}
+                                    status={message.status}
+                                    artifactId={message.artifact_id}
+                                />
                             )
                         }
                         return null
@@ -768,7 +848,13 @@ function PlanningAnswer({ toolCall, isLastPlanningMessage = true }: PlanningAnsw
     // Extract planning steps from tool call args
     // Assuming args has a 'todos' field with array of {content: string, status: string, activeForm: string}
     const steps: PlanningStep[] = Array.isArray(toolCall.args.todos)
-        ? (toolCall.args.todos as Array<{ content: string; status: string; activeForm: string }>).map((todo) => ({
+        ? (
+              toolCall.args.todos as Array<{
+                  content: string
+                  status: string
+                  activeForm: string
+              }>
+          ).map((todo) => ({
               description: todo.content,
               status: todo.status as PlanningStepStatus,
           }))
@@ -920,6 +1006,12 @@ function AssistantActionComponent({
     let markdownContent = <MarkdownMessage id={id} content={content} />
     const result = toolCall?.result
     const uiPayload = result?.ui_payload
+    const executedSQLQuery =
+        typeof uiPayload?.execute_sql === 'string'
+            ? uiPayload.execute_sql
+            : toolCall?.name === 'execute_sql' && typeof toolCall.args.query === 'string'
+              ? toolCall.args.query
+              : null
 
     return (
         <div className="flex flex-col rounded transition-all duration-500 flex-1 min-w-0 gap-1 text-xs">
@@ -1030,6 +1122,14 @@ function AssistantActionComponent({
                                     />
                                 </div>
                             ))}
+                    {executedSQLQuery && (
+                        <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
+                            <b className="text-secondary">SQL query</b>
+                            <CodeSnippet language={Language.SQL} className="text-xs" compact>
+                                {executedSQLQuery}
+                            </CodeSnippet>
+                        </div>
+                    )}
                     <div className="ml-3 border-l-2 border-border-secondary pl-3.5 flex flex-col gap-1">
                         <LemonButton
                             size="xxsmall"
@@ -1252,11 +1352,17 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
             .map((visualization, index) => {
                 const query = visualizationTypeToQuery(visualization)
                 if (query) {
-                    return { query, title: visualization.plan || `Insight #${index + 1}` }
+                    return {
+                        query,
+                        title: visualization.plan || `Insight #${index + 1}`,
+                    }
                 }
                 return null
             })
-            .filter(Boolean) as Array<{ query: InsightVizNode | DataVisualizationNode; title: string }>
+            .filter(Boolean) as Array<{
+            query: InsightVizNode | DataVisualizationNode
+            title: string
+        }>
     }, [visualizations])
 
     const openModal = (): void => {
@@ -1337,7 +1443,10 @@ export function MultiVisualizationAnswer({ message, className }: MultiVisualizat
 
 // Modal for detailed view
 interface MultiVisualizationModalProps {
-    insights: Array<{ query: InsightVizNode | DataVisualizationNode; title: string }>
+    insights: Array<{
+        query: InsightVizNode | DataVisualizationNode
+        title: string
+    }>
 }
 
 function MultiVisualizationModal({ insights: messages }: MultiVisualizationModalProps): JSX.Element {
@@ -1544,7 +1653,9 @@ export const getToolCallDescriptionAndWidget = (
     let widget: JSX.Element | null = null
     if (definition) {
         if (definition.displayFormatter) {
-            const displayFormatterResult = definition.displayFormatter(toolCall, { registeredToolMap })
+            const displayFormatterResult = definition.displayFormatter(toolCall, {
+                registeredToolMap,
+            })
             if (typeof displayFormatterResult === 'string') {
                 description = displayFormatterResult
             } else {
@@ -1552,6 +1663,9 @@ export const getToolCallDescriptionAndWidget = (
                 switch (displayFormatterResult[1]?.widget) {
                     case 'recordings':
                         widget = <RecordingsWidget toolCallId={toolCall.id} filters={displayFormatterResult[1].args} />
+                        break
+                    case 'session_summarization':
+                        widget = <SessionSummarizationProgress updates={displayFormatterResult[1].args.updates} />
                         break
                     default:
                         break

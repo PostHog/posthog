@@ -6,18 +6,21 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/redis/go-redis/v9"
+	"github.com/redis/rueidis"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func setupMiniredis(t *testing.T) (*StatsInRedis, redis.Cmdable) {
+func setupMiniredis(t *testing.T) (*StatsInRedis, rueidis.Client) {
 	t.Helper()
 	mr := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { _ = client.Close() })
-	w := NewStatsInRedisFromClient(client)
-	return w, client
+	client, err := rueidis.NewClient(rueidis.ClientOption{
+		InitAddress:  []string{mr.Addr()},
+		DisableCache: true,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { client.Close() })
+	return NewStatsInRedisFromClient(client), client
 }
 
 func TestAddUser_GetUserCount(t *testing.T) {
@@ -143,8 +146,11 @@ func TestSessionExpiry(t *testing.T) {
 	key := sessionKey("token_a")
 	oldScore := float64(time.Now().Add(-6 * time.Minute).Unix())
 
-	client.ZAdd(ctx, key, redis.Z{Score: oldScore, Member: "session_1"})
-	client.ZAdd(ctx, key, redis.Z{Score: oldScore, Member: "session_2"})
+	cmd := client.B().Zadd().Key(key).ScoreMember().
+		ScoreMember(oldScore, "session_1").
+		ScoreMember(oldScore, "session_2").
+		Build()
+	require.NoError(t, client.Do(ctx, cmd).Error())
 
 	count, err := w.GetSessionCount(ctx, "token_a")
 	require.NoError(t, err)
@@ -157,8 +163,11 @@ func TestUserExpiry(t *testing.T) {
 	key := userKey("token_a")
 	oldScore := float64(time.Now().Add(-61 * time.Second).Unix())
 
-	client.ZAdd(ctx, key, redis.Z{Score: oldScore, Member: "user1"})
-	client.ZAdd(ctx, key, redis.Z{Score: oldScore, Member: "user2"})
+	cmd := client.B().Zadd().Key(key).ScoreMember().
+		ScoreMember(oldScore, "user1").
+		ScoreMember(oldScore, "user2").
+		Build()
+	require.NoError(t, client.Do(ctx, cmd).Error())
 
 	count, err := w.GetUserCount(ctx, "token_a")
 	require.NoError(t, err)
@@ -170,8 +179,14 @@ func TestUserNaturalDecay(t *testing.T) {
 	ctx := context.Background()
 	key := userKey("token_a")
 
-	client.ZAdd(ctx, key, redis.Z{Score: float64(time.Now().Add(-70 * time.Second).Unix()), Member: "user1"})
-	client.ZAdd(ctx, key, redis.Z{Score: float64(time.Now().Unix()), Member: "user2"})
+	oldScore := float64(time.Now().Add(-70 * time.Second).Unix())
+	freshScore := float64(time.Now().Unix())
+
+	cmd := client.B().Zadd().Key(key).ScoreMember().
+		ScoreMember(oldScore, "user1").
+		ScoreMember(freshScore, "user2").
+		Build()
+	require.NoError(t, client.Do(ctx, cmd).Error())
 
 	count, err := w.GetUserCount(ctx, "token_a")
 	require.NoError(t, err)

@@ -8,6 +8,8 @@ import { dayjs } from 'lib/dayjs'
 import { calculateSurveyRates } from 'scenes/surveys/utils'
 
 import {
+    ChoiceQuestionProcessedResponses,
+    OpenQuestionProcessedResponses,
     ResponsesByQuestion,
     Survey,
     SurveyEventName,
@@ -20,7 +22,6 @@ import {
 } from '~/types'
 
 import { NewSurvey, SURVEY_RATING_SCALE } from '../constants'
-import { processResultsForSurveyQuestions } from '../surveyLogic'
 
 // Demo configuration constants
 export const DEMO_CONFIG = {
@@ -369,6 +370,71 @@ export function generateDemoSurveyStats(): SurveyStats {
     }
 }
 
+// Process raw demo rows directly into ResponsesByQuestion.
+// This avoids the aggregate query format that the production path uses.
+function processDemoResults(questions: SurveyQuestion[], rawResults: SurveyRawResults): ResponsesByQuestion {
+    const result: ResponsesByQuestion = {}
+
+    questions.forEach((question, index) => {
+        if (!question.id || question.type === SurveyQuestionType.Link) {
+            return
+        }
+
+        if (question.type === SurveyQuestionType.Open) {
+            const data = rawResults
+                .filter((row) => row[index] != null && row[index] !== '')
+                .map((row) => ({
+                    distinctId: row[row.length - 2] as string,
+                    response: row[index] as string,
+                    timestamp: row[row.length - 1] as string,
+                }))
+            result[question.id] = { type: SurveyQuestionType.Open, data, totalResponses: data.length }
+        } else if (
+            question.type === SurveyQuestionType.SingleChoice ||
+            question.type === SurveyQuestionType.MultipleChoice ||
+            question.type === SurveyQuestionType.Rating
+        ) {
+            const counts: Record<string, number> = {}
+            let total = 0
+
+            for (const row of rawResults) {
+                const value = row[index]
+                if (value == null || value === '') {
+                    continue
+                }
+                if (question.type === SurveyQuestionType.MultipleChoice) {
+                    const choices = value as string[]
+                    if (choices.length > 0) {
+                        total++
+                        for (const c of choices) {
+                            const cleaned = c.replace(/^['"]+|['"]+$/g, '')
+                            if (cleaned) {
+                                counts[cleaned] = (counts[cleaned] || 0) + 1
+                            }
+                        }
+                    }
+                } else {
+                    counts[value as string] = (counts[value as string] || 0) + 1
+                    total++
+                }
+            }
+
+            const data = Object.entries(counts)
+                .map(([label, value]) => ({ label, value, isPredefined: true }))
+                .sort((a, b) => b.value - a.value)
+
+            result[question.id] = {
+                type: question.type,
+                data,
+                totalResponses: total,
+                noResponseCount: 0,
+            } as ChoiceQuestionProcessedResponses | OpenQuestionProcessedResponses
+        }
+    })
+
+    return result
+}
+
 export function getDemoDataForSurvey(survey: Survey | NewSurvey): {
     demoStats: ReturnType<typeof generateDemoSurveyStats>
     demoResults: SurveyRawResults
@@ -380,7 +446,7 @@ export function getDemoDataForSurvey(survey: Survey | NewSurvey): {
     const demoRates = calculateSurveyRates(demoStats)
     const demoResponseCount = demoStats[SurveyEventName.SENT].total_count
     const demoResults = generateDemoSurveyResults(survey, demoResponseCount)
-    const demoProcessedResults = processResultsForSurveyQuestions(survey.questions, demoResults)
+    const demoProcessedResults = processDemoResults(survey.questions, demoResults)
 
     return {
         demoStats: demoStats,

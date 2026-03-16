@@ -24,6 +24,7 @@ import temporalio.workflow
 import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 from structlog.types import FilteringBoundLogger
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.hogql import ast
@@ -1557,7 +1558,7 @@ class RunWorkflow(PostHogWorkflow):
     makes up the model, and the path or paths to the model through all of its ancestors.
     """
 
-    ducklake_copy_inputs: DataModelingDuckLakeCopyInputs | None = None
+    ducklake_copy_inputs: list[DataModelingDuckLakeCopyInputs] = []
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RunWorkflowInputs:
@@ -1671,16 +1672,19 @@ class RunWorkflow(PostHogWorkflow):
 
         completed, failed, ancestor_failed, ducklake_models = results
 
-        self.ducklake_copy_inputs = DataModelingDuckLakeCopyInputs(
-            team_id=inputs.team_id,
-            job_id=job_id,
-            models=ducklake_models,
-        )
+        self.ducklake_copy_inputs = [
+            DataModelingDuckLakeCopyInputs(
+                team_id=inputs.team_id,
+                job_id=job_id,
+                models=[DuckLakeCopyModelInput(**model) if isinstance(model, dict) else model],
+            )
+            for model in ducklake_models
+        ]
         temporalio.workflow.logger.debug(
             "Prepared DuckLake copy inputs",
-            team_id=self.ducklake_copy_inputs.team_id,
-            job_id=self.ducklake_copy_inputs.job_id,
-            models=len(self.ducklake_copy_inputs.models),
+            team_id=inputs.team_id,
+            job_id=job_id,
+            models=len(self.ducklake_copy_inputs),
         )
 
         # publish metrics
@@ -1706,23 +1710,24 @@ class RunWorkflow(PostHogWorkflow):
             ),
         )
 
-        if self.ducklake_copy_inputs and self.ducklake_copy_inputs.models:
-            temporalio.workflow.logger.info(
-                "Triggering DuckLake copy child workflow",
-                job_id=job_id,
-                models=len(self.ducklake_copy_inputs.models),
-            )
-            # Start DuckLake copy workflow as a child (fire-and-forget)
-            await temporalio.workflow.start_child_workflow(
-                DuckLakeCopyDataModelingWorkflow.run,
-                self.ducklake_copy_inputs,
-                id=f"ducklake-copy-data-modeling-{job_id}",
-                task_queue=settings.DUCKLAKE_TASK_QUEUE,
-                parent_close_policy=ParentClosePolicy.ABANDON,
-                retry_policy=temporalio.common.RetryPolicy(
-                    maximum_attempts=1,
-                    non_retryable_error_types=["NondeterminismError"],
-                ),
-            )
+        for copy_inputs in self.ducklake_copy_inputs:
+            model = copy_inputs.models[0]
+            try:
+                await temporalio.workflow.start_child_workflow(
+                    DuckLakeCopyDataModelingWorkflow.run,
+                    copy_inputs,
+                    id=f"ducklake-copy-data-modeling-{inputs.team_id}-{model.saved_query_id}",
+                    task_queue=settings.DUCKLAKE_TASK_QUEUE,
+                    parent_close_policy=ParentClosePolicy.ABANDON,
+                    retry_policy=temporalio.common.RetryPolicy(
+                        maximum_attempts=1,
+                        non_retryable_error_types=["NondeterminismError"],
+                    ),
+                )
+            except WorkflowAlreadyStartedError:
+                temporalio.workflow.logger.warning(
+                    "DuckLake copy already running, skipping",
+                    saved_query_id=model.saved_query_id,
+                )
 
         return results

@@ -29,6 +29,7 @@ The user implements PostHog SDKs to collect events, properties, and property val
 Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else.
 Events or properties starting from "$" are system properties automatically captured by SDKs.
 Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.
+When reading events, you can paginate using `limit` (1-500, default 500) and `offset` (default 0) on the ReadEvents query. If the response indicates more events are available, increment the offset to fetch subsequent pages.
 
 # Examples of when to use the read_taxonomy tool
 

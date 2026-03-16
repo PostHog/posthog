@@ -14,6 +14,7 @@ import {
 import { convertToHogFunctionInvocationGlobals } from '../utils'
 import { createInvocation } from '../utils/invocation-utils'
 import { HogExecutorService } from './hog-executor.service'
+import { GroupsManagerService } from './managers/groups-manager.service'
 import { HogFunctionManagerService } from './managers/hog-function-manager.service'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogWatcherService } from './monitoring/hog-watcher.service'
@@ -41,6 +42,7 @@ export class BatchExportHogFunctionService {
     constructor(
         private siteUrl: string,
         private teamManager: TeamManager,
+        private groupsManager: GroupsManagerService,
         private hogFunctionManager: HogFunctionManagerService,
         private hogExecutor: HogExecutorService,
         private hogWatcher: HogWatcherService,
@@ -80,6 +82,7 @@ export class BatchExportHogFunctionService {
         }
 
         const globals = this.buildRequestGlobals(clickhouse_event as RawClickHouseEvent, hogFunction, team)
+        await this.groupsManager.addGroupsToGlobals(globals)
 
         const globalsWithInputs = await this.hogExecutor.buildInputsWithGlobals(hogFunction, globals)
         const invocation = createInvocation(globalsWithInputs, hogFunction)
@@ -113,8 +116,6 @@ export class BatchExportHogFunctionService {
                 name: hogFunction.name ?? `Hog function: ${hogFunction.id}`,
                 url: `${projectUrl}/functions/${hogFunction.id}`,
             },
-            // NOTE: Groups are currently not added - we could load them the same way we do for normal hog functions via the GroupsManagerService
-            groups: {},
         }
     }
 

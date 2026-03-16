@@ -1,9 +1,11 @@
 from typing import Any, Optional, cast
 
 from posthog.schema import (
+    FunnelAggregateByHogQL,
     FunnelCorrelationActorsQuery,
     FunnelCorrelationQuery,
     FunnelsActorsQuery,
+    FunnelsFilter,
     FunnelsQuery,
     HogQLQueryModifiers,
     HogQLQueryResponse,
@@ -162,6 +164,14 @@ class InsightActorsQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
                     return int(series.math_group_type_index or 0)
 
         return None
+
+    @property
+    def is_session_aggregation(self) -> bool:
+        if isinstance(self.source_runner, FunnelsQueryRunner):
+            assert isinstance(self.query.source, FunnelsQuery)
+            funnels_filter = self.query.source.funnelsFilter or FunnelsFilter()
+            return funnels_filter.funnelAggregateByHogQL == FunnelAggregateByHogQL.PROPERTIES__SESSION_ID.value
+        return False
 
     def _calculate(self) -> HogQLQueryResponse:
         settings = None

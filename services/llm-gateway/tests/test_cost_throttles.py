@@ -17,7 +17,7 @@ def make_user(user_id: int = 1, team_id: int = 1, auth_method: str = "oauth_acce
 
 def make_context(
     user: AuthenticatedUser | None = None,
-    product: str = "twig",
+    product: str = "posthog_code",
     end_user_id: str | None = None,
 ) -> ThrottleContext:
     user = user or make_user()
@@ -41,14 +41,26 @@ class TestProductCostLimitConfig:
     def test_parses_json_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
             "LLM_GATEWAY_PRODUCT_COST_LIMITS",
-            '{"wizard": {"limit_usd": 100, "window_seconds": 86400}, "twig": {"limit_usd": 50, "window_seconds": 14400}}',
+            '{"wizard": {"limit_usd": 100, "window_seconds": 86400}, "posthog_code": {"limit_usd": 50, "window_seconds": 14400}}',
         )
         get_settings.cache_clear()
         settings = get_settings()
         assert settings.product_cost_limits["wizard"].limit_usd == 100.0
         assert settings.product_cost_limits["wizard"].window_seconds == 86400
-        assert settings.product_cost_limits["twig"].limit_usd == 50.0
-        assert settings.product_cost_limits["twig"].window_seconds == 14400
+        assert settings.product_cost_limits["posthog_code"].limit_usd == 50.0
+        assert settings.product_cost_limits["posthog_code"].window_seconds == 14400
+        get_settings.cache_clear()
+
+    def test_legacy_twig_key_normalizes_to_posthog_code(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "LLM_GATEWAY_PRODUCT_COST_LIMITS",
+            '{"twig": {"limit_usd": 42, "window_seconds": 7200}}',
+        )
+        get_settings.cache_clear()
+        settings = get_settings()
+        assert "twig" not in settings.product_cost_limits
+        assert settings.product_cost_limits["posthog_code"].limit_usd == 42.0
+        assert settings.product_cost_limits["posthog_code"].window_seconds == 7200
         get_settings.cache_clear()
 
 
@@ -56,30 +68,42 @@ class TestUserCostLimitConfig:
     def test_default_user_cost_limits(self) -> None:
         get_settings.cache_clear()
         settings = get_settings()
-        assert "twig" in settings.user_cost_limits
-        twig = settings.user_cost_limits["twig"]
-        assert twig.burst_limit_usd == 100.0
-        assert twig.burst_window_seconds == 86400
-        assert twig.sustained_limit_usd == 1000.0
-        assert twig.sustained_window_seconds == 2592000
+        assert "posthog_code" in settings.user_cost_limits
+        posthog_code = settings.user_cost_limits["posthog_code"]
+        assert posthog_code.burst_limit_usd == 100.0
+        assert posthog_code.burst_window_seconds == 86400
+        assert posthog_code.sustained_limit_usd == 1000.0
+        assert posthog_code.sustained_window_seconds == 2592000
         get_settings.cache_clear()
 
     def test_parses_json_string(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
             "LLM_GATEWAY_USER_COST_LIMITS",
-            '{"twig": {"burst_limit_usd": 50, "burst_window_seconds": 86400, "sustained_limit_usd": 500, "sustained_window_seconds": 2592000}}',
+            '{"posthog_code": {"burst_limit_usd": 50, "burst_window_seconds": 86400, "sustained_limit_usd": 500, "sustained_window_seconds": 2592000}}',
         )
         get_settings.cache_clear()
         settings = get_settings()
-        twig = settings.user_cost_limits["twig"]
-        assert twig.burst_limit_usd == 50.0
-        assert twig.sustained_limit_usd == 500.0
+        posthog_code = settings.user_cost_limits["posthog_code"]
+        assert posthog_code.burst_limit_usd == 50.0
+        assert posthog_code.sustained_limit_usd == 500.0
         get_settings.cache_clear()
 
     def test_unset_env_returns_defaults(self) -> None:
         get_settings.cache_clear()
         settings = get_settings()
-        assert "twig" in settings.user_cost_limits
+        assert "posthog_code" in settings.user_cost_limits
+        get_settings.cache_clear()
+
+    def test_legacy_twig_key_normalizes_to_posthog_code(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv(
+            "LLM_GATEWAY_USER_COST_LIMITS",
+            '{"twig": {"burst_limit_usd": 77, "burst_window_seconds": 3600, "sustained_limit_usd": 777, "sustained_window_seconds": 86400}}',
+        )
+        get_settings.cache_clear()
+        settings = get_settings()
+        assert "twig" not in settings.user_cost_limits
+        assert settings.user_cost_limits["posthog_code"].burst_limit_usd == 77.0
+        assert settings.user_cost_limits["posthog_code"].sustained_limit_usd == 777.0
         get_settings.cache_clear()
 
 
@@ -115,15 +139,15 @@ class TestProductCostThrottle:
         throttle = ProductCostThrottle(redis=None)
 
         ctx_wizard = make_context(product="wizard")
-        ctx_twig = make_context(product="twig")
+        ctx_posthog_code = make_context(product="posthog_code")
 
         await throttle.record_cost(ctx_wizard, 2000.0)
 
         result_wizard = await throttle.allow_request(ctx_wizard)
-        result_twig = await throttle.allow_request(ctx_twig)
+        result_posthog_code = await throttle.allow_request(ctx_posthog_code)
 
         assert result_wizard.allowed is False
-        assert result_twig.allowed is True
+        assert result_posthog_code.allowed is True
 
     @pytest.mark.asyncio
     async def test_cache_key_format(self) -> None:
@@ -143,7 +167,7 @@ class TestUserCostBurstThrottle:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         result = await throttle.allow_request(context)
         assert result.allowed is True
@@ -155,7 +179,7 @@ class TestUserCostBurstThrottle:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 100.0)
 
@@ -189,7 +213,7 @@ class TestUserCostBurstThrottle:
 
         throttle = UserCostBurstThrottle(redis=None)
         user = make_user(user_id=1, auth_method="personal_api_key")
-        context = make_context(user=user, product="twig", end_user_id=None)
+        context = make_context(user=user, product="posthog_code", end_user_id=None)
 
         await throttle.record_cost(context, 99999.0)
         result = await throttle.allow_request(context)
@@ -201,10 +225,10 @@ class TestUserCostBurstThrottle:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig", end_user_id="42")
+        context = make_context(product="posthog_code", end_user_id="42")
 
         key = throttle._get_cache_key(context)
-        assert key == "cost:user:user_cost_burst:twig:42"
+        assert key == "cost:user:user_cost_burst:posthog_code:42"
 
     @pytest.mark.asyncio
     async def test_different_users_have_separate_limits(self) -> None:
@@ -215,8 +239,8 @@ class TestUserCostBurstThrottle:
 
         user1 = make_user(user_id=1)
         user2 = make_user(user_id=2)
-        ctx1 = make_context(user=user1, product="twig")
-        ctx2 = make_context(user=user2, product="twig")
+        ctx1 = make_context(user=user1, product="posthog_code")
+        ctx2 = make_context(user=user2, product="posthog_code")
 
         await throttle.record_cost(ctx1, 100.0)
 
@@ -232,7 +256,7 @@ class TestUserCostSustainedThrottle:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         result = await throttle.allow_request(context)
         assert result.allowed is True
@@ -244,7 +268,7 @@ class TestUserCostSustainedThrottle:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 1000.0)
 
@@ -276,10 +300,10 @@ class TestUserCostSustainedThrottle:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="twig", end_user_id="42")
+        context = make_context(product="posthog_code", end_user_id="42")
 
         key = throttle._get_cache_key(context)
-        assert key == "cost:user:user_cost_sustained:twig:42"
+        assert key == "cost:user:user_cost_sustained:posthog_code:42"
 
 
 class TestBurstSustainedInteraction:
@@ -290,7 +314,7 @@ class TestBurstSustainedInteraction:
 
         burst = UserCostBurstThrottle(redis=None)
         sustained = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await burst.record_cost(context, 100.0)
         await sustained.record_cost(context, 100.0)
@@ -306,7 +330,7 @@ class TestBurstSustainedInteraction:
 
         burst = UserCostBurstThrottle(redis=None)
         sustained = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await burst.record_cost(context, 50.0)
         await sustained.record_cost(context, 1000.0)
@@ -319,13 +343,13 @@ class TestBurstSustainedInteraction:
     async def test_custom_limits_via_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv(
             "LLM_GATEWAY_USER_COST_LIMITS",
-            '{"twig": {"burst_limit_usd": 200, "burst_window_seconds": 86400, "sustained_limit_usd": 2000, "sustained_window_seconds": 2592000}}',
+            '{"posthog_code": {"burst_limit_usd": 200, "burst_window_seconds": 86400, "sustained_limit_usd": 2000, "sustained_window_seconds": 2592000}}',
         )
         get_settings.cache_clear()
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 150.0)
         assert (await throttle.allow_request(context)).allowed is True
@@ -343,7 +367,7 @@ class TestUserCostDisabledFlag:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 1000.0)
         result = await throttle.allow_request(context)
@@ -359,7 +383,7 @@ class TestUserCostDisabledFlag:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 1000.0)
         result = await throttle.allow_request(context)
@@ -375,7 +399,7 @@ class TestUserCostDisabledFlag:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 1000.0)
         result = await throttle.allow_request(context)
@@ -391,7 +415,7 @@ class TestRetryAfterHeader:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 100.0)
         result = await throttle.allow_request(context)
@@ -413,7 +437,7 @@ class TestRetryAfterHeader:
         mock_redis.ttl = AsyncMock(return_value=600)
 
         throttle = UserCostBurstThrottle(redis=mock_redis)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         result = await throttle.allow_request(context)
 
@@ -429,7 +453,7 @@ class TestCostAccumulation:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         for _ in range(9):
             await throttle.record_cost(context, 10.0)
@@ -446,7 +470,7 @@ class TestCostAccumulation:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 0.0)
         await throttle.record_cost(context, -1.0)
@@ -469,13 +493,13 @@ class TestCostRateLimiterRedisIntegration:
         mock_redis.get = AsyncMock(return_value=b"0.0")
 
         throttle = UserCostBurstThrottle(redis=mock_redis)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 0.5)
 
         mock_redis.eval.assert_called_once()
         call_args = mock_redis.eval.call_args
-        assert "ratelimit:cost:user:user_cost_burst:twig:1" in call_args[0]
+        assert "ratelimit:cost:user:user_cost_burst:posthog_code:1" in call_args[0]
 
     @pytest.mark.asyncio
     async def test_redis_get_current_returns_accumulated_cost(self) -> None:
@@ -487,7 +511,7 @@ class TestCostRateLimiterRedisIntegration:
         mock_redis.get = AsyncMock(return_value=b"1.5")
 
         throttle = UserCostBurstThrottle(redis=mock_redis)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         limiter = throttle._get_limiter(context)
         current = await limiter.get_current(throttle._get_cache_key(context))
@@ -507,7 +531,7 @@ class TestCostRateLimiterRedisIntegration:
         mock_redis.ttl = AsyncMock(return_value=1800)
 
         throttle = UserCostBurstThrottle(redis=mock_redis)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         result = await throttle.allow_request(context)
 
@@ -526,7 +550,7 @@ class TestCostRateLimiterRedisIntegration:
         mock_redis.get = AsyncMock(side_effect=Exception("Redis error"))
 
         throttle = UserCostBurstThrottle(redis=mock_redis)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 0.1)
 
@@ -543,11 +567,11 @@ class TestTeamRateLimitMultipliers:
 
         throttle = UserCostBurstThrottle(redis=None)
         user = make_user(user_id=1, team_id=99)
-        context = make_context(user=user, product="twig")
+        context = make_context(user=user, product="posthog_code")
 
         key = throttle._get_cache_key(context)
         assert ":tm" not in key
-        assert key == "cost:user:user_cost_burst:twig:1"
+        assert key == "cost:user:user_cost_burst:posthog_code:1"
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
@@ -558,10 +582,10 @@ class TestTeamRateLimitMultipliers:
 
         throttle = UserCostBurstThrottle(redis=None)
         user = make_user(user_id=1, team_id=2)
-        context = make_context(user=user, product="twig")
+        context = make_context(user=user, product="posthog_code")
 
         key = throttle._get_cache_key(context)
-        assert key == "cost:user:user_cost_burst:twig:1:tm10"
+        assert key == "cost:user:user_cost_burst:posthog_code:1:tm10"
         get_settings.cache_clear()
 
     @pytest.mark.asyncio
@@ -572,7 +596,7 @@ class TestTeamRateLimitMultipliers:
 
         throttle = UserCostBurstThrottle(redis=None)
         user = make_user(user_id=1, team_id=2)
-        context = make_context(user=user, product="twig")
+        context = make_context(user=user, product="posthog_code")
 
         await throttle.record_cost(context, 100.0)
         result = await throttle.allow_request(context)
@@ -640,17 +664,17 @@ class TestUnconfiguredProductsUseDefaults:
         burst = UserCostBurstThrottle(redis=None)
         sustained = UserCostSustainedThrottle(redis=None)
 
-        ctx_twig = make_context(product="twig")
+        ctx_posthog_code = make_context(product="posthog_code")
         ctx_wizard = make_context(product="wizard")
 
-        await burst.record_cost(ctx_twig, 100.0)
+        await burst.record_cost(ctx_posthog_code, 100.0)
         await burst.record_cost(ctx_wizard, 100.0)
-        await sustained.record_cost(ctx_twig, 1000.0)
+        await sustained.record_cost(ctx_posthog_code, 1000.0)
         await sustained.record_cost(ctx_wizard, 1000.0)
 
-        assert (await burst.allow_request(ctx_twig)).allowed is False
+        assert (await burst.allow_request(ctx_posthog_code)).allowed is False
         assert (await burst.allow_request(ctx_wizard)).allowed is False
-        assert (await sustained.allow_request(ctx_twig)).allowed is False
+        assert (await sustained.allow_request(ctx_posthog_code)).allowed is False
         assert (await sustained.allow_request(ctx_wizard)).allowed is False
         get_settings.cache_clear()
 
@@ -709,7 +733,7 @@ class TestUnconfiguredProductsUseDefaults:
 
         monkeypatch.setenv(
             "LLM_GATEWAY_USER_COST_LIMITS",
-            '{"twig": {"burst_limit_usd": 100, "burst_window_seconds": 86400, "sustained_limit_usd": 1000, "sustained_window_seconds": 2592000}, '
+            '{"posthog_code": {"burst_limit_usd": 100, "burst_window_seconds": 86400, "sustained_limit_usd": 1000, "sustained_window_seconds": 2592000}, '
             '"wizard": {"burst_limit_usd": 50, "burst_window_seconds": 3600, "sustained_limit_usd": 200, "sustained_window_seconds": 86400}}',
         )
         get_settings.cache_clear()
@@ -727,7 +751,7 @@ class TestUserCostEdgeCases:
 
         throttle = UserCostSustainedThrottle(redis=None)
         user = make_user(user_id=1, auth_method="personal_api_key")
-        context = make_context(user=user, product="twig", end_user_id=None)
+        context = make_context(user=user, product="posthog_code", end_user_id=None)
 
         await throttle.record_cost(context, 99999.0)
         result = await throttle.allow_request(context)
@@ -741,7 +765,7 @@ class TestUserCostEdgeCases:
 
         throttle = UserCostBurstThrottle(redis=None)
         user = make_user(user_id=1, auth_method="personal_api_key")
-        context = make_context(user=user, product="twig", end_user_id="")
+        context = make_context(user=user, product="posthog_code", end_user_id="")
 
         await throttle.record_cost(context, 99999.0)
         result = await throttle.allow_request(context)
@@ -755,7 +779,7 @@ class TestUserCostEdgeCases:
 
         throttle = UserCostBurstThrottle(redis=None)
         user = make_user(user_id=1, auth_method="personal_api_key")
-        context = make_context(user=user, product="twig", end_user_id="ext-user-42")
+        context = make_context(user=user, product="posthog_code", end_user_id="ext-user-42")
 
         await throttle.record_cost(context, 100.0)
         result = await throttle.allow_request(context)
@@ -784,7 +808,7 @@ class TestUserCostEdgeCases:
 
         throttle = UserCostBurstThrottle(redis=None)
         user = make_user(auth_method="personal_api_key")
-        context = make_context(user=user, product="twig", end_user_id=None)
+        context = make_context(user=user, product="posthog_code", end_user_id=None)
 
         assert throttle._get_cache_key(context) == ""
 
@@ -794,7 +818,7 @@ class TestUserCostEdgeCases:
         monkeypatch = pytest.MonkeyPatch()
         monkeypatch.setenv(
             "LLM_GATEWAY_USER_COST_LIMITS",
-            '{"twig": {"burst_limit_usd": 100, "burst_window_seconds": 86400, "sustained_limit_usd": 1000, "sustained_window_seconds": 2592000}, '
+            '{"posthog_code": {"burst_limit_usd": 100, "burst_window_seconds": 86400, "sustained_limit_usd": 1000, "sustained_window_seconds": 2592000}, '
             '"wizard": {"burst_limit_usd": 50, "burst_window_seconds": 3600, "sustained_limit_usd": 200, "sustained_window_seconds": 86400}}',
         )
         get_settings.cache_clear()
@@ -802,13 +826,13 @@ class TestUserCostEdgeCases:
 
         throttle = UserCostBurstThrottle(redis=None)
 
-        ctx_twig = make_context(product="twig", end_user_id="42")
+        ctx_posthog_code = make_context(product="posthog_code", end_user_id="42")
         ctx_wizard = make_context(product="wizard", end_user_id="42")
 
         await throttle.record_cost(ctx_wizard, 50.0)
 
         assert (await throttle.allow_request(ctx_wizard)).allowed is False
-        assert (await throttle.allow_request(ctx_twig)).allowed is True
+        assert (await throttle.allow_request(ctx_posthog_code)).allowed is True
         monkeypatch.undo()
         get_settings.cache_clear()
 
@@ -818,7 +842,7 @@ class TestUserCostEdgeCases:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 99.99)
         result = await throttle.allow_request(context)
@@ -831,7 +855,7 @@ class TestUserCostEdgeCases:
         from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
 
         throttle = UserCostBurstThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 100.0)
         result = await throttle.allow_request(context)
@@ -847,7 +871,7 @@ class TestUserCostDisabledSustained:
         from llm_gateway.rate_limiting.cost_throttles import UserCostSustainedThrottle
 
         throttle = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await throttle.record_cost(context, 9999.0)
         result = await throttle.allow_request(context)
@@ -862,7 +886,7 @@ class TestUserCostDisabledSustained:
 
         burst = UserCostBurstThrottle(redis=None)
         sustained = UserCostSustainedThrottle(redis=None)
-        context = make_context(product="twig")
+        context = make_context(product="posthog_code")
 
         await burst.record_cost(context, 9999.0)
         await sustained.record_cost(context, 9999.0)
@@ -870,6 +894,71 @@ class TestUserCostDisabledSustained:
         assert (await burst.allow_request(context)).allowed is True
         assert (await sustained.allow_request(context)).allowed is True
         get_settings.cache_clear()
+
+
+class TestRateLimitPoisoningPrevention:
+    """Verify that cost is always recorded against the authenticated user's own bucket.
+
+    An attacker must not be able to:
+    1. Poison a victim's rate limit bucket by injecting their user ID
+    2. Bypass rate limiting entirely by omitting user identification
+    """
+
+    @pytest.mark.asyncio
+    async def test_cost_recorded_against_own_bucket_not_victim(self) -> None:
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+
+        attacker = make_user(user_id=999, auth_method="personal_api_key")
+        victim = make_user(user_id=42, auth_method="oauth_access_token")
+
+        attacker_ctx = make_context(user=attacker, product="posthog_code", end_user_id="999")
+        victim_ctx = make_context(user=victim, product="posthog_code")
+
+        await throttle.record_cost(attacker_ctx, 100.0)
+
+        assert (await throttle.allow_request(attacker_ctx)).allowed is False, (
+            "Attacker's own bucket should be exhausted"
+        )
+        assert (await throttle.allow_request(victim_ctx)).allowed is True, (
+            "Victim's bucket must not be affected by attacker's usage"
+        )
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_api_key_user_with_end_user_id_is_rate_limited(self) -> None:
+        get_settings.cache_clear()
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+        user = make_user(user_id=999, auth_method="personal_api_key")
+        context = make_context(user=user, product="posthog_code", end_user_id="999")
+
+        await throttle.record_cost(context, 100.0)
+        result = await throttle.allow_request(context)
+
+        assert result.allowed is False, "Personal API key users must be rate limited when end_user_id is set"
+        get_settings.cache_clear()
+
+    @pytest.mark.asyncio
+    async def test_injected_victim_id_does_not_affect_victim_cache_key(self) -> None:
+        from llm_gateway.rate_limiting.cost_throttles import UserCostBurstThrottle
+
+        throttle = UserCostBurstThrottle(redis=None)
+
+        attacker = make_user(user_id=999, auth_method="personal_api_key")
+        attacker_ctx = make_context(user=attacker, product="posthog_code", end_user_id="999")
+        attacker_key = throttle._get_cache_key(attacker_ctx)
+
+        victim = make_user(user_id=42, auth_method="oauth_access_token")
+        victim_ctx = make_context(user=victim, product="posthog_code")
+        victim_key = throttle._get_cache_key(victim_ctx)
+
+        assert attacker_key != victim_key
+        assert ":999" in attacker_key
+        assert ":42" in victim_key
 
 
 class TestCostAccumulatorTTL:

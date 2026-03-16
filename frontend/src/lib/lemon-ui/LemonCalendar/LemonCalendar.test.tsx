@@ -36,26 +36,26 @@ describe('LemonCalendar', () => {
 
         // go to January 2020
         const previousMonth = getByDataAttr(container, 'lemon-calendar-month-previous')
-        userEvent.click(previousMonth)
+        await userEvent.click(previousMonth)
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-01-01'))
         expect(await within(calendar).findByText('January 2020')).toBeTruthy()
 
         // click on 15
         let fifteenth = await within(container).findByText('15')
-        userEvent.click(fifteenth)
+        await userEvent.click(fifteenth)
         expect(onDateClick).toHaveBeenCalledWith(dayjs('2020-01-15'))
 
         // go to March 2020
         const nextMonth = getByDataAttr(container, 'lemon-calendar-month-next')
-        userEvent.click(nextMonth)
-        userEvent.click(nextMonth)
+        await userEvent.click(nextMonth)
+        await userEvent.click(nextMonth)
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-02-01'))
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-03-01'))
         expect(await within(calendar).findByText('March 2020')).toBeTruthy()
 
         // click on 15
         fifteenth = await within(container).findByText('15') // the cell moved
-        userEvent.click(fifteenth)
+        await userEvent.click(fifteenth)
         expect(onDateClick).toHaveBeenCalledWith(dayjs('2020-03-15'))
     })
 
@@ -83,20 +83,20 @@ describe('LemonCalendar', () => {
 
         // go to January 2020
         const previousMonth = getByDataAttr(container, 'lemon-calendar-month-previous')
-        userEvent.click(previousMonth)
+        await userEvent.click(previousMonth)
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-01-01'))
         expect(await within(cal1).findByText('January 2020')).toBeTruthy()
         expect(await within(cal2).findByText('February 2020')).toBeTruthy()
 
         // click on 15
         let fifteenth = await within(cal1).findByText('15')
-        userEvent.click(fifteenth)
+        await userEvent.click(fifteenth)
         expect(onDateClick).toHaveBeenCalledWith(dayjs('2020-01-15'))
 
         // go to March 2020
         const nextMonth = getByDataAttr(container, 'lemon-calendar-month-next')
-        userEvent.click(nextMonth)
-        userEvent.click(nextMonth)
+        await userEvent.click(nextMonth)
+        await userEvent.click(nextMonth)
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-02-01'))
         expect(onLeftmostMonthChanged).toHaveBeenCalledWith(dayjs('2020-03-01'))
         expect(await within(cal1).findByText('March 2020')).toBeTruthy()
@@ -104,7 +104,7 @@ describe('LemonCalendar', () => {
 
         // click on 15
         fifteenth = await within(cal1).findByText('15') // the cell moved
-        userEvent.click(fifteenth)
+        await userEvent.click(fifteenth)
         expect(onDateClick).toHaveBeenCalledWith(dayjs('2020-03-15'))
     })
 

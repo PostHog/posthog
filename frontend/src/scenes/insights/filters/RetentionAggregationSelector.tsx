@@ -20,6 +20,7 @@ export function RetentionAggregationSelector(): JSX.Element {
 
     const aggregationType = retentionFilter?.aggregationType || 'count'
     const aggregationProperty = retentionFilter?.aggregationProperty
+    const aggregationPropertyType = retentionFilter?.aggregationPropertyType || 'event'
     const isPropertyValueAggregation = aggregationType === 'sum' || aggregationType === 'avg'
 
     // Local state to track which property math type to show in the dropdown label
@@ -85,6 +86,11 @@ export function RetentionAggregationSelector(): JSX.Element {
         },
     ]
 
+    const propertyGroupType =
+        aggregationPropertyType === 'person'
+            ? TaxonomicFilterGroupType.PersonProperties
+            : TaxonomicFilterGroupType.EventProperties
+
     return (
         <div className="flex flex-col items-start gap-2">
             <LemonSelect
@@ -107,10 +113,17 @@ export function RetentionAggregationSelector(): JSX.Element {
 
             {isPropertyValueAggregation && (
                 <TaxonomicStringPopover
-                    groupType={TaxonomicFilterGroupType.NumericalEventProperties}
-                    groupTypes={[TaxonomicFilterGroupType.NumericalEventProperties]}
+                    groupType={propertyGroupType}
+                    groupTypes={[TaxonomicFilterGroupType.EventProperties, TaxonomicFilterGroupType.PersonProperties]}
+                    showNumericalPropsOnly={true}
                     value={aggregationProperty || ''}
-                    onChange={(val) => updateInsightFilter({ aggregationProperty: val })}
+                    onChange={(val, groupType) => {
+                        const newType = groupType === TaxonomicFilterGroupType.PersonProperties ? 'person' : 'event'
+                        updateInsightFilter({
+                            aggregationProperty: val,
+                            aggregationPropertyType: newType,
+                        })
+                    }}
                     placeholder="Select property"
                     data-attr="retention-aggregation-property-selector"
                     renderValue={(currentValue) => (
@@ -121,10 +134,15 @@ export function RetentionAggregationSelector(): JSX.Element {
                                     {aggregationType === 'sum'
                                         ? PROPERTY_MATH_DEFINITIONS[PropertyMathType.Sum].name.toLowerCase()
                                         : PROPERTY_MATH_DEFINITIONS[PropertyMathType.Average].name.toLowerCase()}{' '}
-                                    from property <code>{currentValue}</code>.
-                                    <br />
-                                    Note that only events where <code>{currentValue}</code> is set with a numeric value
-                                    will be taken into account.
+                                    from {aggregationPropertyType === 'person' ? 'person' : 'event'} property{' '}
+                                    <code>{currentValue}</code>.
+                                    {aggregationPropertyType === 'event' && (
+                                        <>
+                                            <br />
+                                            Note that only events where <code>{currentValue}</code> is set with a
+                                            numeric value will be taken into account.
+                                        </>
+                                    )}
                                 </>
                             }
                             placement="right"
@@ -132,7 +150,11 @@ export function RetentionAggregationSelector(): JSX.Element {
                             <PropertyKeyInfo
                                 value={currentValue}
                                 disablePopover
-                                type={TaxonomicFilterGroupType.EventProperties}
+                                type={
+                                    aggregationPropertyType === 'person'
+                                        ? TaxonomicFilterGroupType.PersonProperties
+                                        : TaxonomicFilterGroupType.EventProperties
+                                }
                             />
                         </Tooltip>
                     )}

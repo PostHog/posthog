@@ -1,57 +1,31 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
-import posthog from 'posthog-js'
 
 import { IconRefresh } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonSelect, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonMenu, LemonSelect, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { capitalizeFirstLetter } from 'lib/utils'
-import { addProductIntentForCrossSell } from 'lib/utils/product-intents'
-import { urls } from 'scenes/urls'
-
-import { groupsModel } from '~/models/groupsModel'
-import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
-import { GroupTypeIndex } from '~/types'
-
-import { revenueAnalyticsLogic } from 'products/revenue_analytics/frontend/revenueAnalyticsLogic'
 
 import { issuesDataNodeLogic } from '../../logics/issuesDataNodeLogic'
-import {
-    ErrorTrackingQueryOrderBy,
-    ErrorTrackingQueryRevenueEntity,
-    ORDER_BY_OPTIONS,
-    issueQueryOptionsLogic,
-} from './issueQueryOptionsLogic'
-
-type GroupOptions = Record<`group_${GroupTypeIndex}`, string>
+import { ORDER_BY_OPTIONS, issueQueryOptionsLogic } from './issueQueryOptionsLogic'
 
 export const IssueQueryOptions = (): JSX.Element => {
-    const { groupTypes } = useValues(groupsModel)
-    const { orderBy, orderDirection, revenuePeriod, revenueEntity } = useValues(issueQueryOptionsLogic)
-    const { setOrderBy, setRevenueEntity, setOrderDirection, setRevenuePeriod } = useActions(issueQueryOptionsLogic)
-    const { hasRevenueTables, hasRevenueEvents } = useValues(revenueAnalyticsLogic)
-    const hasRevenueSorting = useFeatureFlag('ERROR_TRACKING_REVENUE_SORTING')
-
-    const hasRevenueAnalytics = hasRevenueTables || hasRevenueEvents
-
-    const onSelectRevenueEntity = (entity: ErrorTrackingQueryRevenueEntity): void => {
-        posthog.capture('error_tracking_sort_by_revenue_clicked', { entity })
-        setOrderBy('revenue')
-        setRevenueEntity(entity)
-    }
-
-    const groupOptions = Object.fromEntries(
-        Array.from(groupTypes.values()).map(({ group_type, group_type_index }) => [
-            `group_${group_type_index}`,
-            group_type,
-        ])
-    ) as GroupOptions
+    const { orderBy, orderDirection, useQueryV2 } = useValues(issueQueryOptionsLogic)
+    const { setOrderBy, setOrderDirection, setUseQueryV2 } = useActions(issueQueryOptionsLogic)
+    const hasQueryV2Flag = useFeatureFlag('ERROR_TRACKING_QUERY_V2')
 
     return (
         <span className="flex items-center justify-between gap-2 self-end">
             <Reload />
             <div className="flex items-center gap-2 self-end">
+                {hasQueryV2Flag && (
+                    <LemonSwitch
+                        checked={useQueryV2}
+                        onChange={setUseQueryV2}
+                        label="v2 query"
+                        size="small"
+                        tooltip="Use ClickHouse postgres connector join instead of separate Postgres queries"
+                    />
+                )}
                 <div className="flex items-center gap-1">
                     <span>Sort by:</span>
 
@@ -77,75 +51,28 @@ export const IssueQueryOptions = (): JSX.Element => {
                                 label: ORDER_BY_OPTIONS['sessions'],
                                 onClick: () => setOrderBy('sessions'),
                             },
-                            hasRevenueSorting && {
-                                label: 'Revenue',
-                                ...(hasRevenueAnalytics
-                                    ? {
-                                          placement: 'right-start',
-                                          items: [
-                                              {
-                                                  label: 'Persons',
-                                                  onClick: () => onSelectRevenueEntity('person'),
-                                              },
-                                              ...Object.entries(groupOptions).map(([value, label]) => ({
-                                                  label: capitalizeFirstLetter(label),
-                                                  onClick: () =>
-                                                      onSelectRevenueEntity(value as ErrorTrackingQueryRevenueEntity),
-                                              })),
-                                          ],
-                                      }
-                                    : {
-                                          onClick: () => {
-                                              posthog.capture('error_tracking_sort_by_revenue_clicked')
-                                              addProductIntentForCrossSell({
-                                                  from: ProductKey.ERROR_TRACKING,
-                                                  to: ProductKey.REVENUE_ANALYTICS,
-                                                  intent_context: ProductIntentContext.ERROR_TRACKING_ISSUE_SORTING,
-                                              })
-                                              router.actions.push(urls.revenueAnalytics())
-                                          },
-                                      }),
-                            },
                         ]}
                     >
                         <LemonButton size="small" type="secondary">
-                            {sortByLabel(orderBy, revenueEntity, groupOptions)}
+                            {ORDER_BY_OPTIONS[orderBy]}
                         </LemonButton>
                     </LemonMenu>
 
-                    {orderBy === 'revenue' ? (
-                        <LemonSelect
-                            onChange={setRevenuePeriod}
-                            value={revenuePeriod}
-                            options={[
-                                {
-                                    value: 'mrr',
-                                    label: 'MRR',
-                                },
-                                {
-                                    value: 'all_time',
-                                    label: 'All time',
-                                },
-                            ]}
-                            size="small"
-                        />
-                    ) : (
-                        <LemonSelect
-                            onChange={setOrderDirection}
-                            value={orderDirection}
-                            options={[
-                                {
-                                    value: 'DESC',
-                                    label: 'Descending',
-                                },
-                                {
-                                    value: 'ASC',
-                                    label: 'Ascending',
-                                },
-                            ]}
-                            size="small"
-                        />
-                    )}
+                    <LemonSelect
+                        onChange={setOrderDirection}
+                        value={orderDirection}
+                        options={[
+                            {
+                                value: 'DESC',
+                                label: 'Descending',
+                            },
+                            {
+                                value: 'ASC',
+                                label: 'Ascending',
+                            },
+                        ]}
+                        size="small"
+                    />
                 </div>
             </div>
         </span>
@@ -172,18 +99,4 @@ const Reload = (): JSX.Element => {
             {responseLoading ? 'Cancel' : 'Reload'}
         </LemonButton>
     )
-}
-
-const sortByLabel = (
-    orderBy: ErrorTrackingQueryOrderBy,
-    revenueEntity: ErrorTrackingQueryRevenueEntity,
-    groupOptions: Record<string, string>
-): string => {
-    if (orderBy === 'revenue' && revenueEntity) {
-        const entity = revenueEntity === 'person' ? 'person' : groupOptions[revenueEntity]
-
-        return `Revenue (by ${entity})`
-    }
-
-    return ORDER_BY_OPTIONS[orderBy]
 }

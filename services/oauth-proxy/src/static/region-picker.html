@@ -168,6 +168,62 @@
 
         .hint a:hover { color: var(--text-primary); }
 
+        .redirect-banner {
+            margin-top: 28px;
+            padding: 16px 20px;
+            background: #f3f0ec;
+            border-radius: var(--radius);
+            font-size: 14px;
+            color: var(--text-primary);
+            line-height: 1.5;
+        }
+
+        .redirect-banner .region-name { font-weight: 600; }
+
+        .progress-bar {
+            width: 100%;
+            height: 4px;
+            background: var(--border);
+            border-radius: 2px;
+            margin-top: 12px;
+            overflow: hidden;
+        }
+
+        .progress-bar-fill {
+            height: 100%;
+            background: var(--brand-blue);
+            border-radius: 2px;
+            width: 0%;
+            transition: width 100ms linear;
+        }
+
+        .redirect-actions {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 14px;
+        }
+
+        .btn-secondary {
+            display: inline-flex;
+            align-items: center;
+            background: transparent;
+            color: var(--text-primary);
+            font-family: inherit;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            line-height: 1.5rem;
+            text-decoration: none;
+            padding: 6px 14px;
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            cursor: pointer;
+            transition: border-color 200ms ease;
+        }
+
+        .btn-secondary:hover { border-color: var(--text-secondary); }
+
         .footer {
             text-align: center;
             margin-top: 20px;
@@ -222,11 +278,20 @@
                     </a>
                 </div>
 
-                <p class="hint">
+                <p class="hint" id="hint-default">
                     Not sure? Check your PostHog URL. It starts with
                     <a href="https://us.posthog.com" target="_blank">us.</a> or
                     <a href="https://eu.posthog.com" target="_blank">eu.</a>
                 </p>
+
+                <div class="redirect-banner" id="redirect-banner" style="display: none">
+                    <span>You last logged in on <span class="region-name" id="redirect-region-name"></span>. Redirecting in <span id="redirect-countdown">7</span>s...</span>
+                    <div class="progress-bar"><div class="progress-bar-fill" id="progress-fill"></div></div>
+                    <div class="redirect-actions">
+                        <a class="btn-secondary" id="redirect-cancel">Cancel redirect</a>
+                        <a class="cta" id="redirect-go-now"></a>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -235,13 +300,62 @@
         </p>
     </div>
     <script>
-        const params = new URLSearchParams(window.location.search);
+        var params = new URLSearchParams(window.location.search);
         function buildUrl(region) {
             params.set('_region', region);
             return '/oauth/authorize/?' + params.toString();
         }
         document.getElementById('btn-us').href = buildUrl('us');
         document.getElementById('btn-eu').href = buildUrl('eu');
+
+        // Auto-redirect if user has previously logged in to a region
+        (function() {
+            var REDIRECT_SECONDS = 7;
+            var cookie = document.cookie.split('; ').find(function(c) { return c.startsWith('ph_current_instance='); });
+            if (!cookie) return;
+
+            var value = decodeURIComponent(cookie.substring(cookie.indexOf('=') + 1)).replace(/"/g, '');
+            var region = null;
+            try {
+                var hostname = new URL(value).hostname;
+                if (hostname === 'us.posthog.com') region = 'us';
+                else if (hostname === 'eu.posthog.com') region = 'eu';
+            } catch(e) { return; }
+            if (!region) return;
+
+            var regionLabel = region === 'us' ? 'US Cloud' : 'EU Cloud';
+            var redirectUrl = buildUrl(region);
+
+            document.getElementById('hint-default').style.display = 'none';
+            document.getElementById('redirect-banner').style.display = 'block';
+            document.getElementById('redirect-region-name').textContent = regionLabel;
+            document.getElementById('redirect-go-now').textContent = 'Go to ' + regionLabel + ' now';
+            document.getElementById('redirect-go-now').href = redirectUrl;
+
+            var startTime = Date.now();
+            var fill = document.getElementById('progress-fill');
+            var countdown = document.getElementById('redirect-countdown');
+            var timer = null;
+
+            function tick() {
+                var elapsed = Date.now() - startTime;
+                var progress = Math.min(elapsed / (REDIRECT_SECONDS * 1000), 1);
+                fill.style.width = (progress * 100) + '%';
+                countdown.textContent = Math.max(0, Math.ceil(REDIRECT_SECONDS - elapsed / 1000));
+                if (progress >= 1) {
+                    window.location.href = redirectUrl;
+                    return;
+                }
+                timer = requestAnimationFrame(tick);
+            }
+            timer = requestAnimationFrame(tick);
+
+            document.getElementById('redirect-cancel').addEventListener('click', function() {
+                cancelAnimationFrame(timer);
+                document.getElementById('redirect-banner').style.display = 'none';
+                document.getElementById('hint-default').style.display = 'block';
+            });
+        })();
     </script>
 </body>
 </html>

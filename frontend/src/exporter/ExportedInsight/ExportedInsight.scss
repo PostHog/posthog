@@ -30,13 +30,6 @@
         flex: 1;
         flex-direction: column;
         border-radius: 0 0 var(--radius) var(--radius);
-
-        html.export-type-image & .InsightCard__viz {
-            // We can't use the viewport height, as the screenshotter will resize the height of the window to capture the full content
-            // Instead we ensure a good aspect ratio for visualizations
-            min-height: 75vw;
-            max-height: 100vw;
-        }
     }
 
     .LemonTable {

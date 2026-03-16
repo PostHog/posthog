@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 
 import { LemonDialog, LemonInput } from '@posthog/lemon-ui'
 
+import { ApiError } from 'lib/api'
 import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -307,7 +308,7 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
             },
             [insightsModel.actionTypes.renameInsightSuccess]: (state, { item }) => {
                 if (item.id === state.id) {
-                    return { ...state, name: item.name }
+                    return { ...state, name: item.name, description: item.description }
                 }
                 return state
             },
@@ -545,6 +546,11 @@ export const insightLogic: LogicWrapper<insightLogicType> = kea<insightLogicType
                 actions.saveInsightSuccess()
             } catch (e) {
                 actions.saveInsightFailure()
+                if (e instanceof ApiError) {
+                    lemonToast.error(e.detail ?? 'Could not save insight')
+                } else {
+                    lemonToast.error('Could not save insight')
+                }
                 throw e
             }
 

@@ -6,6 +6,7 @@ import {
 } from 'lib/components/ActivityLog/humanizeActivity'
 import { SentenceList } from 'lib/components/ActivityLog/SentenceList'
 import { Link } from 'lib/lemon-ui/Link'
+import { isObject } from 'lib/utils'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { urls } from 'scenes/urls'
 
@@ -63,8 +64,11 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     if (logItem.activity === 'split_person') {
-        const distinctIds: string[] | undefined = logItem.detail.changes?.[0].after?.['distinct_ids']
-        if (distinctIds) {
+        const after = logItem.detail.changes?.[0].after
+        const distinctIds = isObject(after) ? after.distinct_ids : undefined
+
+        if (Array.isArray(distinctIds)) {
+            const normalizedDistinctIds = distinctIds.filter((id): id is string => typeof id === 'string')
             return {
                 description: (
                     <SentenceList
@@ -74,7 +78,7 @@ export function personActivityDescriber(logItem: ActivityLogItem, asNotification
                                 person into
                             </>
                         }
-                        listParts={distinctIds.map((di) => (
+                        listParts={normalizedDistinctIds.map((di) => (
                             <span key={di} className="highlighted-activity">
                                 <Link to={urls.personByDistinctId(di)}>{di}</Link>
                             </span>

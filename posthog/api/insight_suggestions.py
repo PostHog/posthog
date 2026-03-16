@@ -356,7 +356,10 @@ def generate_insight_name(query: InsightVizNode, team: Team) -> str:
         content, _, _ = hit_openai(
             messages,
             f"team/{team.id}/generate-insight-name",
-            posthog_properties={"ai_product": "product-analytics", "ai_feature": "insight-ai-name-generation"},
+            posthog_properties={
+                "ai_product": "product_analytics",
+                "ai_feature": "insight-ai-name-generation",
+            },
         )
 
         name = content.strip().strip('"').strip("'")

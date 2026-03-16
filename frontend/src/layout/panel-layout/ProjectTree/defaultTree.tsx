@@ -8,7 +8,7 @@ import {
     IconCircleDashed,
     IconClock,
     IconCode,
-    IconCode2,
+    IconEndpoints,
     IconDashboard,
     IconDatabase,
     IconDecisionTree,
@@ -26,6 +26,7 @@ import {
     IconHome,
     IconLifecycle,
     IconListCheck,
+    IconListTree,
     IconLive,
     IconLlmAnalytics,
     IconLlmPromptManagement,
@@ -37,6 +38,7 @@ import {
     IconPieChart,
     IconPiggyBank,
     IconPlay,
+    IconPlaylist,
     IconPlug,
     IconReceipt,
     IconRetention,
@@ -108,7 +110,7 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         iconColor: ['var(--color-product-web-analytics-light)', 'var(--color-product-web-analytics-dark)'],
     },
     endpoints: {
-        icon: <IconCode2 />,
+        icon: <IconEndpoints />,
         iconColor: ['var(--color-product-endpoints-light)', 'var(--color-product-endpoints-dark)'],
     },
     sql_editor: {
@@ -151,6 +153,14 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     logs: {
         icon: <IconLive />,
         iconColor: ['var(--color-product-logs-light)'],
+    },
+    tracing: {
+        icon: <IconListTree />,
+        iconColor: ['var(--color-product-tracing-light)'],
+    },
+    metrics: {
+        icon: <IconGraph />,
+        iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'],
     },
     early_access_feature: {
         icon: <IconRocket />,
@@ -320,6 +330,13 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconScatter />,
         iconColor: ['var(--color-product-llm-clusters-light)'],
     },
+    llm_playground: {
+        icon: <IconPlaylist />,
+        iconColor: ['var(--color-product-llm-analytics-light)'],
+    },
+    visual_review: {
+        icon: <IconApp />,
+    },
     exports: {
         icon: <IconDownload />,
     },
@@ -419,6 +436,11 @@ export const getDefaultTreeProducts = (): FileSystemImport[] =>
     [...getTreeItemsProducts()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
 export const getDefaultTreeGames = (): FileSystemImport[] =>
     [...getTreeItemsGames()].sort((a, b) => a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' }))
+
+export const getDefaultTreeDataAndPeople = (): FileSystemImport[] =>
+    [...getDefaultTreeData(), ...getDefaultTreePersons()].sort((a, b) =>
+        a.path.localeCompare(b.path, undefined, { sensitivity: 'accent' })
+    )
 
 export const getDefaultTreePersons = (): FileSystemImport[] => [
     {

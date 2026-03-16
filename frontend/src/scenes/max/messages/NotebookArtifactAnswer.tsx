@@ -44,14 +44,20 @@ import { MessageTemplate } from './MessageTemplate'
 interface NotebookArtifactAnswerProps {
     content: NotebookArtifactContent
     status?: MessageStatus
+    artifactId?: string
 }
 
 const MAX_COLLAPSED_HEIGHT_PX = 400
 
-export function NotebookArtifactAnswer({ content, status }: NotebookArtifactAnswerProps): JSX.Element | null {
+export function NotebookArtifactAnswer({
+    content,
+    status,
+    artifactId,
+}: NotebookArtifactAnswerProps): JSX.Element | null {
     const { createNotebook } = useActions(notebooksModel)
     const [isExpanded, setIsExpanded] = useState(false)
     const [needsExpansion, setNeedsExpansion] = useState(false)
+    const [localIsSaved, setLocalIsSaved] = useState(content.is_saved ?? false)
     const contentRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {
@@ -59,6 +65,12 @@ export function NotebookArtifactAnswer({ content, status }: NotebookArtifactAnsw
             setNeedsExpansion(contentRef.current.scrollHeight > MAX_COLLAPSED_HEIGHT_PX)
         }
     }, [content.blocks, status])
+
+    useEffect(() => {
+        if (content.is_saved) {
+            setLocalIsSaved(true)
+        }
+    }, [content.is_saved])
 
     const isStreaming = status !== 'completed'
     const hasContent = content.blocks.length > 0
@@ -82,7 +94,14 @@ export function NotebookArtifactAnswer({ content, status }: NotebookArtifactAnsw
         // Convert blocks to tiptap JSONContent[] format
         const tiptapContent = blocksToTiptapContent(content.blocks)
 
-        createNotebook(NotebookTarget.Scene, content.title || 'AI Generated Notebook', tiptapContent)
+        createNotebook(
+            NotebookTarget.Scene,
+            content.title || 'AI Generated Notebook',
+            tiptapContent,
+            undefined,
+            artifactId
+        )
+        setLocalIsSaved(true)
     }
 
     const handleExpandClick = (): void => {
@@ -118,15 +137,26 @@ export function NotebookArtifactAnswer({ content, status }: NotebookArtifactAnsw
                 </div>
 
                 <div className="mt-4 flex justify-end">
-                    <LemonButton
-                        onClick={handleCreateNotebook}
-                        type="primary"
-                        size="small"
-                        icon={<IconOpenInNew />}
-                        disabledReason={isStreaming ? 'Wait for notebook to finish generating' : null}
-                    >
-                        Create notebook
-                    </LemonButton>
+                    {localIsSaved && artifactId ? (
+                        <LemonButton
+                            to={urls.notebook(artifactId)}
+                            type="primary"
+                            size="small"
+                            icon={<IconOpenInNew />}
+                        >
+                            Open and save notebook
+                        </LemonButton>
+                    ) : (
+                        <LemonButton
+                            onClick={handleCreateNotebook}
+                            type="primary"
+                            size="small"
+                            icon={<IconOpenInNew />}
+                            disabledReason={isStreaming ? 'Wait for notebook to finish generating' : null}
+                        >
+                            Create notebook
+                        </LemonButton>
+                    )}
                 </div>
             </div>
         </MessageTemplate>

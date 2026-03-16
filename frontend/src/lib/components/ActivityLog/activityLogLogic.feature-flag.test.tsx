@@ -513,6 +513,120 @@ describe('the activity log logic', () => {
             )
         })
 
+        it('does not mention variant rollout when only release conditions changed', async () => {
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [{ variant: null, properties: [], rollout_percentage: 0 }],
+                        payloads: {},
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 100 },
+                                { key: 'variant', rollout_percentage: 0 },
+                            ],
+                        },
+                    },
+                    after: {
+                        groups: [
+                            {
+                                variant: 'variant',
+                                properties: [
+                                    {
+                                        key: 'created_at_timestamp',
+                                        type: 'person',
+                                        value: '1771344031000',
+                                        operator: 'gt',
+                                    },
+                                ],
+                                rollout_percentage: 20,
+                            },
+                        ],
+                        payloads: {},
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 100 },
+                                { key: 'variant', rollout_percentage: 0 },
+                            ],
+                        },
+                    },
+                },
+            ])
+
+            const actual = logic.values.humanizedActivity
+            const text = render(<>{actual[0].description}</>).container.textContent
+            expect(text).not.toContain('changed the rollout percentage for the variants')
+        })
+
+        it('only lists variants whose rollout percentage actually changed', async () => {
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: {
+                        groups: [{ properties: [], rollout_percentage: 75 }],
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 50 },
+                                { key: 'test-1', rollout_percentage: 25 },
+                                { key: 'test-2', rollout_percentage: 25 },
+                            ],
+                        },
+                    },
+                    after: {
+                        groups: [{ properties: [], rollout_percentage: 75 }],
+                        multivariate: {
+                            variants: [
+                                { key: 'control', rollout_percentage: 50 },
+                                { key: 'test-1', rollout_percentage: 40 },
+                                { key: 'test-2', rollout_percentage: 10 },
+                            ],
+                        },
+                    },
+                },
+            ])
+
+            const actual = logic.values.humanizedActivity
+            const text = render(<>{actual[0].description}</>).container.textContent
+            expect(text).toContain('test-1: 40%')
+            expect(text).toContain('test-2: 10%')
+            expect(text).not.toContain('control: 50%')
+        })
+
+        it.each([
+            {
+                name: 'multivariate flag',
+                payloads: { control: 'old-payload' },
+                multivariate: {
+                    variants: [
+                        { key: 'control', rollout_percentage: 50 },
+                        { key: 'test', rollout_percentage: 50 },
+                    ],
+                },
+            },
+            {
+                name: 'boolean flag',
+                payloads: { true: 'my-payload' },
+                multivariate: null,
+            },
+        ])('does not mention payload change when payload is unchanged on $name', async ({ payloads, multivariate }) => {
+            const logic = await featureFlagsTestSetup('test flag', 'updated', [
+                {
+                    type: ActivityScope.FEATURE_FLAG,
+                    action: 'changed',
+                    field: 'filters',
+                    before: { groups: [{ properties: [], rollout_percentage: 50 }], payloads, multivariate },
+                    after: { groups: [{ properties: [], rollout_percentage: 80 }], payloads, multivariate },
+                },
+            ])
+
+            const text = render(<>{logic.values.humanizedActivity[0].description}</>).container.textContent
+            expect(text).not.toContain('changed payload')
+        })
+
         it('can handle changing variants from a multivariate flag', async () => {
             const logic = await featureFlagsTestSetup('test flag', 'updated', [
                 {

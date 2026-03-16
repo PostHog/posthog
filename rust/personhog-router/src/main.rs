@@ -59,16 +59,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         "grpc-server",
         ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(15)),
     );
-    let metrics_handle = manager.register("metrics-server", ComponentOptions::new());
+    let metrics_handle = manager.register(
+        "metrics-server",
+        ComponentOptions::new().is_observability(true),
+    );
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
-    let grpc_shutdown = manager.shutdown_signal();
-    let metrics_shutdown = manager.shutdown_signal();
 
     let monitor_guard = manager.monitor_background();
 
-    // Metrics/health HTTP server
+    // Metrics/health HTTP server (observability handle — stays alive during standard drain)
     let metrics_port = config.metrics_port;
     tokio::spawn(async move {
         let _guard = metrics_handle.process_scope();
@@ -90,7 +91,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect("Failed to bind metrics port");
         tracing::info!("Metrics server listening on {}", bind);
         axum::serve(listener, metrics_router)
-            .with_graceful_shutdown(metrics_shutdown)
+            .with_graceful_shutdown(metrics_handle.shutdown_signal())
             .await
             .expect("Metrics server error");
     });
@@ -115,7 +116,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Err(e) = Server::builder()
             .layer(GrpcMetricsLayer)
             .add_service(PersonHogServiceServer::new(service))
-            .serve_with_shutdown(grpc_addr, grpc_shutdown)
+            .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
             .await
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

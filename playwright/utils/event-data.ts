@@ -45,14 +45,13 @@ const defaultProperties: Record<string, any> = {
 
 export function daysAgo(days: number): string {
     const date = new Date()
-    date.setDate(date.getDate() - days)
+    date.setUTCDate(date.getUTCDate() - days)
+    date.setUTCHours(0, 1, 0, 0)
     return date.toISOString()
 }
 
 export function hoursAgo(hours: number): string {
-    const date = new Date()
-    date.setHours(date.getHours() - hours)
-    return date.toISOString()
+    return new Date(Date.now() - hours * 60 * 60 * 1000).toISOString()
 }
 
 // --- Event creation ---

@@ -182,6 +182,14 @@ export class UUID {
     }
 }
 
+// Lowercase UUID session IDs for consistency. Some mobile apps send uppercase
+// session IDs, which causes issues on query paths where the session ID is parsed
+// as a UUID and converted back to a string.
+// See https://github.com/PostHog/posthog/issues/46111
+export function normalizeSessionId(sessionId: string): string {
+    return UUID.validateString(sessionId, false) ? sessionId.toLowerCase() : sessionId
+}
+
 /**
  * UUID (mostly) sortable by generation time.
  *

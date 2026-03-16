@@ -5,6 +5,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 
+// eslint-disable-next-line import/no-cycle
 import { evaluationMetricsLogic } from '../evaluationMetricsLogic'
 import { llmEvaluationsLogic } from '../llmEvaluationsLogic'
 

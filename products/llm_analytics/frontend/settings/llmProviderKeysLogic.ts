@@ -18,12 +18,42 @@ export const LLM_PROVIDER_LABELS: Record<LLMProvider, string> = {
     fireworks: 'Fireworks',
 }
 
+const LLM_PROVIDERS = new Set<string>(Object.keys(LLM_PROVIDER_LABELS))
+
+export function isLLMProvider(value: string): value is LLMProvider {
+    return LLM_PROVIDERS.has(value)
+}
+
+/** Normalize a raw provider string to an LLMProvider, or null if unrecognized. */
+export function toLLMProvider(raw: string): LLMProvider | null {
+    const normalized = raw.toLowerCase()
+    if (isLLMProvider(normalized)) {
+        return normalized
+    }
+    console.error(`[LLM Analytics] Unknown LLM provider: "${raw}"`)
+    return null
+}
+
 const PROVIDER_ORDER = Object.keys(LLM_PROVIDER_LABELS) as LLMProvider[]
 
 /** Sort index for a provider string. Unknown providers sort last. */
 export function providerSortIndex(provider: string): number {
-    const index = PROVIDER_ORDER.indexOf(provider.toLowerCase() as LLMProvider)
-    return index === -1 ? PROVIDER_ORDER.length : index
+    const normalized = toLLMProvider(provider)
+    return normalized ? PROVIDER_ORDER.indexOf(normalized) : PROVIDER_ORDER.length
+}
+
+/** Normalize provider aliases from traces/config into canonical LLMProvider keys. */
+export function normalizeLLMProvider(provider: string | undefined): LLMProvider | null {
+    if (!provider) {
+        return null
+    }
+
+    const normalized = provider.trim().toLowerCase()
+    if (normalized === 'google' || normalized === 'google-ai-studio') {
+        return 'gemini'
+    }
+
+    return normalized in LLM_PROVIDER_LABELS ? (normalized as LLMProvider) : null
 }
 
 export interface LLMProviderKey {
@@ -43,6 +73,43 @@ export interface LLMProviderKey {
         email: string
     } | null
     last_used_at: string | null
+}
+
+/** Canonical provider key ordering: provider order, then key name, then id. */
+export function sortProviderKeys(keys: LLMProviderKey[]): LLMProviderKey[] {
+    return [...keys].sort((a, b) => {
+        const providerDiff = providerSortIndex(a.provider) - providerSortIndex(b.provider)
+        if (providerDiff !== 0) {
+            return providerDiff
+        }
+
+        const nameDiff = (a.name ?? '').localeCompare(b.name ?? '', undefined, { sensitivity: 'base' })
+        if (nameDiff !== 0) {
+            return nameDiff
+        }
+
+        return a.id.localeCompare(b.id)
+    })
+}
+
+export function sortedUsableProviderKeyIds(keys: LLMProviderKey[]): string[] {
+    return sortProviderKeys(keys)
+        .filter((key) => key.state !== 'invalid')
+        .map((key) => key.id)
+}
+
+export function firstUsableProviderKeyIdForProvider(
+    provider: string | undefined,
+    keys: LLMProviderKey[]
+): string | null {
+    const normalizedProvider = normalizeLLMProvider(provider)
+    if (!normalizedProvider) {
+        return null
+    }
+
+    return (
+        sortProviderKeys(keys).find((key) => key.state !== 'invalid' && key.provider === normalizedProvider)?.id ?? null
+    )
 }
 
 export interface EvaluationConfig {

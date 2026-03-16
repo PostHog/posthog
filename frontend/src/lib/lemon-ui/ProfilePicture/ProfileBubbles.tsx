@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 
+// eslint-disable-next-line import/no-cycle
 import { ProfilePicture } from '.'
 import { Tooltip } from '../Tooltip'
 

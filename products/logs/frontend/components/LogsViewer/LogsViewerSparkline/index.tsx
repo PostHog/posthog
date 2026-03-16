@@ -1,11 +1,13 @@
 import { useCallback, useMemo } from 'react'
 
-import { LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
+import { IconChevronDown } from '@posthog/icons'
+import { LemonButton, LemonSelect, SpinnerOverlay } from '@posthog/lemon-ui'
 
 import { AnyScaleOptions, Sparkline } from 'lib/components/Sparkline'
 import { dayjs } from 'lib/dayjs'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { shortTimeZone } from 'lib/utils'
+import { cn } from 'lib/utils/css-classes'
 
 import { DateRange, LogsSparklineBreakdownBy } from '~/queries/schema/schema-general'
 
@@ -26,6 +28,8 @@ interface LogsViewerSparklineProps {
     displayTimezone: string // IANA timezone string (e.g. "UTC", "America/New_York", "Europe/London")
     breakdownBy: LogsSparklineBreakdownBy
     onBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
+    collapsed?: boolean
+    onToggleCollapse?: () => void
 }
 
 const BREAKDOWN_OPTIONS: { value: LogsSparklineBreakdownBy; label: string }[] = [
@@ -40,6 +44,8 @@ export function LogsSparkline({
     displayTimezone,
     breakdownBy,
     onBreakdownByChange,
+    collapsed = false,
+    onToggleCollapse,
 }: LogsViewerSparklineProps): JSX.Element | null {
     const showServiceBreakdown = useFeatureFlag('LOGS_SPARKLINE_SERVICE_BREAKDOWN')
 
@@ -120,37 +126,48 @@ export function LogsSparkline({
 
     return (
         <div className="flex flex-col gap-1">
-            {showServiceBreakdown && (
-                <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between">
+                <LemonButton
+                    size="xsmall"
+                    type="tertiary"
+                    icon={<IconChevronDown className={cn('transition-transform', collapsed && '-rotate-90')} />}
+                    onClick={onToggleCollapse}
+                    aria-expanded={!collapsed}
+                    aria-controls="logs-sparkline-content"
+                >
                     <span className="text-xs text-muted">Volume over time</span>
+                </LemonButton>
+                {!collapsed && showServiceBreakdown && (
                     <LemonSelect
                         size="xsmall"
                         value={breakdownBy}
                         onChange={(value) => value && onBreakdownByChange(value)}
                         options={BREAKDOWN_OPTIONS}
                     />
+                )}
+            </div>
+            {!collapsed && (
+                <div id="logs-sparkline-content" className="relative h-32">
+                    {sparklineData.data.length > 0 ? (
+                        <Sparkline
+                            labels={sparklineLabels}
+                            data={sparklineData.data}
+                            className="w-full h-full"
+                            onSelectionChange={onSelectionChange}
+                            withXScale={withXScale}
+                            renderLabel={renderLabel}
+                            tooltipRowCutoff={100}
+                            hideZerosInTooltip
+                            sortTooltipByCount
+                        />
+                    ) : !sparklineLoading ? (
+                        <div className="h-full text-muted flex items-center justify-center">
+                            No results matching filters
+                        </div>
+                    ) : null}
+                    {sparklineLoading && <SpinnerOverlay />}
                 </div>
             )}
-            <div className="relative h-32">
-                {sparklineData.data.length > 0 ? (
-                    <Sparkline
-                        labels={sparklineLabels}
-                        data={sparklineData.data}
-                        className="w-full h-full"
-                        onSelectionChange={onSelectionChange}
-                        withXScale={withXScale}
-                        renderLabel={renderLabel}
-                        tooltipRowCutoff={100}
-                        hideZerosInTooltip
-                        sortTooltipByCount
-                    />
-                ) : !sparklineLoading ? (
-                    <div className="h-full text-muted flex items-center justify-center">
-                        No results matching filters
-                    </div>
-                ) : null}
-                {sparklineLoading && <SpinnerOverlay />}
-            </div>
         </div>
     )
 }

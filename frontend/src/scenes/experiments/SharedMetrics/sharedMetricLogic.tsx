@@ -8,9 +8,12 @@ import api from 'lib/api'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { billingLogic } from 'scenes/billing/billingLogic'
+import { sceneConfigurations } from 'scenes/scenes'
+import { Scene } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
-import { AccessControlLevel, ActivityScope } from '~/types'
+import { AccessControlLevel, ActivityScope, Breadcrumb, ExperimentsTabs } from '~/types'
 import type { UserBasicType } from '~/types'
 
 import { getDefaultFunnelMetric } from '../utils'
@@ -153,6 +156,23 @@ export const sharedMetricLogic = kea<sharedMetricLogicType>([
                 ...NEW_SHARED_METRIC,
                 query: getDefaultFunnelMetric(),
             }),
+        ],
+        breadcrumbs: [
+            (s) => [s.sharedMetric, s.sharedMetricId],
+            (sharedMetric: Partial<SharedMetric>, sharedMetricId: string | number): Breadcrumb[] => {
+                const isNew = sharedMetricId === 'new'
+                return [
+                    {
+                        key: Scene.Experiments,
+                        name: sceneConfigurations[Scene.Experiments].name || 'Experiments',
+                        path: `${urls.experiments()}?tab=${ExperimentsTabs.SharedMetrics}`,
+                    },
+                    {
+                        key: [Scene.ExperimentsSharedMetric, sharedMetricId],
+                        name: isNew ? 'New shared metric' : sharedMetric?.name || '',
+                    },
+                ]
+            },
         ],
         [SIDE_PANEL_CONTEXT_KEY]: [
             (s) => [s.sharedMetric, s.sharedMetricId],

@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
-import snappy
 import aiohttp
 
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
@@ -25,7 +24,7 @@ class TestRecordingApiClient:
         assert client_with_trailing_slash.base_url == "http://localhost:6740"
 
 
-class TestFetchBlockBytes:
+class TestFetchBlock:
     @pytest.fixture
     def mock_session(self):
         return MagicMock(spec=aiohttp.ClientSession)
@@ -35,7 +34,7 @@ class TestFetchBlockBytes:
         return RecordingApiClient(mock_session, "http://localhost:6740")
 
     @pytest.mark.asyncio
-    async def test_successful_fetch(self, client, mock_session):
+    async def test_returns_compressed_bytes_by_default(self, client, mock_session):
         mock_response = AsyncMock()
         mock_response.status = 200
         mock_response.read = AsyncMock(return_value=b"compressed-data")
@@ -45,7 +44,7 @@ class TestFetchBlockBytes:
 
         mock_session.get = MagicMock(return_value=mock_response)
 
-        result = await client.fetch_compressed_block(
+        result = await client.fetch_block(
             "s3://bucket/key?range=bytes=0-100",
             "session-123",
             1,
@@ -58,6 +57,30 @@ class TestFetchBlockBytes:
         )
 
     @pytest.mark.asyncio
+    async def test_decompress_passes_param(self, client, mock_session):
+        mock_response = AsyncMock()
+        mock_response.status = 200
+        mock_response.read = AsyncMock(return_value=b'{"type": 3, "data": {}}')
+        mock_response.raise_for_status = MagicMock()
+        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
+        mock_response.__aexit__ = AsyncMock(return_value=None)
+
+        mock_session.get = MagicMock(return_value=mock_response)
+
+        result = await client.fetch_block(
+            "s3://bucket/key?range=bytes=0-100",
+            "session-123",
+            1,
+            decompress=True,
+        )
+
+        assert result == b'{"type": 3, "data": {}}'
+        mock_session.get.assert_called_once_with(
+            "http://localhost:6740/api/projects/1/recordings/session-123/block",
+            params={"key": "key", "start": 0, "end": 100, "decompress": "true"},
+        )
+
+    @pytest.mark.asyncio
     async def test_404_raises_error(self, client, mock_session):
         mock_response = AsyncMock()
         mock_response.status = 404
@@ -67,7 +90,7 @@ class TestFetchBlockBytes:
         mock_session.get = MagicMock(return_value=mock_response)
 
         with pytest.raises(BlockFetchError, match="Block not found"):
-            await client.fetch_compressed_block(
+            await client.fetch_block(
                 "s3://bucket/key?range=bytes=0-100",
                 "session-123",
                 1,
@@ -85,7 +108,7 @@ class TestFetchBlockBytes:
         mock_session.get = MagicMock(return_value=mock_response)
 
         with pytest.raises(RecordingDeletedError, match="Recording has been deleted") as exc_info:
-            await client.fetch_compressed_block(
+            await client.fetch_block(
                 "s3://bucket/key?range=bytes=0-100",
                 "session-123",
                 1,
@@ -109,118 +132,11 @@ class TestFetchBlockBytes:
         mock_session.get = MagicMock(return_value=mock_response)
 
         with pytest.raises(BlockFetchError, match="Failed to fetch block from Recording API"):
-            await client.fetch_compressed_block(
+            await client.fetch_block(
                 "s3://bucket/key?range=bytes=0-100",
                 "session-123",
                 1,
             )
-
-
-class TestFetchBlock:
-    @pytest.fixture
-    def mock_session(self):
-        return MagicMock(spec=aiohttp.ClientSession)
-
-    @pytest.fixture
-    def client(self, mock_session):
-        return RecordingApiClient(mock_session, "http://localhost:6740")
-
-    @pytest.mark.asyncio
-    async def test_successful_fetch_and_decompress(self, client, mock_session):
-        original_content = '{"type": 3, "data": {}}'
-        compressed_content = snappy.compress(original_content.encode("utf-8"))
-
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.read = AsyncMock(return_value=compressed_content)
-        mock_response.raise_for_status = MagicMock()
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session.get = MagicMock(return_value=mock_response)
-
-        result = await client.fetch_decompressed_block(
-            "s3://bucket/key?range=bytes=0-100",
-            "session-123",
-            1,
-        )
-
-        assert result == original_content
-
-    @pytest.mark.asyncio
-    async def test_strips_trailing_newlines(self, client, mock_session):
-        original_content = '{"type": 3, "data": {}}\n\n'
-        compressed_content = snappy.compress(original_content.encode("utf-8"))
-
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.read = AsyncMock(return_value=compressed_content)
-        mock_response.raise_for_status = MagicMock()
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session.get = MagicMock(return_value=mock_response)
-
-        result = await client.fetch_decompressed_block(
-            "s3://bucket/key?range=bytes=0-100",
-            "session-123",
-            1,
-        )
-
-        assert result == '{"type": 3, "data": {}}'
-
-    @pytest.mark.asyncio
-    async def test_decompress_error_raises_error(self, client, mock_session):
-        mock_response = AsyncMock()
-        mock_response.status = 200
-        mock_response.read = AsyncMock(return_value=b"not-valid-snappy-data")
-        mock_response.raise_for_status = MagicMock()
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session.get = MagicMock(return_value=mock_response)
-
-        with pytest.raises(BlockFetchError, match="Failed to decompress block"):
-            await client.fetch_decompressed_block(
-                "s3://bucket/key?range=bytes=0-100",
-                "session-123",
-                1,
-            )
-
-    @pytest.mark.asyncio
-    async def test_propagates_fetch_error(self, client, mock_session):
-        mock_response = AsyncMock()
-        mock_response.status = 404
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session.get = MagicMock(return_value=mock_response)
-
-        with pytest.raises(BlockFetchError, match="Block not found"):
-            await client.fetch_decompressed_block(
-                "s3://bucket/key?range=bytes=0-100",
-                "session-123",
-                1,
-            )
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("deleted_at", [1700000000, None])
-    async def test_410_raises_recording_deleted_error(self, client, mock_session, deleted_at):
-        mock_response = AsyncMock()
-        mock_response.status = 410
-        mock_response.json = AsyncMock(return_value={"error": "Recording has been deleted", "deleted_at": deleted_at})
-        mock_response.__aenter__ = AsyncMock(return_value=mock_response)
-        mock_response.__aexit__ = AsyncMock(return_value=None)
-
-        mock_session.get = MagicMock(return_value=mock_response)
-
-        with pytest.raises(RecordingDeletedError, match="Recording has been deleted") as exc_info:
-            await client.fetch_decompressed_block(
-                "s3://bucket/key?range=bytes=0-100",
-                "session-123",
-                1,
-            )
-        assert exc_info.value.deleted_at == deleted_at
 
 
 class TestDeleteRecordings:

@@ -7080,3 +7080,72 @@ class TestTrendsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         for result in response.results:
             self.assertEqual(11, len(result["data"]), "Should have 11 days of data")
             self.assertEqual(result["count"], sum(result["data"]), "Count should equal sum of data points")
+
+    def test_hide_weekends_day_interval(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            self.default_date_from,  # 2020-01-09 (Thu)
+            self.default_date_to,  # 2020-01-19 (Sun)
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            trends_filters=TrendsFilter(hideWeekends=True),
+        )
+
+        # 11 days Thu-Sun, weekend days removed leaves 7 weekdays
+        assert response.results[0]["days"] == [
+            "2020-01-09",  # Thu
+            "2020-01-10",  # Fri
+            "2020-01-13",  # Mon
+            "2020-01-14",  # Tue
+            "2020-01-15",  # Wed
+            "2020-01-16",  # Thu
+            "2020-01-17",  # Fri
+        ]
+        assert response.results[0]["data"] == [1, 0, 1, 0, 2, 0, 1]
+        assert response.results[0]["count"] == 5.0
+
+    def test_hide_weekends_week_interval(self):
+        self._create_test_events()
+
+        response_normal = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+        )
+
+        response_hidden = self._run_trends_query(
+            self.default_date_from,
+            self.default_date_to,
+            IntervalType.WEEK,
+            [EventsNode(event="$pageview")],
+            trends_filters=TrendsFilter(hideWeekends=True),
+        )
+
+        # Weekly buckets are preserved, only event counts change
+        assert len(response_hidden.results[0]["days"]) == len(response_normal.results[0]["days"])
+        # 10 total events, 5 on weekends (Jan 11 Sat, Jan 12 Sun x3, Jan 19 Sun)
+        assert response_normal.results[0]["count"] == 10.0
+        assert response_hidden.results[0]["count"] == 5.0
+
+    def test_hide_weekends_with_compare(self):
+        self._create_test_events()
+
+        response = self._run_trends_query(
+            "2020-01-15",  # Wed
+            "2020-01-19",  # Sun
+            IntervalType.DAY,
+            [EventsNode(event="$pageview")],
+            trends_filters=TrendsFilter(hideWeekends=True),
+            compare_filters=CompareFilter(compare=True),
+        )
+
+        assert len(response.results) == 2
+        assert response.results[0]["compare_label"] == "current"
+        assert response.results[1]["compare_label"] == "previous"
+
+        for result in response.results:
+            for day_str in result["days"]:
+                parsed = datetime.strptime(day_str[:10], "%Y-%m-%d")
+                assert parsed.weekday() < 5, f"{day_str} is a weekend day but should be filtered out"

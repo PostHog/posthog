@@ -145,14 +145,17 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
     @cached_property
     def aggregation_target(self) -> ast.Expr | None:
-        """
-        Extract prop val
-        """
         if (
             self.query.retentionFilter.aggregationType in [AggregationType.SUM, AggregationType.AVG]
             and self.query.retentionFilter.aggregationProperty
         ):
-            property_field = ast.Field(chain=["events", "properties", self.query.retentionFilter.aggregationProperty])
+            prop_name = self.query.retentionFilter.aggregationProperty
+            if self.query.retentionFilter.aggregationPropertyType == "person":
+                # person.properties resolves via the HogQL person join on the events table
+                chain = cast(list[str | int], ["person", "properties", prop_name])
+            else:
+                chain = cast(list[str | int], ["events", "properties", prop_name])
+            property_field = ast.Field(chain=chain)
             return ast.Call(
                 name="ifNull",
                 args=[
@@ -650,6 +653,12 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
             # For aggregation, we need separate handling for start (interval 0) and return events (interval 1+).
             # Tuples are (interval_start, value, actual_timestamp); actual_timestamp is used when start and
             # return events differ to filter interval-0 return events that happen after the start event.
+            #
+            # These raw expressions are stored in return_event_values and added as named aliases (_start_event_data,
+            # _return_event_data) in select_fields. All later references use ast.Field to those aliases instead of
+            # inlining the groupArrayIf expressions. This prevents ClickHouse from creating a self-join on the events
+            # table when these aggregations appear inside lambda functions (arrayFilter/arrayMap/arrayMin), which would
+            # otherwise cause MEMORY_LIMIT_EXCEEDED on large datasets.
             start_event_data = parse_expr(
                 """
                 groupArrayIf(
@@ -669,7 +678,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 start_of_interval_sql=start_of_interval_sql,
                 return_entity_expr=self.return_entity_expr,
             )
-            return_event_timestamps = parse_expr("arrayMap(x -> x.1, {val})", {"val": return_event_data})
+            # Reference the pre-computed aliases rather than inlining the expressions again
+            return_event_timestamps = parse_expr("arrayMap(x -> x.1, _return_event_data)")
             return_event_values = (start_event_data, return_event_data)
         else:
             return_event_timestamps = self._get_return_event_timestamps_expr(
@@ -719,8 +729,10 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
         retention_value_expr: ast.Expr | None = None
 
         if self.aggregation_target and return_event_values:
-            # return_event_values is a tuple of (start_event_data, return_event_data)
-            start_event_data, return_event_data = return_event_values
+            # return_event_values raw exprs are added as named SELECT aliases (_start_event_data, _return_event_data)
+            # in select_fields below. Here we only build the combined_data expression using field references.
+            start_event_data_ref = ast.Field(chain=["_start_event_data"])
+            return_event_data_ref = ast.Field(chain=["_return_event_data"])
 
             # When start and return events are different event types, return events that occur
             # strictly after the start event within interval 0 are counted for that interval.
@@ -776,8 +788,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     """,
                     {
                         "lookahead_plus_one": ast.Constant(value=self.query_date_range.lookahead + 1),
-                        "start_data": start_event_data,
-                        "return_data": return_event_data,
+                        "start_data": start_event_data_ref,
+                        "return_data": return_event_data_ref,
                     },
                 )
             else:
@@ -809,8 +821,8 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                     """,
                     {
                         "lookahead": ast.Constant(value=self.query_date_range.lookahead),
-                        "start_data": start_event_data,
-                        "return_data": return_event_data,
+                        "start_data": start_event_data_ref,
+                        "return_data": return_event_data_ref,
                     },
                 )
 
@@ -872,13 +884,25 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                 ),
             ),
             *minimum_occurrences_aliases,
-            # timestamps representing the start of a qualified interval (where count of events >= minimum_occurrences)
-            ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
-            # exploded (0 based) indices of matching intervals for start event
-            ast.Alias(
-                alias="start_interval_index",
-                expr=parse_expr(
-                    """
+        ]
+
+        # When using aggregation mode, add the grouped data arrays as named aliases BEFORE columns that reference them.
+        # This ensures ClickHouse uses the pre-aggregated arrays rather than re-executing the groupArrayIf inside
+        # lambda functions, which would otherwise trigger a self-join on the events table and exceed memory limits.
+        if self.aggregation_target and return_event_values:
+            start_event_data_raw, return_event_data_raw = return_event_values
+            select_fields.append(ast.Alias(alias="_start_event_data", expr=start_event_data_raw))
+            select_fields.append(ast.Alias(alias="_return_event_data", expr=return_event_data_raw))
+
+        select_fields.extend(
+            [
+                # timestamps representing the start of a qualified interval (where count of events >= minimum_occurrences)
+                ast.Alias(alias="return_event_timestamps", expr=return_event_timestamps),
+                # exploded (0 based) indices of matching intervals for start event
+                ast.Alias(
+                    alias="start_interval_index",
+                    expr=parse_expr(
+                        """
                         arrayJoin(
                             arrayFilter(
                                 x -> x > -1,
@@ -895,14 +919,15 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
                             )
                         )
                     """,
-                    {"is_valid_start_interval": is_valid_start_interval},
+                        {"is_valid_start_interval": is_valid_start_interval},
+                    ),
                 ),
-            ),
-            ast.Alias(
-                alias="intervals_from_base",
-                expr=intervals_from_base_expr,
-            ),
-        ]
+                ast.Alias(
+                    alias="intervals_from_base",
+                    expr=intervals_from_base_expr,
+                ),
+            ]
+        )
 
         if retention_value_expr:
             select_fields.append(ast.Alias(alias="retention_value", expr=retention_value_expr))

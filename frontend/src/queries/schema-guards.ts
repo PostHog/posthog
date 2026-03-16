@@ -3,6 +3,7 @@ import {
     ExperimentMetric,
     RevenueAnalyticsPropertyFilters,
     WebAnalyticsPropertyFilters,
+    // eslint-disable-next-line import/no-cycle
 } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, SessionPropertyFilter } from '~/types'
 

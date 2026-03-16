@@ -4,13 +4,17 @@ from posthog.temporal.llm_analytics.run_evaluation import (
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
+    execute_hog_eval_activity,
     execute_llm_judge_activity,
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
     update_key_state_activity,
 )
 from posthog.temporal.llm_analytics.sentiment import ClassifySentimentWorkflow, classify_sentiment_activity
-from posthog.temporal.llm_analytics.shared_activities import fetch_all_clustering_filters_activity
+from posthog.temporal.llm_analytics.shared_activities import (
+    fetch_all_clustering_filters_activity,
+    fetch_all_clustering_jobs_activity,
+)
 from posthog.temporal.llm_analytics.team_discovery import get_team_ids_for_llm_analytics
 from posthog.temporal.llm_analytics.trace_clustering import (
     DailyTraceClusteringWorkflow,
@@ -39,6 +43,7 @@ EVAL_ACTIVITIES = [
     disable_evaluation_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
+    execute_hog_eval_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove
@@ -72,6 +77,7 @@ ACTIVITIES = [
     summarize_and_save_activity,
     # Shared activities
     fetch_all_clustering_filters_activity,
+    fetch_all_clustering_jobs_activity,
     # Clustering activities
     perform_clustering_compute_activity,
     generate_cluster_labels_activity,
@@ -84,6 +90,7 @@ ACTIVITIES = [
     disable_evaluation_activity,
     update_key_state_activity,
     execute_llm_judge_activity,
+    execute_hog_eval_activity,
     emit_evaluation_event_activity,
     emit_internal_telemetry_activity,
     emit_eval_signal_activity,  # kept for in-flight v1 workflows, then remove

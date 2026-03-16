@@ -8,7 +8,11 @@ from temporalio.common import RetryPolicy
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.llm_analytics.sentiment.activities import classify_sentiment_activity
-from posthog.temporal.llm_analytics.sentiment.constants import ACTIVITY_TIMEOUT_SECONDS, MAX_RETRY_ATTEMPTS
+from posthog.temporal.llm_analytics.sentiment.constants import (
+    ACTIVITY_SCHEDULE_TO_START_TIMEOUT_SECONDS,
+    ACTIVITY_TIMEOUT_SECONDS,
+    MAX_RETRY_ATTEMPTS,
+)
 from posthog.temporal.llm_analytics.sentiment.schema import ClassifySentimentInput
 
 
@@ -19,7 +23,7 @@ class ClassifySentimentWorkflow(PostHogWorkflow):
     def parse_inputs(inputs: list[str]) -> ClassifySentimentInput:
         return ClassifySentimentInput(
             team_id=int(inputs[0]),
-            trace_ids=inputs[1:],
+            ids=inputs[1:],
         )
 
     @temporalio.workflow.run
@@ -28,5 +32,6 @@ class ClassifySentimentWorkflow(PostHogWorkflow):
             classify_sentiment_activity,
             input,
             start_to_close_timeout=timedelta(seconds=ACTIVITY_TIMEOUT_SECONDS),
+            schedule_to_start_timeout=timedelta(seconds=ACTIVITY_SCHEDULE_TO_START_TIMEOUT_SECONDS),
             retry_policy=RetryPolicy(maximum_attempts=MAX_RETRY_ATTEMPTS),
         )

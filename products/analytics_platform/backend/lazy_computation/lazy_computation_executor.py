@@ -27,7 +27,7 @@ from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.preaggregation.sql import DISTRIBUTED_PREAGGREGATION_RESULTS_TABLE
 from posthog.clickhouse.query_tagging import tags_context
 from posthog.models.team import Team
-from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
+from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME, TEST
 from posthog.utils import relative_date_parse_with_delta_mapping
 
 from products.analytics_platform.backend.lazy_computation.computation_notifications import (
@@ -47,7 +47,7 @@ DEFAULT_TTL_SECONDS = 7 * 24 * 60 * 60  # 7 days
 
 # ClickHouse data outlives the PG job by this amount. This prevents races where we fetch a job in PG, use it, but while
 # waiting for something else, it expires and is deleted in clickhouse.
-EXPIRY_BUFFER_SECONDS = 1 * 60 * 60  # 1 hour
+EXPIRY_BUFFER_SECONDS = 48 * 60 * 60  # 48 hours
 
 # Waiting configuration for pending jobs
 DEFAULT_WAIT_TIMEOUT_SECONDS = 180  # 3 minutes
@@ -62,6 +62,13 @@ DEFAULT_STALE_PENDING_THRESHOLD_SECONDS = 60  # 1 minute
 
 # Grace period before declaring a job "not started" as stale. Covers executor boot time.
 DEFAULT_CH_START_GRACE_PERIOD_SECONDS = 60  # 1 minute
+
+# Quorum for INSERT queries. "auto" = majority of replicas must acknowledge writes before
+# the INSERT returns. This ensures data is replicated before the subsequent SELECT reads it,
+# preventing stale reads from hitting a replica that hasn't received the data yet.
+# Disabled in tests to avoid quorum behavior (tests usually run against a single-node or simplified
+# ClickHouse setup and we want them to remain fast and deterministic).
+PREAGGREGATION_INSERT_QUORUM: str | int = 0 if TEST else "auto"
 
 
 @dataclass
@@ -566,6 +573,7 @@ def run_lazy_computation_insert(
             values,
             settings={
                 "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
+                "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
                 **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
             },
         )
@@ -964,6 +972,7 @@ def ensure_precomputed(
                 values,
                 settings={
                     "max_execution_time": HOGQL_INCREASED_MAX_EXECUTION_TIME,
+                    "insert_quorum": PREAGGREGATION_INSERT_QUORUM,
                     **HogQLQuerySettings(load_balancing="in_order").model_dump(exclude_none=True),
                 },
             )

@@ -8,18 +8,23 @@ from temporalio import common, workflow
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.delete_recordings.activities import (
+    cleanup_session_id_chunks,
     delete_recordings,
     load_recordings_with_person,
     load_recordings_with_query,
     load_recordings_with_team_id,
+    load_session_id_chunk,
     purge_deleted_metadata,
 )
+from posthog.temporal.delete_recordings.metrics import increment_recordings_deleted, increment_recordings_failed
 from posthog.temporal.delete_recordings.types import (
+    CleanupChunksInput,
     DeleteRecordingsInput,
     DeleteRecordingsResult,
     DeletionCertificate,
     DeletionConfig,
     DeletionProgress,
+    LoadChunkInput,
     LoadRecordingsPage,
     PurgeDeletedMetadataInput,
     PurgeDeletedMetadataResult,
@@ -56,6 +61,8 @@ async def _delete_page(
             )
             progress.total_deleted += len(result.deleted)
             progress.total_failed += result.failed_count
+            increment_recordings_deleted(len(result.deleted))
+            increment_recordings_failed(result.failed_count)
 
             if config.max_deletions_per_second > 0:
                 elapsed = (workflow.now() - batch_start).total_seconds()
@@ -251,17 +258,26 @@ class DeleteRecordingsWithSessionIdsWorkflow(PostHogWorkflow):
     async def run(self, input: RecordingsWithSessionIdsInput) -> DeletionCertificate:
         progress = input.progress or DeletionProgress(started_at=workflow.now())
 
-        offset = progress.total_found
-        while offset < len(input.session_ids):
-            chunk = input.session_ids[offset : offset + input.page_size]
-            page = LoadRecordingsPage(session_ids=chunk)
-            await _delete_page(page, input.team_id, input.config, progress)
-            offset = progress.total_found
+        chunk_index = progress.total_found // input.chunk_size
+        while chunk_index < input.total_chunks:
+            page: LoadRecordingsPage = await workflow.execute_activity(
+                load_session_id_chunk,
+                LoadChunkInput(s3_prefix=input.s3_prefix, chunk_index=chunk_index),
+                start_to_close_timeout=timedelta(minutes=2),
+                schedule_to_close_timeout=timedelta(minutes=10),
+                retry_policy=common.RetryPolicy(maximum_attempts=3, initial_interval=timedelta(seconds=30)),
+            )
 
-            if offset < len(input.session_ids) and workflow.info().is_continue_as_new_suggested():
+            await _delete_page(page, input.team_id, input.config, progress)
+            chunk_index += 1
+
+            if chunk_index < input.total_chunks and workflow.info().is_continue_as_new_suggested():
                 workflow.continue_as_new(
                     RecordingsWithSessionIdsInput(
-                        session_ids=input.session_ids,
+                        s3_prefix=input.s3_prefix,
+                        total_chunks=input.total_chunks,
+                        chunk_size=input.chunk_size,
+                        total_session_ids=input.total_session_ids,
                         team_id=input.team_id,
                         config=input.config,
                         source_filename=input.source_filename,
@@ -269,7 +285,7 @@ class DeleteRecordingsWithSessionIdsWorkflow(PostHogWorkflow):
                     )
                 )
 
-        return _build_certificate(
+        certificate = _build_certificate(
             "session_ids",
             workflow.info().workflow_id,
             input.team_id,
@@ -277,6 +293,16 @@ class DeleteRecordingsWithSessionIdsWorkflow(PostHogWorkflow):
             input.config,
             source_filename=input.source_filename,
         )
+
+        await workflow.execute_activity(
+            cleanup_session_id_chunks,
+            CleanupChunksInput(s3_prefix=input.s3_prefix, total_chunks=input.total_chunks),
+            start_to_close_timeout=timedelta(minutes=2),
+            schedule_to_close_timeout=timedelta(minutes=10),
+            retry_policy=common.RetryPolicy(maximum_attempts=2, initial_interval=timedelta(seconds=10)),
+        )
+
+        return certificate
 
 
 @workflow.defn(name="purge-deleted-recording-metadata")

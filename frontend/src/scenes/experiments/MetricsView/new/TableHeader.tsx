@@ -64,6 +64,7 @@ export function TableHeader({ axisRange, statsMethod }: TableHeaderProps): JSX.E
                                 viewBox={`0 0 ${VIEW_BOX_WIDTH} ${TICK_PANEL_HEIGHT + 10}`}
                                 preserveAspectRatio="xMidYMid meet"
                                 className="w-full"
+                                data-attr="metrics-chart-tick-labels"
                                 style={{
                                     minHeight: `${TICK_PANEL_HEIGHT + 10}px`,
                                 }}

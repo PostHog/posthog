@@ -6,6 +6,7 @@ import { LemonSkeleton } from '@posthog/lemon-ui'
 
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+// eslint-disable-next-line import/no-cycle
 import { getDataWarehouseSourceUrl } from 'scenes/data-warehouse/settings/DataWarehouseManagedSourcesTable'
 
 import BlushingHog from 'public/hedgehog/blushing-hog.png'

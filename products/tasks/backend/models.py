@@ -2,12 +2,17 @@ import os
 import re
 import json
 import uuid
-from typing import Literal, Optional
+import string
+import secrets
+from typing import TYPE_CHECKING, Literal, Optional
+
+if TYPE_CHECKING:
+    from products.slack_app.backend.slack_thread import SlackThreadContext
 
 from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.exceptions import ValidationError
-from django.db import models
+from django.db import IntegrityError, models, transaction
 from django.utils import timezone
 
 import structlog
@@ -18,6 +23,7 @@ from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import DeletedMetaFields, UUIDModel
 from posthog.storage import object_storage
+from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
 
@@ -31,6 +37,7 @@ class Task(DeletedMetaFields, models.Model):
         ERROR_TRACKING = "error_tracking", "Error Tracking"
         EVAL_CLUSTERS = "eval_clusters", "Eval Clusters"
         USER_CREATED = "user_created", "User Created"
+        SLACK = "slack", "Slack"
         SUPPORT_QUEUE = "support_queue", "Support Queue"
         SESSION_SUMMARIES = "session_summaries", "Session Summaries"
 
@@ -39,6 +46,7 @@ class Task(DeletedMetaFields, models.Model):
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_index=False)
     task_number = models.IntegerField(null=True, blank=True)
     title = models.CharField(max_length=255)
+    title_manually_set = models.BooleanField(default=False)
     description = models.TextField()
     origin_product = models.CharField(max_length=20, choices=OriginProduct.choices)
 
@@ -114,13 +122,23 @@ class Task(DeletedMetaFields, models.Model):
         max_task_number = Task.objects.filter(team=self.team).aggregate(models.Max("task_number"))["task_number__max"]
         self.task_number = (max_task_number if max_task_number is not None else -1) + 1
 
-    def create_run(self, environment: Optional["TaskRun.Environment"] = None, mode: str = "background") -> "TaskRun":
+    def create_run(
+        self,
+        environment: Optional["TaskRun.Environment"] = None,
+        mode: str = "background",
+        extra_state: dict | None = None,
+        branch: str | None = None,
+    ) -> "TaskRun":
+        state: dict = {"mode": mode}
+        if extra_state:
+            state.update({k: v for k, v in extra_state.items() if k != "mode"})
         return TaskRun.objects.create(
             task=self,
             team=self.team,
             status=TaskRun.Status.QUEUED,
             environment=environment or TaskRun.Environment.CLOUD,
-            state={"mode": mode},
+            state=state,
+            branch=branch,
         )
 
     def soft_delete(self):
@@ -142,13 +160,15 @@ class Task(DeletedMetaFields, models.Model):
         repository: str,  # Format: "organization/repository", e.g. "posthog/posthog-js"
         create_pr: bool = True,
         mode: str = "background",
+        slack_thread_context: Optional["SlackThreadContext"] = None,
+        slack_thread_url: str | None = None,
+        start_workflow: bool = True,
+        posthog_mcp_scopes: PosthogMcpScopes = "full",
+        branch: str | None = None,
     ) -> "Task":
         from products.tasks.backend.temporal.client import execute_task_processing_workflow
 
         created_by = User.objects.get(id=user_id)
-
-        if not created_by:
-            raise ValueError(f"User {user_id} does not exist")
 
         github_integration = Integration.objects.filter(team=team, kind="github").first()
 
@@ -165,15 +185,26 @@ class Task(DeletedMetaFields, models.Model):
             repository=repository,
         )
 
-        task_run = task.create_run(mode=mode)
+        extra_state: dict[str, str] | None = None
+        if slack_thread_url or slack_thread_context:
+            extra_state = {}
+            if slack_thread_url:
+                extra_state["slack_thread_url"] = slack_thread_url
+            if slack_thread_context:
+                extra_state["interaction_origin"] = "slack"
 
-        execute_task_processing_workflow(
-            task_id=str(task.id),
-            run_id=str(task_run.id),
-            team_id=task.team.id,
-            user_id=user_id,
-            create_pr=create_pr,
-        )
+        task_run = task.create_run(mode=mode, extra_state=extra_state, branch=branch)
+
+        if start_workflow:
+            execute_task_processing_workflow(
+                task_id=str(task.id),
+                run_id=str(task_run.id),
+                team_id=task.team.id,
+                user_id=user_id,
+                create_pr=create_pr,
+                slack_thread_context=slack_thread_context,
+                posthog_mcp_scopes=posthog_mcp_scopes,
+            )
 
         return task
 
@@ -387,6 +418,10 @@ class TaskRun(models.Model):
         }
         self.append_log([event])
 
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in {self.Status.COMPLETED, self.Status.FAILED, self.Status.CANCELLED}
+
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
 
@@ -581,3 +616,64 @@ class SandboxEnvironment(UUIDModel):
             return domains
 
         return []
+
+
+class CodeInvite(UUIDModel):
+    """Invite codes for PostHog Code access."""
+
+    code = models.CharField(max_length=50, unique=True, db_index=True, blank=True)
+    max_redemptions = models.PositiveIntegerField(default=1, help_text="Maximum number of redemptions. 0 = unlimited.")
+    redemption_count = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
+    expires_at = models.DateTimeField(null=True, blank=True, help_text="Optional expiration date.")
+    description = models.TextField(blank=True, help_text="Internal admin note.")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_code_invites"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_code_invite"
+
+    def __str__(self):
+        return self.code
+
+    def save(self, *args, **kwargs):
+        if not self.code:
+            alphabet = string.ascii_uppercase + string.digits
+            for attempt in range(10):
+                self.code = "".join(secrets.choice(alphabet) for _ in range(8))
+                try:
+                    with transaction.atomic():
+                        return super().save(*args, **kwargs)
+                except IntegrityError:
+                    if attempt == 9:
+                        raise
+            return
+        super().save(*args, **kwargs)
+
+    @property
+    def is_redeemable(self) -> bool:
+        if not self.is_active:
+            return False
+        if self.expires_at and self.expires_at <= timezone.now():
+            return False
+        if self.max_redemptions > 0 and self.redemption_count >= self.max_redemptions:
+            return False
+        return True
+
+
+class CodeInviteRedemption(UUIDModel):
+    """Tracks each redemption of a PostHog Code invite."""
+
+    invite_code = models.ForeignKey(CodeInvite, on_delete=models.CASCADE, related_name="redemptions")
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE)
+    organization = models.ForeignKey("posthog.Organization", on_delete=models.SET_NULL, null=True, blank=True)
+    redeemed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "posthog_code_invite_redemption"
+        unique_together = [("invite_code", "user")]
+
+    def __str__(self):
+        return f"{self.user} redeemed {self.invite_code}"

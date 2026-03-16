@@ -35,9 +35,17 @@ export class DashboardPage {
         await this.dismissQuickStartIfVisible()
 
         if (dashboardName) {
-            const textarea = this.page.locator('.scene-title-section textarea')
-            await textarea.or(this.page.locator('.scene-title-section')).first().click()
+            const nameButton = this.page.locator('[data-attr="scene-name"] button').first()
+            const textarea = this.page.locator('[data-attr="scene-title-textarea"]')
+            // Click the title button to enter edit mode, retrying if loading resets the state
+            await expect(async () => {
+                if (!(await textarea.isVisible().catch(() => false))) {
+                    await nameButton.click()
+                }
+                await expect(textarea).toBeVisible({ timeout: 3000 })
+            }).toPass({ timeout: 30000 })
             await textarea.fill(dashboardName)
+            await textarea.blur()
         }
 
         return this
@@ -208,5 +216,55 @@ export class DashboardPage {
             .locator('.Popover')
             .getByRole(option === 'Edit' ? 'link' : 'button', { name: option })
         await editLink.click()
+    }
+}
+
+/**
+ * Extends DashboardPage with helpers for the compact card redesign.
+ * Requires the 'dashboard-tile-redesign' feature flag — mock it via mockFeatureFlags before use.
+ * Merge these into DashboardPage when the flag is fully rolled out.
+ */
+export class CompactDashboardPage extends DashboardPage {
+    async enterEditMode(): Promise<void> {
+        await this.page.getByTestId('dashboard-edit-mode-button').click()
+        await expect(this.page.getByTestId('dashboard-edit-mode-save')).toBeVisible()
+    }
+
+    async saveEditMode(): Promise<void> {
+        await this.page.getByTestId('dashboard-edit-mode-save').click()
+        await expect(this.page.getByTestId('dashboard-edit-mode-save')).not.toBeVisible()
+    }
+
+    async hoverFirstCard(): Promise<void> {
+        const infoButton = this.insightCards.first().locator('[data-attr="card-meta-info"]')
+        await infoButton.click()
+    }
+
+    get tilePopover(): Locator {
+        return this.page.locator('.Popover')
+    }
+
+    get popoverTitleField(): Locator {
+        return this.tilePopover.locator('[data-attr="insight-card-title"]')
+    }
+
+    get popoverDescriptionField(): Locator {
+        return this.tilePopover.locator('[data-attr="insight-card-description"]')
+    }
+
+    async editPopoverTitle(newTitle: string): Promise<void> {
+        await this.popoverTitleField.click()
+        const input = this.popoverTitleField.locator('input')
+        await expect(input).toBeVisible()
+        await input.fill(newTitle)
+        await input.press('Enter')
+    }
+
+    async editPopoverDescription(description: string): Promise<void> {
+        await this.popoverDescriptionField.click()
+        const textarea = this.popoverDescriptionField.locator('textarea')
+        await expect(textarea).toBeVisible()
+        await textarea.fill(description)
+        await textarea.blur()
     }
 }

@@ -4,6 +4,7 @@ from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Optional
 
 import structlog
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 
 logger = structlog.get_logger(__name__)
 
@@ -13,6 +14,7 @@ class HealthState:
 
     def __init__(self, timeout_seconds: float = 60.0):
         self._timeout_seconds = timeout_seconds
+        self._created_at: float = time.monotonic()
         self._last_heartbeat: Optional[float] = None
         self._lock = threading.Lock()
 
@@ -22,11 +24,15 @@ class HealthState:
             self._last_heartbeat = time.monotonic()
 
     def is_healthy(self) -> bool:
-        """Returns True if the last heartbeat was within the timeout period."""
+        """Returns True if the last heartbeat was within the timeout period.
+
+        Before the first heartbeat, the service is considered healthy for up to
+        the timeout duration after creation — a startup grace period that prevents
+        k8s from killing the pod before the consumer loop begins.
+        """
         with self._lock:
-            if self._last_heartbeat is None:
-                return False
-            elapsed = time.monotonic() - self._last_heartbeat
+            reference = self._last_heartbeat if self._last_heartbeat is not None else self._created_at
+            elapsed = time.monotonic() - reference
             return elapsed < self._timeout_seconds
 
 
@@ -43,6 +49,8 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
             self._handle_liveness()
         elif self.path == "/_readiness":
             self._handle_readiness()
+        elif self.path == "/_metrics":
+            self._handle_metrics()
         else:
             self.send_error(404)
 
@@ -63,6 +71,13 @@ class HealthCheckHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/plain")
         self.end_headers()
         self.wfile.write(b"OK")
+
+    def _handle_metrics(self) -> None:
+        output = generate_latest()
+        self.send_response(200)
+        self.send_header("Content-Type", CONTENT_TYPE_LATEST)
+        self.end_headers()
+        self.wfile.write(output)
 
 
 def start_health_server(port: int, health_state: HealthState) -> threading.Thread:

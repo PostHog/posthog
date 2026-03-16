@@ -47,9 +47,12 @@ jobs:
               if: steps.changed-files.outputs.parser_any_changed == 'true' && steps.check-package-version.outputs.is-new-version == 'false'
               env:
                   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  COMMITTED_VERSION: ${{ steps.check-package-version.outputs.committed-version }}
+                  FORK_MESSAGE: ${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' && '\nThis needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this.' || '' }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
               run: |
-                  message_body="It looks like the code of \`@posthog/hogql-parser\` (npm) has changed since last push, but its version stayed the same at ${{ steps.check-package-version.outputs.committed-version }}. 👀\nMake sure to resolve this in \`common/hogql_parser/package.json\` before merging!${{ github.event.pull_request.head.repo.full_name != 'PostHog/posthog' && '\nThis needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member will assist with this.' || ''}}"
-                  gh pr comment ${{ github.event.pull_request.number }} --body "$message_body"
+                  message_body="It looks like the code of \`@posthog/hogql-parser\` (npm) has changed since last push, but its version stayed the same at $COMMITTED_VERSION. 👀\nMake sure to resolve this in \`common/hogql_parser/package.json\` before merging!$FORK_MESSAGE"
+                  gh pr comment "$PR_NUMBER" --body "$message_body"
 
     build-wasm:
         name: Build WASM

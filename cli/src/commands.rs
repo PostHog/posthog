@@ -49,6 +49,24 @@ pub enum Commands {
         #[command(subcommand)]
         cmd: SourcemapCommand,
     },
+
+    #[command(about = "Upload Apple dSYM debug symbol files to PostHog")]
+    Dsym {
+        #[command(subcommand)]
+        cmd: DsymSubcommand,
+    },
+
+    #[command(about = "Upload hermes sourcemaps to PostHog")]
+    Hermes {
+        #[command(subcommand)]
+        cmd: HermesSubcommand,
+    },
+
+    #[command(about = "Upload proguard mapping files to PostHog")]
+    Proguard {
+        #[command(subcommand)]
+        cmd: ProguardSubcommand,
+    },
 }
 
 #[derive(Subcommand)]
@@ -76,19 +94,20 @@ pub enum ExpCommand {
         cmd: EndpointCommand,
     },
 
-    #[command(about = "Upload hermes sourcemaps to PostHog")]
+    // TODO(sept 2026): remove these backward-compat aliases, they moved to top-level commands
+    #[command(about = "Upload hermes sourcemaps to PostHog", hide = true)]
     Hermes {
         #[command(subcommand)]
         cmd: HermesSubcommand,
     },
 
-    #[command(about = "Upload proguard mapping files to PostHog")]
+    #[command(about = "Upload proguard mapping files to PostHog", hide = true)]
     Proguard {
         #[command(subcommand)]
         cmd: ProguardSubcommand,
     },
 
-    #[command(about = "Upload iOS/macOS dSYM files to PostHog")]
+    #[command(about = "Upload iOS/macOS dSYM files to PostHog", hide = true)]
     Dsym {
         #[command(subcommand)]
         cmd: DsymSubcommand,
@@ -162,6 +181,27 @@ impl Cli {
                     crate::sourcemaps::plain::upload::upload(&upload)?;
                 }
             },
+            Commands::Dsym { cmd } => match cmd {
+                DsymSubcommand::Upload(args) => {
+                    crate::dsym::upload::upload(&args)?;
+                }
+            },
+            Commands::Hermes { cmd } => match cmd {
+                HermesSubcommand::Inject(args) => {
+                    crate::sourcemaps::hermes::inject::inject(&args)?;
+                }
+                HermesSubcommand::Upload(args) => {
+                    crate::sourcemaps::hermes::upload::upload(&args)?;
+                }
+                HermesSubcommand::Clone(args) => {
+                    crate::sourcemaps::hermes::clone::clone(&args)?;
+                }
+            },
+            Commands::Proguard { cmd } => match cmd {
+                ProguardSubcommand::Upload(args) => {
+                    crate::proguard::upload::upload(&args)?;
+                }
+            },
             Commands::Exp { cmd } => match cmd {
                 ExpCommand::Task {
                     cmd,
@@ -175,6 +215,7 @@ impl Cli {
                 ExpCommand::Endpoints { cmd } => {
                     cmd.run()?;
                 }
+                // TODO(sept 2026): remove these backward-compat aliases
                 ExpCommand::Hermes { cmd } => match cmd {
                     HermesSubcommand::Inject(args) => {
                         crate::sourcemaps::hermes::inject::inject(&args)?;

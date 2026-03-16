@@ -1,8 +1,11 @@
+import { MOCK_DEFAULT_PROJECT } from 'lib/api.mock'
+
 import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
+import { initKeaTests } from '~/test/init'
 import {
     AccessControlLevel,
     FeatureFlagBucketingIdentifier,
@@ -53,10 +56,12 @@ describe('VariantsPanelLinkFeatureFlag', () => {
         last_modified_by: null,
         evaluation_runtime: FeatureFlagEvaluationRuntime.ALL,
         evaluation_tags: [],
+        evaluation_contexts: [],
         bucketing_identifier: FeatureFlagBucketingIdentifier.DISTINCT_ID,
     }
 
     beforeEach(() => {
+        initKeaTests()
         jest.clearAllMocks()
     })
 
@@ -128,7 +133,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
             )
 
             const link = screen.getByRole('link', { name: /view feature flag/i })
-            expect(link).toHaveAttribute('href', '/feature_flags/1')
+            expect(link).toHaveAttribute('href', `/project/${MOCK_DEFAULT_PROJECT.id}/feature_flags/1`)
             expect(link).toHaveAttribute('target', '_blank')
         })
 

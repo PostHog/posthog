@@ -647,6 +647,22 @@ export function FunnelSingleStepState({ actionable = true }: FunnelSingleStepSta
     )
 }
 
+export function BoxPlotMissingPropertyState(): JSX.Element {
+    return (
+        <div
+            data-attr="insight-empty-state"
+            className="flex flex-col items-center justify-center gap-2 rounded px-4 py-6 h-full w-full text-center text-balance"
+        >
+            <IconArchive className="text-4xl shrink-0 text-muted mb-2" />
+
+            <h2 className="text-xl leading-tight font-medium mb-0">Choose a numeric property</h2>
+            <p className="text-sm text-muted mb-1">
+                Select a numeric property to see a box plot of its values over time.
+            </p>
+        </div>
+    )
+}
+
 const SAVED_INSIGHTS_COPY = {
     [`${SavedInsightsTabs.All}`]: {
         title: 'There are no insights $CONDITION.',

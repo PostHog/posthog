@@ -9,8 +9,6 @@ import { apiMutator } from '../../lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
-    AnnotationApi,
-    AnnotationsListParams,
     CommentApi,
     CommentsListParams,
     DashboardTemplateApi,
@@ -21,9 +19,12 @@ import type {
     ExportsListParams,
     FileSystemApi,
     FileSystemListParams,
-    FlagValueValuesRetrieve200Item,
+    FlagValueResponseApi,
     FlagValueValuesRetrieveParams,
+    GitHubBranchesResponseApi,
+    GitHubReposResponseApi,
     IntegrationApi,
+    IntegrationsGithubBranchesRetrieveParams,
     IntegrationsList2Params,
     InvitesListParams,
     List2Params,
@@ -32,7 +33,6 @@ import type {
     OrganizationDomainApi,
     OrganizationInviteApi,
     OrganizationMemberApi,
-    PaginatedAnnotationListApi,
     PaginatedCommentListApi,
     PaginatedDashboardTemplateListApi,
     PaginatedEnterprisePropertyDefinitionListApi,
@@ -48,7 +48,6 @@ import type {
     PaginatedScheduledChangeListApi,
     PaginatedSubscriptionListApi,
     PaginatedUserListApi,
-    PatchedAnnotationApi,
     PatchedCommentApi,
     PatchedDashboardTemplateApi,
     PatchedEnterprisePropertyDefinitionApi,
@@ -843,130 +842,6 @@ export const rolesDestroy = async (organizationId: string, id: string, options?:
     })
 }
 
-/**
- * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
- */
-export const getAnnotationsListUrl = (projectId: string, params?: AnnotationsListParams) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : value.toString())
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/annotations/?${stringifiedParams}`
-        : `/api/projects/${projectId}/annotations/`
-}
-
-export const annotationsList = async (
-    projectId: string,
-    params?: AnnotationsListParams,
-    options?: RequestInit
-): Promise<PaginatedAnnotationListApi> => {
-    return apiMutator<PaginatedAnnotationListApi>(getAnnotationsListUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
- */
-export const getAnnotationsCreateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/annotations/`
-}
-
-export const annotationsCreate = async (
-    projectId: string,
-    annotationApi: NonReadonly<AnnotationApi>,
-    options?: RequestInit
-): Promise<AnnotationApi> => {
-    return apiMutator<AnnotationApi>(getAnnotationsCreateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(annotationApi),
-    })
-}
-
-/**
- * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
- */
-export const getAnnotationsRetrieveUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/annotations/${id}/`
-}
-
-export const annotationsRetrieve = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<AnnotationApi> => {
-    return apiMutator<AnnotationApi>(getAnnotationsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-/**
- * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
- */
-export const getAnnotationsUpdateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/annotations/${id}/`
-}
-
-export const annotationsUpdate = async (
-    projectId: string,
-    id: number,
-    annotationApi: NonReadonly<AnnotationApi>,
-    options?: RequestInit
-): Promise<AnnotationApi> => {
-    return apiMutator<AnnotationApi>(getAnnotationsUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(annotationApi),
-    })
-}
-
-/**
- * Create, Read, Update and Delete annotations. [See docs](https://posthog.com/docs/data/annotations) for more information on annotations.
- */
-export const getAnnotationsPartialUpdateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/annotations/${id}/`
-}
-
-export const annotationsPartialUpdate = async (
-    projectId: string,
-    id: number,
-    patchedAnnotationApi: NonReadonly<PatchedAnnotationApi>,
-    options?: RequestInit
-): Promise<AnnotationApi> => {
-    return apiMutator<AnnotationApi>(getAnnotationsPartialUpdateUrl(projectId, id), {
-        ...options,
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedAnnotationApi),
-    })
-}
-
-/**
- * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
- */
-export const getAnnotationsDestroyUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/annotations/${id}/`
-}
-
-export const annotationsDestroy = async (projectId: string, id: number, options?: RequestInit): Promise<unknown> => {
-    return apiMutator<unknown>(getAnnotationsDestroyUrl(projectId, id), {
-        ...options,
-        method: 'DELETE',
-    })
-}
-
 export const getCommentsListUrl = (projectId: string, params?: CommentsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -1556,8 +1431,8 @@ export const flagValueValuesRetrieve = async (
     projectId: string,
     params?: FlagValueValuesRetrieveParams,
     options?: RequestInit
-): Promise<FlagValueValuesRetrieve200Item[]> => {
-    return apiMutator<FlagValueValuesRetrieve200Item[]>(getFlagValueValuesRetrieveUrl(projectId, params), {
+): Promise<FlagValueResponseApi> => {
+    return apiMutator<FlagValueResponseApi>(getFlagValueValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
@@ -1802,6 +1677,38 @@ export const integrationsEmailVerifyCreate = async (
     })
 }
 
+export const getIntegrationsGithubBranchesRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params: IntegrationsGithubBranchesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : value.toString())
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/github_branches/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/github_branches/`
+}
+
+export const integrationsGithubBranchesRetrieve = async (
+    projectId: string,
+    id: number,
+    params: IntegrationsGithubBranchesRetrieveParams,
+    options?: RequestInit
+): Promise<GitHubBranchesResponseApi> => {
+    return apiMutator<GitHubBranchesResponseApi>(getIntegrationsGithubBranchesRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getIntegrationsGithubReposRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/github_repos/`
 }
@@ -1810,8 +1717,8 @@ export const integrationsGithubReposRetrieve = async (
     projectId: string,
     id: number,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
+): Promise<GitHubReposResponseApi> => {
+    return apiMutator<GitHubReposResponseApi>(getIntegrationsGithubReposRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
     })

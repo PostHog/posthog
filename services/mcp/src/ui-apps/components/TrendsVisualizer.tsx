@@ -81,14 +81,30 @@ export function TrendsVisualizer({ query, results }: TrendsVisualizerProps): Rea
 
     return (
         <div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '0.5rem' }}>
+            <div
+                style={{
+                    display: 'flex',
+                    justifyContent: 'flex-end',
+                    marginBottom: '0.5rem',
+                }}
+            >
                 {/* eslint-disable-next-line react/forbid-elements */}
                 <Select value={chartMode} onChange={setChartMode} options={CHART_MODE_OPTIONS} />
             </div>
             {chartMode === 'bar' ? (
-                <BarChart series={series} labels={labels} maxValue={maxValue} />
+                <BarChart
+                    series={series}
+                    labels={labels}
+                    maxValue={maxValue}
+                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
+                />
             ) : (
-                <LineChart series={series} labels={labels} maxValue={maxValue} />
+                <LineChart
+                    series={series}
+                    labels={labels}
+                    maxValue={maxValue}
+                    yAxisLabel={series.length === 1 ? series[0]?.label : undefined}
+                />
             )}
         </div>
     )

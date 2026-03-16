@@ -96,7 +96,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                                     {estimatedMonthlyCreditAmountUsd === null ? (
                                         <LemonSkeleton className="inline-block h-4 w-18 rounded align-text-bottom" />
                                     ) : (
-                                        <strong>{estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong>
+                                        <strong>${estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong>
                                     )}{' '}
                                     over the next year.
                                 </p>
