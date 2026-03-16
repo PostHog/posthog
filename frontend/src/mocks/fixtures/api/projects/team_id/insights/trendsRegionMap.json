@@ -1,0 +1,120 @@
+{
+  "short_id": "trendsRegionMap",
+  "id": 1,
+  "name": "Region Map",
+  "description": "Region map showing pageview data by geographic region",
+  "team_id": 1,
+  "created_at": "2022-03-11T00:00:00Z",
+  "updated_at": "2022-03-11T00:00:00Z",
+  "created_by": {
+    "id": 1,
+    "uuid": "017d27d1-173a-0000-0000-000000000000",
+    "name": "Test User",
+    "email": "test@posthog.com",
+    "email_verified": true,
+    "first_name": "Test",
+    "last_name": "User"
+  },
+  "is_favorite": false,
+  "query": {
+    "kind": "InsightVizNode",
+    "source": {
+      "kind": "TrendsQuery",
+      "dateRange": {
+        "date_from": "2022-03-11T00:00:00Z",
+        "date_to": "2022-04-05T00:00:00Z"
+      },
+      "properties": [],
+      "series": [
+        {
+          "kind": "EventsNode",
+          "event": "$pageview"
+        }
+      ],
+      "breakdownFilter": {
+        "breakdowns": [
+          {
+            "property": "$geoip_country_code",
+            "type": "event"
+          },
+          {
+            "property": "$geoip_subdivision_1_code",
+            "type": "event"
+          }
+        ]
+      }
+    }
+  },
+  "result": [
+    {
+      "action": {
+        "id": null,
+        "name": "$pageview",
+        "type": "events"
+      },
+      "label": "$pageview",
+      "count": 1000,
+      "data": [],
+      "labels": [],
+      "days": [],
+      "breakdown_value": ["US", "CA", "NA"],
+      "aggregated_value": 150
+    },
+    {
+      "action": {
+        "id": null,
+        "name": "$pageview",
+        "type": "events"
+      },
+      "label": "$pageview",
+      "count": 800,
+      "data": [],
+      "labels": [],
+      "days": [],
+      "breakdown_value": ["GB", "ENG", "EU"],
+      "aggregated_value": 120
+    },
+    {
+      "action": {
+        "id": null,
+        "name": "$pageview",
+        "type": "events"
+      },
+      "label": "$pageview",
+      "count": 600,
+      "data": [],
+      "labels": [],
+      "days": [],
+      "breakdown_value": ["DE", "BW", "EU"],
+      "aggregated_value": 80
+    },
+    {
+      "action": {
+        "id": null,
+        "name": "$pageview",
+        "type": "events"
+      },
+      "label": "$pageview",
+      "count": 500,
+      "data": [],
+      "labels": [],
+      "days": [],
+      "breakdown_value": ["FR", "75", "EU"],
+      "aggregated_value": 70
+    },
+    {
+      "action": {
+        "id": null,
+        "name": "$pageview",
+        "type": "events"
+      },
+      "label": "$pageview",
+      "count": 400,
+      "data": [],
+      "labels": [],
+      "days": [],
+      "breakdown_value": ["JP", "13", "AS"],
+      "aggregated_value": 50
+    }
+  ]
+}
