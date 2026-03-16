@@ -2,13 +2,14 @@ import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import posthog from 'posthog-js'
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 
 import {
     IconApps,
     IconChevronRight,
     IconClock,
     IconDatabase,
+    IconDownload,
     IconFolderOpen,
     IconGear,
     IconHome,
@@ -24,6 +25,12 @@ import { NewAccountMenu } from 'lib/components/Account/NewAccountMenu'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { commandLogic } from 'lib/components/Command/commandLogic'
+import { DebugNotice } from 'lib/components/DebugNotice'
+import { HealthMenu } from 'lib/components/HealthMenu/HealthMenu'
+import { HelpMenu } from 'lib/components/HelpMenu/HelpMenu'
+import { NavPanelAdvertisement } from 'lib/components/NavPanelAdvertisement/NavPanelAdvertisement'
+import { NotificationsMenu } from 'lib/components/NotificationsMenu/NotificationsMenu'
+import { PosthogStatusShownOnlyIfNotOperational } from 'lib/components/PosthogStatus/PosthogStatusShownOnlyIfNotOperational'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -46,10 +53,10 @@ import { urls } from 'scenes/urls'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { PinnedFolder } from '~/layout/panel-layout/PinnedFolder/PinnedFolder'
 import { BrowserLikeMenuItems } from '~/layout/panel-layout/ProjectTree/menus/BrowserLikeMenuItems'
+import { ConfigurePinnedTabsModal } from '~/layout/scenes/ConfigurePinnedTabsModal'
 
 import { navigation3000Logic } from '../navigation-3000/navigationLogic'
 import { navigationLogic } from '../navigation/navigationLogic'
-import { NavBarFooter } from './NavBarFooter'
 
 const navBarStyles = cva({
     base: 'flex flex-col max-h-screen min-h-screen bg-surface-tertiary z-[var(--z-layout-navbar)] relative border-r lg:border-r-transparent',
@@ -67,6 +74,7 @@ const navBarStyles = cva({
 
 export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): JSX.Element {
     const containerRef = useRef<HTMLDivElement | null>(null)
+    const [isConfigurePinnedTabsOpen, setIsConfigurePinnedTabsOpen] = useState(false)
     const { showConfigurePinnedTabsModal } = useActions(navigationLogic)
     const {
         showLayoutPanel,
@@ -379,7 +387,7 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                                 ) : (
                                                     <ButtonGroupPrimitive
                                                         fullWidth
-                                                        className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center group"
+                                                        className="flex justify-center [&>span]:w-full [&>span]:flex [&>span]:justify-center"
                                                     >
                                                         <Link
                                                             data-attr={`menu-item-${item.identifier
@@ -426,7 +434,25 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                                             </ListBox.Item>
                                         )
 
-                                        if (item.identifier === 'Activity' && item.to) {
+                                        if (item.identifier === 'ProjectHomepage') {
+                                            return (
+                                                <ContextMenu key={item.identifier}>
+                                                    <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
+                                                    <ContextMenuContent className="max-w-[300px]">
+                                                        <ContextMenuGroup>
+                                                            <ContextMenuItem asChild>
+                                                                <ButtonPrimitive
+                                                                    menuItem
+                                                                    onClick={() => setIsConfigurePinnedTabsOpen(true)}
+                                                                >
+                                                                    <IconGear /> Configure tabs & home
+                                                                </ButtonPrimitive>
+                                                            </ContextMenuItem>
+                                                        </ContextMenuGroup>
+                                                    </ContextMenuContent>
+                                                </ContextMenu>
+                                            )
+                                        } else if (item.identifier === 'Activity' && item.to) {
                                             return (
                                                 <ContextMenu key={item.identifier}>
                                                     <ContextMenuTrigger asChild>{listItem}</ContextMenuTrigger>
@@ -462,7 +488,48 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
 
                         <div className="border-b border-primary h-px " />
 
-                        <NavBarFooter isLayoutNavCollapsed={isLayoutNavCollapsed} />
+                        <div className="p-1 flex flex-col gap-px items-start pb-2">
+                            <div
+                                className={cn('flex flex-col gap-px w-full', {
+                                    'items-center': isLayoutNavCollapsed,
+                                })}
+                            >
+                                <DebugNotice isCollapsed={isLayoutNavCollapsed} />
+                            </div>
+
+                            <NavPanelAdvertisement />
+
+                            <div
+                                className={cn('flex flex-col gap-px w-full', {
+                                    'items-center': isLayoutNavCollapsed,
+                                })}
+                            >
+                                <NotificationsMenu iconOnly={isLayoutNavCollapsed} />
+                                <Link
+                                    to={urls.settings('project')}
+                                    buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                    tooltip={isLayoutNavCollapsed ? 'Settings' : undefined}
+                                    tooltipPlacement="right"
+                                    data-attr="navbar-settings"
+                                >
+                                    <IconGear />
+                                    {!isLayoutNavCollapsed && 'Settings'}
+                                </Link>
+                                <Link
+                                    to={urls.exports()}
+                                    buttonProps={{ menuItem: isLayoutNavCollapsed ? false : true }}
+                                    tooltip={isLayoutNavCollapsed ? 'Exports' : undefined}
+                                    tooltipPlacement="right"
+                                    data-attr="navbar-exports-button"
+                                >
+                                    <IconDownload />
+                                    {!isLayoutNavCollapsed && 'Exports'}
+                                </Link>
+                                <HealthMenu iconOnly={isLayoutNavCollapsed} />
+                                <HelpMenu iconOnly={isLayoutNavCollapsed} />
+                                <PosthogStatusShownOnlyIfNotOperational iconOnly={isLayoutNavCollapsed} />
+                            </div>
+                        </div>
                     </div>
                     {!isMobileLayout && (
                         <Resizer
@@ -506,6 +573,10 @@ export function PanelLayoutNavBar({ children }: { children: React.ReactNode }): 
                     />
                 )}
             </div>
+            <ConfigurePinnedTabsModal
+                isOpen={isConfigurePinnedTabsOpen}
+                onClose={() => setIsConfigurePinnedTabsOpen(false)}
+            />
         </>
     )
 }
