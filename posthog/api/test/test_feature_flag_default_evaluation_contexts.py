@@ -45,7 +45,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
         # Verify no tags were applied
         self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
     def test_create_flag_with_default_contexts_enabled(self):
         """Test creating a flag when default contexts are enabled but not explicitly requested"""
@@ -72,7 +72,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
         # Verify no tags were applied (defaults not applied automatically)
         self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
     def test_create_flag_with_explicit_tags_overrides(self):
         """Test that explicitly provided tags are not overridden"""
@@ -98,7 +98,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         flag = FeatureFlag.objects.get(key="test-flag-explicit", team=self.team)
 
         # Verify only explicit tags were applied (defaults not added to evaluation tags)
-        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
+        eval_tag_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
         self.assertEqual(eval_tag_names, {"custom-tag"})
 
     def test_create_flag_with_explicit_tags_only(self):
@@ -130,7 +130,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         self.assertEqual(tag_names, {"custom-tag"})
 
         # Verify no evaluation tags (not explicitly provided)
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
     def test_create_flag_with_empty_evaluation_tags(self):
         """Test that empty evaluation_tags array is respected"""
@@ -155,7 +155,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         flag = FeatureFlag.objects.get(key="test-flag-empty", team=self.team)
 
         # Verify no evaluation tags (empty array means "clear all")
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
     def test_update_flag_doesnt_apply_defaults(self):
         """Test that updating an existing flag doesn't apply defaults"""
@@ -188,7 +188,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
         # Verify no tags were added during update
         self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)
 
     def test_create_flag_with_none_evaluation_tags_applies_defaults(self):
         """Test that explicitly setting evaluation_tags to None applies defaults"""
@@ -239,7 +239,7 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
         flag = FeatureFlag.objects.get(key="test-flag-explicit-eval", team=self.team)
 
         # Verify only explicit evaluation tags were applied
-        eval_tag_names = set(flag.evaluation_tags.values_list("tag__name", flat=True))
+        eval_tag_names = set(flag.flag_evaluation_contexts.values_list("evaluation_context__name", flat=True))
         self.assertEqual(eval_tag_names, {"custom-tag"})
 
     def test_no_default_tags_configured(self):
@@ -263,4 +263,4 @@ class TestFeatureFlagDefaultEnvironments(APIBaseTest):
 
         # Verify no tags were applied
         self.assertEqual(flag.tagged_items.count(), 0)
-        self.assertEqual(flag.evaluation_tags.count(), 0)
+        self.assertEqual(flag.flag_evaluation_contexts.count(), 0)

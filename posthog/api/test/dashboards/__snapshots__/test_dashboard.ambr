@@ -429,6 +429,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -715,6 +716,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -941,6 +943,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -1056,6 +1059,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -1491,6 +1495,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -1879,6 +1884,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -1945,6 +1951,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -2440,6 +2447,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -2506,6 +2514,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -2657,6 +2666,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -2752,6 +2762,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -2965,6 +2976,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -3251,6 +3263,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -3610,6 +3623,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -3725,6 +3739,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -4153,6 +4168,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -4422,6 +4438,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -4853,6 +4870,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -5254,6 +5272,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -5628,6 +5647,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -5926,6 +5946,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -6189,6 +6210,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -6321,6 +6343,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -6718,6 +6741,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -7092,6 +7116,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -7395,6 +7420,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -7658,6 +7684,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -7789,6 +7816,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -8406,6 +8434,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -8748,6 +8777,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -8822,6 +8852,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -9291,6 +9322,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -9394,6 +9426,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -9545,74 +9578,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
-         "posthog_dashboard"."deprecated_tags",
-         "posthog_dashboard"."tags",
-         "posthog_dashboard"."share_token",
-         "posthog_dashboard"."is_shared"
-  FROM "posthog_dashboard"
-  WHERE (NOT ("posthog_dashboard"."deleted")
-         AND "posthog_dashboard"."id" IN (1,
-                                          2,
-                                          3,
-                                          4,
-                                          5 /* ... */))
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.195
-  '''
-  SELECT "posthog_organization"."id",
-         "posthog_organization"."name",
-         "posthog_organization"."slug",
-         "posthog_organization"."logo_media_id",
-         "posthog_organization"."created_at",
-         "posthog_organization"."updated_at",
-         "posthog_organization"."is_active",
-         "posthog_organization"."is_not_active_reason",
-         "posthog_organization"."session_cookie_age",
-         "posthog_organization"."is_member_join_email_enabled",
-         "posthog_organization"."is_ai_data_processing_approved",
-         "posthog_organization"."enforce_2fa",
-         "posthog_organization"."members_can_invite",
-         "posthog_organization"."members_can_use_personal_api_keys",
-         "posthog_organization"."allow_publicly_shared_resources",
-         "posthog_organization"."default_role_id",
-         "posthog_organization"."plugins_access_level",
-         "posthog_organization"."for_internal_metrics",
-         "posthog_organization"."default_experiment_stats_method",
-         "posthog_organization"."default_anonymize_ips",
-         "posthog_organization"."is_hipaa",
-         "posthog_organization"."customer_id",
-         "posthog_organization"."available_product_features",
-         "posthog_organization"."usage",
-         "posthog_organization"."never_drop_data",
-         "posthog_organization"."customer_trust_scores",
-         "posthog_organization"."setup_section_2_completed",
-         "posthog_organization"."personalization",
-         "posthog_organization"."domain_whitelist",
-         "posthog_organization"."is_platform"
-  FROM "posthog_organization"
-  WHERE "posthog_organization"."id" = '00000000-0000-0000-0000-000000000000'::uuid
-  LIMIT 21
-  '''
-# ---
-# name: TestDashboard.test_loading_individual_dashboard_does_not_prefetch_all_possible_tiles.196
-  '''
-  SELECT "posthog_dashboard"."id",
-         "posthog_dashboard"."name",
-         "posthog_dashboard"."description",
-         "posthog_dashboard"."team_id",
-         "posthog_dashboard"."pinned",
-         "posthog_dashboard"."created_at",
-         "posthog_dashboard"."created_by_id",
-         "posthog_dashboard"."deleted",
-         "posthog_dashboard"."last_accessed_at",
-         "posthog_dashboard"."last_refresh",
-         "posthog_dashboard"."filters",
-         "posthog_dashboard"."variables",
-         "posthog_dashboard"."breakdown_colors",
-         "posthog_dashboard"."data_color_theme_id",
-         "posthog_dashboard"."creation_mode",
-         "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -10936,6 +10902,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -10972,6 +10939,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -11372,6 +11340,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -11658,6 +11627,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -12086,6 +12056,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -12349,6 +12320,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -12477,6 +12449,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -12875,6 +12848,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -13249,6 +13223,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -13638,6 +13613,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -13901,6 +13877,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -13993,6 +13970,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -16827,6 +16805,7 @@
          "posthog_dashboard"."data_color_theme_id",
          "posthog_dashboard"."creation_mode",
          "posthog_dashboard"."restriction_level",
+         "posthog_dashboard"."quick_filter_ids",
          "posthog_dashboard"."deprecated_tags",
          "posthog_dashboard"."tags",
          "posthog_dashboard"."share_token",
@@ -16950,65 +16929,6 @@
   '''
 # ---
 # name: TestDashboard.test_retrieve_dashboard_list.51
-  '''
-  SELECT "ee_accesscontrol"."id",
-         "ee_accesscontrol"."team_id",
-         "ee_accesscontrol"."access_level",
-         "ee_accesscontrol"."resource",
-         "ee_accesscontrol"."resource_id",
-         "ee_accesscontrol"."organization_member_id",
-         "ee_accesscontrol"."role_id",
-         "ee_accesscontrol"."created_by_id",
-         "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
-  FROM "ee_accesscontrol"
-  LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
-  WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
-          AND "ee_accesscontrol"."resource" = 'dashboard'
-          AND "ee_accesscontrol"."resource_id" = '99999'
-          AND "ee_accesscontrol"."role_id" IS NULL
-          AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'dashboard'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("ee_accesscontrol"."organization_member_id" IS NULL
-             AND "ee_accesscontrol"."resource" = 'dashboard'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999)
-         OR ("posthog_organizationmembership"."user_id" = 99999
-             AND "ee_accesscontrol"."resource" = 'dashboard'
-             AND "ee_accesscontrol"."resource_id" = '99999'
-             AND "ee_accesscontrol"."role_id" IS NULL
-             AND "ee_accesscontrol"."team_id" = 99999))
-  '''
-# ---
-# name: TestDashboard.test_retrieve_dashboard_list.52
-  '''
-  SELECT "posthog_taggeditem"."id",
-         "posthog_taggeditem"."tag_id",
-         "posthog_taggeditem"."dashboard_id",
-         "posthog_taggeditem"."insight_id",
-         "posthog_taggeditem"."event_definition_id",
-         "posthog_taggeditem"."property_definition_id",
-         "posthog_taggeditem"."action_id",
-         "posthog_taggeditem"."feature_flag_id",
-         "posthog_taggeditem"."experiment_saved_metric_id",
-         "posthog_tag"."id",
-         "posthog_tag"."name",
-         "posthog_tag"."team_id"
-  FROM "posthog_taggeditem"
-  INNER JOIN "posthog_tag" ON ("posthog_taggeditem"."tag_id" = "posthog_tag"."id")
-  WHERE "posthog_taggeditem"."dashboard_id" IN (1,
-                                                2,
-                                                3,
-                                                4,
-                                                5 /* ... */)
-  '''
-# ---
-# name: TestDashboard.test_retrieve_dashboard_list.53
   '''
   SELECT "ee_accesscontrol"."id",
          "ee_accesscontrol"."team_id",

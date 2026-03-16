@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { AvailableFeature, OrganizationDomainType } from '~/types'
+import { AvailableFeature, OrganizationDomainType, PaginatedSCIMRequestLogs } from '~/types'
 
 import type { verifiedDomainsLogicType } from './verifiedDomainsLogicType'
 
@@ -44,6 +44,10 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         setAddModalShown: (shown: boolean) => ({ shown }),
         setConfigureSAMLModalId: (id: string | null) => ({ id }),
         setConfigureSCIMModalId: (id: string | null) => ({ id }),
+        setScimLogsModalId: (id: string | null) => ({ id }),
+        setScimLogsStatusFilter: (filter: 'all' | 'success' | '4xx' | '5xx') => ({ filter }),
+        setScimLogsSearch: (search: string) => ({ search }),
+        setScimLogsPage: (page: number) => ({ page }),
         setVerifyModal: (id: string | null) => ({ id }),
     }),
     reducers({
@@ -74,6 +78,35 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
             null as null | string,
             {
                 setConfigureSCIMModalId: (_, { id }) => id,
+            },
+        ],
+        scimLogsModalId: [
+            null as null | string,
+            {
+                setScimLogsModalId: (_, { id }) => id,
+            },
+        ],
+        scimLogsStatusFilter: [
+            'all' as 'all' | 'success' | '4xx' | '5xx',
+            {
+                setScimLogsStatusFilter: (_, { filter }) => filter,
+                setScimLogsModalId: () => 'all',
+            },
+        ],
+        scimLogsSearch: [
+            '' as string,
+            {
+                setScimLogsSearch: (_, { search }) => search,
+                setScimLogsModalId: () => '',
+            },
+        ],
+        scimLogsPage: [
+            1 as number,
+            {
+                setScimLogsPage: (_, { page }) => page,
+                setScimLogsModalId: () => 1,
+                setScimLogsStatusFilter: () => 1,
+                setScimLogsSearch: () => 1,
             },
         ],
         verifyModal: [
@@ -181,6 +214,36 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
                 },
             },
         ],
+        scimLogs: [
+            null as PaginatedSCIMRequestLogs | null,
+            {
+                setScimLogsModalId: () => null,
+                loadScimLogs: async ({ domainId, page }: { domainId: string; page?: number }, breakpoint) => {
+                    await breakpoint(300)
+                    const params: Record<string, string> = {}
+                    if (values.scimLogsStatusFilter === 'success') {
+                        params.status_min = '200'
+                        params.status_max = '299'
+                    } else if (values.scimLogsStatusFilter === '4xx') {
+                        params.status_min = '400'
+                        params.status_max = '499'
+                    } else if (values.scimLogsStatusFilter === '5xx') {
+                        params.status_min = '500'
+                    }
+                    if (values.scimLogsSearch) {
+                        params.search = values.scimLogsSearch
+                    }
+                    if (page) {
+                        params.page = String(page)
+                    }
+                    const queryString = new URLSearchParams(params).toString()
+                    const url = `api/organizations/${values.currentOrganization?.id}/domains/${domainId}/scim/logs${queryString ? `?${queryString}` : ''}`
+                    const response = await api.get(url)
+                    await breakpoint()
+                    return response
+                },
+            },
+        ],
     })),
     listeners(({ actions, values }) => ({
         setConfigureSAMLModalId: ({ id }) => {
@@ -193,6 +256,26 @@ export const verifiedDomainsLogic = kea<verifiedDomainsLogicType>([
         setConfigureSCIMModalId: ({ id }) => {
             if (id) {
                 actions.loadScimConfig(id)
+            }
+        },
+        setScimLogsModalId: ({ id }) => {
+            if (id) {
+                actions.loadScimLogs({ domainId: id })
+            }
+        },
+        setScimLogsStatusFilter: () => {
+            if (values.scimLogsModalId) {
+                actions.loadScimLogs({ domainId: values.scimLogsModalId })
+            }
+        },
+        setScimLogsSearch: () => {
+            if (values.scimLogsModalId) {
+                actions.loadScimLogs({ domainId: values.scimLogsModalId })
+            }
+        },
+        setScimLogsPage: ({ page }) => {
+            if (values.scimLogsModalId) {
+                actions.loadScimLogs({ domainId: values.scimLogsModalId, page })
             }
         },
     })),

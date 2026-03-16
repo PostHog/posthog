@@ -134,6 +134,13 @@ export class InsightPage {
         // panel container to be visible so callers know the panel has mounted and
         // the portal target is registered.
         await this.page.locator('#side-panel').waitFor({ state: 'visible' })
+        // The insight panel content is rendered via createPortal into a target
+        // registered by SidePanelInfo's useEffect. Waiting for #side-panel alone
+        // doesn't guarantee the portal target has switched from the hidden inline
+        // panel (Navigation.tsx). Wait for portal content to appear *inside*
+        // #side-panel, confirming the switch is complete. Scoping to #side-panel
+        // avoids matching the hidden inline panel.
+        await this.page.locator('#side-panel .scene-panel-actions-section').first().waitFor({ state: 'visible' })
     }
 
     async clickDeleteInsight(): Promise<void> {

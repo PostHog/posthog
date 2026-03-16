@@ -659,7 +659,11 @@ class SendGridSourceConfig(config.Config):
 
 @config.config
 class SentrySourceConfig(config.Config):
-    pass
+    auth_token: str
+    organization_slug: str
+    api_base_url: Literal["https://sentry.io", "https://us.sentry.io", "https://de.sentry.io"] | None = config.value(
+        default="https://sentry.io"
+    )
 
 
 @config.config

@@ -566,33 +566,35 @@ pub async fn insert_evaluation_tags_for_flag_in_pg(
     let mut conn = client.get_connection().await?;
 
     for tag_name in tag_names {
-        // First, insert the tag if it doesn't exist
-        let tag_uuid = Uuid::now_v7();
-        let tag_id: Uuid = sqlx::query_scalar(
+        // Insert the evaluation context if it doesn't exist
+        let ctx_uuid = Uuid::now_v7();
+        let ctx_id: Uuid = sqlx::query_scalar(
             r#"
-            INSERT INTO posthog_tag (id, name, team_id)
-            VALUES ($1, $2, $3)
-            ON CONFLICT (name, team_id) DO UPDATE 
+            INSERT INTO posthog_evaluationcontext (id, name, team_id, created_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (team_id, name) DO UPDATE
             SET name = EXCLUDED.name
             RETURNING id
             "#,
         )
-        .bind(tag_uuid)
+        .bind(ctx_uuid)
         .bind(tag_name)
         .bind(team_id)
         .fetch_one(&mut *conn)
         .await?;
 
-        // Then, create the association
+        // Then, create the flag-context association
+        let assoc_uuid = Uuid::now_v7();
         sqlx::query(
             r#"
-            INSERT INTO posthog_featureflagevaluationtag (feature_flag_id, tag_id, created_at)
-            VALUES ($1, $2, NOW())
-            ON CONFLICT (feature_flag_id, tag_id) DO NOTHING
+            INSERT INTO posthog_featureflagevaluationcontext (id, feature_flag_id, evaluation_context_id, created_at)
+            VALUES ($1, $2, $3, NOW())
+            ON CONFLICT (feature_flag_id, evaluation_context_id) DO NOTHING
             "#,
         )
+        .bind(assoc_uuid)
         .bind(flag_id)
-        .bind(tag_id)
+        .bind(ctx_id)
         .execute(&mut *conn)
         .await?;
     }
@@ -667,6 +669,7 @@ pub async fn insert_cohort_for_team_in_pg(
         errors_calculating: 0,
         groups: serde_json::json!([]),
         created_by_id: None,
+        cohort_type: None,
     };
 
     let mut conn = client.get_connection().await?;
@@ -811,6 +814,7 @@ pub fn create_test_flag(
             payloads: None,
             super_groups: None,
             holdout_groups: None,
+            holdout: None,
         }),
         deleted: deleted.unwrap_or(false),
         active: active.unwrap_or(true),
@@ -832,8 +836,8 @@ pub async fn insert_suppression_rule_in_pg(
     let rule_id = uuid::Uuid::new_v4();
     sqlx::query(
         r#"INSERT INTO posthog_errortrackingsuppressionrule
-           (id, team_id, filters, created_at, updated_at, order_key)
-           VALUES ($1, $2, $3, NOW(), NOW(), 0)"#,
+           (id, team_id, filters, created_at, updated_at, order_key, sampling_rate)
+           VALUES ($1, $2, $3, NOW(), NOW(), 0, 1.0)"#,
     )
     .bind(rule_id)
     .bind(team_id)
@@ -881,6 +885,7 @@ pub fn create_test_flag_with_properties(
             payloads: None,
             super_groups: None,
             holdout_groups: None,
+            holdout: None,
         }),
         None,
         None,
@@ -1184,12 +1189,7 @@ impl TestContext {
         let pak_id = format!("test_pak_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let api_key_value = format!("phx_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
-        // Hash the key using SHA256
-        use sha2::{Digest, Sha256};
-        let mut hasher = Sha256::new();
-        hasher.update(api_key_value.as_bytes());
-        let hash_result = hasher.finalize();
-        let secure_value = format!("sha256${}", hex::encode(hash_result));
+        let secure_value = crate::api::auth::hash_personal_api_key(&api_key_value);
 
         let mut conn = self.non_persons_writer.get_connection().await?;
 

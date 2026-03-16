@@ -30,7 +30,7 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
     connect(() => ({
         values: [
             databaseTableListLogic,
-            ['dataWarehouseTables'],
+            ['database', 'dataWarehouseTables'],
             externalDataSourcesLogic,
             ['dataWarehouseSources', 'dataWarehouseSourcesLoading'],
             featureFlagLogic,
@@ -273,7 +273,10 @@ export const dataWarehouseSettingsLogic = kea<dataWarehouseSettingsLogicType>([
             })
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        if (!values.database) {
+            actions.loadDatabase()
+        }
         actions.loadSources()
     }),
     beforeUnmount(() => {

@@ -158,6 +158,7 @@ export const NEW_FLAG: FeatureFlagType = {
     user_access_level: AccessControlLevel.Editor,
     tags: [],
     evaluation_tags: [],
+    evaluation_contexts: [],
     is_remote_configuration: false,
     has_encrypted_payloads: false,
     status: 'ACTIVE',
@@ -1039,12 +1040,11 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                             console.warn('Failed to load default evaluation contexts:', error)
                         }
                         const defaultEnvs = values.defaultEvaluationContexts
-                        const defaultTags = defaultEnvs?.default_evaluation_tags || []
+                        const defaultContexts = defaultEnvs?.default_evaluation_contexts || []
 
                         return {
                             ...baseFlagConfig,
-                            tags: defaultTags.map((tag) => tag.name),
-                            evaluation_tags: defaultTags.map((tag) => tag.name),
+                            evaluation_contexts: defaultContexts.map((ctx) => ctx.name),
                         }
                     }
 

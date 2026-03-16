@@ -1283,20 +1283,18 @@ impl FeatureFlagMatcher {
         // experiment level concept that applies across experiments, and we are creating a feature flag level primitive to handle it.
         // Validating things like the variant name is the same across all flags, rolled out to 0%, has the same correct conditions is a bit of
         // a pain here. But I'm not sure if feature flags should indeed know all this info. It's fine for them to just work with what they're given.
-        if let Some(holdout_groups) = &flag.filters.holdout_groups {
-            if !holdout_groups.is_empty() {
-                let (is_match, holdout_value, evaluation_reason) =
-                    self.is_holdout_condition_match(flag, request_hash_key_override)?;
-                if is_match {
-                    let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
-                    return Ok(FeatureFlagMatch {
-                        matches: true,
-                        variant: holdout_value,
-                        reason: evaluation_reason,
-                        condition_index: None,
-                        payload,
-                    });
-                }
+        if flag.filters.holdout.is_some() || flag.filters.holdout_groups.is_some() {
+            let (is_match, holdout_value, evaluation_reason) =
+                self.is_holdout_condition_match(flag, request_hash_key_override)?;
+            if is_match {
+                let payload = self.get_matching_payload(holdout_value.as_deref(), flag);
+                return Ok(FeatureFlagMatch {
+                    matches: true,
+                    variant: holdout_value,
+                    reason: evaluation_reason,
+                    condition_index: None,
+                    payload,
+                });
             }
         }
         let conditions: Vec<(usize, &FlagPropertyGroup)> =
@@ -1555,9 +1553,28 @@ impl FeatureFlagMatcher {
         flag: &FeatureFlag,
         request_hash_key_override: &Option<String>,
     ) -> Result<(bool, Option<String>, FeatureFlagMatchReason), FlagError> {
-        // TODO: Right now holdout conditions only support basic rollout %s, and not property overrides.
+        // New format takes precedence: `holdout` has explicit id and exclusion_percentage.
+        // During the migration, Django writes both formats, so both may be present.
+        if let Some(holdout) = &flag.filters.holdout {
+            let percentage = holdout.exclusion_percentage.clamp(0.0, 100.0);
 
-        if let Some(holdout_groups) = &flag.filters.holdout_groups {
+            if percentage < 100.0
+                && self.get_holdout_hash(flag, None, request_hash_key_override)?
+                    > (percentage / 100.0)
+            {
+                // User's hash is above the exclusion threshold — not in holdout
+                return Ok((false, None, FeatureFlagMatchReason::OutOfRolloutBound));
+            }
+
+            // User is in holdout — variant name is derived from the holdout id
+            return Ok((
+                true,
+                Some(format!("holdout-{}", holdout.id)),
+                FeatureFlagMatchReason::HoldoutConditionValue,
+            ));
+        }
+        // Legacy format fallback: original holdout_groups logic, unchanged.
+        else if let Some(holdout_groups) = &flag.filters.holdout_groups {
             if !holdout_groups.is_empty() {
                 let condition = &holdout_groups[0];
                 // TODO: Check properties and match based on them

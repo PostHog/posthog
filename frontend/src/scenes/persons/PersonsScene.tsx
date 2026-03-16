@@ -133,7 +133,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                 })}
                                 data-attr="real_project_with_no_events-ingestion_link"
                             >
-                                onboarding wizard
+                                onboarding flow
                             </Link>{' '}
                             to get things moving
                         </>
