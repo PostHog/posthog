@@ -310,7 +310,7 @@ def create_or_update_slack_ticket(
     files: list[dict] | None = None,
     is_thread_reply: bool = False,
     slack_team_id: str | None = None,
-    channel_detail: str | None = None,
+    channel_detail: ChannelDetail | None = None,
 ) -> Ticket | None:
     """
     Core function: create a new ticket or add a message to an existing one.
