@@ -307,11 +307,35 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
                 }
             },
         )
+        self.team.test_account_filters = [{"type": "cohort", "key": "id", "value": cohort.id}]
+        self.team.save()
 
         with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
             cohort.name = "Updated name"
             cohort.save()
             mock_delay.assert_any_call(cohort_id=cohort.id)
+
+    def test_cohort_save_signal_skips_when_no_cohort_in_test_filters(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+                }
+            },
+        )
+        # Team does NOT use cohort in test_account_filters
+        self.team.test_account_filters = [
+            {"type": "person", "key": "email", "operator": "not_icontains", "value": "@posthog.com"}
+        ]
+        self.team.save()
+
+        with patch("posthog.tasks.hog_functions.refresh_affected_hog_functions.delay") as mock_delay:
+            cohort.name = "Updated name"
+            cohort.save()
+            mock_delay.assert_not_called()
 
     def test_cohort_refresh_finds_affected_teams_and_recompiles(self):
         from posthog.tasks.hog_functions import refresh_affected_hog_functions
@@ -336,6 +360,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             filters={"filter_test_accounts": True},
         )
 
+        assert hog_function.filters is not None
         original_bytecode = json.dumps(hog_function.filters["bytecode"])
         assert hog_function.filters.get("bytecode_error") is None
         assert "%@posthog.com%" in original_bytecode
@@ -352,6 +377,7 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
 
         hog_function.refresh_from_db()
         assert result == 1
+        assert hog_function.filters is not None
         new_bytecode = json.dumps(hog_function.filters["bytecode"])
         assert "%@newdomain.com%" in new_bytecode
         assert "%@posthog.com%" not in new_bytecode
@@ -381,13 +407,35 @@ class TestHogFunctionsBackgroundReloading(TestCase, QueryMatchingTest):
             team=self.team,
             filters={"filter_test_accounts": True},
         )
+        assert hog_function.filters is not None
         original_bytecode = json.dumps(hog_function.filters["bytecode"])
 
         result = refresh_affected_hog_functions(cohort_id=cohort.id)
         assert result == 0
 
         hog_function.refresh_from_db()
+        assert hog_function.filters is not None
         assert json.dumps(hog_function.filters["bytecode"]) == original_bytecode
+
+    def test_cohort_refresh_handles_deleted_cohort(self):
+        from posthog.tasks.hog_functions import refresh_affected_hog_functions
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Internal users",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [{"type": "person", "key": "email", "operator": "icontains", "value": "@posthog.com"}],
+                }
+            },
+        )
+        cohort_id = cohort.id
+        cohort.delete()
+
+        # Should not raise — just returns 0
+        result = refresh_affected_hog_functions(cohort_id=cohort_id)
+        assert result == 0
 
     @patch("posthog.plugins.plugin_server_api.get_hog_function_templates")
     def test_geoip_transformation_created_when_enabled(self, mock_get_templates):

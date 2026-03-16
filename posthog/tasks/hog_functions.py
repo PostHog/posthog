@@ -34,7 +34,11 @@ def refresh_affected_hog_functions(
     elif cohort_id:
         from posthog.models.cohort import Cohort
 
-        cohort = Cohort.objects.select_related("team").get(id=cohort_id)
+        try:
+            cohort = Cohort.objects.select_related("team").get(id=cohort_id)
+        except Cohort.DoesNotExist:
+            # Cohort was deleted between signal firing and task execution — nothing to refresh
+            return 0
         team = cohort.team
 
         # Check if this team references the cohort in its test_account_filters
