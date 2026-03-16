@@ -102,7 +102,7 @@ export function RolesAccessControls(): JSX.Element {
                 }
                 return (
                     <LemonButton
-                        type="secondary"
+                        type="tertiary"
                         size="small"
                         onClick={() => setEditingRoleId(role.id)}
                         disabledReason={!canEditRoles ? 'You cannot edit this' : undefined}
@@ -203,7 +203,7 @@ function RoleDetails({ roleId }: { roleId: string }): JSX.Element | null {
                     </LemonButton>
                 </div>
                 <LemonButton
-                    type="tertiary"
+                    type="secondary"
                     size="small"
                     className="whitespace-nowrap"
                     onClick={() =>
