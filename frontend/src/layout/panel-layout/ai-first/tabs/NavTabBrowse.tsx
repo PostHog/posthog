@@ -11,6 +11,7 @@ import {
     IconNotification,
     IconStar,
 } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -248,29 +249,28 @@ export function NavTabBrowse(): JSX.Element {
                                 const name = getItemName(item)
                                 const isActive = item.href ? currentPath === item.href : false
                                 return (
-                                    <Link
-                                        key={item.id}
-                                        to={item.href}
-                                        buttonProps={{
-                                            menuItem: true,
-                                            active: isActive,
-                                            className: 'group -outline-offset-2 pr-0',
-                                        }}
-                                        tooltip={name}
-                                        tooltipPlacement="right"
-                                        data-attr={`nav-recent-item-${item.id}`}
-                                    >
-                                        {iconForType(item.type as FileSystemIconType)}
-                                        <span className="flex-1 line-clamp-1 text-secondary group-hover:text-primary">
-                                            {name}
-                                        </span>
-                                        <span
-                                            className="opacity-30 text-xs pr-1.5"
-                                            title={humanFriendlyDetailedTime(item.last_viewed_at)}
+                                    <Tooltip title={name} placement="right" key={item.id}>
+                                        <Link
+                                            to={item.href}
+                                            buttonProps={{
+                                                menuItem: true,
+                                                active: isActive,
+                                                className: 'group -outline-offset-2 pr-0',
+                                            }}
+                                            data-attr={`nav-recent-item-${item.id}`}
                                         >
-                                            {formatRelativeDate(item.last_viewed_at)}
-                                        </span>
-                                    </Link>
+                                            {iconForType(item.type as FileSystemIconType)}
+                                            <span className="flex-1 line-clamp-1 text-secondary group-hover:text-primary">
+                                                {name}
+                                            </span>
+                                            <span
+                                                className="opacity-30 text-xs pr-1.5"
+                                                title={humanFriendlyDetailedTime(item.last_viewed_at)}
+                                            >
+                                                {formatRelativeDate(item.last_viewed_at)}
+                                            </span>
+                                        </Link>
+                                    </Tooltip>
                                 )
                             })
                         )}
