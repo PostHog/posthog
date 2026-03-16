@@ -145,7 +145,7 @@ const getItemTypeDisplayName = (type: string | null | undefined): string | null 
         marketing_analytics: 'Marketing analytics',
         session_replay: 'Session replay',
         error_tracking: 'Error tracking',
-        data_warehouse: 'Data warehouse',
+        data_warehouse: 'Data ops',
         data_pipeline: 'Data pipeline',
         annotation: 'Annotation',
         event_definition: 'Event',
@@ -752,7 +752,7 @@ function SearchResults({
                                                                         >
                                                                             {icon}
                                                                             <span className="truncate">
-                                                                                {item.displayName || item.name}
+                                                                                {String(item.displayName || item.name)}
                                                                             </span>
                                                                             {(group.category === 'recents' ||
                                                                                 group.category === 'groups') &&
@@ -859,11 +859,6 @@ function SearchFooter({ children }: SearchFooterProps): JSX.Element {
                     <span>
                         <KeyboardShortcut escape /> to close
                     </span>
-                    {searchValue.trim() && (
-                        <span>
-                            <KeyboardShortcut tab /> to ask AI
-                        </span>
-                    )}
                 </>
             )}
         </div>

@@ -1,7 +1,5 @@
-import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -25,26 +23,11 @@ class RecordingApiClient:
         self.session = session
         self.base_url = base_url.rstrip("/")
 
-    def _parse_block_url(self, block_url: str) -> tuple[str, int, int]:
-        """
-        Parse a block URL to extract the key, start byte, and end byte.
-
-        The block_url is in the format: s3://bucket/key?range=bytes=start-end
-        Returns a tuple of (key, start, end).
-        """
-        parsed = urlparse(block_url)
-        key = parsed.path.lstrip("/")
-
-        match = re.match(r"^range=bytes=(\d+)-(\d+)$", parsed.query)
-        if not match:
-            raise BlockFetchError(f"Invalid range format: {parsed.query}")
-
-        return key, int(match.group(1)), int(match.group(2))
-
-    async def fetch_block(self, block_url: str, session_id: str, team_id: int, *, decompress: bool = False) -> bytes:
-        key, start, end = self._parse_block_url(block_url)
+    async def fetch_block(
+        self, key: str, start_byte: int, end_byte: int, session_id: str, team_id: int, *, decompress: bool = False
+    ) -> bytes:
         url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/block"
-        params: dict[str, str | int] = {"key": key, "start": start, "end": end}
+        params: dict[str, str | int] = {"key": key, "start_byte": start_byte, "end_byte": end_byte}
         if decompress:
             params["decompress"] = "true"
 
@@ -81,6 +64,27 @@ class RecordingApiClient:
             )
             raise BlockFetchError(f"Failed to fetch block from Recording API: {str(e)}")
 
+    async def list_blocks(self, session_id: str, team_id: int) -> list[dict]:
+        url = f"{self.base_url}/api/projects/{team_id}/recordings/{session_id}/blocks"
+
+        try:
+            async with self.session.get(url) as response:
+                if response.status == 404:
+                    return []
+                response.raise_for_status()
+                data = await response.json()
+            return data.get("blocks", [])
+        except aiohttp.ClientError as e:
+            logger.exception(
+                "recording_api_client.list_blocks_failed",
+                url=url,
+                session_id=session_id,
+                team_id=team_id,
+                error=str(e),
+                exc_info=False,
+            )
+            raise
+
     async def delete_recordings(self, session_ids: list[str], team_id: int, deleted_by: str) -> list[str]:
         """
         Delete recordings via the Recording API.
@@ -113,7 +117,7 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
 
     Usage:
         async with recording_api_client() as client:
-            content = await client.fetch_block(block_url, session_id, team_id, decompress=True)
+            content = await client.fetch_block(key, start, end, session_id, team_id, decompress=True)
     """
     if not settings.RECORDING_API_URL:
         raise RuntimeError("RECORDING_API_URL is not configured")
@@ -125,5 +129,6 @@ async def recording_api_client() -> AsyncIterator[RecordingApiClient]:
         logger.warning("recording_api_client.missing_internal_api_secret")
 
     timeout = aiohttp.ClientTimeout(total=30, connect=5)
-    async with aiohttp.ClientSession(timeout=timeout, headers=headers) as session:
+    # nosemgrep: aiohttp-missing-trust-env -- internal service call to recording API
+    async with aiohttp.ClientSession(timeout=timeout, headers=headers, trust_env=False) as session:
         yield RecordingApiClient(session, settings.RECORDING_API_URL)
