@@ -49,8 +49,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             ['assignee', 'orderBy', 'orderDirection', 'status', 'useQueryV2', 'forceQueryV2'],
             settingsLogic({
                 logicKey: ERROR_TRACKING_LOGIC_KEY,
-                sectionId: 'environment-error-tracking',
-                settingId: 'error-tracking-exception-autocapture',
+                sectionId: 'environment-error-tracking-configuration',
+                settingId: 'error-tracking-auto-assignment',
             }),
             ['selectedSettingId'],
         ],
@@ -63,8 +63,8 @@ export const errorTrackingSceneLogic = kea<errorTrackingSceneLogicType>([
             ['setDateRange', 'setFilterGroup', 'setSearchQuery', 'setFilterTestAccounts'],
             settingsLogic({
                 logicKey: ERROR_TRACKING_LOGIC_KEY,
-                sectionId: 'environment-error-tracking',
-                settingId: 'error-tracking-exception-autocapture',
+                sectionId: 'environment-error-tracking-configuration',
+                settingId: 'error-tracking-auto-assignment',
             }),
             ['selectSetting'],
         ],
