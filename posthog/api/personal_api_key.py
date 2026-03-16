@@ -70,6 +70,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         return getattr(obj, "_value", None)  # type: ignore
 
     def get_is_legacy_hashing(self, obj: PersonalAPIKey) -> bool:
+        # Keys created before 2024-02 use PBKDF2 hashing, which is significantly slower per request
         return bool(obj.secure_value and obj.secure_value.startswith(LEGACY_HASH_PREFIX))
 
     def validate_scopes(self, scopes):

@@ -101,6 +101,8 @@ export function EditKeyModal({ zIndex }: EditKeyModalProps): JSX.Element {
                                                 children: 'Roll',
                                                 type: 'primary',
                                                 onClick: () => {
+                                                    // Close the edit modal first so the post-roll new key value
+                                                    // is shown via the table's standard roll confirmation flow.
                                                     setEditingKeyId(null)
                                                     rollKey(id)
                                                 },
@@ -380,10 +382,18 @@ function PersonalAPIKeysTable(): JSX.Element {
                             const hasPartialRestrictions =
                                 (restrictedOrgs.length > 0 || restrictedTeams.length > 0) && !keyDisabled
 
+                            const legacyTag = key.is_legacy_hashing ? (
+                                <Tooltip title="This key uses legacy hashing. Roll or delete it to upgrade.">
+                                    <LemonTag type="caution">Legacy</LemonTag>
+                                </Tooltip>
+                            ) : null
+
+                            let statusTag: JSX.Element | null = null
+
                             if (keyDisabled) {
                                 const orgNames = restrictedOrgs.map((org: any) => org.name)
 
-                                return (
+                                statusTag = (
                                     <Tooltip
                                         title={
                                             orgNames.length === 1 ? (
@@ -402,9 +412,7 @@ function PersonalAPIKeysTable(): JSX.Element {
                                         <LemonTag type="danger">Disabled</LemonTag>
                                     </Tooltip>
                                 )
-                            }
-
-                            if (hasPartialRestrictions) {
+                            } else if (hasPartialRestrictions) {
                                 let tooltipMessage: JSX.Element = <span />
 
                                 // Handle project-scoped keys with restrictions
@@ -457,22 +465,23 @@ function PersonalAPIKeysTable(): JSX.Element {
                                         )
                                 }
 
-                                return (
+                                statusTag = (
                                     <Tooltip title={tooltipMessage}>
                                         <LemonTag type="warning">Partial restrictions</LemonTag>
                                     </Tooltip>
                                 )
                             }
 
-                            if (key.is_legacy_hashing) {
+                            if (statusTag && legacyTag) {
                                 return (
-                                    <Tooltip title="This key uses legacy hashing. Roll or delete it to upgrade.">
-                                        <LemonTag type="caution">Legacy</LemonTag>
-                                    </Tooltip>
+                                    <span className="flex flex-wrap gap-1">
+                                        {statusTag}
+                                        {legacyTag}
+                                    </span>
                                 )
                             }
 
-                            return <LemonTag type="success">Active</LemonTag>
+                            return statusTag ?? legacyTag ?? <LemonTag type="success">Active</LemonTag>
                         },
                     },
                     {

@@ -134,17 +134,24 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.status_code == 204
         assert PersonalAPIKey.objects.count() == 0
 
-    def test_list_shows_legacy_hashing_true_for_pbkdf2_key(self):
+    @parameterized.expand(
+        [
+            ("pbkdf2_260000", "pbkdf2_sha256$260000$posthog_personal_api_key$somehashvalue=", True),
+            ("pbkdf2_390000", "pbkdf2_sha256$390000$posthog_personal_api_key$otherhashvalue=", True),
+            ("sha256", "sha256$" + "a" * 64, False),
+        ]
+    )
+    def test_list_is_legacy_hashing(self, _, secure_value, expected):
         PersonalAPIKey.objects.create(
-            label="Legacy key",
+            label="Test key",
             user=self.user,
-            secure_value="pbkdf2_sha256$260000$posthog_personal_api_key$somehashvalue=",
+            secure_value=secure_value,
             scopes=["insight:read"],
         )
         response = self.client.get("/api/personal_api_keys")
         assert response.status_code == 200
-        legacy_key = next(k for k in response.json() if k["label"] == "Legacy key")
-        assert legacy_key["is_legacy_hashing"] is True
+        key_data = next(k for k in response.json() if k["label"] == "Test key")
+        assert key_data["is_legacy_hashing"] is expected
 
     def test_roll_clears_legacy_hashing(self):
         key = PersonalAPIKey.objects.create(
@@ -159,7 +166,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["is_legacy_hashing"] is False
         key.refresh_from_db()
-        assert key.secure_value.startswith(SHA256_HASH_PREFIX)
+        assert key.secure_value is not None and key.secure_value.startswith(SHA256_HASH_PREFIX)
 
     def test_list_only_user_personal_api_keys(self):
         my_label = "Test"
