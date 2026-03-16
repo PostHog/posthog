@@ -79,7 +79,7 @@ const notebooksListMock = {
 const CANVAS_SHORT_ID = `canvas-${PERSON_ID}`
 
 function AppWithProfileContext(): JSX.Element {
-    const attrs = useMemo(() => ({ personId: PERSON_ID }), [])
+    const attrs = useMemo(() => ({ personId: PERSON_ID, distinctIds: DISTINCT_IDS }), [])
     const profileProps = {
         attrs,
         scope: CustomerProfileScope.PERSON,

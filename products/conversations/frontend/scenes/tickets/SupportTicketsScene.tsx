@@ -260,7 +260,11 @@ export function SupportTicketsTable({ embedded = false }: SupportTicketsTablePro
                     'bg-primary-alt-highlight': ticket.unread_team_count > 0,
                 })
             }
-            columns={SUPPORT_TICKETS_TABLE_COLUMNS}
+            columns={
+                embedded
+                    ? SUPPORT_TICKETS_TABLE_COLUMNS.filter((col) => col.key !== 'customer')
+                    : SUPPORT_TICKETS_TABLE_COLUMNS
+            }
         />
     )
 }
