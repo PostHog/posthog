@@ -65,9 +65,9 @@ describe('TaxonomicFilter', () => {
     }
 
     function expectActiveTab(activeTestId: string, inactiveTestId?: string): void {
-        expect(screen.getByTestId(activeTestId).closest('[class*="LemonTag--primary"]')).toBeInTheDocument()
+        expect(screen.getByTestId(activeTestId)).toHaveClass('LemonTag--primary')
         if (inactiveTestId) {
-            expect(screen.getByTestId(inactiveTestId).closest('[class*="LemonTag--primary"]')).not.toBeInTheDocument()
+            expect(screen.getByTestId(inactiveTestId)).not.toHaveClass('LemonTag--primary')
         }
     }
 
