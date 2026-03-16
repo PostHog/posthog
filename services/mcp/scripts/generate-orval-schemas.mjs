@@ -184,8 +184,16 @@ export default defineConfig({
   },
 });
 `
+
     fs.writeFileSync(configFile, config)
     execSync(`pnpm exec orval --config "${configFile}"`, { stdio: 'pipe', cwd: repoRoot })
+
+    // Annotate top-level exported Zod expressions with @__PURE__ so esbuild
+    // can tree-shake unused schemas out of the bundle.
+    const generated = fs.readFileSync(outputFile, 'utf-8')
+    const annotated = generated.replace(/^(export const \w+ =) (zod\.)/gm, '$1 /* @__PURE__ */ $2')
+    fs.writeFileSync(outputFile, annotated)
+
     return moduleOutputDir
 }
 

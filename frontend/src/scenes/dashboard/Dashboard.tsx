@@ -21,13 +21,14 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneStickyBar } from '~/layout/scenes/components/SceneStickyBar'
 import { ProductKey } from '~/queries/schema/schema-general'
-import { DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
+import { DashboardMode, DashboardPlacement, DashboardType, DataColorThemeModel, QueryBasedInsightModel } from '~/types'
 
 import { teamLogic } from '../teamLogic'
 import { AddInsightToDashboardModal } from './addInsightToDashboardModal/AddInsightToDashboardModal'
 import { addInsightToDashboardLogic } from './addInsightToDashboardModalLogic'
 import { DashboardHeader } from './DashboardHeader'
 import { DashboardOverridesBanner } from './DashboardOverridesBanner'
+import { DashboardZoomControl } from './DashboardZoomControl'
 import { EmptyDashboardComponent } from './EmptyDashboardComponent'
 
 interface DashboardProps {
@@ -82,6 +83,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         cancellingPreview,
         hasUrlFilters,
     } = useValues(dashboardLogic)
+    const { layoutZoom } = useValues(dashboardLogic)
     const { currentTeamId } = useValues(teamLogic)
     const {
         reportDashboardViewed,
@@ -90,6 +92,7 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
         setAnalysisRating,
         applyFilters,
         setDashboardMode,
+        setLayoutZoom,
     } = useActions(dashboardLogic)
     const { addInsightToDashboardModalVisible } = useValues(addInsightToDashboardLogic)
 
@@ -193,8 +196,17 @@ function DashboardScene({ backTo }: { backTo?: { url: string; name: string } }):
                         </LemonBanner>
                     )}
 
-                    <SceneStickyBar showBorderBottom={false}>
+                    <SceneStickyBar showBorderBottom={false} className="flex">
                         <DashboardFilterBar backTo={backTo} />
+                        {dashboardMode === DashboardMode.Edit &&
+                            canEditDashboard &&
+                            [
+                                DashboardPlacement.Dashboard,
+                                DashboardPlacement.ProjectHomepage,
+                                DashboardPlacement.Builtin,
+                            ].includes(placement) && (
+                                <DashboardZoomControl layoutZoom={layoutZoom} setLayoutZoom={setLayoutZoom} />
+                            )}
                     </SceneStickyBar>
 
                     <DashboardItems />
