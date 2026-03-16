@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const ErrorTrackingIssuesListParams = zod.object({
+export const ErrorTrackingIssuesListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,12 +16,12 @@ export const ErrorTrackingIssuesListParams = zod.object({
         ),
 })
 
-export const ErrorTrackingIssuesListQueryParams = zod.object({
+export const ErrorTrackingIssuesListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const ErrorTrackingIssuesRetrieveParams = zod.object({
+export const ErrorTrackingIssuesRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this error tracking issue.'),
     project_id: zod
         .string()
@@ -30,7 +30,7 @@ export const ErrorTrackingIssuesRetrieveParams = zod.object({
         ),
 })
 
-export const ErrorTrackingIssuesPartialUpdateParams = zod.object({
+export const ErrorTrackingIssuesPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.string().describe('A UUID string identifying this error tracking issue.'),
     project_id: zod
         .string()
@@ -39,7 +39,7 @@ export const ErrorTrackingIssuesPartialUpdateParams = zod.object({
         ),
 })
 
-export const ErrorTrackingIssuesPartialUpdateBody = zod.object({
+export const ErrorTrackingIssuesPartialUpdateBody = /* @__PURE__ */ zod.object({
     status: zod
         .enum(['archived', 'active', 'resolved', 'pending_release', 'suppressed'])
         .optional()
