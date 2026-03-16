@@ -8,27 +8,13 @@ use personhog_proto::personhog::leader::v1::person_hog_leader_client::PersonHogL
 use personhog_proto::personhog::leader::v1::{
     LeaderGetPersonRequest, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
-use personhog_proto::personhog::types::v1::{
-    CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
-    DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
-    GetDistinctIdsForPersonResponse, GetDistinctIdsForPersonsRequest,
-    GetDistinctIdsForPersonsResponse, GetGroupRequest, GetGroupResponse,
-    GetGroupTypeMappingsByProjectIdRequest, GetGroupTypeMappingsByProjectIdsRequest,
-    GetGroupTypeMappingsByTeamIdRequest, GetGroupTypeMappingsByTeamIdsRequest,
-    GetGroupsBatchRequest, GetGroupsBatchResponse, GetGroupsRequest,
-    GetHashKeyOverrideContextRequest, GetHashKeyOverrideContextResponse,
-    GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest, GetPersonResponse,
-    GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupTypeMappingsBatchResponse, GroupTypeMappingsResponse, GroupsResponse,
-    PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
-    UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
-};
+use personhog_proto::personhog::types::v1::{GetPersonRequest, GetPersonResponse};
 use tokio::sync::RwLock;
 use tonic::transport::Channel;
 use tonic::{Request, Status};
 
 use super::retry::with_retry;
-use super::PersonHogBackend;
+use super::LeaderOps;
 use crate::config::RetryConfig;
 
 type AddressResolver = Arc<dyn Fn(&str) -> Option<String> + Send + Sync>;
@@ -56,6 +42,10 @@ impl LeaderBackend {
         timeout: Duration,
         retry_config: RetryConfig,
     ) -> Self {
+        assert!(
+            num_partitions > 0,
+            "num_partitions must be > 0 to avoid division by zero in partition_for_person"
+        );
         Self {
             routing_table,
             clients: DashMap::new(),
@@ -69,8 +59,15 @@ impl LeaderBackend {
     /// Compute the Kafka partition for a person using murmur2.
     /// The key is `team_id:person_id`, matching the Kafka topic key.
     fn partition_for_person(&self, team_id: i64, person_id: i64) -> u32 {
-        let key = format!("{team_id}:{person_id}");
-        let hash = kafka_murmur2(key.as_bytes());
+        // i64 max string length is 20 chars. Two i64s + ':' = 41 bytes max.
+        let mut buf = [0u8; 41];
+        let len = {
+            use std::io::Write;
+            let mut cursor = std::io::Cursor::new(&mut buf[..]);
+            write!(cursor, "{team_id}:{person_id}").unwrap();
+            cursor.position() as usize
+        };
+        let hash = kafka_murmur2(&buf[..len]);
         let positive = (hash & 0x7fffffff) as u32;
         positive % self.num_partitions
     }
@@ -162,11 +159,8 @@ fn kafka_murmur2(data: &[u8]) -> i32 {
     h
 }
 
-const LEADER_UNSUPPORTED: &str = "operation not supported by the leader backend";
-
 #[async_trait]
-impl PersonHogBackend for LeaderBackend {
-    // Strong consistency read: routes to leader for latest person state.
+impl LeaderOps for LeaderBackend {
     async fn get_person(&self, request: GetPersonRequest) -> Result<GetPersonResponse, Status> {
         let partition = self.partition_for_person(request.team_id, request.person_id);
         let leader_req = LeaderGetPersonRequest {
@@ -208,115 +202,6 @@ impl PersonHogBackend for LeaderBackend {
         })
         .await
     }
-
-    // All other operations are not supported by the leader backend.
-    // The router only routes writes and strong reads here.
-
-    async fn get_persons(&self, _request: GetPersonsRequest) -> Result<PersonsResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_person_by_uuid(
-        &self,
-        _request: GetPersonByUuidRequest,
-    ) -> Result<GetPersonResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_persons_by_uuids(
-        &self,
-        _request: GetPersonsByUuidsRequest,
-    ) -> Result<PersonsResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_person_by_distinct_id(
-        &self,
-        _request: GetPersonByDistinctIdRequest,
-    ) -> Result<GetPersonResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_persons_by_distinct_ids_in_team(
-        &self,
-        _request: GetPersonsByDistinctIdsInTeamRequest,
-    ) -> Result<PersonsByDistinctIdsInTeamResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_persons_by_distinct_ids(
-        &self,
-        _request: GetPersonsByDistinctIdsRequest,
-    ) -> Result<PersonsByDistinctIdsResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_distinct_ids_for_person(
-        &self,
-        _request: GetDistinctIdsForPersonRequest,
-    ) -> Result<GetDistinctIdsForPersonResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_distinct_ids_for_persons(
-        &self,
-        _request: GetDistinctIdsForPersonsRequest,
-    ) -> Result<GetDistinctIdsForPersonsResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_hash_key_override_context(
-        &self,
-        _request: GetHashKeyOverrideContextRequest,
-    ) -> Result<GetHashKeyOverrideContextResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn upsert_hash_key_overrides(
-        &self,
-        _request: UpsertHashKeyOverridesRequest,
-    ) -> Result<UpsertHashKeyOverridesResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn delete_hash_key_overrides_by_teams(
-        &self,
-        _request: DeleteHashKeyOverridesByTeamsRequest,
-    ) -> Result<DeleteHashKeyOverridesByTeamsResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn check_cohort_membership(
-        &self,
-        _request: CheckCohortMembershipRequest,
-    ) -> Result<CohortMembershipResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_group(&self, _request: GetGroupRequest) -> Result<GetGroupResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_groups(&self, _request: GetGroupsRequest) -> Result<GroupsResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_groups_batch(
-        &self,
-        _request: GetGroupsBatchRequest,
-    ) -> Result<GetGroupsBatchResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_group_type_mappings_by_team_id(
-        &self,
-        _request: GetGroupTypeMappingsByTeamIdRequest,
-    ) -> Result<GroupTypeMappingsResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_group_type_mappings_by_team_ids(
-        &self,
-        _request: GetGroupTypeMappingsByTeamIdsRequest,
-    ) -> Result<GroupTypeMappingsBatchResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_group_type_mappings_by_project_id(
-        &self,
-        _request: GetGroupTypeMappingsByProjectIdRequest,
-    ) -> Result<GroupTypeMappingsResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
-    async fn get_group_type_mappings_by_project_ids(
-        &self,
-        _request: GetGroupTypeMappingsByProjectIdsRequest,
-    ) -> Result<GroupTypeMappingsBatchResponse, Status> {
-        Err(Status::unimplemented(LEADER_UNSUPPORTED))
-    }
 }
 
 #[cfg(test)]
@@ -333,10 +218,19 @@ mod tests {
         // Different inputs produce different hashes
         let h3 = kafka_murmur2(b"43");
         assert_ne!(h1, h3);
+    }
 
-        // Empty input produces a valid hash
-        let h_empty = kafka_murmur2(b"");
-        let _ = h_empty; // just ensure no panic
+    /// Pin murmur2 output so accidental algorithm changes are caught.
+    /// These values must match `org.apache.kafka.common.utils.Utils.murmur2()`
+    /// to ensure partition assignment is consistent with Kafka's default partitioner.
+    #[test]
+    fn murmur2_pinned_values() {
+        assert_eq!(kafka_murmur2(b""), 275646681);
+        assert_eq!(kafka_murmur2(b"21"), -973932308);
+        assert_eq!(kafka_murmur2(b"42"), 417700972);
+        assert_eq!(kafka_murmur2(b"1:42"), -1141388408);
+        assert_eq!(kafka_murmur2(b"hello"), 2132663229);
+        assert_eq!(kafka_murmur2(b"test-key"), -1341026247);
     }
 
     #[test]

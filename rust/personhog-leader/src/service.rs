@@ -1,5 +1,6 @@
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
+use dashmap::DashMap;
 use metrics::counter;
 use personhog_proto::personhog::leader::v1::person_hog_leader_server::PersonHogLeader;
 use personhog_proto::personhog::leader::v1::{
@@ -8,16 +9,22 @@ use personhog_proto::personhog::leader::v1::{
 use personhog_proto::personhog::types::v1::{GetPersonResponse, Person};
 use tonic::{Request, Response, Status};
 
-use crate::cache::{CachedPerson, PartitionedCache, PersonCacheKey};
+use crate::cache::{CacheLookup, CachedPerson, PartitionedCache, PersonCacheKey};
 use crate::person_update::{apply_property_updates, compute_event_property_updates};
 
 pub struct PersonHogLeaderService {
     cache: Arc<PartitionedCache>,
+    /// Per-key locks to serialize concurrent updates for the same person.
+    /// Prevents lost updates from concurrent get → compute → put sequences.
+    update_locks: DashMap<PersonCacheKey, Arc<Mutex<()>>>,
 }
 
 impl PersonHogLeaderService {
     pub fn new(cache: Arc<PartitionedCache>) -> Self {
-        Self { cache }
+        Self {
+            cache,
+            update_locks: DashMap::new(),
+        }
     }
 }
 
@@ -38,6 +45,25 @@ fn cached_person_to_proto(p: &CachedPerson) -> Person {
     }
 }
 
+#[allow(clippy::result_large_err)]
+fn lookup_person(
+    cache: &PartitionedCache,
+    partition: u32,
+    key: &PersonCacheKey,
+) -> Result<Arc<CachedPerson>, Status> {
+    match cache.get(partition, key) {
+        CacheLookup::Found(person) => Ok(person),
+        CacheLookup::PersonNotFound => Err(Status::not_found(format!(
+            "person not found: team_id={}, person_id={}",
+            key.team_id, key.person_id
+        ))),
+        CacheLookup::PartitionNotOwned => Err(Status::failed_precondition(format!(
+            "partition {} not owned by this leader",
+            partition
+        ))),
+    }
+}
+
 #[tonic::async_trait]
 impl PersonHogLeader for PersonHogLeaderService {
     async fn get_person(
@@ -50,19 +76,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             person_id: req.person_id,
         };
 
-        if !self.cache.has_partition(req.partition) {
-            return Err(Status::failed_precondition(format!(
-                "partition {} not owned by this leader",
-                req.partition
-            )));
-        }
-
-        let person = self.cache.get(req.partition, &cache_key).ok_or_else(|| {
-            Status::not_found(format!(
-                "person not found: team_id={}, person_id={}",
-                req.team_id, req.person_id
-            ))
-        })?;
+        let person = lookup_person(&self.cache, req.partition, &cache_key)?;
 
         Ok(Response::new(GetPersonResponse {
             person: Some(cached_person_to_proto(&person)),
@@ -75,26 +89,12 @@ impl PersonHogLeader for PersonHogLeaderService {
     ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         let req = request.into_inner();
 
-        if !self.cache.has_partition(req.partition) {
-            return Err(Status::failed_precondition(format!(
-                "partition {} not owned by this leader",
-                req.partition
-            )));
-        }
-
         let cache_key = PersonCacheKey {
             team_id: req.team_id,
             person_id: req.person_id,
         };
 
-        let person = self.cache.get(req.partition, &cache_key).ok_or_else(|| {
-            Status::not_found(format!(
-                "person not found: team_id={}, person_id={}",
-                req.team_id, req.person_id
-            ))
-        })?;
-
-        // Parse the property diffs from the request
+        // Parse JSON before acquiring the per-key lock to minimize lock hold time
         let set_properties: serde_json::Value = if req.set_properties.is_empty() {
             serde_json::Value::Object(serde_json::Map::new())
         } else {
@@ -111,6 +111,18 @@ impl PersonHogLeader for PersonHogLeaderService {
             })?
         };
 
+        // Per-key lock serializes concurrent updates for the same person,
+        // preventing lost updates from concurrent get → compute → put sequences.
+        let mutex = self
+            .update_locks
+            .entry(cache_key.clone())
+            .or_default()
+            .value()
+            .clone();
+        let _guard = mutex.lock().expect("update lock poisoned");
+
+        let person = lookup_person(&self.cache, req.partition, &cache_key)?;
+
         // Compute property updates
         let updates = compute_event_property_updates(
             &req.event_name,
@@ -120,6 +132,7 @@ impl PersonHogLeader for PersonHogLeaderService {
             &person.properties,
         );
 
+        // Fast path: no diffs detected, skip the clone in apply_property_updates
         if !updates.has_changes {
             counter!("personhog_leader_updates_total", "outcome" => "no_change").increment(1);
             return Ok(Response::new(UpdatePersonPropertiesResponse {
@@ -128,7 +141,8 @@ impl PersonHogLeader for PersonHogLeaderService {
             }));
         }
 
-        // Apply updates to get new properties
+        // Slow path: apply diffs and check if the values actually changed
+        // (has_changes can be true when $set sends the same value that already exists)
         let (new_properties, actually_updated) =
             apply_property_updates(&updates, &person.properties);
 
@@ -140,22 +154,22 @@ impl PersonHogLeader for PersonHogLeaderService {
             }));
         }
 
-        // TODO: get → compute → put is not atomic. Two concurrent requests for the same
-        // person could read the same version, compute independently, and last-write-wins.
-        // Safe while each partition has a single leader, but needs compare-and-swap or
-        // per-key locking for production multi-writer scenarios.
         let updated_person = CachedPerson {
+            id: person.id,
+            uuid: person.uuid.clone(),
+            team_id: person.team_id,
             properties: new_properties,
+            created_at: person.created_at,
             version: person.version + 1,
-            ..person
+            is_identified: person.is_identified,
         };
-        self.cache
-            .put(req.partition, cache_key, updated_person.clone());
+        let proto = cached_person_to_proto(&updated_person);
+        self.cache.put(req.partition, cache_key, updated_person);
 
         counter!("personhog_leader_updates_total", "outcome" => "updated").increment(1);
 
         Ok(Response::new(UpdatePersonPropertiesResponse {
-            person: Some(cached_person_to_proto(&updated_person)),
+            person: Some(proto),
             updated: true,
         }))
     }

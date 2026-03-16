@@ -26,8 +26,19 @@ use personhog_proto::personhog::types::v1::{
 };
 use tonic::Status;
 
-/// Trait defining the backend interface for person-related operations.
-/// Implementations provide the actual data access (e.g., replica, leader).
+/// Trait for leader-specific operations: strong-consistency reads and writes.
+/// Only the leader backend implements this (partition-aware routing to leader pods).
+#[async_trait]
+pub trait LeaderOps: Send + Sync {
+    async fn get_person(&self, request: GetPersonRequest) -> Result<GetPersonResponse, Status>;
+    async fn update_person_properties(
+        &self,
+        request: UpdatePersonPropertiesRequest,
+    ) -> Result<UpdatePersonPropertiesResponse, Status>;
+}
+
+/// Trait defining the replica backend interface for read operations.
+/// The replica serves eventual-consistency reads from Postgres replicas.
 #[async_trait]
 pub trait PersonHogBackend: Send + Sync {
     // Person lookups by ID
@@ -111,14 +122,4 @@ pub trait PersonHogBackend: Send + Sync {
         &self,
         request: GetGroupTypeMappingsByProjectIdsRequest,
     ) -> Result<GroupTypeMappingsBatchResponse, Status>;
-
-    // Person property updates (leader only)
-    async fn update_person_properties(
-        &self,
-        _request: UpdatePersonPropertiesRequest,
-    ) -> Result<UpdatePersonPropertiesResponse, Status> {
-        Err(Status::unimplemented(
-            "UpdatePersonProperties is not supported by this backend",
-        ))
-    }
 }

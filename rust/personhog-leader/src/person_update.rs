@@ -1,17 +1,12 @@
 use std::collections::{HashMap, HashSet};
+use std::sync::LazyLock;
 
-use once_cell::sync::Lazy;
 use serde_json::Value;
 
 /// Events that should never trigger person property updates because
 /// there is no ordering guarantee across them with other person updates.
-static NO_PERSON_UPDATE_EVENTS: Lazy<HashSet<&'static str>> =
-    Lazy::new(|| HashSet::from(["$exception", "$$heatmap"]));
-
-/// Events that are explicit person-level operations. These bypass
-/// property filtering and always trigger updates.
-static PERSON_EVENTS: Lazy<HashSet<&'static str>> =
-    Lazy::new(|| HashSet::from(["$identify", "$create_alias", "$merge_dangerously", "$set"]));
+static NO_PERSON_UPDATE_EVENTS: LazyLock<HashSet<&'static str>> =
+    LazyLock::new(|| HashSet::from(["$exception", "$$heatmap"]));
 
 /// The result of computing property diffs from an event.
 #[derive(Debug, Clone)]
@@ -19,7 +14,6 @@ pub struct PropertyUpdates {
     pub to_set: HashMap<String, Value>,
     pub to_unset: Vec<String>,
     pub has_changes: bool,
-    pub should_force_update: bool,
 }
 
 /// Compute property changes from event data without modifying the existing person properties.
@@ -39,11 +33,9 @@ pub fn compute_event_property_updates(
             has_changes: false,
             to_set: HashMap::new(),
             to_unset: Vec::new(),
-            should_force_update: false,
         };
     }
 
-    let should_force_update = PERSON_EVENTS.contains(event_name);
     let person_props = person_properties.as_object();
 
     let mut has_changes = false;
@@ -85,7 +77,6 @@ pub fn compute_event_property_updates(
         has_changes,
         to_set,
         to_unset,
-        should_force_update,
     }
 }
 
@@ -138,32 +129,6 @@ mod tests {
             assert!(result.to_set.is_empty());
             assert!(result.to_unset.is_empty());
         }
-    }
-
-    #[test]
-    fn person_events_set_force_update() {
-        for event in &["$identify", "$create_alias", "$merge_dangerously", "$set"] {
-            let result = compute_event_property_updates(
-                event,
-                &json!({"key": "value"}),
-                &json!({}),
-                &[],
-                &json!({}),
-            );
-            assert!(result.should_force_update);
-        }
-    }
-
-    #[test]
-    fn regular_events_do_not_force_update() {
-        let result = compute_event_property_updates(
-            "$pageview",
-            &json!({"key": "value"}),
-            &json!({}),
-            &[],
-            &json!({}),
-        );
-        assert!(!result.should_force_update);
     }
 
     #[test]
@@ -259,7 +224,6 @@ mod tests {
             ]),
             to_unset: vec![],
             has_changes: true,
-            should_force_update: false,
         };
 
         let (result, updated) =
@@ -276,7 +240,6 @@ mod tests {
             to_set: HashMap::new(),
             to_unset: vec!["email".to_string()],
             has_changes: true,
-            should_force_update: false,
         };
 
         let (result, updated) = apply_property_updates(
@@ -295,7 +258,6 @@ mod tests {
             to_set: HashMap::from([("email".to_string(), json!("same@example.com"))]),
             to_unset: vec![],
             has_changes: true,
-            should_force_update: false,
         };
 
         let (result, updated) =

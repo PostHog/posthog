@@ -1,7 +1,16 @@
+use std::sync::Arc;
+
 use dashmap::DashMap;
 use metrics::counter;
 
 use super::persons::{CachedPerson, PersonCache, PersonCacheKey};
+
+/// Result of a cache lookup that distinguishes partition ownership from person existence.
+pub enum CacheLookup {
+    Found(Arc<CachedPerson>),
+    PersonNotFound,
+    PartitionNotOwned,
+}
 
 /// Per-partition cache manager. Each partition gets its own independent
 /// Foyer cache so that releasing a partition drops all its entries cleanly.
@@ -34,13 +43,16 @@ impl PartitionedCache {
         self.partitions.contains_key(&partition)
     }
 
-    /// Look up a person in the partition's cache.
-    pub fn get(&self, partition: u32, key: &PersonCacheKey) -> Option<CachedPerson> {
+    /// Look up a person in the partition's cache with a single DashMap lock acquisition.
+    pub fn get(&self, partition: u32, key: &PersonCacheKey) -> CacheLookup {
         match self.partitions.get(&partition) {
-            Some(cache) => cache.get(key),
+            Some(cache) => match cache.get(key) {
+                Some(person) => CacheLookup::Found(person),
+                None => CacheLookup::PersonNotFound,
+            },
             None => {
-                counter!("personhog_leader_partition_miss_total").increment(1);
-                None
+                counter!("personhog_leader_unowned_partition_total").increment(1);
+                CacheLookup::PartitionNotOwned
             }
         }
     }
@@ -78,9 +90,12 @@ mod tests {
     }
 
     #[test]
-    fn get_returns_none_for_unknown_partition() {
+    fn get_returns_partition_not_owned_for_unknown_partition() {
         let cache = PartitionedCache::new(100);
-        assert!(cache.get(0, &test_key()).is_none());
+        assert!(matches!(
+            cache.get(0, &test_key()),
+            CacheLookup::PartitionNotOwned
+        ));
     }
 
     #[test]
@@ -90,7 +105,9 @@ mod tests {
         assert!(cache.has_partition(0));
 
         cache.put(0, test_key(), test_person());
-        let person = cache.get(0, &test_key()).unwrap();
+        let CacheLookup::Found(person) = cache.get(0, &test_key()) else {
+            panic!("expected Found");
+        };
         assert_eq!(person.id, 1);
     }
 
@@ -102,7 +119,10 @@ mod tests {
 
         cache.drop_partition(0);
         assert!(!cache.has_partition(0));
-        assert!(cache.get(0, &test_key()).is_none());
+        assert!(matches!(
+            cache.get(0, &test_key()),
+            CacheLookup::PartitionNotOwned
+        ));
     }
 
     #[test]
@@ -113,14 +133,20 @@ mod tests {
 
         cache.put(0, test_key(), test_person());
 
-        assert!(cache.get(0, &test_key()).is_some());
-        assert!(cache.get(1, &test_key()).is_none());
+        assert!(matches!(cache.get(0, &test_key()), CacheLookup::Found(_)));
+        assert!(matches!(
+            cache.get(1, &test_key()),
+            CacheLookup::PersonNotFound
+        ));
     }
 
     #[test]
     fn put_to_unknown_partition_is_noop() {
         let cache = PartitionedCache::new(100);
         cache.put(99, test_key(), test_person());
-        assert!(cache.get(99, &test_key()).is_none());
+        assert!(matches!(
+            cache.get(99, &test_key()),
+            CacheLookup::PartitionNotOwned
+        ));
     }
 }

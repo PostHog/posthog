@@ -6264,7 +6264,6 @@ dependencies = [
  "foyer",
  "lifecycle",
  "metrics",
- "once_cell",
  "personhog-coordination",
  "personhog-proto",
  "serde_json",

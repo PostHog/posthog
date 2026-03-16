@@ -1,4 +1,5 @@
 use std::hash::Hash;
+use std::sync::Arc;
 
 use foyer::{Cache, CacheBuilder};
 use metrics::counter;
@@ -27,8 +28,13 @@ pub struct CachedPerson {
 ///
 /// For the PoC we use Foyer's in-memory cache. The hybrid (disk+memory)
 /// layer can be added later by switching to `HybridCache`.
+///
+/// TODO: Foyer is an eviction-based cache, but the leader is the source of truth
+/// for its partitions. A cache miss currently returns NotFound, losing the person.
+/// Add a Postgres fallback on cache miss so eviction degrades to a slower read
+/// rather than data loss.
 pub struct PersonCache {
-    inner: Cache<PersonCacheKey, CachedPerson>,
+    inner: Cache<PersonCacheKey, Arc<CachedPerson>>,
 }
 
 impl PersonCache {
@@ -37,7 +43,7 @@ impl PersonCache {
         Self { inner: cache }
     }
 
-    pub fn get(&self, key: &PersonCacheKey) -> Option<CachedPerson> {
+    pub fn get(&self, key: &PersonCacheKey) -> Option<Arc<CachedPerson>> {
         match self.inner.get(key) {
             Some(entry) => {
                 counter!("personhog_leader_cache_hits_total").increment(1);
@@ -51,7 +57,7 @@ impl PersonCache {
     }
 
     pub fn put(&self, key: PersonCacheKey, person: CachedPerson) {
-        self.inner.insert(key, person);
+        self.inner.insert(key, Arc::new(person));
     }
 
     pub fn remove(&self, key: &PersonCacheKey) {
