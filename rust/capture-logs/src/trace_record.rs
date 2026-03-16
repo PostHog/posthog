@@ -153,11 +153,7 @@ impl KafkaTraceRow {
             })
             .collect();
 
-        let status_code = span
-            .status
-            .as_ref()
-            .map(|s| s.code)
-            .unwrap_or(0);
+        let status_code = span.status.as_ref().map(|s| s.code).unwrap_or(0);
 
         let row = Self {
             uuid: Uuid::now_v7().to_string(),
@@ -208,7 +204,7 @@ mod tests {
     use chrono::{TimeDelta, Utc};
     use opentelemetry_proto::tonic::{
         common::v1::{any_value, AnyValue, KeyValue},
-        trace::v1::{span::Event, span::Link, Status, Span},
+        trace::v1::{span::Event, span::Link, Span, Status},
     };
 
     fn make_span() -> Span {
@@ -256,7 +252,10 @@ mod tests {
         assert_eq!(row.kind, 2);
         assert_eq!(row.flags, 1);
         assert_eq!(row.status_code, 1);
-        assert_eq!(row.attributes.get("http.method").map(|s| s.as_str()), Some("\"GET\""));
+        assert_eq!(
+            row.attributes.get("http.method").map(|s| s.as_str()),
+            Some("\"GET\"")
+        );
     }
 
     #[test]

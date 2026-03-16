@@ -298,9 +298,7 @@ pub fn parse_otel_traces_message(
         let mut v: Value = serde_json::from_str(line)?;
         patch_otel_json(&mut v);
         let request: ExportTraceServiceRequest = serde_json::from_value(v)?;
-        merged_request
-            .resource_spans
-            .extend(request.resource_spans);
+        merged_request.resource_spans.extend(request.resource_spans);
     }
 
     Ok(merged_request)
@@ -378,12 +376,12 @@ pub async fn export_traces_http(
         Err(proto_err) => match parse_otel_traces_message(&body) {
             Ok(request) => request,
             Err(json_err) => {
-                if let Err(e) = File::create("/tmp/last_failed_trace_event.txt").and_then(
-                    |mut file| {
+                if let Err(e) =
+                    File::create("/tmp/last_failed_trace_event.txt").and_then(|mut file| {
                         file.write_all(token.as_bytes())
                             .and_then(|_| file.write_all(&body))
-                    },
-                ) {
+                    })
+                {
                     error!("Failed to write last failed trace event to file: {}", e);
                 }
                 error!(
@@ -392,7 +390,9 @@ pub async fn export_traces_http(
                 );
                 return Err((
                     StatusCode::BAD_REQUEST,
-                    Json(json!({"error": format!("Failed to decode JSON: {} or Protobuf: {}", json_err, proto_err)})),
+                    Json(
+                        json!({"error": format!("Failed to decode JSON: {} or Protobuf: {}", json_err, proto_err)}),
+                    ),
                 ));
             }
         },
