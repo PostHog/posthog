@@ -55,7 +55,6 @@ class TestUtils(SimpleTestCase):
             ("dwh_vs_actions", _funnels_data_warehouse_node(), ActionsNode(id=1), True),
             ("dwh_vs_none", _funnels_data_warehouse_node(), None, True),
             ("dwh_vs_events", _funnels_data_warehouse_node(), EventsNode(event="$pageview"), True),
-            ("funnels_dwh_vs_events", _funnels_data_warehouse_node(), EventsNode(event="$pageview"), True),
         ]
     )
     def test_entity_config_mismatch_for_entity_types(
