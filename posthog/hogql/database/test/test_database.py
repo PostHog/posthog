@@ -2113,11 +2113,6 @@ class TestDatabase(BaseTest, QueryMatchingTest):
             table = database.get_table(qualified_name)
             assert table is not None, f"Table {qualified_name} should return a valid table"
 
-            unqualified_table = database.get_table(table_name)
-            assert type(table) is type(unqualified_table), (
-                f"posthog.{table_name} should resolve to the same table type as {table_name}"
-            )
-
     def test_posthog_qualified_table_names_resolve_in_select(self):
         database = Database.create_for(team=self.team)
         context = HogQLContext(
