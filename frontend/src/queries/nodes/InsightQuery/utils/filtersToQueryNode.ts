@@ -138,6 +138,11 @@ export const legacyEntityToNode = (
                       aggregation_target_field: (entity as LifecycleDataWarehouseFilter).aggregation_target_field,
                       created_at_field: (entity as LifecycleDataWarehouseFilter).created_at_field,
                   }
+                : dataWarehouseNodeKind === NodeKind.FunnelsDataWarehouseNode
+                  ? {
+                        id_field: (entity as TrendsDataWarehouseFilter).id_field || undefined,
+                        aggregation_target_field: (entity as TrendsDataWarehouseFilter).distinct_id_field || undefined,
+                    }
                 : {
                       id_field: (entity as TrendsDataWarehouseFilter).id_field || undefined,
                       distinct_id_field: (entity as TrendsDataWarehouseFilter).distinct_id_field || undefined,

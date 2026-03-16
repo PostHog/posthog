@@ -16696,10 +16696,10 @@
         "FunnelsDataWarehouseNode": {
             "additionalProperties": false,
             "properties": {
-                "custom_name": {
+                "aggregation_target_field": {
                     "type": "string"
                 },
-                "distinct_id_field": {
+                "custom_name": {
                     "type": "string"
                 },
                 "dw_source_type": {
@@ -16771,7 +16771,7 @@
                     "type": "number"
                 }
             },
-            "required": ["distinct_id_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
+            "required": ["aggregation_target_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
             "type": "object"
         },
         "FunnelsFilter": {

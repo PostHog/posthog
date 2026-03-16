@@ -242,7 +242,7 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
                 alias="timestamp",
                 expr=timestamp_expr,
             ),
-            ast.Alias(alias="aggregation_target", expr=parse_expr(table_entity.distinct_id_field)),
+            ast.Alias(alias="aggregation_target", expr=parse_expr(table_entity.aggregation_target_field)),
             *all_step_cols,
         ]
 

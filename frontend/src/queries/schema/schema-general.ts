@@ -773,7 +773,7 @@ export interface FunnelsDataWarehouseNode extends EntityNode {
     id_field: string
     table_name: string
     timestamp_field: string
-    distinct_id_field: string
+    aggregation_target_field: string
     dw_source_type?: string
 }
 

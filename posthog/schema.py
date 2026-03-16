@@ -11923,8 +11923,8 @@ class FunnelsDataWarehouseNode(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
+    aggregation_target_field: str
     custom_name: str | None = None
-    distinct_id_field: str
     dw_source_type: str | None = None
     fixedProperties: (
         list[

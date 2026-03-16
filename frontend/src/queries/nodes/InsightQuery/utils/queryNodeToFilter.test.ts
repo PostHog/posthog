@@ -209,6 +209,59 @@ describe('queryNodeToFilter', () => {
         expect(result).toEqual(filters)
     })
 
+    test('converts a funnels data warehouse node to a legacy filter', () => {
+        const query: FunnelsQuery = {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'timestamp',
+                    id_field: 'id',
+                    aggregation_target_field: 'person_id',
+                },
+            ],
+        }
+
+        const result = queryNodeToFilter(query)
+
+        expect(result.data_warehouse).toEqual([
+            {
+                type: 'data_warehouse',
+                id: 'warehouse_orders',
+                order: 0,
+                name: 'Orders',
+                table_name: 'warehouse_orders',
+                timestamp_field: 'timestamp',
+                id_field: 'id',
+                distinct_id_field: 'person_id',
+            },
+        ])
+    })
+
+    test('converts a legacy funnels data warehouse node shape to a legacy filter', () => {
+        const query = {
+            kind: NodeKind.FunnelsQuery,
+            series: [
+                {
+                    kind: NodeKind.FunnelsDataWarehouseNode,
+                    id: 'warehouse_orders',
+                    name: 'Orders',
+                    table_name: 'warehouse_orders',
+                    timestamp_field: 'timestamp',
+                    id_field: 'id',
+                    distinct_id_field: 'person_id',
+                },
+            ],
+        } as FunnelsQuery
+
+        const result = queryNodeToFilter(query)
+
+        expect(result.data_warehouse?.[0]?.distinct_id_field).toEqual('person_id')
+    })
+
     test('converts a pathsFilter and funnelPathsFilter into filter properties', () => {
         const query: PathsQuery = {
             kind: NodeKind.PathsQuery,

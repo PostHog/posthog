@@ -83,12 +83,22 @@ export const seriesNodeToFilter = (
         math_group_type_index: node.math_group_type_index,
         optionalInFunnel: node.optionalInFunnel,
         properties: node.properties as any, // TODO,
-        ...(isDataWarehouseNode(node) || isFunnelsDataWarehouseNode(node)
+        ...(isDataWarehouseNode(node)
             ? {
                   table_name: node.table_name,
                   id_field: node.id_field,
                   timestamp_field: node.timestamp_field,
                   distinct_id_field: node.distinct_id_field,
+              }
+            : {}),
+        ...(isFunnelsDataWarehouseNode(node)
+            ? {
+                  table_name: node.table_name,
+                  id_field: node.id_field,
+                  timestamp_field: node.timestamp_field,
+                  distinct_id_field:
+                      node.aggregation_target_field ||
+                      (node as FunnelsDataWarehouseNode & { distinct_id_field?: string }).distinct_id_field,
               }
             : {}),
         ...(isLifecycleDataWarehouseNode(node)

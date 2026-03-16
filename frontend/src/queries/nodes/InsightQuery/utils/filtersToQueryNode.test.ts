@@ -184,7 +184,7 @@ describe('actionsAndEventsToSeries', () => {
                 table_name: 'warehouse_orders',
                 timestamp_field: 'timestamp',
                 id_field: 'id',
-                distinct_id_field: 'person_id',
+                aggregation_target_field: 'person_id',
             },
         ])
     })

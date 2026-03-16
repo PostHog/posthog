@@ -99,7 +99,7 @@ def data_warehouse_config_key(node: FunnelDataWarehouseEntity) -> tuple[str, str
     return (
         node.table_name,
         node.id_field,
-        node.distinct_id_field,
+        node.aggregation_target_field,
         node.timestamp_field,
     )
 
