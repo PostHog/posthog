@@ -1748,8 +1748,8 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("single_schema", "?schema=Customers", 1),
-            ("multiple_schemas", "?schema=Customers&schema=Invoices", 2),
+            ("single_schema", "?schemas=Customers", 1),
+            ("multiple_schemas", "?schemas=Customers&schemas=Invoices", 2),
             ("no_filter", "", 2),
         ]
     )

@@ -4778,7 +4778,7 @@ const api = {
             return await new ApiRequest()
                 .externalDataSource(sourceId)
                 .withAction('jobs')
-                .withQueryString(toParams({ before, after, schema: schemas }, true))
+                .withQueryString(toParams({ before, after, schemas }, true))
                 .get()
         },
         async updateRevenueAnalyticsConfig(

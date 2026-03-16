@@ -877,7 +877,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         instance: ExternalDataSource = self.get_object()
         after = request.query_params.get("after", None)
         before = request.query_params.get("before", None)
-        schemas = request.query_params.getlist("schema")
+        schemas = request.query_params.getlist("schemas")
 
         jobs = instance.jobs.filter(billable=True).prefetch_related("schema").order_by("-created_at")
 
