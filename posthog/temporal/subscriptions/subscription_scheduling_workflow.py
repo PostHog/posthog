@@ -220,19 +220,29 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
             else:
                 succeeded.append(sub_id)
 
-        await temporalio.workflow.execute_activity(
-            emit_subscription_delivery_outcome_events_activity,
-            EmitSubscriptionDeliveryOutcomeInputs(
-                succeeded_subscription_ids=succeeded,
-                failed_deliveries=failed,
-            ),
-            start_to_close_timeout=dt.timedelta(minutes=2),
-            retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=5),
-                maximum_interval=dt.timedelta(minutes=1),
-                maximum_attempts=3,
-            ),
-        )
+        try:
+            await temporalio.workflow.execute_activity(
+                emit_subscription_delivery_outcome_events_activity,
+                EmitSubscriptionDeliveryOutcomeInputs(
+                    succeeded_subscription_ids=succeeded,
+                    failed_deliveries=failed,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=3,
+                ),
+            )
+        except Exception as emit_error:
+            temporalio.workflow.logger.error(
+                "Failed to emit subscription delivery outcome events",
+                extra={"error": str(emit_error)},
+            )
+
+        if failed:
+            failed_ids = [f["subscription_id"] for f in failed]
+            raise RuntimeError(f"Subscription deliveries failed for IDs: {failed_ids}")
 
 
 @temporalio.workflow.defn(name="handle-subscription-value-change")
@@ -270,19 +280,25 @@ class HandleSubscriptionValueChangeWorkflow(PostHogWorkflow):
                 }
             )
 
-        await temporalio.workflow.execute_activity(
-            emit_subscription_delivery_outcome_events_activity,
-            EmitSubscriptionDeliveryOutcomeInputs(
-                succeeded_subscription_ids=succeeded,
-                failed_deliveries=failed,
-            ),
-            start_to_close_timeout=dt.timedelta(minutes=2),
-            retry_policy=temporalio.common.RetryPolicy(
-                initial_interval=dt.timedelta(seconds=5),
-                maximum_interval=dt.timedelta(minutes=1),
-                maximum_attempts=3,
-            ),
-        )
+        try:
+            await temporalio.workflow.execute_activity(
+                emit_subscription_delivery_outcome_events_activity,
+                EmitSubscriptionDeliveryOutcomeInputs(
+                    succeeded_subscription_ids=succeeded,
+                    failed_deliveries=failed,
+                ),
+                start_to_close_timeout=dt.timedelta(minutes=2),
+                retry_policy=temporalio.common.RetryPolicy(
+                    initial_interval=dt.timedelta(seconds=5),
+                    maximum_interval=dt.timedelta(minutes=1),
+                    maximum_attempts=3,
+                ),
+            )
+        except Exception as emit_error:
+            temporalio.workflow.logger.error(
+                "Failed to emit subscription delivery outcome event",
+                extra={"subscription_id": inputs.subscription_id, "error": str(emit_error)},
+            )
 
         if delivery_error is not None:
             raise delivery_error
