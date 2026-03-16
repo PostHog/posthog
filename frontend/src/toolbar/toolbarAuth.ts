@@ -36,11 +36,12 @@ export async function refreshOAuthTokens(
                 throw err
             }
 
+            const data = await response.json()
             toolbarPosthogJS.capture('toolbar token refresh', {
                 status: 'success',
                 duration_ms: Math.round(performance.now() - startTime),
             })
-            return await response.json()
+            return data
         } finally {
             refreshPromise = null
         }
