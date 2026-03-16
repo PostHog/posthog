@@ -5,6 +5,7 @@ import asyncio
 import datetime as dt
 import dataclasses
 import collections.abc
+from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db.models import Sum
@@ -684,7 +685,8 @@ async def backfill_schedule(inputs: BackfillScheduleInputs) -> None:
 
         frequency = dt.timedelta(seconds=inputs.frequency_seconds)
 
-        full_backfill_range = backfill_range(start_at, end_at, frequency)
+        timezone = description.schedule.spec.time_zone_name or None
+        full_backfill_range = backfill_range(start_at=start_at, end_at=end_at, step=frequency, timezone=timezone)
 
         for _, backfill_end_at in full_backfill_range:
             if await check_temporal_schedule_exists(client, description.id) is False:
@@ -779,9 +781,21 @@ async def check_temporal_schedule_exists(client: temporalio.client.Client, sched
 
 
 def backfill_range(
-    start_at: dt.datetime | None, end_at: dt.datetime | None, step: dt.timedelta
+    start_at: dt.datetime | None,
+    end_at: dt.datetime | None,
+    step: dt.timedelta,
+    timezone: str | None = None,
 ) -> typing.Generator[tuple[dt.datetime | None, dt.datetime], None, None]:
-    """Generate range of dates between start_at and end_at."""
+    """Generate range of dates between start_at and end_at.
+
+    Args:
+        start_at: Start of the backfill range (UTC). None means backfill from earliest data.
+        end_at: End of the backfill range (UTC). None means backfill until now.
+        step: The interval duration to step by.
+        timezone: IANA timezone name (e.g. "US/Eastern"). When provided and step >= 1 day,
+            stepping is done in local time so that DST transitions produce correct
+            interval lengths (23h or 25h for daily) instead of fixed 24h.
+    """
     if start_at is None:
         if end_at is None:
             now = get_utcnow()
@@ -793,18 +807,19 @@ def backfill_range(
 
         return
 
-    current = start_at
+    tz = ZoneInfo(timezone) if timezone and step >= dt.timedelta(days=1) else dt.UTC
+    current = start_at.astimezone(tz)
+    local_end = end_at.astimezone(tz) if end_at else None
 
-    while end_at is None or current < end_at:
+    while local_end is None or current < local_end:
         current_end = current + step
 
-        if end_at and current_end > end_at:
+        if local_end and current_end > local_end:
             # Do not yield a range that is less than step.
             # Same as built-in range.
             break
 
-        yield current, current_end
-
+        yield current.astimezone(dt.UTC), current_end.astimezone(dt.UTC)
         current = current_end
 
 
