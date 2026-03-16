@@ -50,7 +50,7 @@ export function createRuleModalLogic<T extends ErrorTrackingBaseRule>(options: R
             updateRule: (rule: T) => ({ rule }),
             increaseDateRange: true,
             ...extraActions,
-        }),
+        } as any),
 
         reducers({
             isOpen: [false, { openModal: () => true, closeModal: () => false }],

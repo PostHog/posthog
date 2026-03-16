@@ -1,3 +1,5 @@
+import type { LogicWrapper } from 'kea'
+
 import { FilterLogicalOperator } from '~/types'
 
 import { createRuleModalLogic } from '../rules/ruleModalLogicFactory'
@@ -35,4 +37,4 @@ export const suppressionRuleModalLogic = createRuleModalLogic<ErrorTrackingSuppr
             sampling_rate,
         }),
     },
-}) as unknown as typeof suppressionRuleModalLogicType
+}) as unknown as LogicWrapper<suppressionRuleModalLogicType>

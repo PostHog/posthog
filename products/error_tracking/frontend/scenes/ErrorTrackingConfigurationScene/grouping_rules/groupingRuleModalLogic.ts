@@ -1,3 +1,5 @@
+import type { LogicWrapper } from 'kea'
+
 import { FilterLogicalOperator } from '~/types'
 
 import { createRuleModalLogic } from '../rules/ruleModalLogicFactory'
@@ -25,4 +27,4 @@ export const groupingRuleModalLogic = createRuleModalLogic<ErrorTrackingGrouping
         'grouping_rules',
         'groupingRuleModalLogic',
     ],
-}) as unknown as typeof groupingRuleModalLogicType
+}) as unknown as LogicWrapper<groupingRuleModalLogicType>

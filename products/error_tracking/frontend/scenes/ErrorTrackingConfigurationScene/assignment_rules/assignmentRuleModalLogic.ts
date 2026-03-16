@@ -1,3 +1,5 @@
+import type { LogicWrapper } from 'kea'
+
 import { FilterLogicalOperator } from '~/types'
 
 import { createRuleModalLogic } from '../rules/ruleModalLogicFactory'
@@ -33,4 +35,4 @@ export const assignmentRuleModalLogic = createRuleModalLogic<ErrorTrackingAssign
             },
         ],
     },
-}) as unknown as typeof assignmentRuleModalLogicType
+}) as unknown as LogicWrapper<assignmentRuleModalLogicType>
