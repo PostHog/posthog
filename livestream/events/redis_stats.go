@@ -85,7 +85,7 @@ func cutoffScore(ttl time.Duration) string {
 	return strconv.FormatInt(time.Now().Add(-ttl).Unix(), 10)
 }
 
-// Adds a member to a sorted set scored by the current timestamp, then sets the key expiry.
+// Adds a member to a sorted set scored by the current timestamp, prunes stale entries older than ttl, then sets the key expiry.
 func (s *StatsInRedis) addKey(ctx context.Context, key string, memberId string, ttl time.Duration, metricsLabel string) error {
 	now := time.Now()
 	score := float64(now.Unix())
