@@ -1,8 +1,6 @@
 from datetime import datetime
 
 from freezegun import freeze_time
-from rest_framework.exceptions import ValidationError
-
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -11,6 +9,8 @@ from posthog.test.base import (
     flush_persons_and_events,
     snapshot_clickhouse_queries,
 )
+
+from rest_framework.exceptions import ValidationError
 
 from posthog.schema import (
     ActionsNode,
