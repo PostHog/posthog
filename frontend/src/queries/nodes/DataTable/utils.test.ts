@@ -8,7 +8,7 @@ import {
     getDefaultDataTablePersonColumns,
     removeExpressionComment,
 } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { DataTableNode, NodeKind } from '~/queries/schema/schema-general'
 
 describe('DataTable utils', () => {
     it('extractExpressionComment', () => {
@@ -128,5 +128,56 @@ describe('DataTable utils', () => {
                 source: { kind: NodeKind.EventsQuery, select: ['*', 'event'] },
             })
         ).toEqual(['*', 'event'])
+    })
+
+    describe('ColumnConfigurator setColumns callback should not leak stale columns', () => {
+        // Simulates the setColumns callback from ColumnConfigurator.tsx.
+        // The callback receives `query` (queryWithDefaults) which may contain a
+        // stale top-level `columns` field. For query types that use source.select,
+        // the callback must strip `columns` so getColumnsForQuery reads source.select.
+        const buildSetColumnsResult = (query: DataTableNode, newColumns: string[]): DataTableNode => {
+            const allColumns = ['*', ...newColumns]
+            const { columns: _discard, ...queryWithoutColumns } = query
+            if (query.source.kind === NodeKind.EventsQuery || query.source.kind === NodeKind.SessionsQuery) {
+                return {
+                    ...queryWithoutColumns,
+                    source: { ...query.source, select: allColumns },
+                } as DataTableNode
+            } else if (query.source.kind === NodeKind.ActorsQuery || query.source.kind === NodeKind.GroupsQuery) {
+                return {
+                    ...queryWithoutColumns,
+                    source: { ...query.source, select: allColumns },
+                } as DataTableNode
+            }
+            return { ...query, columns: allColumns }
+        }
+
+        it.each([
+            ['EventsQuery', NodeKind.EventsQuery],
+            ['SessionsQuery', NodeKind.SessionsQuery],
+        ])('strips stale columns for %s', (_, sourceKind) => {
+            const queryWithStaleColumns: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                columns: defaultDataTableEventColumns,
+                source: { kind: sourceKind, select: defaultDataTableEventColumns } as any,
+            }
+
+            const result = buildSetColumnsResult(queryWithStaleColumns, ['event'])
+
+            expect(result).not.toHaveProperty('columns')
+            expect(getColumnsForQuery(result)).toEqual(['*', 'event'])
+        })
+
+        it('preserves columns for HogQL queries', () => {
+            const query: DataTableNode = {
+                kind: NodeKind.DataTableNode,
+                columns: ['*', 'event'],
+                source: { kind: NodeKind.HogQLQuery, query: 'SELECT *' },
+            }
+
+            const result = buildSetColumnsResult(query, ['event', 'timestamp'])
+
+            expect(result).toHaveProperty('columns', ['*', 'event', 'timestamp'])
+        })
     })
 })
