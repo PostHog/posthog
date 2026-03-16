@@ -45,7 +45,7 @@ In production the model is baked into the Docker image at build time
 To download the model locally for development:
 
 ```bash
-bin/download-sentiment-model
+uv run --group sentiment bin/download-sentiment-model
 ```
 
 This is a no-op if the model already exists.

@@ -329,7 +329,7 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
 
         # Add model download for sentiment group
         if "sentiment" in resolved.uv_groups:
-            prefix += " && bin/download-sentiment-model"
+            prefix += " && uv run --group sentiment bin/download-sentiment-model"
 
         proc_config["shell"] = f"{prefix} && {original_shell}"
         return proc_config
