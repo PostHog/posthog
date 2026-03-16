@@ -125,7 +125,8 @@ class TestSDKClientIntegration(SimpleTestCase):
             mock_api.assert_not_called()
 
         assert len(client.feature_flags) == 2
-        assert client.feature_flags_by_key["beta-feature"]["active"] is True
+        flags_by_key = client.feature_flags_by_key or {}
+        assert flags_by_key["beta-feature"]["active"] is True
         assert client.group_type_mapping == {"0": "company", "1": "project"}
         assert client.cohorts == {"10": {"properties": [{"key": "plan", "value": "enterprise"}]}}
 
@@ -175,7 +176,8 @@ class TestSDKClientIntegration(SimpleTestCase):
         # Initial load
         mock_hypercache.get_from_cache.return_value = SAMPLE_FLAGS
         client._load_feature_flags()
-        assert client.feature_flags_by_key["beta-feature"]["active"] is True
+        flags_by_key = client.feature_flags_by_key or {}
+        assert flags_by_key["beta-feature"]["active"] is True
 
         # Flag changed in HyperCache (e.g., toggled off via Django admin)
         updated_flags = {
@@ -188,7 +190,8 @@ class TestSDKClientIntegration(SimpleTestCase):
         mock_hypercache.get_from_cache.return_value = updated_flags
         client._load_feature_flags()
 
-        assert client.feature_flags_by_key["beta-feature"]["active"] is False
+        flags_by_key = client.feature_flags_by_key or {}
+        assert flags_by_key["beta-feature"]["active"] is False
         assert len(client.feature_flags) == 1
 
     def test_sdk_falls_back_to_api_when_provider_raises(self):
