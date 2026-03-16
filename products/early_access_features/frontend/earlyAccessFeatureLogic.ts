@@ -59,7 +59,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
-        showGAPromotionConfirmation: (onConfirm: () => void) => ({ onConfirm }),
+        showGAPromotionConfirmation: (onConfirm: (rolloutToAll: boolean) => void) => ({ onConfirm }),
     }),
     loaders(({ props, values, actions }) => ({
         earlyAccessFeature: {
@@ -262,28 +262,22 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         },
         showGAPromotionConfirmation: async ({ onConfirm }) => {
             const { LemonDialog } = await import('lib/lemon-ui/LemonDialog')
+            const React = await import('react')
+            const { GAPromotionDialogContent } = await import('./GAPromotionDialogContent')
+            let rolloutToAll = false
             LemonDialog.open({
-                title: 'Promote to general availability?',
-                description: React.createElement(
-                    React.Fragment,
-                    null,
-                    'This action is permanent. Once promoted:',
-                    React.createElement(
-                        'ul',
-                        { className: 'list-disc ml-4 mt-2 space-y-1' },
-                        React.createElement('li', null, 'The feature becomes read-only and can no longer be edited.'),
-                        React.createElement('li', null, 'Opted-in users retain their feature flag access.'),
-                        React.createElement(
-                            'li',
-                            null,
-                            'Enrolled users will receive a stage change notification event.'
-                        )
-                    )
-                ),
+                title: 'Promote to General Availability?',
+                description:
+                    'Once promoted to General Availability, this feature cannot be edited anymore. Users will have access to the stable version.',
+                content: React.createElement(GAPromotionDialogContent, {
+                    onChange: (checked: boolean) => {
+                        rolloutToAll = checked
+                    },
+                }),
                 primaryButton: {
                     children: 'Promote to GA',
                     type: 'primary',
-                    onClick: onConfirm,
+                    onClick: () => onConfirm(rolloutToAll),
                 },
                 secondaryButton: {
                     children: 'Cancel',
@@ -292,8 +286,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             })
         },
         updateStage: async ({ stage }) => {
-            const save = (): void => {
-                actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+            const save = (rolloutToAll?: boolean): void => {
+                actions.saveEarlyAccessFeature({
+                    ...values.earlyAccessFeature,
+                    stage,
+                    ...(rolloutToAll ? { rollout_to_all: true } : {}),
+                })
 
                 // Mark stage update task as completed when user changes stage
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureStage)

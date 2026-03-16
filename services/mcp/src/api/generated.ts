@@ -5810,6 +5810,24 @@ export namespace Schemas {
     }
 
     /**
+     * * `slack_channel_message` - Channel message
+    * `slack_bot_mention` - Bot mention
+    * `slack_emoji_reaction` - Emoji reaction
+    * `widget_embedded` - Widget
+    * `widget_api` - API
+     */
+    export type ChannelDetailEnum = typeof ChannelDetailEnum[keyof typeof ChannelDetailEnum];
+
+
+    export const ChannelDetailEnum = {
+      SlackChannelMessage: 'slack_channel_message',
+      SlackBotMention: 'slack_bot_mention',
+      SlackEmojiReaction: 'slack_emoji_reaction',
+      WidgetEmbedded: 'widget_embedded',
+      WidgetApi: 'widget_api',
+    } as const;
+
+    /**
      * * `widget` - Widget
     * `email` - Email
     * `slack` - Slack
@@ -11524,8 +11542,7 @@ export namespace Schemas {
       readonly id: string;
       readonly source_id: string;
       readonly target_id: string;
-      /** @nullable */
-      dag?: string | null;
+      dag: string;
       properties?: unknown;
       readonly created_at: string;
       /** @nullable */
@@ -12206,6 +12223,10 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key: number;
+      disabled_data?: unknown | null;
+      sampling_rate?: number;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface ErrorTrackingSymbolSet {
@@ -17078,8 +17099,7 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name: string;
       type?: NodeTypeEnum;
-      /** @nullable */
-      dag?: string | null;
+      dag: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -19413,6 +19433,7 @@ export namespace Schemas {
       readonly id: string;
       readonly ticket_number: number;
       readonly channel_source: ChannelSourceEnum;
+      readonly channel_detail: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id: string;
       status?: TicketStatusEnum;
       priority?: PriorityEnum | BlankEnum | NullEnum | null;
@@ -20453,8 +20474,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly source_id?: string;
       readonly target_id?: string;
-      /** @nullable */
-      dag?: string | null;
+      dag?: string;
       properties?: unknown;
       readonly created_at?: string;
       /** @nullable */
@@ -20628,6 +20648,10 @@ export namespace Schemas {
        * @maximum 2147483647
        */
       order_key?: number;
+      disabled_data?: unknown | null;
+      sampling_rate?: number;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedErrorTrackingSymbolSet {
@@ -21390,8 +21414,7 @@ export namespace Schemas {
       /** @maxLength 2048 */
       name?: string;
       type?: NodeTypeEnum;
-      /** @nullable */
-      dag?: string | null;
+      dag?: string;
       /** @maxLength 1024 */
       description?: string;
       /** @nullable */
@@ -22604,6 +22627,7 @@ export namespace Schemas {
       readonly id?: string;
       readonly ticket_number?: number;
       readonly channel_source?: ChannelSourceEnum;
+      readonly channel_detail?: ChannelDetailEnum | NullEnum | null;
       readonly distinct_id?: string;
       status?: TicketStatusEnum;
       priority?: PriorityEnum | BlankEnum | NullEnum | null;
