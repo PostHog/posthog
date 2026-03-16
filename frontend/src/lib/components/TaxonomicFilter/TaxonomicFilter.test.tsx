@@ -329,7 +329,6 @@ describe('TaxonomicFilter', () => {
                 expect(screen.queryByTestId('prop-filter-events-1')).not.toBeInTheDocument()
             })
 
-            await userEvent.keyboard('{ArrowDown}')
             await userEvent.keyboard('{Enter}')
 
             await waitFor(() => {
