@@ -160,6 +160,7 @@ class AzureBlobConsumer(Consumer):
             max_block_size=4 * 1024 * 1024,  # 4 MiB
             # Increase the read timeout to 10 minutes to account for large uploads.
             read_timeout=600,
+            # Azure SDK defaults but we set them explicitly for visibility.
             retry_policy=ExponentialRetry(initial_backoff=15, increment_base=3, retry_total=3),
         )
         container_client = blob_service_client.get_container_client(inputs.container_name)
