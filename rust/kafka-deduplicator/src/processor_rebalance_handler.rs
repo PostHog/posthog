@@ -1036,6 +1036,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checkpoint::config::DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS;
     use crate::kafka::batch_message::KafkaMessage;
     use crate::kafka::offset_tracker::OffsetTracker;
     use crate::kafka::partition_router::PartitionRouterConfig;
