@@ -66,14 +66,14 @@ class TestProvisioningRotateCredentials(StripeProvisioningTestBase):
         token = self._get_bearer_token()
         self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "session_replay"},
+            data={"service_id": "pay_as_you_go"},
             token=token,
         )
         res = self._post_signed_with_bearer(
             f"/api/agentic/provisioning/resources/{self.team.id}/rotate_credentials",
             token=token,
         )
-        assert res.json()["service_id"] == "session_replay"
+        assert res.json()["service_id"] == "pay_as_you_go"
 
     def test_rotate_defaults_service_id_to_posthog(self):
         token = self._get_bearer_token()
