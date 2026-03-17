@@ -23,6 +23,7 @@ import { dashboardsModel } from '~/models/dashboardsModel'
 import { insightsModel } from '~/models/insightsModel'
 import { DashboardLayoutSize, DashboardMode, DashboardPlacement, DashboardType } from '~/types'
 
+import { DashboardButtonTileItem } from './items/DashboardButtonTileItem'
 import { DashboardTextItem } from './items/DashboardTextItem'
 
 const DRAG_AUTO_SCROLL_THRESHOLD = 100
@@ -132,7 +133,7 @@ export function DashboardItems(): JSX.Element {
                         className={className}
                         dragConfig={{
                             enabled: dashboardMode === DashboardMode.Edit && !isMobileView,
-                            handle: '.CardMeta,.TextCard__body',
+                            handle: '.CardMeta,.TextCard__body,.ButtonTileCard__body',
                             cancel: 'a,table,button,input,.Popover',
                         }}
                         resizeConfig={{
@@ -228,7 +229,7 @@ export function DashboardItems(): JSX.Element {
                         }}
                     >
                         {tiles?.map((tile) => {
-                            const { insight, text } = tile
+                            const { insight, text, button_tile } = tile
                             const smLayout = layouts['sm']?.find((l) => {
                                 return l.i == tile.id.toString()
                             })
@@ -334,6 +335,30 @@ export function DashboardItems(): JSX.Element {
                                         onEdit={() => {
                                             if (dashboard?.id) {
                                                 push(urls.dashboardTextTile(dashboard.id, tile.id))
+                                            }
+                                        }}
+                                        onMoveToDashboard={commonTileProps.moveToDashboard}
+                                        onDuplicate={() => duplicateTile(tile)}
+                                        onRemove={commonTileProps.removeFromDashboard}
+                                        showResizeHandles={commonTileProps.showResizeHandles}
+                                        canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
+                                        onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
+                                        onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
+                                    />
+                                )
+                            }
+
+                            if (button_tile) {
+                                return (
+                                    <DashboardButtonTileItem
+                                        key={tile.id}
+                                        tile={tile}
+                                        placement={placement}
+                                        otherDashboards={otherDashboards}
+                                        isDragging={isDragging.current}
+                                        onEdit={() => {
+                                            if (dashboard?.id) {
+                                                push(urls.dashboardButtonTile(dashboard.id, tile.id))
                                             }
                                         }}
                                         onMoveToDashboard={commonTileProps.moveToDashboard}

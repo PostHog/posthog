@@ -24,6 +24,27 @@ class Text(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
 
+class ButtonTile(models.Model):
+    url = models.CharField(max_length=2000)
+    text = models.CharField(max_length=200)
+    placement = models.CharField(max_length=10, choices=[("left", "Left"), ("right", "Right")], default="left")
+    style = models.CharField(
+        max_length=10, choices=[("primary", "Primary"), ("secondary", "Secondary")], default="primary"
+    )
+
+    created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True, blank=True)
+    last_modified_at = models.DateTimeField(default=timezone.now)
+    last_modified_by = models.ForeignKey(
+        "User",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="modified_button_tiles",
+    )
+
+    team = models.ForeignKey("Team", on_delete=models.CASCADE)
+
+
 class DashboardTileManager(models.Manager):
     def get_queryset(self):
         return super().get_queryset().exclude(deleted=True).exclude(dashboard__deleted=True)
@@ -40,6 +61,12 @@ class DashboardTile(models.Model):
     )
     text = models.ForeignKey(
         "posthog.Text",
+        on_delete=models.CASCADE,
+        related_name="dashboard_tiles",
+        null=True,
+    )
+    button_tile = models.ForeignKey(
+        "posthog.ButtonTile",
         on_delete=models.CASCADE,
         related_name="dashboard_tiles",
         null=True,
@@ -75,8 +102,13 @@ class DashboardTile(models.Model):
                 name=f"unique_dashboard_text",
                 condition=Q(("text__isnull", False)),
             ),
+            UniqueConstraint(
+                fields=["dashboard", "button_tile"],
+                name="unique_dashboard_button_tile",
+                condition=Q(("button_tile__isnull", False)),
+            ),
             models.CheckConstraint(
-                check=build_unique_relationship_check(("insight", "text")),
+                check=build_unique_relationship_check(("insight", "text", "button_tile")),
                 name="dash_tile_exactly_one_related_object",
             ),
         ]
@@ -102,9 +134,9 @@ class DashboardTile(models.Model):
     def clean(self):
         super().clean()
 
-        related_fields = sum(map(bool, [getattr(self, o_field) for o_field in ("insight", "text")]))
+        related_fields = sum(map(bool, [getattr(self, o_field) for o_field in ("insight", "text", "button_tile")]))
         if related_fields != 1:
-            raise ValidationError("Can only set either an insight or a text for this tile")
+            raise ValidationError("Can only set exactly one of insight, text, or button_tile for this tile")
 
         if self.insight is None and (
             self.filters_hash is not None
@@ -119,6 +151,7 @@ class DashboardTile(models.Model):
             dashboard=dashboard,
             insight=self.insight,
             text=self.text,
+            button_tile=self.button_tile,
             color=self.color,
             layouts=self.layouts,
             show_description=self.show_description,
@@ -143,6 +176,7 @@ class DashboardTile(models.Model):
             queryset.select_related(
                 "insight",
                 "text",
+                "button_tile",
                 "insight__created_by",
                 "insight__last_modified_by",
                 "insight__team",

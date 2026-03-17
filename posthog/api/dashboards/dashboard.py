@@ -45,7 +45,7 @@ from posthog.event_usage import get_request_analytics_properties, report_user_ac
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import Dashboard, DashboardTile, Insight, Text
+from posthog.models import ButtonTile, Dashboard, DashboardTile, Insight, Text
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.alert import AlertConfiguration
 from posthog.models.dashboard_templates import DashboardTemplate
@@ -188,10 +188,47 @@ class TextSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
 
 
+class ButtonTileSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True)
+    last_modified_by = UserBasicSerializer(read_only=True)
+    url = serializers.CharField(
+        max_length=2000,
+        error_messages={"max_length": "Button URL cannot exceed 2000 characters"},
+    )
+    text = serializers.CharField(
+        max_length=200,
+        error_messages={"max_length": "Button text cannot exceed 200 characters"},
+    )
+    placement = serializers.ChoiceField(choices=["left", "right"], default="left")
+    style = serializers.ChoiceField(choices=["primary", "secondary"], default="primary")
+
+    class Meta:
+        model = ButtonTile
+        fields = "__all__"
+        read_only_fields = ["id", "created_by", "last_modified_by", "last_modified_at"]
+
+    def validate_url(self, value: str) -> str:
+        if value.startswith("/"):
+            import re
+
+            if not re.match(r"^/[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;=%-]*$", value):
+                raise serializers.ValidationError("Pathname must start with / and contain valid URL path characters")
+        else:
+            from django.core.validators import URLValidator
+
+            validator = URLValidator()
+            try:
+                validator(value)
+            except Exception:
+                raise serializers.ValidationError("Must be a valid URL or a pathname starting with /")
+        return value
+
+
 class DashboardTileSerializer(serializers.ModelSerializer):
     id: serializers.IntegerField = serializers.IntegerField(required=False)
     insight = InsightSerializer()
     text = TextSerializer()
+    button_tile = ButtonTileSerializer()
 
     class Meta:
         model = DashboardTile
@@ -531,6 +568,24 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 filters_overrides=existing_tile.filters_overrides,
                 show_description=existing_tile.show_description,
             )
+        elif existing_tile.button_tile:
+            new_data = {
+                **ButtonTileSerializer(existing_tile.button_tile, context=self.context).data,
+                "id": None,
+            }
+            new_data.pop("dashboards", None)
+            button_tile_serializer = ButtonTileSerializer(data=new_data, context=self.context)
+            button_tile_serializer.is_valid()
+            button_tile_serializer.save()
+            button_tile = cast(ButtonTile, button_tile_serializer.instance)
+            DashboardTile.objects.create(
+                dashboard=dashboard,
+                button_tile=button_tile,
+                layouts=existing_tile.layouts,
+                color=existing_tile.color,
+                filters_overrides=existing_tile.filters_overrides,
+                show_description=existing_tile.show_description,
+            )
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
     def update(self, instance: Dashboard, validated_data: dict, *args: Any, **kwargs: Any) -> Dashboard:
@@ -641,6 +696,41 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 id=tile_data.get("id", None),
                 dashboard=instance,
                 defaults={**tile_data, "text": text, "dashboard": instance},
+            )
+        elif tile_data.get("button_tile", None):
+            button_tile_json: dict = tile_data.get("button_tile", {})
+            created_by_json = button_tile_json.get("created_by", None)
+            if created_by_json:
+                last_modified_by = user
+                try:
+                    created_by = User.objects.get(
+                        id=created_by_json.get("id"),
+                        organization_membership__organization_id=instance.team.organization_id,
+                    )
+                except User.DoesNotExist:
+                    raise serializers.ValidationError("User not found in this organization.")
+            else:
+                created_by = user
+                last_modified_by = None
+
+            button_tile_data = {**tile_data["button_tile"], "team": instance.team_id}
+            button_tile_serializer = ButtonTileSerializer(data=button_tile_data)
+            if not button_tile_serializer.is_valid():
+                raise serializers.ValidationError({"button_tile": button_tile_serializer.errors})
+
+            validated_data = button_tile_serializer.validated_data
+            validated_data["created_by"] = created_by
+            validated_data["last_modified_by"] = last_modified_by
+            validated_data["last_modified_at"] = now()
+
+            button_tile, _ = ButtonTile.objects.update_or_create(
+                id=button_tile_json.get("id", None), team_id=instance.team_id, defaults=validated_data
+            )
+            # nosemgrep: idor-lookup-without-team -- dashboard=instance constrains to team
+            DashboardTile.objects.update_or_create(
+                id=tile_data.get("id", None),
+                dashboard=instance,
+                defaults={**tile_data, "button_tile": button_tile, "dashboard": instance},
             )
         elif (
             "deleted" in tile_data

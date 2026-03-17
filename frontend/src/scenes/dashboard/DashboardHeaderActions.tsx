@@ -8,6 +8,7 @@ import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonMenu } from 'lib/lemon-ui/LemonMenu'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
 import { Scene } from 'scenes/sceneTypes'
@@ -111,33 +112,6 @@ export function ViewModeActions(): JSX.Element {
                 tooltip="Share"
                 tooltipPlacement="top"
             />
-            <AccessControlAction
-                resourceType={AccessControlResourceType.Dashboard}
-                minAccessLevel={AccessControlLevel.Editor}
-                userAccessLevel={dashboard.user_access_level}
-            >
-                <AppShortcut
-                    name="AddTextTileToDashboard"
-                    scope={Scene.Dashboard}
-                    keybind={[keyBinds.dashboardAddTextTile]}
-                    intent="Add text card"
-                    interaction="click"
-                >
-                    <LemonButton
-                        onClick={() => {
-                            push(urls.dashboardTextTile(dashboard.id, 'new'))
-                        }}
-                        data-attr="add-text-tile-to-dashboard"
-                        type="secondary"
-                        size="small"
-                        tooltip="Add text card"
-                        tooltipPlacement="top"
-                        icon={<IconPlusSmall />}
-                    >
-                        Text card
-                    </LemonButton>
-                </AppShortcut>
-            </AccessControlAction>
             {canEditDashboard && hasTileRedesign && (
                 <AppShortcut
                     name="EnterEditMode"
@@ -182,14 +156,34 @@ export function ViewModeActions(): JSX.Element {
                     minAccessLevel={AccessControlLevel.Editor}
                     userAccessLevel={dashboard.user_access_level}
                 >
-                    <LemonButton
-                        onClick={showAddInsightToDashboardModal}
-                        type="primary"
-                        data-attr="dashboard-add-graph-header"
-                        size="small"
+                    <LemonMenu
+                        items={[
+                            {
+                                label: 'Insight',
+                                onClick: showAddInsightToDashboardModal,
+                                'data-attr': 'dashboard-add-insight',
+                            },
+                            {
+                                label: 'Text card',
+                                onClick: () => push(urls.dashboardTextTile(dashboard.id, 'new')),
+                                'data-attr': 'dashboard-add-text-tile',
+                            },
+                            {
+                                label: 'Button',
+                                onClick: () => push(urls.dashboardButtonTile(dashboard.id, 'new')),
+                                'data-attr': 'dashboard-add-button-tile',
+                            },
+                        ]}
                     >
-                        Add insight
-                    </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            data-attr="dashboard-add-tile"
+                            size="small"
+                            icon={<IconPlusSmall />}
+                        >
+                            Add...
+                        </LemonButton>
+                    </LemonMenu>
                 </AccessControlAction>
             </MaxTool>
         </>
