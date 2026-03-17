@@ -1,0 +1,41 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "anyOf": [
+                {
+                    "maxLength": 8192,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Annotation text shown on charts to describe the change, release, or incident."
+        },
+        "date_marker": {
+            "anyOf": [
+                {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "When this annotation happened (ISO 8601 timestamp). Used to position it on charts."
+        },
+        "id": {
+            "description": "A unique integer value identifying this annotation.",
+            "type": "number"
+        },
+        "scope": {
+            "description": "Annotation visibility scope: `project`, `organization`, `dashboard`, or `dashboard_item`. `recording` is deprecated and rejected.\n\n* `dashboard_item` - insight\n* `dashboard` - dashboard\n* `project` - project\n* `organization` - organization\n* `recording` - recording",
+            "enum": ["dashboard_item", "dashboard", "project", "organization", "recording"],
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

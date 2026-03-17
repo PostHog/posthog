@@ -8,48 +8,6 @@ category: Functions
 feature: hog_functions
 url_prefix: /pipeline
 tools:
-    environments-cdp-functions-list:
-        operation: environments_hog_functions_list
-        enabled: false
-    environments-cdp-functions-create:
-        operation: environments_hog_functions_create
-        enabled: false
-    environments-cdp-functions-retrieve:
-        operation: environments_hog_functions_retrieve
-        enabled: false
-    environments-cdp-functions-update:
-        operation: environments_hog_functions_update
-        enabled: false
-    environments-cdp-functions-partial-update:
-        operation: environments_hog_functions_partial_update
-        enabled: false
-    environments-cdp-functions-destroy:
-        operation: environments_hog_functions_destroy
-        enabled: false
-    environments-cdp-functions-enable-backfills-create:
-        operation: environments_hog_functions_enable_backfills_create
-        enabled: false
-    environments-cdp-functions-invocations-create:
-        operation: environments_hog_functions_invocations_create
-        enabled: false
-    environments-cdp-functions-logs-retrieve:
-        operation: environments_hog_functions_logs_retrieve
-        enabled: false
-    environments-cdp-functions-metrics-retrieve:
-        operation: environments_hog_functions_metrics_retrieve
-        enabled: false
-    environments-cdp-functions-metrics-totals-retrieve:
-        operation: environments_hog_functions_metrics_totals_retrieve
-        enabled: false
-    environments-cdp-functions-icon-retrieve:
-        operation: environments_hog_functions_icon_retrieve
-        enabled: false
-    environments-cdp-functions-icons-retrieve:
-        operation: environments_hog_functions_icons_retrieve
-        enabled: false
-    environments-cdp-functions-rearrange-partial-update:
-        operation: environments_hog_functions_rearrange_partial_update
-        enabled: false
     cdp-functions-list:
         operation: hog_functions_list
         enabled: true

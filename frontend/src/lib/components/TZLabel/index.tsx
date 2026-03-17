@@ -196,14 +196,15 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
             return parsedTime
         }
     }, [parsedTime, displayTimezone])
+    const effectiveTimestampStyle = displayTimezone ? 'absolute' : timestampStyle
 
     const format = useCallback(() => {
-        return formatDate || formatTime
+        return formatDate || formatTime || effectiveTimestampStyle === 'absolute'
             ? humanFriendlyDetailedTime(displayTime, formatDate, formatTime, {
-                  timestampStyle: displayTimezone ? 'absolute' : timestampStyle,
+                  timestampStyle: effectiveTimestampStyle,
               })
             : displayTime.fromNow()
-    }, [formatDate, formatTime, displayTime, timestampStyle, displayTimezone])
+    }, [formatDate, formatTime, displayTime, effectiveTimestampStyle])
 
     const [formattedContent, setFormattedContent] = useState(format)
 
