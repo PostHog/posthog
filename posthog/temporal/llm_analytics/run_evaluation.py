@@ -214,7 +214,7 @@ async def increment_trial_eval_count_activity(team_id: int) -> int | None:
         EvaluationConfig.objects.filter(team_id=team_id).update(trial_evals_used=F("trial_evals_used") + 1)
         config = EvaluationConfig.objects.get(team_id=team_id)
         for pct in TRIAL_NOTIFICATION_THRESHOLDS:
-            if config.trial_evals_used == int(config.trial_eval_limit * pct / 100):
+            if config.trial_evals_used == round(config.trial_eval_limit * pct / 100):
                 return pct
         return None
 
@@ -911,19 +911,20 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                                 schedule_to_close_timeout=timedelta(seconds=30),
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )
-                            try:
-                                await temporalio.workflow.execute_activity(
-                                    send_trial_usage_email_activity,
-                                    SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
-                                    activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
-                                    schedule_to_close_timeout=timedelta(seconds=30),
-                                    retry_policy=RetryPolicy(maximum_attempts=2),
-                                )
-                            except Exception:
-                                temporalio.workflow.logger.exception(
-                                    "Failed to send trial exhausted email",
-                                    team_id=evaluation["team_id"],
-                                )
+                            if temporalio.workflow.patched("trial-usage-email"):
+                                try:
+                                    await temporalio.workflow.execute_activity(
+                                        send_trial_usage_email_activity,
+                                        SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
+                                        activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
+                                        schedule_to_close_timeout=timedelta(seconds=30),
+                                        retry_policy=RetryPolicy(maximum_attempts=2),
+                                    )
+                                except Exception:
+                                    temporalio.workflow.logger.exception(
+                                        "Failed to send trial exhausted email",
+                                        team_id=evaluation["team_id"],
+                                    )
                         return {
                             "verdict": None,
                             "skipped": True,
@@ -957,7 +958,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
 
-                if threshold_pct is not None:
+                if threshold_pct is not None and temporalio.workflow.patched("trial-usage-email"):
                     try:
                         await temporalio.workflow.execute_activity(
                             send_trial_usage_email_activity,

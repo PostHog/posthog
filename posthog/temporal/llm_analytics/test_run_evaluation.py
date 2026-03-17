@@ -966,6 +966,7 @@ class TestIncrementTrialEvalCountActivity:
             (100, 100, None, 101),  # already exceeded — should not re-trigger
             (100, 50, None, 51),  # just past 50% — no threshold
             (10, 4, 50, 5),  # 50% of 10
+            (10, 7, 75, 8),  # round(10 * 75 / 100) = round(7.5) = 8
             (10, 9, 100, 10),  # 100% of 10
         ],
         ids=[
@@ -976,6 +977,7 @@ class TestIncrementTrialEvalCountActivity:
             "already_exceeded",
             "past_50pct",
             "small_limit_50pct",
+            "small_limit_75pct_rounds",
             "small_limit_100pct",
         ],
     )
