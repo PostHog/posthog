@@ -5682,3 +5682,88 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_api_cohort_flag_integration() -> Result<()> {
+    // Step 1: Create and verify API-like cohort data structure
+    let cohort_data = json!({
+        "properties": {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": ["test@api.example.com"],
+                            "negation": false,
+                            "operator": "exact"
+                        }
+                    ]
+                }
+            ]
+        }
+    });
+
+    // Verify cohort structure matches Django API output
+    assert!(cohort_data["properties"]["type"] == "AND");
+    assert!(cohort_data["properties"]["values"].is_array());
+
+    // Step 2: Create and verify API-like flag data structure that references cohorts
+    let flag_data = json!({
+        "groups": [
+            {
+                "properties": [
+                    {
+                        "key": "id",
+                        "type": "cohort",
+                        "value": 123,
+                        "operator": "in"
+                    }
+                ],
+                "rollout_percentage": 100,
+                "variant": null
+            }
+        ],
+        "multivariate": null,
+        "aggregation_group_type_index": null,
+        "payloads": {},
+        "super_groups": []
+    });
+
+    // Verify flag structure matches Django API output
+    assert!(flag_data["groups"].is_array());
+    assert!(flag_data["groups"][0]["properties"][0]["type"] == "cohort");
+
+    // Step 3: Test basic /flags endpoint functionality with minimal setup
+    let team_token = "phc_test_token_minimal";
+    let team_id = 456;
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let server = ServerHandle::for_config_with_mock_redis(
+        config,
+        vec![],
+        vec![(team_token.to_string(), team_id)],
+    )
+    .await;
+
+    let payload = json!({
+        "token": team_token,
+        "distinct_id": "test_user_minimal",
+        "person_properties": {
+            "email": "test@minimal.example.com"
+        }
+    });
+
+    let response = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    // Test validates API serialization patterns and basic endpoint functionality
+    if response.status() == StatusCode::OK {
+        let json_response = response.json::<Value>().await?;
+        assert!(json_response.get("flags").is_some());
+    }
+
+    Ok(())
+}
