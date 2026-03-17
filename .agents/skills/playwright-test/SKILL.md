@@ -6,11 +6,11 @@ allowed-tools: Bash, Read, Edit, Write, Glob, Grep, Agent, mcp__playwright__*
 
 ## Rules
 
-- Don't use any locators with css selectors, prefer getting elements via accesibilty roles or pageId's, add data-attr if required.
+- Don't use any locators with css selectors, prefer getting elements via accessibility roles or data-testids, add data-attr if required.
 - Write fewer longer tests that do multiple things, split up by test.steps into logical steps
 - Use page object models for common tasks and accessing common elements
-- After UI interactions, always assert on UI changes, do not asser on network requests resolving
-- Never put an if statment in a test
+- After UI interactions, always assert on UI changes, do not assert on network requests resolving
+- Never put an if statement in a test
 
 ## Instructions
 
