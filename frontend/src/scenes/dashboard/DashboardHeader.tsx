@@ -43,10 +43,12 @@ export function DashboardHeader(): JSX.Element | null {
                 resourceType={{
                     type: sceneConfigurations[Scene.Dashboard].iconType || 'default_icon_type',
                 }}
-                onNameChange={(value) => updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })}
-                onDescriptionChange={(value) =>
+                onNameChange={(value) => {
+                    updateDashboard({ id: dashboard?.id, name: value, allowUndo: true })
+                }}
+                onDescriptionChange={(value) => {
                     updateDashboard({ id: dashboard?.id, description: value, allowUndo: true })
-                }
+                }}
                 markdown
                 canEdit={canEditDashboard}
                 isLoading={dashboardLoading}
