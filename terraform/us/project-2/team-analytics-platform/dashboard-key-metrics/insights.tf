@@ -638,6 +638,47 @@ import {
   id = "2/6984945"
 }
 
+resource "posthog_insight" "subscription_delivery_success_rate" {
+  name = "Subscription delivery success rate"
+  query_json = jsonencode({
+    "kind": "InsightVizNode",
+    "source": {
+      "kind": "TrendsQuery",
+      "series": [
+        {
+          "kind": "EventsNode",
+          "math": "total",
+          "event": "subscription_delivery_started",
+          "custom_name": "Started"
+        },
+        {
+          "kind": "EventsNode",
+          "math": "total",
+          "event": "subscription_delivery_exhausted",
+          "custom_name": "Exhausted (failed)"
+        }
+      ],
+      "version": 2,
+      "interval": "day",
+      "dateRange": {
+        "date_from": "-30d"
+      },
+      "trendsFilter": {
+        "display": "ActionsLineGraph",
+        "showLegend": true,
+        "showValuesOnSeries": true,
+        "formulaNodes": [
+          { "formula": "(A-B)/A", "custom_name": "Success rate" }
+        ],
+        "aggregationAxisFormat": "percentage_scaled"
+      },
+      "filterTestAccounts": false
+    }
+  })
+  tags = ["managed-by:terraform"]
+  dashboard_ids = [posthog_dashboard.team_analytics_platform_key_metrics.id]
+}
+
 resource "posthog_insight" "alert_failures_by_exception_type_aggregated" {
   name = "Alert failures by exception type (aggregated)"
   description = "Failures grouped by exception type with alert IDs normalized, showing the core issues affecting alerts"
