@@ -12015,6 +12015,8 @@ export namespace Schemas {
        */
       order_key: number;
       disabled_data?: unknown | null;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export type ErrorTrackingBreakdownsQueryKind = typeof ErrorTrackingBreakdownsQueryKind[keyof typeof ErrorTrackingBreakdownsQueryKind];
@@ -12082,16 +12084,29 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    export type ErrorTrackingGroupingRuleIssue = {[key: string]: string} | null | null;
+
     export interface ErrorTrackingGroupingRule {
       readonly id: string;
       filters: unknown;
       readonly assignee: string;
+      /**
+       * Issue linked to this rule
+       * @nullable
+       */
+      readonly issue: ErrorTrackingGroupingRuleIssue;
       /**
        * @minimum -2147483648
        * @maximum 2147483647
        */
       order_key: number;
       disabled_data?: unknown | null;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface ErrorTrackingIssueAssignment {
@@ -20612,6 +20627,8 @@ export namespace Schemas {
        */
       order_key?: number;
       disabled_data?: unknown | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedErrorTrackingExternalReference {
@@ -20623,16 +20640,29 @@ export namespace Schemas {
       readonly external_url?: string;
     }
 
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    export type PatchedErrorTrackingGroupingRuleIssue = {[key: string]: string} | null | null;
+
     export interface PatchedErrorTrackingGroupingRule {
       readonly id?: string;
       filters?: unknown;
       readonly assignee?: string;
+      /**
+       * Issue linked to this rule
+       * @nullable
+       */
+      readonly issue?: PatchedErrorTrackingGroupingRuleIssue;
       /**
        * @minimum -2147483648
        * @maximum 2147483647
        */
       order_key?: number;
       disabled_data?: unknown | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedErrorTrackingIssueFull {
