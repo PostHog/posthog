@@ -1720,10 +1720,12 @@ async fn test_flag_definitions_billing_limited_returns_402() {
 }
 
 #[rstest::rstest]
-#[case::valid_with_read_scope(Some(vec!["feature_flag:read"]), true, 200)]
-#[case::wrong_team(Some(vec!["feature_flag:read"]), false, 401)]
+#[case::read_scope(Some(vec!["feature_flag:read"]), true, 200)]
+#[case::write_scope(Some(vec!["feature_flag:write"]), true, 200)]
 #[case::null_scopes_full_access(None, true, 200)]
+#[case::wildcard_scope(Some(vec!["*"]), true, 200)]
 #[case::wrong_scope(Some(vec!["insight:read"]), true, 401)]
+#[case::wrong_team(Some(vec!["feature_flag:read"]), false, 401)]
 #[tokio::test]
 async fn test_flag_definitions_project_secret_api_key(
     #[case] scopes: Option<Vec<&str>>,
