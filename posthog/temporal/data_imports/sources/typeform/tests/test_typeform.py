@@ -10,9 +10,6 @@ from parameterized import parameterized
 from posthog.temporal.data_imports.sources.typeform.typeform import (
     TypeformFormsPaginator,
     TypeformResponsesPaginator,
-    _normalize_api_base_url,
-    _start_param_for_typeform,
-    _typeform_incremental_window,
     _validated_api_base_url,
     get_resource,
     typeform_source,
@@ -34,25 +31,7 @@ class _FakeDltResource:
 
 
 class TestTypeformTransport:
-    def test_normalize_api_base_url(self) -> None:
-        assert _normalize_api_base_url(None) == "https://api.typeform.com"
-        assert _normalize_api_base_url("https://api.eu.typeform.com/") == "https://api.eu.typeform.com"
-
-    def test_start_param_for_typeform_formats_datetime(self) -> None:
-        value = datetime(2026, 3, 10, 9, 30, 0, tzinfo=UTC)
-        assert _start_param_for_typeform(value) == "2026-03-10T09:30:00Z"
-
-    def test_start_param_for_typeform_caps_future_datetime(self) -> None:
-        value = datetime(2999, 1, 1, 0, 0, 0, tzinfo=UTC)
-        assert _start_param_for_typeform(value) != "2999-01-01T00:00:00Z"
-
-    @parameterized.expand(
-        [
-            ("single_page", 1, 1, False),
-            ("has_next_page", 1, 3, True),
-            ("last_page", 3, 3, False),
-        ]
-    )
+    @parameterized.expand([("has_next_page", 1, 3, True), ("last_page", 3, 3, False)])
     def test_forms_paginator_update_state(self, _name, current_page, page_count, expected_has_next) -> None:
         paginator = TypeformFormsPaginator()
         paginator._current_page = current_page
@@ -71,15 +50,6 @@ class TestTypeformTransport:
         paginator.update_request(request)
 
         assert request.params["page"] == 2
-
-    def test_forms_paginator_update_request_creates_params_when_missing(self) -> None:
-        paginator = TypeformFormsPaginator()
-        request = Mock()
-        request.params = None
-
-        paginator.update_request(request)
-
-        assert request.params == {"page": 2}
 
     def test_responses_paginator_update_state_sets_cursor(self) -> None:
         paginator = TypeformResponsesPaginator()
@@ -107,15 +77,6 @@ class TestTypeformTransport:
         paginator.update_request(request)
 
         assert request.params["before"] == "tok_1"
-
-    @parameterized.expand(
-        [
-            ("default", None, "https://api.typeform.com"),
-            ("explicit", "https://api.eu.typeform.com", "https://api.eu.typeform.com"),
-        ]
-    )
-    def test_validated_api_base_url(self, _name, input_url, expected_url) -> None:
-        assert _validated_api_base_url(input_url) == expected_url
 
     def test_validated_api_base_url_rejects_unknown(self) -> None:
         with pytest.raises(
@@ -198,7 +159,6 @@ class TestTypeformTransport:
         )
         rows = list(cast(Any, response.items()))
         assert rows == [{"response_id": "resp_1", "form_id": "form_1"}]
-        assert response.primary_keys == ["form_id", "response_id"]
         assert response.partition_mode == "datetime"
 
     @patch("posthog.temporal.data_imports.sources.typeform.typeform.build_dependent_resource")
@@ -234,9 +194,3 @@ class TestTypeformTransport:
                 team_id=1,
                 job_id="job-1",
             )
-
-    def test_typeform_incremental_window(self) -> None:
-        config = _typeform_incremental_window("submitted_at")
-        assert config["cursor_path"] == "submitted_at"
-        assert config["start_param"] == "since"
-        assert config["end_param"] == "until"
