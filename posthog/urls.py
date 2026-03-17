@@ -40,7 +40,6 @@ from posthog.api.two_factor_qrcode import CacheAwareQRGeneratorView
 from posthog.api.utils import hostname_in_allowed_url_list
 from posthog.api.web_experiment import web_experiments
 from posthog.api.zendesk_orgcheck import ensure_zendesk_organization
-from posthog.auth import apply_auth_brand_cookie
 from posthog.constants import PERMITTED_FORUM_DOMAINS
 from posthog.demo.legacy import demo_route
 from posthog.models import User
@@ -50,7 +49,11 @@ from posthog.temporal.codec_server import decode_payloads
 
 from products.early_access_features.backend.api import early_access_features
 from products.product_tours.backend.api import product_tours
-from products.slack_app.backend.api import slack_event_handler, twig_event_handler, twig_interactivity_handler
+from products.slack_app.backend.api import (
+    posthog_code_event_handler,
+    posthog_code_interactivity_handler,
+    slack_event_handler,
+)
 from products.tasks.backend.webhooks import github_pr_webhook
 
 from .utils import opt_slash_path, render_template
@@ -100,8 +103,7 @@ def home(request, *args, **kwargs):
         url = "https://us.posthog.com{}".format(request.get_full_path())
         if url_has_allowed_host_and_scheme(url, "us.posthog.com", True):
             return HttpResponseRedirect(url)
-    response = render_template("index.html", request)
-    return apply_auth_brand_cookie(request, response)
+    return render_template("index.html", request)
 
 
 def authorize_and_redirect(request: HttpRequest) -> HttpResponse:
@@ -204,11 +206,10 @@ urlpatterns = [
     path("", include(tf_urls)),
     opt_slash_path("api/user/prepare_toolbar_preloaded_flags", user.prepare_toolbar_preloaded_flags),
     opt_slash_path("api/user/get_toolbar_preloaded_flags", user.get_toolbar_preloaded_flags),
-    opt_slash_path("api/user/toolbar_oauth_start", user.toolbar_oauth_start),
-    opt_slash_path("api/user/toolbar_oauth_exchange", user.toolbar_oauth_exchange),
     opt_slash_path("api/user/toolbar_oauth_refresh", user.toolbar_oauth_refresh),
     path("toolbar_oauth/authorize/", login_required(user.toolbar_oauth_authorize)),
     path("toolbar_oauth/callback", user.toolbar_oauth_callback),
+    path("toolbar_oauth/check", user.toolbar_oauth_check),
     opt_slash_path("api/user/redirect_to_site", user.redirect_to_site),
     opt_slash_path("api/user/redirect_to_website", user.redirect_to_website),
     opt_slash_path("api/user/test_slack_webhook", user.test_slack_webhook),
@@ -288,8 +289,8 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", slack_interactivity_callback),
     opt_slash_path("slack/event-callback", slack_event_handler),
-    opt_slash_path("slack/twig-event-callback", twig_event_handler),
-    opt_slash_path("slack/twig-interactivity-callback", twig_interactivity_handler),
+    opt_slash_path("slack/posthog-code-event-callback", posthog_code_event_handler),
+    opt_slash_path("slack/posthog-code-interactivity-callback", posthog_code_interactivity_handler),
     # GitHub webhooks for task lifecycle events
     opt_slash_path("webhooks/github/pr", github_pr_webhook),
     # Message preferences

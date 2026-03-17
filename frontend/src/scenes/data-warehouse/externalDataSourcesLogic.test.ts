@@ -52,7 +52,7 @@ describe('externalDataSourcesLogic', () => {
         logic.mount()
 
         await expectLogic(logic, () => {
-            logic.actions.loadSources(null)
+            logic.actions.loadSources()
         })
             .toDispatchActions(['loadSources', 'loadSourcesSuccess'])
             .toMatchValues({

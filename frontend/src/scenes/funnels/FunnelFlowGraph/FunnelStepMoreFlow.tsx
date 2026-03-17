@@ -9,6 +9,8 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { FunnelPathType } from '~/types'
 
+import { journeyEditorLogic } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyEditorLogic'
+
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPathsExpansionLogic } from './funnelPathsExpansionLogic'
 
@@ -21,8 +23,10 @@ export function FunnelStepMoreFlow({ stepIndex }: FunnelStepMoreFlowProps): JSX.
     const { querySource } = useValues(funnelDataLogic(insightProps))
     const { expandedPath, pathsLoading } = useValues(funnelPathsExpansionLogic(insightProps))
     const { expandPath, collapsePath } = useActions(funnelPathsExpansionLogic(insightProps))
+    const { isEditMode } = useValues(journeyEditorLogic)
 
     const stepNumber = stepIndex + 1
+    const editModeLocked = isEditMode
 
     if (querySource?.aggregation_group_type_index != undefined) {
         return null
@@ -45,12 +49,18 @@ export function FunnelStepMoreFlow({ stepIndex }: FunnelStepMoreFlowProps): JSX.
         return pathsLoading ? (
             <Spinner textColored className="text-lg" />
         ) : (
-            <LemonButton size="xsmall" icon={<IconCollapse />} onClick={() => collapsePath()} />
+            <LemonButton
+                size="xsmall"
+                icon={<IconCollapse />}
+                onClick={() => collapsePath()}
+                disabledReason={editModeLocked ? 'Save or cancel staged changes first' : undefined}
+            />
         )
     }
 
     return (
         <More
+            disabledReason={editModeLocked ? 'Save or cancel staged changes first' : undefined}
             placement="bottom-start"
             noPadding
             overlay={

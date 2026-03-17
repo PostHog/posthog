@@ -5,8 +5,9 @@ import { expectLogic, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
 import { now } from 'lib/dayjs'
-import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardLoadAction, dashboardLogic } from 'scenes/dashboard/dashboardLogic'
+import * as dashboardUtils from 'scenes/dashboard/dashboardUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
@@ -340,6 +341,40 @@ describe('dashboardLogic', () => {
                 variables: {},
             })
         })
+
+        it('discarding edit mode restores original layouts', async () => {
+            await expectLogic(logic).toFinishAllListeners()
+
+            const initialDashboard = logic.values.dashboard
+            expect(initialDashboard).not.toBeNull()
+
+            const firstTile = initialDashboard!.tiles[0]
+            const originalLayouts = logic.values.dashboardLayouts[firstTile.id]
+
+            expect(originalLayouts).not.toBeUndefined()
+
+            const currentLayouts = logic.values.layouts
+            const modifiedLayouts: any = {
+                ...currentLayouts,
+                sm: currentLayouts.sm?.map((layout) =>
+                    layout.i === String(firstTile.id) ? { ...layout, x: (layout.x ?? 0) + 1 } : layout
+                ),
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.updateLayouts(modifiedLayouts)
+            }).toFinishAllListeners()
+
+            const editedTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
+            expect(editedTileLayouts).not.toEqual(originalLayouts)
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)
+            }).toFinishAllListeners()
+
+            const restoredTileLayouts = logic.values.dashboard?.tiles.find((t) => t.id === firstTile.id)?.layouts
+            expect(restoredTileLayouts).toEqual(originalLayouts)
+        })
     })
 
     describe('moving between dashboards', () => {
@@ -576,6 +611,33 @@ describe('dashboardLogic', () => {
                     })
             })
 
+            it('manual refresh does not update last refresh when insights fail', async () => {
+                const dashboard = dashboards[5]
+                const insight1 = dashboard.tiles[0].insight!
+                const insight2 = dashboard.tiles[1].insight!
+                const refreshError = new Error('Queries are a little too busy right now.')
+                const getInsightWithRetrySpy = jest
+                    .spyOn(dashboardUtils, 'getInsightWithRetry')
+                    .mockRejectedValue(refreshError)
+                ;(api.update as jest.Mock).mockClear()
+
+                await expectLogic(logic, () => {
+                    logic.actions.triggerDashboardRefresh()
+                })
+                    .toDispatchActions([
+                        'triggerDashboardRefresh',
+                        'refreshDashboardItems',
+                        logic.actionCreators.setRefreshStatuses([insight1.short_id, insight2.short_id], false, true),
+                    ])
+                    .toFinishAllListeners()
+
+                expect(logic.values.lastDashboardRefresh).toBeNull()
+                expect(logic.values.blockRefresh).toBe(false)
+                expect(api.update).not.toHaveBeenCalled()
+
+                getInsightWithRetrySpy.mockRestore()
+            })
+
             it('automatic refresh reloads stale insights (but not fresh ones)', async () => {
                 const dashboard = dashboards[5]
                 const staleInsight = {
@@ -765,6 +827,57 @@ describe('dashboardLogic', () => {
                 ])
 
             expect(logic.values.textTiles).toEqual([])
+        })
+    })
+
+    describe('layout zoom', () => {
+        beforeEach(async () => {
+            logic = dashboardLogic({ id: 5 })
+            logic.mount()
+            await expectLogic(logic).toFinishAllListeners()
+        })
+
+        it('clamps layoutZoom between 0.25 and 1', async () => {
+            await expectLogic(logic).toMatchValues({ layoutZoom: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(2)
+            }).toMatchValues({ layoutZoom: 1 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.1)
+            }).toMatchValues({ layoutZoom: 0.25 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.75)
+            }).toMatchValues({ layoutZoom: 0.75 })
+        })
+
+        it('resets layoutZoom to 1 when leaving edit mode', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.5)
+            }).toMatchValues({ layoutZoom: 0.5 })
+
+            await expectLogic(logic, () => {
+                logic.actions.setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)
+            }).toMatchValues({ layoutZoom: 1 })
+        })
+
+        it('resets layoutZoom to 1 when container becomes single-column', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.setLayoutZoom(0.25)
+            }).toMatchValues({ layoutZoom: 0.25 })
+
+            await expectLogic(logic, () => {
+                // columns === 1 -> xs layout
+                logic.actions.updateContainerWidth(400, 1)
+            }).toMatchValues({ layoutZoom: 1 })
+
+            await expectLogic(logic, () => {
+                // moving back to multi-column should not change zoom
+                logic.actions.setLayoutZoom(0.5)
+                logic.actions.updateContainerWidth(1200, 12)
+            }).toMatchValues({ layoutZoom: 0.5 })
         })
     })
 

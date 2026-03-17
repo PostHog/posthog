@@ -43,6 +43,7 @@ pub fn create_simple_flag_filters(groups: Vec<FlagPropertyGroup>) -> FlagFilters
         payloads: None,
         super_groups: None,
         holdout_groups: None,
+        holdout: None,
     }
 }
 
@@ -131,6 +132,7 @@ pub async fn get_flags_from_redis(
 
     Ok(FeatureFlagList {
         flags: wrapper.flags,
+        ..Default::default()
     })
 }
 

@@ -12,7 +12,7 @@ on:
             - master
 
 permissions:
-    contents: write
+    contents: read
     pull-requests: write
 
 env:
@@ -191,7 +191,6 @@ jobs:
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ needs.get_clickhouse_versions.outputs.oldest_supported }}
-                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
                   (
@@ -265,6 +264,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-e2e-playwright.yml
 
             # tests would intermittently fail in GH actions
             # with exit code 134 _after passing_ all tests
@@ -324,14 +326,16 @@ jobs:
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Start Docker services
-              run: docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
               env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: capture
+              run: bin/ci-wait-for-docker launch
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker capture
               env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: capture
+              run: bin/ci-wait-for-docker wait capture
 
             - name: Build frontend
               run: |
@@ -386,7 +390,7 @@ jobs:
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
                   # Start the Node.js ingestion container now that the database exists and migrations have run.
-                  docker compose -f docker-compose.dev.yml --profile capture --profile ingestion up -d plugins
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -401,9 +405,10 @@ jobs:
                   verbose: true
 
             - name: Wait for ingestion service to be ready
-              run: bin/wait-for-docker plugins
               env:
+                  COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
+              run: bin/ci-wait-for-docker wait plugins
 
             - name: Run Playwright tests
               id: playwright-tests
@@ -545,10 +550,12 @@ jobs:
 
             - name: Write report URL to job summary
               if: always() && steps.cf-deploy.outputs.deployment-url != ''
+              env:
+                  DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
               run: |
                   echo "## 🎭 Playwright report" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
-                  echo "**Report URL:** ${{ steps.cf-deploy.outputs.deployment-url }}" >> $GITHUB_STEP_SUMMARY
+                  echo "**Report URL:** $DEPLOYMENT_URL" >> $GITHUB_STEP_SUMMARY
                   echo "" >> $GITHUB_STEP_SUMMARY
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
@@ -556,12 +563,14 @@ jobs:
             - name: Upsert report URL comment on PR
               if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              env:
+                  DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
               with:
                   github-token: ${{ secrets.GITHUB_TOKEN }}
                   script: |
                       const fs = require('fs');
                       const marker = '<!-- playwright-report-comment -->';
-                      const reportUrl = '${{ steps.cf-deploy.outputs.deployment-url }}';
+                      const reportUrl = process.env.DEPLOYMENT_URL;
                       const jobPassed = '${{ job.status }}' === 'success';
 
                       // Collect failed and flaky tests from JSON report — only populated when
@@ -666,6 +675,9 @@ jobs:
         runs-on: ubuntu-latest
         needs: [playwright, detect-snapshot-mode, changes]
         if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.shouldRun == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        permissions:
+            contents: write
+            pull-requests: write
         steps:
             # Use GitHub app token so Actions run after commiting updated snapshots
             - name: Get app token

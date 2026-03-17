@@ -12,19 +12,19 @@ import { LogsViewer } from 'scenes/hog-functions/logs/LogsViewer'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { HogFlowBatchJob } from './hogflows/types'
 import { renderWorkflowLogMessage } from './logs/log-utils'
-import { workflowLogic } from './workflowLogic'
+import { WorkflowLogicProps, workflowLogic } from './workflowLogic'
 
 export type WorkflowLogsProps = {
     id: string
 }
 
-function WorkflowRunLogs({ id }: WorkflowLogsProps): JSX.Element {
+function WorkflowRunLogs(props: WorkflowLogsProps): JSX.Element {
     const { workflow } = useValues(workflowLogic)
 
     return (
         <LogsViewer
             sourceType="hog_flow"
-            sourceId={id}
+            sourceId={props.id!}
             instanceLabel="workflow run"
             renderMessage={(m) => renderWorkflowLogMessage(workflow, m)}
         />
@@ -101,8 +101,8 @@ function BatchRunInfo({ job }: { job: HogFlowBatchJob }): JSX.Element {
     )
 }
 
-function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
-    const { futureJobs, pastJobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic({ id }))
+function WorkflowBatchRunLogs(props: WorkflowLogicProps): JSX.Element {
+    const { futureJobs, pastJobs, batchWorkflowJobsLoading } = useValues(batchWorkflowJobsLogic(props))
 
     if (batchWorkflowJobsLoading) {
         return (
@@ -124,18 +124,6 @@ function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
         )
     }
 
-    const futureJobsSection = futureJobs.length ? (
-        <LemonCollapse
-            panels={futureJobs.map((job) => ({
-                key: job.id,
-                header: <BatchRunHeader job={job} />,
-                content: <BatchRunInfo job={job} />,
-            }))}
-        />
-    ) : (
-        <div className="border rounded bg-surface-primary p-2 text-muted">No scheduled jobs.</div>
-    )
-
     const pastJobsSection = pastJobs.length ? (
         <LemonCollapse
             panels={pastJobs.map((job) => ({
@@ -148,18 +136,15 @@ function WorkflowBatchRunLogs({ id }: WorkflowLogsProps): JSX.Element {
         <div className="border rounded bg-surface-primary p-2 text-muted">No past jobs.</div>
     )
 
-    return (
-        <div className="flex flex-col gap-2">
-            <h2 className="text-lg font-semibold">Scheduled jobs</h2>
-            {futureJobsSection}
-            <h2 className="text-lg font-semibold mt-4">Past jobs</h2>
-            {pastJobsSection}
-        </div>
-    )
+    return <div className="flex flex-col gap-2">{pastJobsSection}</div>
 }
 
 export function WorkflowLogs({ id }: WorkflowLogsProps): JSX.Element {
     const { workflow } = useValues(workflowLogic)
 
-    return workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs id={id} /> : <WorkflowRunLogs id={id} />
+    return (
+        <div data-attr="workflow-logs">
+            {workflow?.trigger?.type === 'batch' ? <WorkflowBatchRunLogs id={id} /> : <WorkflowRunLogs id={id} />}
+        </div>
+    )
 }

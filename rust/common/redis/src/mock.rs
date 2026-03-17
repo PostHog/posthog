@@ -18,6 +18,8 @@ pub struct MockRedisClient {
     del_ret: HashMap<String, Result<(), CustomRedisError>>,
     hget_ret: HashMap<String, Result<String, CustomRedisError>>,
     scard_ret: HashMap<String, Result<u64, CustomRedisError>>,
+    sadd_ret: HashMap<String, Result<(), CustomRedisError>>,
+    expire_ret: HashMap<String, Result<bool, CustomRedisError>>,
     mget_ret: HashMap<String, Option<Vec<u8>>>,
     mget_error: Option<CustomRedisError>,
     calls: Arc<Mutex<Vec<MockRedisCall>>>,
@@ -37,6 +39,8 @@ impl Default for MockRedisClient {
             del_ret: HashMap::new(),
             hget_ret: HashMap::new(),
             scard_ret: HashMap::new(),
+            sadd_ret: HashMap::new(),
+            expire_ret: HashMap::new(),
             mget_ret: HashMap::new(),
             mget_error: None,
             calls: Arc::new(Mutex::new(Vec::new())),
@@ -122,6 +126,16 @@ impl MockRedisClient {
 
     pub fn scard_ret(&mut self, key: &str, ret: Result<u64, CustomRedisError>) -> Self {
         self.scard_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn sadd_ret(&mut self, key: &str, ret: Result<(), CustomRedisError>) -> Self {
+        self.sadd_ret.insert(key.to_owned(), ret);
+        self.clone()
+    }
+
+    pub fn expire_ret(&mut self, key: &str, ret: Result<bool, CustomRedisError>) -> Self {
+        self.expire_ret.insert(key.to_owned(), ret);
         self.clone()
     }
 
@@ -619,6 +633,15 @@ impl MockRedisClient {
             PipelineCommand::Scard { key } => {
                 self.record_call("pipeline_scard", &key, MockRedisValue::None);
                 Self::lookup_or_not_found(&self.scard_ret, &key).map(PipelineResult::Count)
+            }
+            PipelineCommand::SAdd { key, member } => {
+                self.record_call("pipeline_sadd", &key, MockRedisValue::String(member));
+                Self::lookup_or_ok(&self.sadd_ret, &key).map(|_| PipelineResult::Count(1))
+            }
+            PipelineCommand::Expire { key, seconds } => {
+                let ttl_i64 = i64::try_from(seconds).unwrap_or(i64::MAX);
+                self.record_call("pipeline_expire", &key, MockRedisValue::I64(ttl_i64));
+                Self::lookup_or_not_found(&self.expire_ret, &key).map(PipelineResult::Bool)
             }
             PipelineCommand::ZRangeByScore { key, min, max } => {
                 self.record_call(

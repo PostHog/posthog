@@ -541,27 +541,43 @@ export function buildAggregateQuery(
                 ${responseExpr} AS label,
                 count() AS cnt
             FROM events
-            WHERE ${baseWhere} AND ${responseExpr} != ''
+            WHERE ${baseWhere} AND isNotNull(${responseExpr})
             GROUP BY label`)
+
+            if (question.type === SurveyQuestionType.SingleChoice && question.optional) {
+                branches.push(`SELECT '${question.id}' AS question_id,
+                    '__no_response__' AS label,
+                    count() AS cnt
+                FROM events
+                WHERE ${baseWhere} AND ${responseExpr} = ''`)
+            }
         } else if (question.type === SurveyQuestionType.MultipleChoice) {
             branches.push(`SELECT '${question.id}' AS question_id,
                 trim(BOTH '"\\'' FROM arrayJoin(${responseExpr})) AS label,
                 count() AS cnt
             FROM events
             WHERE ${baseWhere}
-            GROUP BY label HAVING label != ''`)
+            GROUP BY label HAVING isNotNull(label) AND label != ''`)
 
             branches.push(`SELECT '${question.id}' AS question_id,
                 '__total__' AS label,
                 count() AS cnt
             FROM events
             WHERE ${baseWhere} AND length(${responseExpr}) > 0`)
+
+            if (question.optional) {
+                branches.push(`SELECT '${question.id}' AS question_id,
+                    '__no_response__' AS label,
+                    count() AS cnt
+                FROM events
+                WHERE ${baseWhere} AND length(${responseExpr}) = 0`)
+            }
         } else if (question.type === SurveyQuestionType.Open) {
             branches.push(`SELECT '${question.id}' AS question_id,
                 '__total__' AS label,
                 count() AS cnt
             FROM events
-            WHERE ${baseWhere} AND ${responseExpr} != ''`)
+            WHERE ${baseWhere} AND isNotNull(${responseExpr})`)
         }
     }
 

@@ -1,17 +1,14 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconCheck, IconSort } from '@posthog/icons'
-import { LemonButton, LemonMenu, LemonTag } from '@posthog/lemon-ui'
+import { LemonTag } from '@posthog/lemon-ui'
 
 import { InfiniteList } from 'lib/components/TaxonomicFilter/InfiniteList'
 import { infiniteListLogic } from 'lib/components/TaxonomicFilter/infiniteListLogic'
-import { taxonomicFilterPreferencesLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterPreferencesLogic'
 import {
     DefinitionPopoverRenderer,
     TaxonomicFilterGroupType,
     TaxonomicFilterLogicProps,
 } from 'lib/components/TaxonomicFilter/types'
-import { IconBlank } from 'lib/lemon-ui/icons'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { cn } from 'lib/utils/css-classes'
 
@@ -41,7 +38,8 @@ function CategoryPillContent({
     onClick: () => void
 }): JSX.Element {
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource, hasMore } = useValues(infiniteListLogic)
+    const { totalResultCount, totalListCount, isLoading, hasRemoteDataSource, hasMore, needsMoreSearchCharacters } =
+        useValues(infiniteListLogic)
 
     const group = taxonomicGroups.find((g) => g.type === groupType)
 
@@ -65,16 +63,20 @@ function CategoryPillContent({
             ) : (
                 <>
                     {group?.name}
-                    {': '}
-                    {showLoading ? (
-                        <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
-                    ) : (
-                        totalResultCount
+                    {!needsMoreSearchCharacters && (
+                        <>
+                            {': '}
+                            {showLoading ? (
+                                <Spinner className="text-sm inline-block ml-1" textColored speed="0.8s" />
+                            ) : (
+                                totalResultCount
+                            )}
+                            {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
+                            <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
+                                {hasMore ? '+' : ''}
+                            </span>
+                        </>
                     )}
-                    {/* This is a workaround. We need to make the logic fetch more results when querying from clickhouse*/}
-                    <span aria-label={hasMore ? `${totalResultCount} or more` : `${totalResultCount}`}>
-                        {hasMore ? '+' : ''}
-                    </span>
                 </>
             )}
         </LemonTag>
@@ -103,75 +105,9 @@ function CategoryPill({
 
 function TaxonomicGroupTitle({ openTab }: { openTab: TaxonomicFilterGroupType }): JSX.Element {
     const { taxonomicGroups } = useValues(taxonomicFilterLogic)
-
-    const { eventOrdering } = useValues(taxonomicFilterPreferencesLogic)
-    const { setEventOrdering } = useActions(taxonomicFilterPreferencesLogic)
-
     return (
         <div className="flex flex-row justify-between items-center w-full relative pb-2">
-            {openTab === TaxonomicFilterGroupType.Events ? (
-                <>
-                    <span>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</span>
-                    <LemonMenu
-                        items={[
-                            {
-                                label: (
-                                    <div className="flex flex-row gap-2">
-                                        {eventOrdering === 'name' ? <IconCheck /> : <IconBlank />}
-                                        <span>Name</span>
-                                    </div>
-                                ),
-                                tooltip: 'Sort events alphabetically',
-                                onClick: () => {
-                                    setEventOrdering('name')
-                                },
-                                'data-attr': 'taxonomic-event-sorting-by-name',
-                            },
-                            {
-                                label: (
-                                    <div className="flex flex-row gap-2">
-                                        {eventOrdering === '-last_seen_at' ? <IconCheck /> : <IconBlank />}
-                                        <span>Recently seen</span>
-                                    </div>
-                                ),
-                                tooltip: 'Show the most recent events first',
-                                onClick: () => {
-                                    setEventOrdering('-last_seen_at')
-                                },
-                                'data-attr': 'taxonomic-event-sorting-by-recency',
-                            },
-                            {
-                                label: (
-                                    <div className="flex flex-row gap-2">
-                                        {!eventOrdering ? <IconCheck /> : <IconBlank />}
-                                        <span>Both</span>
-                                    </div>
-                                ),
-                                tooltip:
-                                    'Sorts events by the day they were last seen, and then by name. The default option.',
-                                onClick: () => {
-                                    setEventOrdering(null)
-                                },
-                                'data-attr': 'taxonomic-event-sorting-by-both',
-                            },
-                        ]}
-                    >
-                        <LemonButton
-                            icon={<IconSort />}
-                            size="small"
-                            tooltip={`Sorting by ${
-                                eventOrdering === '-last_seen_at'
-                                    ? 'recently seen'
-                                    : eventOrdering === 'name'
-                                      ? 'name'
-                                      : 'recently seen and then name'
-                            }`}
-                        />
-                    </LemonMenu>
-                </>
-            ) : (
-                <>{taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}</>
-            )}
+            {taxonomicGroups.find((g) => g.type === openTab)?.name || openTab}
         </div>
     )
 }

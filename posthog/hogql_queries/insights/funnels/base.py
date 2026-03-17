@@ -244,7 +244,7 @@ class FunnelBase(ABC):
             name = step.event
             action_id = step.event
         elif isinstance(step, DataWarehouseNode):
-            name = f"{step.table_name}.{step.distinct_id_field}"
+            name = step.table_name
             action_id = None
         elif isinstance(step, GroupNode):
             action_ids = [int(node.id) for node in step.nodes if isinstance(node, ActionsNode)]

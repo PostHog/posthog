@@ -134,6 +134,28 @@ class TestHogFunctionTemplates(ClickhouseTestMixin, APIBaseTest, QueryMatchingTe
         response5 = self.client.get("/api/projects/@current/hog_function_templates/?types=site_destination,destination")
         assert len(response5.json()["results"]) > 0
 
+    def test_list_with_template_id_filter(self):
+        response = self.client.get("/api/projects/@current/hog_function_templates/?template_id=template-webhook")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == "template-webhook"
+
+        response = self.client.get("/api/projects/@current/hog_function_templates/?template_id=template-slack")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0]["id"] == "template-slack"
+
+        response = self.client.get("/api/projects/@current/hog_function_templates/?template_id=nonexistent")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(response.json()["results"]) == 0
+
+    def test_list_with_template_id_filter_excludes_deprecated(self):
+        response = self.client.get(
+            f"/api/projects/@current/hog_function_templates/?template_id={self.deprecated_template.template_id}"
+        )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert len(response.json()["results"]) == 0
+
     def test_retrieve_function_template(self):
         response = self.client.get("/api/projects/@current/hog_function_templates/template-slack")
         assert response.status_code == status.HTTP_200_OK, response.json()

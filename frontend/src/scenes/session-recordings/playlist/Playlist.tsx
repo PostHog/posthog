@@ -97,7 +97,7 @@ export function Playlist({
         activeSessionRecordingId,
         totalFiltersCount,
         sessionRecordingsResponseLoading,
-        pinnedRecordings,
+        visiblePinnedRecordings: pinnedRecordings,
         otherRecordings,
         hasNext,
     } = useValues(sessionRecordingsPlaylistLogic)

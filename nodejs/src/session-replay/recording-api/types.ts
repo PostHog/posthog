@@ -26,6 +26,7 @@ export {
  */
 export type RecordingApiConfig = Pick<
     PluginsServerConfig,
+    | 'SITE_URL'
     | 'KAFKA_CLIENT_RACK'
     | 'REDIS_POOL_MIN_SIZE'
     | 'REDIS_POOL_MAX_SIZE'
@@ -39,4 +40,18 @@ export type RecordingApiConfig = Pick<
     | 'SESSION_RECORDING_V2_S3_PREFIX'
     | 'SESSION_RECORDING_KMS_ENDPOINT'
     | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
+    | 'CLICKHOUSE_HOST'
+    | 'CLICKHOUSE_DATABASE'
+    | 'CLICKHOUSE_USER'
+    | 'CLICKHOUSE_PASSWORD'
+    | 'CLICKHOUSE_SECURE'
+    | 'CLICKHOUSE_CA'
 >
+
+export interface RecordingBlock {
+    key: string
+    start_byte: number
+    end_byte: number
+    start_timestamp: string
+    end_timestamp: string
+}

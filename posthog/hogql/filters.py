@@ -196,4 +196,11 @@ class ReplaceFilters(CloningVisitor):
                 compare_op_wrapper.skip = True
                 return ast.Constant(value=True)
 
+        if node.chain and node.chain[0] == "filters":
+            chain_str = ".".join(str(c) for c in node.chain)
+            raise QueryError(
+                f"Unsupported filters placeholder `{{{chain_str}}}`. "
+                "Supported filters placeholders are: `{filters}`, `{filters.dateRange.from}`, `{filters.dateRange.to}`."
+            )
+
         return super().visit_placeholder(node)

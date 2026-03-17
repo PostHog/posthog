@@ -1,0 +1,27 @@
+#!/bin/bash
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+cd "$ROOT_DIR/nodejs"
+
+# Auto-detect Chrome/Chromium if PUPPETEER_EXECUTABLE_PATH is not set
+if [ -z "$PUPPETEER_EXECUTABLE_PATH" ]; then
+    if [ -x "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" ]; then
+        export PUPPETEER_EXECUTABLE_PATH="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+    elif command -v chromium >/dev/null 2>&1; then
+        export PUPPETEER_EXECUTABLE_PATH="$(command -v chromium)"
+    elif command -v chromium-browser >/dev/null 2>&1; then
+        export PUPPETEER_EXECUTABLE_PATH="$(command -v chromium-browser)"
+    elif command -v google-chrome >/dev/null 2>&1; then
+        export PUPPETEER_EXECUTABLE_PATH="$(command -v google-chrome)"
+    fi
+fi
+
+echo "Building recording-rasterizer worker..."
+pnpm build
+
+echo "Starting recording-rasterizer worker..."
+exec node dist/session-replay/recording-rasterizer/index.js "$@"

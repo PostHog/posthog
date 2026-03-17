@@ -3,6 +3,13 @@ import { actions, beforeUnmount, connect, kea, key, listeners, path, props, redu
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
+import {
+    getHrefFromSnapshot,
+    keyForSource,
+    processAllSnapshots,
+    SnapshotStore,
+    SourceLoadingState,
+} from '@posthog/replay-shared'
 import { EventType, customEvent, eventWithTime } from '@posthog/rrweb-types'
 
 import { Dayjs, dayjs, now } from 'lib/dayjs'
@@ -23,11 +30,7 @@ import { sessionEventsDataLogic } from './sessionEventsDataLogic'
 import { sessionRecordingCommentsLogic } from './sessionRecordingCommentsLogic'
 import type { sessionRecordingDataCoordinatorLogicType } from './sessionRecordingDataCoordinatorLogicType'
 import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
-import { getHrefFromSnapshot } from './snapshot-processing/patch-meta-event'
-import { processAllSnapshots } from './snapshot-processing/process-all-snapshots'
-import { keyForSource } from './snapshot-processing/source-key'
-import { SnapshotStore } from './snapshot-store/SnapshotStore'
-import { SourceLoadingState } from './snapshot-store/types'
+import { posthogTelemetry } from './snapshot-processing/process-all-snapshots'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { convertSegmentKinds } from './utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
@@ -90,6 +93,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'loadRecordingCommentsSuccess',
                     'loadRecordingNotebookCommentsSuccess',
                 ],
+                snapLogic,
+                ['storeUpdated'],
             ],
             values: [
                 metaLogic,
@@ -99,7 +104,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'isNotFound',
                     'trackedWindow',
                     'snapshotSources',
-                    'snapshotsBySources',
                     'snapshotsLoading',
                     'snapshotsLoaded',
                     'currentTeam',
@@ -194,11 +198,8 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             cache.processingCache = cache.processingCache || { snapshots: {} }
 
             const sources = values.snapshotSources
-            let snapshotsBySource
-            if (values.snapshotStore && sources) {
-                // Build from store entries so processAllSnapshots can run
-                // Meta synthesis, mobile FullSnapshot creation, etc.
-                snapshotsBySource = {} as Record<string, { snapshots: RecordingSnapshot[] }>
+            const snapshotsBySource = {} as Record<string, { snapshots: RecordingSnapshot[] }>
+            if (sources) {
                 for (let i = 0; i < sources.length; i++) {
                     const entry = values.snapshotStore.getEntry(i)
                     if (entry?.state === 'loaded' && entry.processedSnapshots?.length) {
@@ -207,8 +208,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                         }
                     }
                 }
-            } else {
-                snapshotsBySource = values.snapshotsBySources
             }
 
             const result = await processAllSnapshots(
@@ -216,14 +215,21 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 snapshotsBySource,
                 cache.processingCache,
                 values.viewportForTimestamp,
-                props.sessionRecordingId
+                props.sessionRecordingId,
+                posthogTelemetry
             )
 
             breakpoint()
 
+            // processAllSnapshots may synthesize full snapshots (e.g. for mobile recordings).
+            // Sync them back to the store so canPlayAt() and LoadingScheduler work correctly.
+            if (values.snapshotStore.syncFullSnapshotTimestamps(result)) {
+                actions.storeUpdated()
+            }
+
             // Release raw snapshot arrays from the store — only the metadata
             // (fullSnapshotTimestamps, metaTimestamps, state) is still needed.
-            values.snapshotStore?.clearSnapshotData()
+            values.snapshotStore.clearSnapshotData()
 
             actions.setProcessedSnapshots(result)
         },
@@ -297,7 +303,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 trackedWindow: number | null,
                 snapshotsByWindowId: Record<number, eventWithTime[]>,
                 isLoadingSnapshots: boolean,
-                snapshotStore: SnapshotStore | null
+                snapshotStore: SnapshotStore
             ): RecordingSegment[] => {
                 const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
                 return convertSegmentKinds(segments, snapshotStore, isLoadingSnapshots)

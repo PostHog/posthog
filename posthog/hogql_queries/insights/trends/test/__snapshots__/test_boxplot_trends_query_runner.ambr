@@ -366,7 +366,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBoxPlotTrendsQueryRunner.test_only_first_series_is_used
+# name: TestBoxPlotTrendsQueryRunner.test_multiple_series_returns_data_for_each
   '''
   SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
          min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
@@ -377,6 +377,31 @@
          avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'revenue'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
   FROM events AS e
   WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))))
+  GROUP BY day_start
+  ORDER BY day_start ASC
+  LIMIT 100 SETTINGS readonly=2,
+                     max_execution_time=60,
+                     allow_experimental_object_type=1,
+                     max_ast_elements=4000000,
+                     max_expanded_ast_elements=4000000,
+                     max_bytes_before_external_group_by=0,
+                     transform_null_in=1,
+                     optimize_min_equality_disjunction_chain_length=4294967295,
+                     allow_experimental_join_condition=1,
+                     use_hive_partitioning=0
+  '''
+# ---
+# name: TestBoxPlotTrendsQueryRunner.test_multiple_series_returns_data_for_each.1
+  '''
+  SELECT toStartOfDay(toTimeZone(e.timestamp, 'UTC')) AS day_start,
+         min(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'other_prop'), ''), 'null'), '^"|"$', ''), 'Float64')) AS min_val,
+         quantile(0.25)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'other_prop'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p25,
+         quantile(0.5)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'other_prop'), ''), 'null'), '^"|"$', ''), 'Float64')) AS median_val,
+         quantile(0.75)(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'other_prop'), ''), 'null'), '^"|"$', ''), 'Float64')) AS p75,
+         max(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'other_prop'), ''), 'null'), '^"|"$', ''), 'Float64')) AS max_val,
+         avg(accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(e.properties, 'other_prop'), ''), 'null'), '^"|"$', ''), 'Float64')) AS mean_val
+  FROM events AS e
+  WHERE and(equals(e.team_id, 99999), greaterOrEquals(toTimeZone(e.timestamp, 'UTC'), toStartOfInterval(assumeNotNull(toDateTime('2023-12-02 00:00:00', 'UTC')), toIntervalDay(1))), lessOrEquals(toTimeZone(e.timestamp, 'UTC'), assumeNotNull(toDateTime('2023-12-02 23:59:59', 'UTC'))), equals(e.event, 'other_event'))
   GROUP BY day_start
   ORDER BY day_start ASC
   LIMIT 100 SETTINGS readonly=2,

@@ -433,6 +433,17 @@ export const SourceTypeE09EnumApi = {
     BuildBetter: 'BuildBetter',
 } as const
 
+/**
+ * * `warehouse` - warehouse
+ * `direct` - direct
+ */
+export type AccessMethodEnumApi = (typeof AccessMethodEnumApi)[keyof typeof AccessMethodEnumApi]
+
+export const AccessMethodEnumApi = {
+    Warehouse: 'warehouse',
+    Direct: 'direct',
+} as const
+
 export interface ExternalDataSourceRevenueAnalyticsConfigApi {
     enabled?: boolean
     include_invoiceless_charges?: boolean
@@ -451,13 +462,17 @@ export interface ExternalDataSourceSerializersApi {
     account_id: string
     readonly source_type: SourceTypeE09EnumApi
     readonly latest_error: string
-    /** @nullable */
-    readonly prefix: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    readonly access_method: AccessMethodEnumApi
     readonly last_run_at: string
     readonly schemas: string
     job_inputs?: unknown | null
@@ -491,13 +506,17 @@ export interface PatchedExternalDataSourceSerializersApi {
     account_id?: string
     readonly source_type?: SourceTypeE09EnumApi
     readonly latest_error?: string
-    /** @nullable */
-    readonly prefix?: string | null
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    prefix?: string | null
     /**
      * @maxLength 400
      * @nullable
      */
     description?: string | null
+    readonly access_method?: AccessMethodEnumApi
     readonly last_run_at?: string
     readonly schemas?: string
     job_inputs?: unknown | null
@@ -705,9 +724,12 @@ export interface DataWarehouseSavedQueryApi {
     readonly id: string
     /** @nullable */
     deleted?: boolean | null
-    /** @maxLength 128 */
+    /**
+     * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+     * @maxLength 128
+     */
     name: string
-    /** HogQL query */
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
     query?: unknown | null
     readonly created_by: UserBasicApi
     readonly created_at: string
@@ -726,10 +748,16 @@ export interface DataWarehouseSavedQueryApi {
     readonly managed_viewset_kind: string
     /** @nullable */
     readonly latest_error: string | null
-    /** @nullable */
+    /**
+     * Activity log ID from the last known edit. Used for conflict detection.
+     * @nullable
+     */
     edited_history_id?: string | null
     readonly latest_history_id: string
-    /** @nullable */
+    /**
+     * If true, skip column inference and validation. For saving drafts.
+     * @nullable
+     */
     soft_update?: boolean | null
     /** @nullable */
     readonly is_materialized: boolean | null
@@ -750,9 +778,12 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly id?: string
     /** @nullable */
     deleted?: boolean | null
-    /** @maxLength 128 */
+    /**
+     * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+     * @maxLength 128
+     */
     name?: string
-    /** HogQL query */
+    /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
     query?: unknown | null
     readonly created_by?: UserBasicApi
     readonly created_at?: string
@@ -771,10 +802,16 @@ export interface PatchedDataWarehouseSavedQueryApi {
     readonly managed_viewset_kind?: string
     /** @nullable */
     readonly latest_error?: string | null
-    /** @nullable */
+    /**
+     * Activity log ID from the last known edit. Used for conflict detection.
+     * @nullable
+     */
     edited_history_id?: string | null
     readonly latest_history_id?: string
-    /** @nullable */
+    /**
+     * If true, skip column inference and validation. For saving drafts.
+     * @nullable
+     */
     soft_update?: boolean | null
     /** @nullable */
     readonly is_materialized?: boolean | null

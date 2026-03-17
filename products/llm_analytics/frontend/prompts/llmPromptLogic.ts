@@ -129,7 +129,7 @@ function buildPromptVersionSummary(prompt: LLMPrompt, isLatest: boolean): LLMPro
     }
 }
 
-function getApiErrorDetail(error: unknown): string | undefined {
+export function getApiErrorDetail(error: unknown): string | undefined {
     if (error !== null && typeof error === 'object' && 'detail' in error && typeof error.detail === 'string') {
         return error.detail
     }
@@ -166,6 +166,8 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         setMode: (mode: PromptMode) => ({ mode }),
         setAnalyticsScope: (analyticsScope: PromptAnalyticsScope) => ({ analyticsScope }),
         setRelatedTracesQuery: (query: DataTableNode) => ({ query }),
+        toggleMarkdownRendering: true,
+        setCompareVersion: (compareVersion: number | null) => ({ compareVersion }),
     }),
 
     reducers(({ props }) => ({
@@ -202,6 +204,26 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 setRelatedTracesQuery: (_, { query }) => query,
             },
         ],
+        isRenderingMarkdown: [
+            false,
+            {
+                toggleMarkdownRendering: (state) => !state,
+            },
+        ],
+        compareVersion: [
+            null as number | null,
+            {
+                setCompareVersion: (_, { compareVersion }) => compareVersion,
+                loadPromptSuccess: () => null,
+            },
+        ],
+        comparePrompt: [
+            null as LLMPrompt | null,
+            {
+                setCompareVersion: (state, { compareVersion }) => (compareVersion === null ? null : state),
+                loadPromptSuccess: () => null,
+            },
+        ],
     })),
 
     loaders(({ props }) => ({
@@ -211,6 +233,13 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 fetchResolvedPrompt(props.promptName, {
                     version: props.selectedVersion ?? undefined,
                 }),
+        },
+        comparePrompt: {
+            __default: null as LLMPrompt | null,
+            loadComparePrompt: async (version: number) => {
+                const resolved = await fetchResolvedPrompt(props.promptName, { version, limit: 1 })
+                return resolved as LLMPrompt
+            },
         },
     })),
 
@@ -382,6 +411,25 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
         versions: [(s) => [s.prompt], (prompt): LLMPromptVersionSummary[] => (isPrompt(prompt) ? prompt.versions : [])],
 
         canLoadMoreVersions: [(s) => [s.prompt], (prompt) => (isPrompt(prompt) ? prompt.has_more : false)],
+
+        isDiffVisible: [(s) => [s.compareVersion], (compareVersion): boolean => compareVersion !== null],
+
+        canCompareVersions: [(s) => [s.prompt], (prompt): boolean => isPrompt(prompt) && prompt.version_count > 1],
+
+        compareVersionOptions: [
+            (s) => [s.prompt, s.versions],
+            (prompt, versions: LLMPromptVersionSummary[]): Array<{ value: number; label: string }> => {
+                if (!isPrompt(prompt)) {
+                    return []
+                }
+                return versions
+                    .filter((v) => v.version !== prompt.version)
+                    .map((v) => ({
+                        value: v.version,
+                        label: `v${v.version}${v.is_latest ? ' (latest)' : ''}`,
+                    }))
+            },
+        ],
 
         tracePropertyFilters: [
             (s) => [s.prompt, s.analyticsScope],
@@ -655,6 +703,16 @@ export const llmPromptLogic = kea<llmPromptLogicType>([
                 actions.resetPromptForm()
                 actions.setPromptFormValues(getPromptFormDefaults(prompt))
             }
+        },
+
+        setCompareVersion: ({ compareVersion }) => {
+            if (compareVersion !== null) {
+                actions.loadComparePrompt(compareVersion)
+            }
+        },
+
+        loadComparePromptFailure: () => {
+            lemonToast.error('Failed to load comparison version')
         },
     })),
 

@@ -1,6 +1,7 @@
+import { SnapshotStore } from '@posthog/replay-shared'
+
 import { RecordingSegment, SessionRecordingSnapshotSource } from '~/types'
 
-import { SnapshotStore } from '../snapshot-store/SnapshotStore'
 import { convertSegmentKinds } from './segment-kind-conversion'
 
 function makeSources(count: number): SessionRecordingSnapshotSource[] {
@@ -58,14 +59,6 @@ describe('convertSegmentKinds', () => {
             expectedIsLoading: true,
         },
         {
-            name: 'buffer + null store (legacy path) → buffer with isLoading',
-            segment: makeSegment({ kind: 'buffer' }),
-            store: null,
-            isLoading: true,
-            expectedKind: 'buffer',
-            expectedIsLoading: true,
-        },
-        {
             name: 'buffer + store has 0 sources (early load) → buffer with isLoading',
             segment: makeSegment({ kind: 'buffer' }),
             store: new SnapshotStore(),
@@ -85,14 +78,6 @@ describe('convertSegmentKinds', () => {
             name: 'gap + all sources loaded → gap (true inactivity)',
             segment: makeSegment({ kind: 'gap' }),
             store: storeWithSources(20, allLoaded(20)),
-            isLoading: false,
-            expectedKind: 'gap',
-            expectedIsLoading: undefined,
-        },
-        {
-            name: 'gap + null store (legacy path) → gap unchanged',
-            segment: makeSegment({ kind: 'gap' }),
-            store: null,
             isLoading: false,
             expectedKind: 'gap',
             expectedIsLoading: undefined,
@@ -152,10 +137,11 @@ describe('convertSegmentKinds', () => {
     })
 
     it('isLoading propagates current loading state to buffer segments', () => {
-        const notLoading = convertSegmentKinds([makeSegment({ kind: 'buffer' })], null, false)
+        const emptyStore = new SnapshotStore()
+        const notLoading = convertSegmentKinds([makeSegment({ kind: 'buffer' })], emptyStore, false)
         expect(notLoading[0].isLoading).toBe(false)
 
-        const loading = convertSegmentKinds([makeSegment({ kind: 'buffer' })], null, true)
+        const loading = convertSegmentKinds([makeSegment({ kind: 'buffer' })], emptyStore, true)
         expect(loading[0].isLoading).toBe(true)
     })
 })

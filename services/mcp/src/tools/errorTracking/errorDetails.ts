@@ -1,5 +1,6 @@
 import type { z } from 'zod'
 
+import { ERROR_DETAILS_RESOURCE_URI } from '@/resources/ui-apps-constants'
 import { ErrorTrackingDetailsSchema } from '@/schema/tool-inputs'
 import type { Context, ToolBase } from '@/tools/types'
 
@@ -30,13 +31,21 @@ export const errorDetailsHandler: ToolBase<typeof schema, unknown>['handler'] = 
         throw new Error(`Failed to get error details: ${errorsResult.error.message}`)
     }
 
-    return errorsResult.data.results
+    return {
+        results: errorsResult.data.results,
+        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking/${issueId}`,
+    }
 }
 
 const tool = (): ToolBase<typeof schema> => ({
     name: 'error-details',
     schema,
     handler: errorDetailsHandler,
+    _meta: {
+        ui: {
+            resourceUri: ERROR_DETAILS_RESOURCE_URI,
+        },
+    },
 })
 
 export default tool

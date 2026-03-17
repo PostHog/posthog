@@ -9,12 +9,15 @@ const createMockContext = (): Context => ({
     cache: {} as any,
     env: {
         INKEEP_API_KEY: undefined,
+        POSTHOG_ANALYTICS_API_KEY: undefined,
+        POSTHOG_ANALYTICS_HOST: undefined,
         POSTHOG_API_BASE_URL: undefined,
         POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
         POSTHOG_UI_APPS_TOKEN: undefined,
     },
     stateManager: {
         getApiKey: async () => ({ scopes: ['*'] }),
+        getAiConsentGiven: async () => undefined,
     } as any,
     sessionManager: new SessionManager({} as any),
 })
@@ -42,7 +45,6 @@ describe('Feature Routing Integration', () => {
                 'dashboard-update',
                 'dashboard-delete',
                 'dashboard-reorder-tiles',
-                'add-insight-to-dashboard',
             ],
         },
         {

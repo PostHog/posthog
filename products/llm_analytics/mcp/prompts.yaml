@@ -1,0 +1,68 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Prompts
+feature: prompts
+url_prefix: /llm-analytics/prompts
+tools:
+    prompt-list:
+        operation: llm_prompts_list
+        enabled: true
+        include_params:
+            - search
+        scopes:
+            - llm_prompt:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List prompts
+        description: >
+            List all LLM prompts stored for the current team. Optionally filter by name. Returns paginated prompt
+            summaries.
+    prompt-get:
+        operation: llm_prompts_name_retrieve
+        enabled: true
+        scopes:
+            - llm_prompt:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get prompt
+        description: >
+            Get a specific LLM prompt by name, including its full content. Uses the cached endpoint for fast retrieval.
+    prompt-create:
+        operation: llm_prompts_create
+        enabled: true
+        include_params:
+            - name
+            - prompt
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create prompt
+        description: >
+            Create a new LLM prompt for the current team. Requires a unique name and prompt content (string or JSON
+            object).
+    prompt-update:
+        operation: llm_prompts_name_partial_update
+        enabled: true
+        include_params:
+            - prompt
+            - base_version
+        scopes:
+            - llm_prompt:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update prompt
+        description: >
+            Publish a new version of an existing LLM prompt by name. Name is immutable after creation.

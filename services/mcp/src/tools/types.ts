@@ -20,6 +20,8 @@ export type State = {
     region: CloudRegion | undefined
     apiKey: ApiRedactedPersonalApiKey | undefined
     clientName: string | undefined
+    aiConsentGiven: boolean | undefined
+    aiConsentFetchedAt: number | undefined
 } & Record<PrefixedString<'session'>, SessionState>
 
 export type Env = {
@@ -45,6 +47,16 @@ export type Env = {
      * PostHog API token for MCP Apps analytics (used for CSP and analytics ingestion).
      */
     POSTHOG_UI_APPS_TOKEN: string | undefined
+    /**
+     * PostHog API key for dev/self-hosted analytics.
+     * Falls back to the production US key if not set.
+     */
+    POSTHOG_ANALYTICS_API_KEY: string | undefined
+    /**
+     * PostHog host for dev/self-hosted analytics.
+     * Falls back to the production US host if not set.
+     */
+    POSTHOG_ANALYTICS_HOST: string | undefined
 }
 
 export type Context = {

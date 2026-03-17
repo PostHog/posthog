@@ -117,7 +117,12 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                         ? 'There are no matching persons for this query'
                         : 'No persons exist because no events have been ingested',
                     emptyStateDetail: currentTeam?.ingested_event ? (
-                        'Try changing the date range or property filters.'
+                        <>
+                            This page only shows{' '}
+                            <Link to="https://posthog.com/docs/data/persons">identified persons</Link>. Try adjusting
+                            your property filters, or make sure you're calling{' '}
+                            <Link to="https://posthog.com/docs/product-analytics/identify">identify</Link> in your app.
+                        </>
                     ) : (
                         <>
                             Go to the{' '}
@@ -128,7 +133,7 @@ export function PersonsScene({ tabId }: { tabId?: string } = {}): JSX.Element {
                                 })}
                                 data-attr="real_project_with_no_events-ingestion_link"
                             >
-                                onboarding wizard
+                                onboarding flow
                             </Link>{' '}
                             to get things moving
                         </>

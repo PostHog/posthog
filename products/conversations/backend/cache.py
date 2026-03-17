@@ -118,6 +118,15 @@ def invalidate_unread_count_cache(team_id: int) -> None:
         logger.warning("conversations_cache_delete_error", key=key)
 
 
+def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
+    """Invalidate the initial-load messages cache entry for a ticket (after=None). Polling entries (after=<ts>) expire via TTL."""
+    key = get_messages_cache_key(team_id, ticket_id, None)
+    try:
+        cache.delete(key)
+    except Exception:
+        logger.warning("conversations_cache_delete_error", key=key)
+
+
 def invalidate_tickets_cache(team_id: int, widget_session_id: str) -> None:
     """Invalidate tickets list cache for a widget session (no status filter)."""
     key = get_tickets_cache_key(team_id, widget_session_id, None)

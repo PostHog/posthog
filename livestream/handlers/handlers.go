@@ -89,7 +89,7 @@ func StatsHandler(stats *events.Stats, sessionStats *events.SessionStats, redisS
 
 var subID uint64 = 1
 
-func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filter *events.Filter) func(c echo.Context) error {
+func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, unSubChan chan events.Subscription) func(c echo.Context) error {
 	return func(c echo.Context) error {
 		log.Debugf("SSE client connected, ip: %v", c.RealIP())
 
@@ -147,7 +147,7 @@ func StreamEventsHandler(log echo.Logger, subChan chan events.Subscription, filt
 		subChan <- subscription
 		defer func() {
 			subscription.ShouldClose.Store(true)
-			filter.UnSubChan <- subscription
+			unSubChan <- subscription
 		}()
 
 		w := c.Response()

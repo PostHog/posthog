@@ -1,6 +1,6 @@
 use std::{any::Any, collections::HashMap, sync::Arc, time::Instant};
 
-use axum::async_trait;
+use async_trait::async_trait;
 use tokio::sync::Mutex;
 
 use crate::metric_consts::{

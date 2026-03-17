@@ -18,35 +18,6 @@ from posthog.dags.common import JobOwners, check_for_concurrent_runs
 
 NO_SHARD_PATH = "noshard"
 
-
-def get_max_backup_bandwidth() -> str:
-    """
-    Get max backup bandwidth based on the current environment.
-
-    Returns different bandwidth limits based on CLOUD_DEPLOYMENT:
-    - US: i7ie.metal-48xl instances (192 vCPUs, 768GB RAM, 100 Gbps network)
-    - EU: m8g.8xlarge instances (32 vCPUs, 128GB RAM, 12 Gbps network)
-    - DEV/E2E/None: Conservative limits for development/self-hosted
-
-    Target: Complete backups within ~20 hours while preserving network capacity
-    """
-    cloud_deployment = getattr(settings, "CLOUD_DEPLOYMENT", None)
-
-    if cloud_deployment == "US":
-        # i7ie.metal-48xl instances - can handle higher bandwidth
-        # 2400 MB/s = 19.2 Gbps (19% of 100 Gbps network)
-        # For 208TB: ~24 hour backup time
-        return "2400000000"  # 2400MB/s
-    elif cloud_deployment == "EU":
-        # m8g.8xlarge instances - moderate bandwidth
-        # 450 MB/s = 3.6 Gbps (30% of 12 Gbps network)
-        # For 48TB: ~29 hour backup time
-        return "450000000"  # 450MB/s
-    else:
-        # DEV/self-hosted - conservative limits
-        return "100000000"  # 100MB/s to prevent resource exhaustion
-
-
 SHARDED_TABLES = [
     "sharded_events",
     "sharded_app_metrics",
@@ -166,7 +137,7 @@ class Backup:
     def create(self, client: Client):
         backup_settings = {
             "async": "1",
-            "max_backup_bandwidth": get_max_backup_bandwidth(),
+            "max_backup_bandwidth": settings.CLICKHOUSE_BACKUPS_MAX_BANDWIDTH,
             # There is a CH issue that makes bandwith be half than what is configured: https://github.com/ClickHouse/ClickHouse/issues/78213
             "s3_disable_checksum": "1",
             # According to CH docs, disabling this is safe enough as checksums are already made: https://clickhouse.com/docs/operations/settings/settings#s3_disable_checksum

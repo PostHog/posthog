@@ -79,7 +79,7 @@ const MarketingAnalyticsDashboard = (): JSX.Element => {
     // Reload sources on every navigation to this scene so newly configured
     // data warehouse sources are picked up without a full page refresh
     useEffect(() => {
-        loadSources(null)
+        loadSources()
     }, [loadSources])
 
     // Auto-complete onboarding if user already has sources and conversion goals configured
