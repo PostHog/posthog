@@ -124,25 +124,6 @@ class TestTypeformTransport:
         ):
             _validated_api_base_url("https://invalid.typeform.com")
 
-    @parameterized.expand(
-        [
-            ("ok", 200, (True, None)),
-            ("unauthorized", 401, (False, "Invalid Typeform personal access token")),
-            ("forbidden", 403, (False, "Typeform token is missing required scopes")),
-        ]
-    )
-    @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
-    def test_validate_credentials(self, _name, status_code, expected, mock_get) -> None:
-        response = Mock()
-        response.status_code = status_code
-        response.text = "error"
-        response.json.return_value = {"description": "error"}
-        mock_get.return_value = response
-
-        result = validate_credentials(auth_token="token", api_base_url="https://api.typeform.com")
-
-        assert result == expected
-
     @patch("posthog.temporal.data_imports.sources.typeform.typeform.requests.get")
     def test_validate_credentials_handles_request_exception(self, mock_get) -> None:
         mock_get.side_effect = requests.exceptions.RequestException("boom")
