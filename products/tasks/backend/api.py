@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import cast
 
 from django.conf import settings
-from django.db import transaction
+from django.db import models, transaction
 from django.db.models import F
 from django.http import HttpResponse, JsonResponse, StreamingHttpResponse
 from django.utils import timezone
@@ -33,7 +33,7 @@ from posthog.storage import object_storage
 
 from ee.hogai.utils.aio import async_to_sync
 
-from .models import CodeInvite, CodeInviteRedemption, Task, TaskRun
+from .models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
 from .repository_readiness import compute_repository_readiness
 from .serializers import (
     CodeInviteRedeemRequestSerializer,
@@ -41,6 +41,8 @@ from .serializers import (
     ErrorResponseSerializer,
     RepositoryReadinessQuerySerializer,
     RepositoryReadinessResponseSerializer,
+    SandboxEnvironmentListSerializer,
+    SandboxEnvironmentSerializer,
     TaskListQuerySerializer,
     TaskRunAppendLogRequestSerializer,
     TaskRunArtifactPresignRequestSerializer,
@@ -226,6 +228,8 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         resume_from_run_id = request.validated_data.get("resume_from_run_id")
         pending_user_message = request.validated_data.get("pending_user_message")
 
+        sandbox_environment_id = request.validated_data.get("sandbox_environment_id")
+
         extra_state = None
         if resume_from_run_id:
             # prevent cross-task resume
@@ -242,6 +246,17 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 extra_state["pending_user_message"] = pending_user_message
             if snapshot_ext_id:
                 extra_state["snapshot_external_id"] = snapshot_ext_id
+
+        if sandbox_environment_id is not None:
+            from .models import SandboxEnvironment
+
+            sandbox_env = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
+            if not sandbox_env:
+                return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
+            effective_domains = sandbox_env.get_effective_domains()
+            if effective_domains:
+                extra_state = extra_state or {}
+                extra_state["allowed_domains"] = effective_domains
 
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 
@@ -1082,3 +1097,30 @@ class CodeInviteViewSet(viewsets.ViewSet):
         # Fallback: check invite code redemption
         has_redeemed = CodeInviteRedemption.objects.filter(user=user).exists()
         return Response({"has_access": has_redeemed})
+
+
+@extend_schema(tags=["sandbox-environments"])
+class SandboxEnvironmentViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    """API for managing sandbox environments that control network access for task runs."""
+
+    serializer_class = SandboxEnvironmentSerializer
+    authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
+    permission_classes = [IsAuthenticated, APIScopePermission, TasksAccessPermission]
+    scope_object = "task"
+    queryset = SandboxEnvironment.objects.all()
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
+    filter_rewrite_rules = {"team_id": "team_id"}
+
+    def get_serializer_class(self):
+        if self.action == "list":
+            return SandboxEnvironmentListSerializer
+        return SandboxEnvironmentSerializer
+
+    def safely_get_queryset(self, queryset):
+        user = self.request.user
+        return queryset.filter(models.Q(private=False) | models.Q(created_by=user))
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["team"] = self.team
+        return context

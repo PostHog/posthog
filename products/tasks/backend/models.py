@@ -228,6 +228,7 @@ class TaskRun(models.Model):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
 
     branch = models.CharField(max_length=255, blank=True, null=True, help_text="Branch name for the run")
+
     environment = models.CharField(
         max_length=10,
         choices=Environment.choices,

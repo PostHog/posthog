@@ -44,6 +44,10 @@ class TaskProcessingContext:
         return (self.state or {}).get("interaction_origin")
 
     @property
+    def allowed_domains(self) -> list[str] | None:
+        return (self.state or {}).get("allowed_domains")
+
+    @property
     def branch(self) -> str | None:
         # Prefer the dedicated model field; fall back to state for backward compatibility
         if self._branch:

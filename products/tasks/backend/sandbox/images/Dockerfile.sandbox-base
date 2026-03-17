@@ -66,6 +66,20 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
     apt-get install -y gh && \
     rm -rf /var/lib/apt/lists/*
 
+# Install agentsh v0.16.1 (runtime security governance for ptrace-based domain filtering)
+ARG AGENTSH_TAG=v0.16.1
+RUN set -eux; \
+    version="${AGENTSH_TAG#v}"; \
+    curl -fsSL -o /tmp/agentsh.deb \
+      "https://github.com/canyonroad/agentsh/releases/download/${AGENTSH_TAG}/agentsh_${version}_linux_amd64.deb" && \
+    dpkg -i /tmp/agentsh.deb && \
+    rm /tmp/agentsh.deb && \
+    agentsh --version && \
+    mkdir -p /var/lib/agentsh/sessions /var/lib/agentsh/quarantine /var/log/agentsh && \
+    chmod 777 /var/lib/agentsh /var/lib/agentsh/sessions /var/lib/agentsh/quarantine /var/log/agentsh
+
+ENV AGENTSH_SERVER=http://127.0.0.1:18080
+
 ###
 # Agent SDK
 ###

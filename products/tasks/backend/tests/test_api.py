@@ -14,7 +14,7 @@ from posthog.models import Organization, OrganizationMembership, PersonalAPIKey,
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.storage import object_storage
 
-from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, Task, TaskRun
+from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
 from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
 
 # Test RSA private key for JWT tests (RS256)
@@ -2021,3 +2021,142 @@ class TestTaskRunCommandAPI(BaseTaskAPITest):
         self.assertNotIn("secret-host", response.json()["error"])
         self.assertNotIn("DNS", response.json()["error"])
         self.assertEqual(response.json()["error"], "Failed to send command to agent server")
+
+
+class TestSandboxEnvironmentAPI(BaseTaskAPITest):
+    base_url = "/api/projects/@current/sandbox_environments/"
+
+    def detail_url(self, env_id):
+        return f"{self.base_url}{env_id}/"
+
+    def test_create_environment(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "My Sandbox",
+                "network_access_level": "custom",
+                "allowed_domains": ["api.example.com"],
+                "include_default_domains": True,
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["name"], "My Sandbox")
+        self.assertEqual(data["network_access_level"], "custom")
+        self.assertIn("api.example.com", data["allowed_domains"])
+        self.assertIn("api.example.com", data["effective_domains"])
+        self.assertIn("github.com", data["effective_domains"])
+
+    def test_create_environment_sets_created_by(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "Test Env", "network_access_level": "full"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        env = SandboxEnvironment.objects.get(id=response.json()["id"])
+        self.assertEqual(env.created_by, self.user)
+        self.assertEqual(env.team, self.team)
+
+    def test_list_environments(self):
+        SandboxEnvironment.objects.create(team=self.team, name="Env 1", created_by=self.user)
+        SandboxEnvironment.objects.create(team=self.team, name="Env 2", created_by=self.user)
+
+        response = self.client.get(self.base_url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(response.json()["results"]), 2)
+
+    def test_retrieve_environment_includes_effective_domains(self):
+        env = SandboxEnvironment.objects.create(
+            team=self.team,
+            name="Detail Env",
+            network_access_level="trusted",
+            created_by=self.user,
+        )
+        response = self.client.get(self.detail_url(env.id))
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertIn("effective_domains", response.json())
+
+    def test_update_environment(self):
+        env = SandboxEnvironment.objects.create(team=self.team, name="Old Name", created_by=self.user)
+        response = self.client.patch(
+            self.detail_url(env.id),
+            {"name": "New Name", "network_access_level": "custom", "allowed_domains": ["new.example.com"]},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        env.refresh_from_db()
+        self.assertEqual(env.name, "New Name")
+        self.assertEqual(env.allowed_domains, ["new.example.com"])
+
+    def test_delete_environment(self):
+        env = SandboxEnvironment.objects.create(team=self.team, name="To Delete", created_by=self.user)
+        response = self.client.delete(self.detail_url(env.id))
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(SandboxEnvironment.objects.filter(id=env.id).exists())
+
+    def test_private_environment_only_visible_to_creator(self):
+        other_user = User.objects.create_user(email="other@example.com", first_name="Other", password="password")
+        self.organization.members.add(other_user)
+
+        SandboxEnvironment.objects.create(team=self.team, name="Private", private=True, created_by=other_user)
+        SandboxEnvironment.objects.create(team=self.team, name="My Private", private=True, created_by=self.user)
+
+        response = self.client.get(self.base_url)
+        names = [e["name"] for e in response.json()["results"]]
+        self.assertIn("My Private", names)
+        self.assertNotIn("Private", names)
+
+    def test_public_environment_visible_to_all(self):
+        other_user = User.objects.create_user(email="other2@example.com", first_name="Other2", password="password")
+        self.organization.members.add(other_user)
+
+        SandboxEnvironment.objects.create(team=self.team, name="Public Env", private=False, created_by=other_user)
+
+        response = self.client.get(self.base_url)
+        names = [e["name"] for e in response.json()["results"]]
+        self.assertIn("Public Env", names)
+
+    def test_full_access_returns_empty_effective_domains(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "Full", "network_access_level": "full"},
+            format="json",
+        )
+        self.assertEqual(response.json()["effective_domains"], [])
+
+    def test_trusted_returns_default_domains(self):
+        from products.tasks.backend.constants import DEFAULT_TRUSTED_DOMAINS
+
+        response = self.client.post(
+            self.base_url,
+            {"name": "Trusted", "network_access_level": "trusted"},
+            format="json",
+        )
+        self.assertEqual(response.json()["effective_domains"], DEFAULT_TRUSTED_DOMAINS)
+
+    def test_custom_without_defaults_returns_only_custom(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Custom Only",
+                "network_access_level": "custom",
+                "allowed_domains": ["only-this.com"],
+                "include_default_domains": False,
+            },
+            format="json",
+        )
+        self.assertEqual(response.json()["effective_domains"], ["only-this.com"])
+
+    def test_invalid_env_var_key_rejected(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Bad Env Vars",
+                "network_access_level": "full",
+                "environment_variables": {"123invalid": "value"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
