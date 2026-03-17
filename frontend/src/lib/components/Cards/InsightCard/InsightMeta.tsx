@@ -127,10 +127,9 @@ export function InsightMeta({
     const { featureFlags } = useValues(featureFlagLogic)
 
     const showCompactTile =
-        !!featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN] &&
-        (placement === DashboardPlacement.Dashboard ||
-            placement === DashboardPlacement.ProjectHomepage ||
-            placement === DashboardPlacement.Public)
+        placement === DashboardPlacement.Dashboard ||
+        placement === DashboardPlacement.ProjectHomepage ||
+        placement === DashboardPlacement.Public
 
     const isSqlInsight = isDataVisualizationNode(insight.query)
     const showCompactHeading = !showCompactTile || (!filtersOverride?.date_from && !isSqlInsight)
