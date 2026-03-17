@@ -74,6 +74,7 @@ def backfill_experiment_saved_metric_uuids(apps, schema_editor):
 
 
 class Migration(migrations.Migration):
+    atomic = False
     dependencies = [
         ("posthog", "1052_migrate_legacy_personal_api_key_scope"),
     ]
