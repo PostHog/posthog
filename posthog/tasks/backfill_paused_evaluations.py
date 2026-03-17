@@ -147,20 +147,20 @@ def backfill_paused_evaluation_events(evaluation_id: str, team_id: int, paused_a
 
     client = sync_connect()
     prefix = "llma-hog-eval" if evaluation.evaluation_type == "hog" else "llma-llm-eval"
-    dispatched = 0
 
-    for event_data in matching_events:
-        event_uuid = str(event_data.get("uuid", ""))
-        workflow_id = f"{prefix}-{evaluation_id}-{event_uuid}-backfill-{int(time.time() * 1000)}"
+    async def _dispatch_all() -> int:
+        count = 0
+        for event_data in matching_events:
+            event_uuid = str(event_data.get("uuid", ""))
+            workflow_id = f"{prefix}-{evaluation_id}-{event_uuid}-backfill-{int(time.time() * 1000)}"
 
-        inputs = RunEvaluationInputs(
-            evaluation_id=str(evaluation_id),
-            event_data=event_data,
-        )
+            inputs = RunEvaluationInputs(
+                evaluation_id=str(evaluation_id),
+                event_data=event_data,
+            )
 
-        try:
-            asyncio.run(
-                client.start_workflow(
+            try:
+                await client.start_workflow(
                     "run-evaluation",
                     inputs,
                     id=workflow_id,
@@ -169,14 +169,16 @@ def backfill_paused_evaluation_events(evaluation_id: str, team_id: int, paused_a
                     retry_policy=RetryPolicy(maximum_attempts=3),
                     task_timeout=timedelta(minutes=2),
                 )
-            )
-            dispatched += 1
-        except Exception:
-            logger.exception(
-                "Failed to dispatch backfill workflow",
-                evaluation_id=evaluation_id,
-                event_uuid=event_uuid,
-            )
+                count += 1
+            except Exception:
+                logger.exception(
+                    "Failed to dispatch backfill workflow",
+                    evaluation_id=evaluation_id,
+                    event_uuid=event_uuid,
+                )
+        return count
+
+    dispatched = asyncio.run(_dispatch_all())
 
     logger.info(
         "Backfill complete",
