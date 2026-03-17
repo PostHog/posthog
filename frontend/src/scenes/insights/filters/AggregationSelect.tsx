@@ -33,6 +33,10 @@ export function hogQLToFilterValue(value?: string): { groupIndex?: number; aggre
 const UNIQUE_USERS = 'person_id'
 export const CUSTOM_DATA_WAREHOUSE_ITEMS = '__custom_data_warehouse_items__'
 
+export function getCustomAggregationEditorValue(value: string, baseValues: string[]): string {
+    return !value || baseValues.includes(value) || value === CUSTOM_DATA_WAREHOUSE_ITEMS ? '' : value
+}
+
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
     className?: string
@@ -149,21 +153,22 @@ export function AggregationSelect({
     }
 
     if (hogqlAvailable) {
+        const customAggregationEditorValue = getCustomAggregationEditorValue(value, baseValues)
         optionSections[0].options.push({
             label: 'Custom SQL expression',
             options: [
                 {
                     // This is a bit of a hack so that the HogQL option is only highlighted as active when the user has
                     // set a custom value (because actually _all_ the options are HogQL)
-                    value: !value || baseValues.includes(value) ? '' : value,
-                    label: <span className="font-mono">{value}</span>,
+                    value: customAggregationEditorValue,
+                    label: <span className="font-mono">{customAggregationEditorValue}</span>,
                     labelInMenu: function CustomHogQLOptionWrapped({ onSelect }) {
                         return (
                             // eslint-disable-next-line react/forbid-dom-props
                             <div className="w-120" style={{ maxWidth: 'max(60vw, 20rem)' }}>
                                 <HogQLEditor
                                     onChange={onSelect}
-                                    value={value}
+                                    value={customAggregationEditorValue}
                                     placeholder={
                                         "Enter SQL expression, such as:\n- distinct_id\n- properties.$session_id\n- concat(distinct_id, ' ', properties.$session_id)\n- if(1 < 2, 'one', 'two')"
                                     }
