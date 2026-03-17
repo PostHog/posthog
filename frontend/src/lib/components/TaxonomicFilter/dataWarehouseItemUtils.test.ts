@@ -3,6 +3,13 @@ import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 import { getDataWarehouseItemWithFieldDefaults } from './dataWarehouseItemUtils'
 
 describe('getDataWarehouseItemWithFieldDefaults', () => {
+    type WarehouseFields = DataWarehouseTableForInsight['fields']
+    type FieldDefaultCase = {
+        name: string
+        fields: WarehouseFields
+        expected: string
+    }
+
     const baseTable: DataWarehouseTableForInsight = {
         id: 'warehouse-table-id',
         name: 'warehouse_table',
@@ -47,7 +54,7 @@ describe('getDataWarehouseItemWithFieldDefaults', () => {
         expect(warehouseItem.aggregation_target_field).toEqual('person_id')
     })
 
-    it.each([
+    const distinctIdCases: FieldDefaultCase[] = [
         {
             name: 'prefers distinct_id when multiple distinct ID candidates are present',
             fields: {
@@ -73,7 +80,9 @@ describe('getDataWarehouseItemWithFieldDefaults', () => {
             },
             expected: 'User_ID',
         },
-    ])('$name', ({ fields, expected }) => {
+    ]
+
+    it.each(distinctIdCases)('$name', ({ fields, expected }) => {
         const warehouseItem = getDataWarehouseItemWithFieldDefaults({
             ...baseTable,
             fields,
@@ -82,7 +91,7 @@ describe('getDataWarehouseItemWithFieldDefaults', () => {
         expect(warehouseItem.distinct_id_field).toEqual(expected)
     })
 
-    it.each([
+    const timestampCases: FieldDefaultCase[] = [
         {
             name: 'prefers a named timestamp candidate over another datetime column',
             fields: {
@@ -109,7 +118,9 @@ describe('getDataWarehouseItemWithFieldDefaults', () => {
             },
             expected: 'CreatedAt',
         },
-    ])('$name', ({ fields, expected }) => {
+    ]
+
+    it.each(timestampCases)('$name', ({ fields, expected }) => {
         const warehouseItem = getDataWarehouseItemWithFieldDefaults({
             ...baseTable,
             fields,
