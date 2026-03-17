@@ -119,7 +119,7 @@ GROUP BY product, document_type
 ORDER BY cnt DESC
 ```
 
-Available models: `'text-embedding-3-small-1536'`, `'text-embedding-3-large-3072'`. Different models are used for different products, query to see what's available before going deeper. You MUST filter on `model_name` — it routes to the correct underlying table.
+Run separately for each model. Available models: `'text-embedding-3-small-1536'`, `'text-embedding-3-large-3072'`. You MUST filter on exactly one `model_name` per query — it routes to the correct underlying ClickHouse table. `IN` clauses and cross-model queries will fail.
 
 Use `embedText(text, model_name)` and `cosineDistance()` for semantic search. See the `signals` skill for detailed query patterns around the signals product specifically, including required deduplication and metadata extraction.
 

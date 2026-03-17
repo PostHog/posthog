@@ -22,7 +22,6 @@ The HogQL table alias is `document_embeddings`. HogQL automatically constrains q
 | `product`       | String         | Product bucket — always `'signals'` for signals                              |
 | `document_type` | String         | Document type — always `'signal'` for signals                                |
 | `model_name`    | String         | Embedding model — always `'text-embedding-3-small-1536'`                     |
-| `rendering`     | String         | How content was rendered — always `'plain'` for signals                      |
 | `document_id`   | String         | Unique signal ID (UUID)                                                      |
 | `timestamp`     | DateTime64(3)  | When the signal was created                                                  |
 | `inserted_at`   | DateTime64(3)  | When this row version was inserted (used for deduplication and soft deletes) |
@@ -42,6 +41,8 @@ WHERE model_name = 'text-embedding-3-small-1536'
 ```
 
 The `model_name` filter is especially critical — the HogQL engine uses it to route to the correct underlying ClickHouse table. Wrong model = zero results.
+
+The `product` and `document_type` filters are equally important — the same model contains data from multiple products (e.g. error tracking, AI memory). Without these filters you will get unrelated data mixed in.
 
 The `timestamp` filter is required for performance — the table is partitioned by week and has a 3-month TTL. Always include a time bound using `now() - INTERVAL N DAY` (or `WEEK`, `MONTH`, etc.). Default to 30 days unless you have a reason to look further back. Generally, more recent data is more likely to be relevant, unless investigating a long-standing issue.
 
@@ -101,16 +102,16 @@ The embedding model (`text-embedding-3-small-1536`) uses matryoshka representati
 
 The `metadata` column is a JSON string. HogQL supports `metadata.field_name` dot access **only on the raw table column**. After aggregation (e.g. `argMax`), the JSON type is lost and dot access will fail. Always extract the fields you need inside the dedup subquery.
 
-| Field            | Inner-query access        | Description                                                                        |
-| ---------------- | ------------------------- | ---------------------------------------------------------------------------------- |
-| `report_id`      | `metadata.report_id`      | UUID of the parent Signal Report (empty if unassigned)                             |
-| `source_product` | `metadata.source_product` | Originating product (`'error_tracking'`, `'web_analytics'`, `'experiments'`, etc.) |
-| `source_type`    | `metadata.source_type`    | Signal type (`'error_cluster'`, `'metric_anomaly'`, etc.)                          |
-| `source_id`      | `metadata.source_id`      | ID of the source entity                                                            |
-| `weight`         | `metadata.weight`         | Signal weight (contributes to report promotion threshold)                          |
-| `deleted`        | `metadata.deleted`        | Soft-deletion flag (extracted as String — compare with `!= 'true'`)                |
-| `extra`          | `metadata.extra`          | Arbitrary JSON blob from the source product                                        |
-| `match_metadata` | `metadata.match_metadata` | LLM match reasoning stored during grouping                                         |
+| Field            | Inner-query access        | Description                                                         |
+| ---------------- | ------------------------- | ------------------------------------------------------------------- |
+| `report_id`      | `metadata.report_id`      | UUID of the parent Signal Report (empty if unassigned)              |
+| `source_product` | `metadata.source_product` | Originating product (use Example 3 to discover available values)    |
+| `source_type`    | `metadata.source_type`    | Signal type (use Example 3 to discover available values)            |
+| `source_id`      | `metadata.source_id`      | ID of the source entity                                             |
+| `weight`         | `metadata.weight`         | Signal weight (contributes to report promotion threshold)           |
+| `deleted`        | `metadata.deleted`        | Soft-deletion flag (extracted as String — compare with `!= 'true'`) |
+| `extra`          | `metadata.extra`          | Arbitrary JSON blob from the source product                         |
+| `match_metadata` | `metadata.match_metadata` | LLM match reasoning stored during grouping                          |
 
 ---
 
@@ -177,6 +178,7 @@ FROM (
     WHERE model_name = 'text-embedding-3-small-1536'
       AND product = 'signals'
       AND document_type = 'signal'
+      AND timestamp >= now() - INTERVAL 3 MONTH
     GROUP BY document_id
 )
 WHERE report_id = '<report-uuid-here>'
