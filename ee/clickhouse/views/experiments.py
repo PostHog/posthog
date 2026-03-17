@@ -389,6 +389,14 @@ class EnterpriseExperimentsViewSet(
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
+
+        all_metrics = (source_experiment.metrics or []) + (source_experiment.metrics_secondary or [])
+        if any(m.get("kind") in ("ExperimentTrendsQuery", "ExperimentFunnelsQuery") for m in all_metrics):
+            return Response(
+                {"detail": "Duplication is not supported for experiments using legacy metrics."},
+                status=400,
+            )
+
         feature_flag_key = request.data.get("feature_flag_key")
 
         service = ExperimentService(team=self.team, user=request.user)
