@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import secrets
 from datetime import timedelta
@@ -48,6 +49,8 @@ SUPPORTED_DEEP_LINK_PURPOSES = {"dashboard"}
 DEEP_LINK_RATE_LIMIT_PREFIX = "agentic_login_rate:"
 DEEP_LINK_RATE_LIMIT_MAX_ATTEMPTS = 10
 DEEP_LINK_RATE_LIMIT_WINDOW_SECONDS = 300
+
+_SAFE_STATE_RE = re.compile(r"^[A-Za-z0-9_\-]{1,256}$")
 
 STRIPE_APP_NAME = "PostHog Stripe App"
 
@@ -367,7 +370,7 @@ def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
 def agentic_authorize(request: Any) -> HttpResponseBase:
     state = request.GET.get("state", "")
     scope = request.GET.get("scope", "")
-    if not state:
+    if not state or not _SAFE_STATE_RE.match(state):
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=missing_state")
 
     pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
@@ -425,7 +428,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
     state = request.data.get("state", "")
     team_id = request.data.get("team_id")
 
-    if not state or team_id is None:
+    if not state or team_id is None or not _SAFE_STATE_RE.match(state):
         return Response({"error": "state and team_id are required"}, status=400)
 
     pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
