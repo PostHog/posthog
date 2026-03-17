@@ -246,7 +246,11 @@ path = "products.notifications"
 depends_on = [
     "posthog",
 ]
-layer = "non_isolated"
+layer = "products"
+interfaces = [
+    "products.notifications.backend.facade",
+    "products.notifications.backend.presentation.views",
+]
 
 [[modules]]
 path = "products.product_analytics"
