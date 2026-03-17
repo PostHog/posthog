@@ -97,9 +97,10 @@ pub async fn validate_project_secret_api_key_for_team(
     let mut conn = pg_reader.get_connection().await?;
 
     let query = r#"
-        SELECT id, team_id, scopes
+        SELECT id
         FROM posthog_projectsecretapikey
         WHERE secure_value = $1
+          AND team_id = $2
           AND (
               scopes IS NULL
               OR scopes = '{*}'
@@ -110,28 +111,19 @@ pub async fn validate_project_secret_api_key_for_team(
 
     let row = sqlx::query(query)
         .bind(&secure_value)
+        .bind(expected_team_id)
         .fetch_optional(&mut *conn)
         .await?
         .ok_or_else(|| {
-            warn!("Project secret API key not found or doesn't have required scopes");
+            warn!("Project secret API key not found, wrong team, or missing required scopes");
             FlagError::SecretApiTokenInvalid
         })?;
 
     let key_id: String = row.get("id");
-    let team_id: i32 = row.get("team_id");
-
-    if team_id != expected_team_id {
-        warn!(
-            key_team_id = team_id,
-            expected_team_id = expected_team_id,
-            "Project secret API key belongs to a different team"
-        );
-        return Err(FlagError::SecretApiTokenInvalid);
-    }
 
     debug!(
         key_id = %key_id,
-        team_id = team_id,
+        team_id = expected_team_id,
         "Project secret API key validated successfully"
     );
 
