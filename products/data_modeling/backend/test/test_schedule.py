@@ -57,7 +57,7 @@ class TestShortIntervalSpec:
         assert spec.time_zone_name == "US/Eastern"
 
     def test_distribution_15min_covers_all_buckets(self):
-        base_mins = Counter()
+        base_mins: Counter[int] = Counter()
         for i in range(1000):
             entity_id = uuid.UUID(int=i)
             spec = build_schedule_spec(entity_id, timedelta(minutes=15))
@@ -65,7 +65,7 @@ class TestShortIntervalSpec:
         assert len(base_mins) == 15
 
     def test_distribution_60min_covers_all_buckets(self):
-        base_mins = Counter()
+        base_mins: Counter[int] = Counter()
         for i in range(1000):
             entity_id = uuid.UUID(int=i)
             spec = build_schedule_spec(entity_id, timedelta(minutes=60))
@@ -113,7 +113,7 @@ class TestMediumIntervalSpec:
         assert spec_a.calendars[0].hour[0].start == spec_b.calendars[0].hour[0].start
 
     def test_distribution_24hr_covers_all_hours(self):
-        hours = Counter()
+        hours: Counter[int] = Counter()
         for i in range(1000):
             entity_id = uuid.UUID(int=i)
             spec = build_schedule_spec(entity_id, timedelta(hours=24))
@@ -121,7 +121,7 @@ class TestMediumIntervalSpec:
         assert len(hours) == 24
 
     def test_distribution_6hr_covers_all_buckets(self):
-        base_hours = Counter()
+        base_hours: Counter[int] = Counter()
         for i in range(1000):
             entity_id = uuid.UUID(int=i)
             spec = build_schedule_spec(entity_id, timedelta(hours=6))
@@ -150,7 +150,7 @@ class TestWeeklySpec:
         assert spec_a.calendars[0].hour[0].start == spec_b.calendars[0].hour[0].start
 
     def test_distribution_covers_all_days(self):
-        days = Counter()
+        days: Counter[int] = Counter()
         for i in range(1000):
             entity_id = uuid.UUID(int=i)
             spec = build_schedule_spec(entity_id, timedelta(days=7))
@@ -158,7 +158,7 @@ class TestWeeklySpec:
         assert len(days) == 7
 
     def test_distribution_covers_all_hours(self):
-        hours = Counter()
+        hours: Counter[int] = Counter()
         for i in range(1000):
             entity_id = uuid.UUID(int=i)
             spec = build_schedule_spec(entity_id, timedelta(days=7))
@@ -193,7 +193,7 @@ class TestMonthlySpec:
         assert spec_a.calendars[0].day_of_month[0].start == spec_b.calendars[0].day_of_month[0].start
 
     def test_distribution_covers_all_28_days(self):
-        days = Counter()
+        days: Counter[int] = Counter()
         for i in range(5000):
             entity_id = uuid.UUID(int=i)
             spec = build_schedule_spec(entity_id, timedelta(days=30))
