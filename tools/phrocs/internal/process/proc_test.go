@@ -244,7 +244,7 @@ func TestStop_kills_entire_process_group(t *testing.T) {
 		}
 		for _, line := range p.Lines() {
 			if strings.HasPrefix(line, "GRANDCHILD_PID=") {
-				fmt.Sscanf(line, "GRANDCHILD_PID=%d", &grandchildPID)
+				_, _ = fmt.Sscanf(line, "GRANDCHILD_PID=%d", &grandchildPID)
 			}
 		}
 		if grandchildPID == 0 {
