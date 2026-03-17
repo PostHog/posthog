@@ -9,11 +9,10 @@ from products.batch_exports.backend.service import (
     S3BatchExportInputs,
 )
 
-COMMON_KWARGS = {"batch_export_id": "test", "team_id": 1}
-
 DESTINATION_INPUTS = {
     "Databricks": DatabricksBatchExportInputs(
-        **COMMON_KWARGS,
+        batch_export_id="test",
+        team_id=1,
         http_path="/sql/1.0/warehouses/abc",
         catalog="main",
         schema="default",
@@ -22,7 +21,8 @@ DESTINATION_INPUTS = {
         use_automatic_schema_evolution="false",  # type: ignore
     ),
     "S3": S3BatchExportInputs(
-        **COMMON_KWARGS,
+        batch_export_id="test",
+        team_id=1,
         bucket_name="bucket",
         region="us-east-1",
         prefix="prefix/",
@@ -32,7 +32,8 @@ DESTINATION_INPUTS = {
         max_file_size_mb="100",  # type: ignore
     ),
     "Postgres": PostgresBatchExportInputs(
-        **COMMON_KWARGS,
+        batch_export_id="test",
+        team_id=1,
         user="user",
         password="password",
         host="localhost",
@@ -41,7 +42,8 @@ DESTINATION_INPUTS = {
         port="5432",  # type: ignore
     ),
     "Redshift": RedshiftBatchExportInputs(
-        **COMMON_KWARGS,
+        batch_export_id="test",
+        team_id=1,
         user="user",
         password="password",
         host="localhost",
@@ -49,7 +51,8 @@ DESTINATION_INPUTS = {
         port="5439",  # type: ignore
     ),
     "BigQuery": BigQueryBatchExportInputs(
-        **COMMON_KWARGS,
+        batch_export_id="test",
+        team_id=1,
         project_id="project",
         dataset_id="dataset",
         private_key="key",
@@ -59,7 +62,8 @@ DESTINATION_INPUTS = {
         use_json_type="true",  # type: ignore
     ),
     "AzureBlob": AzureBlobBatchExportInputs(
-        **COMMON_KWARGS,
+        batch_export_id="test",
+        team_id=1,
         container_name="container",
         max_file_size_mb="50",  # type: ignore
     ),
@@ -96,7 +100,8 @@ class TestTypeCoercionInBatchExportInputs:
 
     def test_actual_booleans_are_preserved(self):
         inputs = DatabricksBatchExportInputs(
-            **COMMON_KWARGS,
+            batch_export_id="test",
+            team_id=1,
             http_path="/sql/1.0/warehouses/abc",
             catalog="main",
             schema="default",
@@ -109,7 +114,8 @@ class TestTypeCoercionInBatchExportInputs:
 
     def test_optional_int_none_is_preserved(self):
         inputs = S3BatchExportInputs(
-            **COMMON_KWARGS,
+            batch_export_id="test",
+            team_id=1,
             bucket_name="bucket",
             region="us-east-1",
             prefix="prefix/",
