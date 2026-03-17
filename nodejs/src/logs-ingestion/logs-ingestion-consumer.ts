@@ -118,16 +118,17 @@ export class LogsIngestionConsumer {
         this.kafkaConsumer = new KafkaConsumer({ groupId: this.groupId, topic: this.topic })
         // Logs ingestion uses its own Redis instance with TLS support
         this.redis = createRedisV2PoolFromConfig({
-            connection: config.LOGS_REDIS_HOST
-                ? {
-                      url: config.LOGS_REDIS_HOST,
-                      options: {
-                          port: config.LOGS_REDIS_PORT,
-                          tls: config.LOGS_REDIS_TLS ? {} : undefined,
-                      },
-                      name: 'logs-redis',
-                  }
-                : { url: config.REDIS_URL, name: 'logs-redis-fallback' },
+            connection:
+                (overrides.LOGS_REDIS_HOST ?? config.LOGS_REDIS_HOST)
+                    ? {
+                          url: overrides.LOGS_REDIS_HOST ?? config.LOGS_REDIS_HOST,
+                          options: {
+                              port: overrides.LOGS_REDIS_PORT ?? config.LOGS_REDIS_PORT,
+                              tls: (overrides.LOGS_REDIS_TLS ?? config.LOGS_REDIS_TLS) ? {} : undefined,
+                          },
+                          name: 'logs-redis',
+                      }
+                    : { url: config.REDIS_URL, name: 'logs-redis-fallback' },
             poolMinSize: config.REDIS_POOL_MIN_SIZE,
             poolMaxSize: config.REDIS_POOL_MAX_SIZE,
         })
