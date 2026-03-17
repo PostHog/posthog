@@ -227,7 +227,6 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 			stateColor = sharedpalette.ColorYellow
 		}
 
-		sb.WriteString(fmt.Sprintf("  %-*s  ", svcW, svc))
 		sb.WriteString(lipgloss.NewStyle().Foreground(stateColor).Render(fmt.Sprintf("%-*s", stateW, c.State)))
 		sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorGrey).Render(fmt.Sprintf("  %s", c.Status)))
 		if c.Health != "" {
