@@ -6,6 +6,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonInput } from 'lib/lemon-ui/LemonInput'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 
 import { DashboardType, QueryBasedInsightModel } from '~/types'
 
@@ -95,6 +96,16 @@ export function ButtonTileCardModal({
                             ]}
                             data-attr="button-tile-style"
                         />
+                    </Field>
+                    <Field name="transparent_background" label="">
+                        {({ value, onChange }) => (
+                            <LemonSwitch
+                                checked={value}
+                                onChange={onChange}
+                                label="Transparent background"
+                                data-attr="button-tile-transparent-background"
+                            />
+                        )}
                     </Field>
                 </div>
             </Form>

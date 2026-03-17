@@ -2154,6 +2154,7 @@ export interface DashboardTile<T = InsightModel> extends Tileable {
     }
     filters_overrides?: TileFilters
     show_description?: boolean | null
+    transparent_background?: boolean | null
 }
 
 export interface DashboardTileBasicType {

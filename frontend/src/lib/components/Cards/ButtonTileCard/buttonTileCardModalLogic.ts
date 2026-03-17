@@ -14,6 +14,7 @@ export interface ButtonTileForm {
     text: string
     placement: 'left' | 'right'
     style: 'primary' | 'secondary'
+    transparent_background: boolean
 }
 
 export interface ButtonTileCardModalProps {
@@ -33,9 +34,10 @@ const getExistingButtonTile = (
             text: tile.button_tile.text,
             placement: tile.button_tile.placement,
             style: tile.button_tile.style,
+            transparent_background: tile.transparent_background ?? false,
         }
     }
-    return { url: '', text: '', placement: 'left', style: 'primary' }
+    return { url: '', text: '', placement: 'left', style: 'primary', transparent_background: false }
 }
 
 const isValidUrl = (value: string): boolean => {
@@ -80,7 +82,13 @@ export const buttonTileCardModalLogic = kea<buttonTileCardModalLogicType>([
         buttonTile: {
             defaults: (props.buttonTileId && props.buttonTileId !== 'new'
                 ? getExistingButtonTile(props.dashboard, props.buttonTileId)
-                : { url: '', text: '', placement: 'left', style: 'primary' }) as ButtonTileForm,
+                : {
+                      url: '',
+                      text: '',
+                      placement: 'left',
+                      style: 'primary',
+                      transparent_background: false,
+                  }) as ButtonTileForm,
             errors: ({ url, text }) => ({
                 url: !url
                     ? 'URL is required'
@@ -94,17 +102,23 @@ export const buttonTileCardModalLogic = kea<buttonTileCardModalLogicType>([
                 text: !text ? 'Button text is required' : null,
             }),
             submit: (formValues) => {
+                const { transparent_background, ...buttonTileFields } = formValues
                 const tiles = (props.dashboard.tiles || []).map((t) => ({
                     id: t.id,
                     button_tile: t.button_tile,
+                    transparent_background: t.transparent_background,
                 }))
 
                 if (props.buttonTileId === 'new') {
-                    actions.updateDashboard({ id: props.dashboard.id, tiles: [{ button_tile: formValues }] })
+                    actions.updateDashboard({
+                        id: props.dashboard.id,
+                        tiles: [{ button_tile: buttonTileFields, transparent_background }],
+                    })
                 } else {
                     const updatedTiles = [...tiles].reduce((acc, tile) => {
                         if (tile.id === props.buttonTileId && tile.button_tile) {
-                            tile.button_tile = { ...tile.button_tile, ...formValues }
+                            tile.button_tile = { ...tile.button_tile, ...buttonTileFields }
+                            ;(tile as Partial<DashboardTile>).transparent_background = transparent_background
                             acc.push(tile)
                         }
                         return acc

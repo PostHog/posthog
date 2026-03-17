@@ -4,6 +4,7 @@ import { Field, Form } from 'kea-forms'
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
+import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { LemonTextAreaMarkdown } from 'lib/lemon-ui/LemonTextArea/LemonTextAreaMarkdown'
 
 import { DashboardType, QueryBasedInsightModel } from '~/types'
@@ -65,9 +66,26 @@ export function TextCardModal({
                 id="text-tile-form"
                 enableFormOnSubmit
             >
-                <Field name="body" label="">
-                    <LemonTextAreaMarkdown maxLength={4000} minRows={8} maxRows={20} data-attr="text-card-edit-area" />
-                </Field>
+                <div className="flex flex-col gap-4">
+                    <Field name="body" label="">
+                        <LemonTextAreaMarkdown
+                            maxLength={4000}
+                            minRows={8}
+                            maxRows={20}
+                            data-attr="text-card-edit-area"
+                        />
+                    </Field>
+                    <Field name="transparent_background" label="">
+                        {({ value, onChange }) => (
+                            <LemonSwitch
+                                checked={value}
+                                onChange={onChange}
+                                label="Transparent background"
+                                data-attr="text-card-transparent-background"
+                            />
+                        )}
+                    </Field>
+                </div>
             </Form>
         </LemonModal>
     )

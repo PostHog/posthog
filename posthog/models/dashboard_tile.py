@@ -84,6 +84,8 @@ class DashboardTile(models.Model):
     filters_overrides = models.JSONField(default=dict, null=True, blank=True)
     show_description = models.BooleanField(null=True, blank=True)
 
+    transparent_background = models.BooleanField(null=True, blank=True)
+
     deleted = models.BooleanField(null=True, blank=True)
 
     objects = DashboardTileManager()
@@ -155,6 +157,7 @@ class DashboardTile(models.Model):
             color=self.color,
             layouts=self.layouts,
             show_description=self.show_description,
+            transparent_background=self.transparent_background,
         )
 
     @staticmethod

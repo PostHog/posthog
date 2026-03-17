@@ -117,4 +117,9 @@ class Migration(migrations.Migration):
                 name="dash_tile_exactly_one_related_object",
             ),
         ),
+        migrations.AddField(
+            model_name="dashboardtile",
+            name="transparent_background",
+            field=models.BooleanField(blank=True, null=True),
+        ),
     ]

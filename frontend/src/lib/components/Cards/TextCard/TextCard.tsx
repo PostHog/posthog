@@ -60,9 +60,11 @@ function TextCardInternal(
 
     const shouldHideMoreButton = placement === DashboardPlacement.Public
 
+    const isTransparent = textTile.transparent_background
+
     return (
         <div
-            className={clsx('TextCard bg-surface-primary border rounded flex flex-col', className)}
+            className={clsx('TextCard rounded flex flex-col', !isTransparent && 'bg-surface-primary border', className)}
             data-attr="text-card"
             {...divProps}
             ref={ref}

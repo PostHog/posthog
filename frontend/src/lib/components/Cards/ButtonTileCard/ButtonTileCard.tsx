@@ -55,9 +55,15 @@ function ButtonTileCardInternal(
         }
     }
 
+    const isTransparent = tile.transparent_background
+
     return (
         <div
-            className={clsx('ButtonTileCard bg-surface-primary border rounded flex flex-col h-full', className)}
+            className={clsx(
+                'ButtonTileCard rounded flex flex-col h-full',
+                !isTransparent && 'bg-surface-primary border',
+                className
+            )}
             data-attr="button-tile-card"
             {...divProps}
             ref={ref}
