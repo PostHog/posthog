@@ -6,6 +6,7 @@
 name: E2E CI Playwright
 on:
     pull_request:
+        types: [opened, synchronize, reopened, labeled, unlabeled]
     workflow_dispatch:
     push:
         branches:
@@ -151,7 +152,7 @@ jobs:
 
                     # Trusted bots that are allowed to run in update mode
                     # Add bot usernames here to allow snapshot auto-updates on their PRs
-                    TRUSTED_BOTS=("mendral-app[bot]")
+                    TRUSTED_BOTS=("mendral-app[bot]" "cursor[bot]")
 
                     IS_TRUSTED=false
                     for bot in "${TRUSTED_BOTS[@]}"; do
@@ -582,10 +583,10 @@ jobs:
                       // comment that may have relevant info from a previous run.
                       let extraLines = '';
                       let resultsRead = false;
+                      let failed = [];
                       try {
                           const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'));
                           resultsRead = true;
-                          const failed = [];
                           const flaky = [];
                           function collect(suites) {
                               for (const suite of suites || []) {
