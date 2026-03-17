@@ -5,7 +5,13 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { FunnelsQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
+import {
+    FunnelsQuery,
+    InsightVizNode,
+    NodeKind,
+    ResultCustomizationBy,
+    TrendsQuery,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { FunnelVizType, InsightShortId } from '~/types'
 
@@ -114,24 +120,26 @@ describe('insightDataLogic', () => {
     })
 
     describe('cached insight query sync', () => {
-        it('does not reset local query when cachedInsight query is unchanged', async () => {
-            const baseQuery = examples.InsightTrends as InsightVizNode
-            const localUpdatedQuery: InsightVizNode = {
-                ...baseQuery,
-                source: {
-                    ...baseQuery.source,
-                    trendsFilter: {
-                        ...baseQuery.source.trendsFilter,
-                        resultCustomizations: {
-                            series_0: {
-                                assignmentBy: 'value',
-                                hidden: true,
-                            },
+        const baseQuery = examples.InsightTrends as InsightVizNode
+        const trendsSource = baseQuery.source as TrendsQuery
+        const buildLocalUpdatedQuery = (): InsightVizNode => ({
+            ...baseQuery,
+            source: {
+                ...trendsSource,
+                trendsFilter: {
+                    ...trendsSource.trendsFilter,
+                    resultCustomizations: {
+                        series_0: {
+                            assignmentBy: ResultCustomizationBy.Value,
+                            hidden: true,
                         },
                     },
                 },
-            }
+            },
+        })
 
+        it('does not reset local query when cachedInsight query is unchanged', async () => {
+            const localUpdatedQuery = buildLocalUpdatedQuery()
             const logic = insightDataLogic({
                 dashboardItemId: Insight123,
                 cachedInsight: { short_id: Insight123, query: baseQuery } as any,
@@ -152,7 +160,7 @@ describe('insightDataLogic', () => {
         })
 
         it('syncs local query when cachedInsight query changes', async () => {
-            const baseQuery = examples.InsightTrends as InsightVizNode
+            const localUpdatedQuery = buildLocalUpdatedQuery()
             const updatedCachedQuery: InsightVizNode = {
                 ...baseQuery,
                 source: {
@@ -169,22 +177,6 @@ describe('insightDataLogic', () => {
                 cachedInsight: { short_id: Insight123, query: baseQuery } as any,
             })
             logic.mount()
-
-            const localUpdatedQuery: InsightVizNode = {
-                ...baseQuery,
-                source: {
-                    ...baseQuery.source,
-                    trendsFilter: {
-                        ...baseQuery.source.trendsFilter,
-                        resultCustomizations: {
-                            series_0: {
-                                assignmentBy: 'value',
-                                hidden: true,
-                            },
-                        },
-                    },
-                },
-            }
 
             await expectLogic(logic, () => {
                 logic.actions.setQuery(localUpdatedQuery)
