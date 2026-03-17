@@ -45,7 +45,7 @@ export function AggregationSelect({
     className,
     hogqlAvailable,
 }: AggregationSelectProps): JSX.Element | null {
-    const { querySource, isLifecycle, hasOnlyDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { querySource, isFunnels, isLifecycle, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
@@ -55,9 +55,9 @@ export function AggregationSelect({
         return null
     }
 
-    const showCustomDataWarehouseItemsOption = isLifecycle && hasOnlyDataWarehouseSeries
     const value =
-        isLifecycleQuery(querySource) && querySource.customAggregationTarget
+        (isLifecycleQuery(querySource) && querySource.customAggregationTarget) ||
+        (isFunnelsQuery(querySource) && querySource.funnelsFilter?.customAggregationTarget)
             ? CUSTOM_DATA_WAREHOUSE_ITEMS
             : getHogQLValue(
                   isStickinessQuery(querySource) ? undefined : querySource.aggregation_group_type_index,
@@ -67,15 +67,30 @@ export function AggregationSelect({
     const onChange = (value: string): void => {
         const { aggregationQuery, groupIndex } = hogQLToFilterValue(value)
         if (isFunnelsQuery(querySource)) {
-            updateQuerySource({
-                aggregation_group_type_index: groupIndex,
-                funnelsFilter: { ...querySource.funnelsFilter, funnelAggregateByHogQL: aggregationQuery },
-            } as FunnelsQuery)
+            if (value === CUSTOM_DATA_WAREHOUSE_ITEMS) {
+                updateQuerySource({
+                    aggregation_group_type_index: undefined,
+                    funnelsFilter: {
+                        ...querySource.funnelsFilter,
+                        funnelAggregateByHogQL: undefined,
+                        customAggregationTarget: true,
+                    },
+                } as FunnelsQuery)
+            } else {
+                updateQuerySource({
+                    aggregation_group_type_index: groupIndex,
+                    funnelsFilter: {
+                        ...querySource.funnelsFilter,
+                        funnelAggregateByHogQL: aggregationQuery,
+                        customAggregationTarget: undefined,
+                    },
+                } as FunnelsQuery)
+            }
         } else if (isLifecycleQuery(querySource)) {
             if (value === CUSTOM_DATA_WAREHOUSE_ITEMS) {
                 updateQuerySource({
-                    customAggregationTarget: true,
                     aggregation_group_type_index: undefined,
+                    customAggregationTarget: true,
                 } as LifecycleQuery)
             } else {
                 updateQuerySource({
@@ -113,21 +128,27 @@ export function AggregationSelect({
         })
     }
 
-    if (showCustomDataWarehouseItemsOption) {
-        optionSections[0].options.push({
-            value: CUSTOM_DATA_WAREHOUSE_ITEMS,
-            label: 'Custom entities',
-            tooltip:
-                'Custom entities from your data warehouse instead of persons or groups. This option is only available for insights with data warehouse only series.',
-        })
-    }
-
     if (hogqlAvailable) {
         baseValues.push(`properties.$session_id`)
         optionSections[0].options.push({
             value: 'properties.$session_id',
             label: `Unique sessions`,
         })
+    }
+
+    if (isFunnels || isLifecycle) {
+        optionSections[0].options.push({
+            value: CUSTOM_DATA_WAREHOUSE_ITEMS,
+            label: 'Custom entities',
+            tooltip:
+                'Custom entities from your data warehouse instead of persons or groups. This mainly affects how aggregation labels are shown and disables the persons modal.',
+            disabledReason: hasDataWarehouseSeries
+                ? undefined
+                : 'This option is only available for insights with a data warehouse series.',
+        })
+    }
+
+    if (hogqlAvailable) {
         optionSections[0].options.push({
             label: 'Custom SQL expression',
             options: [
