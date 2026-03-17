@@ -74,7 +74,6 @@ import {
     isDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
-    isFunnelsDataWarehouseNode,
     isInsightQueryNode,
     isInsightVizNode,
     isLifecycleDataWarehouseNode,
@@ -818,19 +817,6 @@ const handleQuerySourceUpdateSideEffects = (
         ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
             ...(insightFilter as FunnelsFilter),
             ...getClampedFunnelStepRange(insightFilter as FunnelsFilter, funnelSeries),
-        }
-    }
-
-    if (
-        maybeChangedSeries &&
-        isFunnelsQuery(currentState) &&
-        currentState.funnelsFilter?.customAggregationTarget &&
-        !maybeChangedSeries.some((series) => isFunnelsDataWarehouseNode(series))
-    ) {
-        ;(mergedUpdate as FunnelsQuery).funnelsFilter = {
-            ...currentState.funnelsFilter,
-            ...(mergedUpdate as FunnelsQuery).funnelsFilter,
-            customAggregationTarget: undefined,
         }
     }
 

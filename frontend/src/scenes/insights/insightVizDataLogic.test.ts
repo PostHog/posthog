@@ -183,60 +183,6 @@ describe('insightVizDataLogic', () => {
             })
         })
 
-        it('clears a custom funnel aggregation target when switching away from a data warehouse series', () => {
-            const funnelsQuery: FunnelsQuery = {
-                kind: NodeKind.FunnelsQuery,
-                funnelsFilter: {
-                    customAggregationTarget: true,
-                },
-                series: [
-                    {
-                        kind: NodeKind.FunnelsDataWarehouseNode,
-                        id: 'warehouse_orders',
-                        table_name: 'warehouse_orders',
-                        name: 'Orders',
-                        timestamp_field: 'created_at',
-                        id_field: 'id',
-                        aggregation_target_field: 'order_id',
-                    },
-                ],
-            }
-
-            builtInsightVizDataLogic.actions.updateQuerySource(funnelsQuery)
-
-            expectLogic(builtInsightDataLogic, () => {
-                builtInsightVizDataLogic.actions.updateQuerySource({
-                    kind: NodeKind.FunnelsQuery,
-                    series: [
-                        {
-                            kind: NodeKind.EventsNode,
-                            name: '$pageview',
-                            event: '$pageview',
-                        },
-                    ],
-                } as FunnelsQuery)
-            }).toMatchValues({
-                query: {
-                    kind: NodeKind.InsightVizNode,
-                    source: {
-                        kind: NodeKind.FunnelsQuery,
-                        funnelsFilter: {
-                            customAggregationTarget: undefined,
-                        },
-                        series: [
-                            {
-                                kind: NodeKind.EventsNode,
-                                name: '$pageview',
-                                event: '$pageview',
-                            },
-                        ],
-                        trendsFilter: {},
-                        version: 2,
-                    },
-                },
-            })
-        })
-
         it('clears unsupported lifecycle globals when switching to a data warehouse series', () => {
             const lifecycleQuery: LifecycleQuery = {
                 kind: NodeKind.LifecycleQuery,
