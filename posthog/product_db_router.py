@@ -21,6 +21,7 @@ class ProductDBRouter:
             for route in configured_routes
             if route.database in settings.DATABASES and route.reader_database in settings.DATABASES
         )
+        self._product_db_aliases = frozenset(route.database for route in self.routes)
 
     def db_for_read(self, model, **hints):
         for route in self.routes:
@@ -44,6 +45,10 @@ class ProductDBRouter:
         for route in self.routes:
             if app_label == route.app_label:
                 return db == route.database
+
+        # Non-routed apps must not migrate into product databases
+        if db in self._product_db_aliases:
+            return False
 
         return None
 

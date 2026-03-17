@@ -23,8 +23,8 @@ class ProductDBRoute:
         return model_meta.app_label == self.app_label
 
 
-def load_product_db_routes(base_dir: Path) -> tuple[ProductDBRoute, ...]:
-    config_path = base_dir / PRODUCT_DB_ROUTING_FILE
+def load_product_db_routes(base_dir: Path | str) -> tuple[ProductDBRoute, ...]:
+    config_path = Path(base_dir) / PRODUCT_DB_ROUTING_FILE
     if not config_path.exists():
         return ()
 

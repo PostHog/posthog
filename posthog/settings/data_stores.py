@@ -201,6 +201,7 @@ def _configure_product_route_database(alias: str, default_url: str) -> None:
     DATABASES[alias] = dj_database_url.config(
         env=_database_alias_to_env_var(alias), default=default_url, conn_max_age=0
     )
+    DATABASES[alias].setdefault("OPTIONS", {})["connect_timeout"] = 3
     if DISABLE_SERVER_SIDE_CURSORS:
         DATABASES[alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
