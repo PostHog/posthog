@@ -219,7 +219,7 @@ export function VisualReviewRunScene(): JSX.Element {
                         hasPrevious={hasPrevious}
                         hasNext={hasNext}
                         currentIndex={currentIndex >= 0 ? currentIndex : undefined}
-                        totalCount={changedSnapshots.length}
+                        totalCount={navSnapshots.length}
                     />
                 ) : snapshotsLoading ? (
                     <div className="text-center text-muted py-8">Loading snapshots...</div>

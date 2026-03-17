@@ -181,6 +181,7 @@ function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
                             icon={<IconCopy />}
                             size="xsmall"
                             type="secondary"
+                            tooltip="Copy config snippet"
                             onClick={() => copyToClipboard(snippet, 'config snippet')}
                         />
                     </div>
