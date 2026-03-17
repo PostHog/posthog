@@ -88,6 +88,7 @@ class TestDashboardTiles(APIBaseTest, QueryMatchingTest):
             "insight": None,
             "button_tile": None,
             "show_description": None,
+            "transparent_background": None,
         }
 
     @staticmethod

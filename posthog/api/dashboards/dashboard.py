@@ -549,6 +549,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 color=existing_tile.color,
                 filters_overrides=existing_tile.filters_overrides,
                 show_description=existing_tile.show_description,
+                transparent_background=existing_tile.transparent_background,
             )
         elif existing_tile.text:
             new_data = {
@@ -567,6 +568,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 color=existing_tile.color,
                 filters_overrides=existing_tile.filters_overrides,
                 show_description=existing_tile.show_description,
+                transparent_background=existing_tile.transparent_background,
             )
         elif existing_tile.button_tile:
             new_data = {
@@ -585,6 +587,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 color=existing_tile.color,
                 filters_overrides=existing_tile.filters_overrides,
                 show_description=existing_tile.show_description,
+                transparent_background=existing_tile.transparent_background,
             )
 
     @monitor(feature=Feature.DASHBOARD, endpoint="dashboard", method="PATCH")
@@ -738,6 +741,7 @@ class DashboardSerializer(DashboardMetadataSerializer):
             or "layouts" in tile_data
             or "filters_overrides" in tile_data
             or "show_description" in tile_data
+            or "transparent_background" in tile_data
         ):
             tile_data.pop("insight", None)  # don't ever update insight tiles here
 
