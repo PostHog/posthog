@@ -127,6 +127,7 @@ async fn main() {
     let mut manager = lifecycle::Manager::builder("capture")
         .with_trap_signals(true)
         .with_prestop_check(true)
+        .with_health_poll_interval(Duration::from_secs(2))
         .build();
 
     let handles = setup::register_components(&mut manager, &config);

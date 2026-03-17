@@ -69,7 +69,7 @@ async fn setup_router_with_limits(
     // resources that will be set limited for the given token for scoped limiters to detect
     resources_to_limit: Vec<QuotaResource>,
 ) -> (Router, MemorySink) {
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
@@ -1147,7 +1147,7 @@ async fn test_survey_quota_allows_events_when_not_limited() {
 #[tokio::test]
 async fn test_survey_quota_cross_batch_first_submission_allowed() {
     let token = "test_token_cross_batch_first";
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
@@ -1230,7 +1230,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
 #[tokio::test]
 async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     let token = "test_token_cross_batch_dup";
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
@@ -1315,7 +1315,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
 #[tokio::test]
 async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     let token = "test_token_redis_error";
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
@@ -1743,7 +1743,7 @@ async fn test_ai_quota_with_empty_batch_returns_bad_request() {
 #[tokio::test]
 async fn test_ai_quota_cross_batch_redis_error_fail_open() {
     let token = "test_token_redis_error_ai";
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {

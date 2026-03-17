@@ -149,7 +149,7 @@ fn create_ai_event_form(event_name: &str, distinct_id: &str, properties: Value) 
 
 // Helper to setup test router
 fn setup_ai_test_router() -> Router {
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = TestSink;
     let timesource = FixedTime {
@@ -1606,7 +1606,7 @@ async fn test_gzip_compressed_request() {
 
 // Helper to setup test router with CapturingSink
 fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
@@ -2516,7 +2516,7 @@ async fn test_ai_event_with_valid_sent_at_applies_clock_skew_correction() {
 
 // Helper to setup test router with custom TokenDropper and CapturingSink
 fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Router, CapturingSink) {
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
@@ -2713,7 +2713,7 @@ use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 
 // Helper to setup test router with quota limiter configured to limit AI events
 fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, CapturingSink) {
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();

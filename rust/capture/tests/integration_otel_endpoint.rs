@@ -110,7 +110,7 @@ fn make_test_client(sink: &CapturingSink) -> TestClient {
 }
 
 fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOptions) -> TestClient {
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)

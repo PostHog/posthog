@@ -184,6 +184,9 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
                     );
                 }
                 Ok(Err(e)) => {
+                    // Match axum::serve behavior:
+                    // - Connection errors (reset, aborted, refused) are silently retried
+                    // - Other errors (EMFILE, etc.) are logged; no backoff during drain
                     if is_connection_error(&e) {
                         metrics::counter!(METRIC_CAPTURE_HYPER_ACCEPT_ERROR,
                             "err_type" => "connection",

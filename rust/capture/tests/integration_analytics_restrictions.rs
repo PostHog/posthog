@@ -67,7 +67,7 @@ async fn setup_analytics_router_with_restriction(
     restriction_type: RestrictionType,
     token: &str,
 ) -> (Router, CapturingSink) {
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
@@ -405,7 +405,7 @@ async fn setup_analytics_router_with_redirect_to_topic(
     token: &str,
     topic: &str,
 ) -> (Router, CapturingSink) {
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
 
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();

@@ -953,19 +953,23 @@ impl Event for MemorySink {
     }
 }
 
-pub fn test_lifecycle_handlers() -> (lifecycle::ReadinessHandler, lifecycle::LivenessHandler) {
+pub fn test_lifecycle_handlers() -> (
+    lifecycle::ReadinessHandler,
+    lifecycle::LivenessHandler,
+    lifecycle::MonitorGuard,
+) {
     let manager = lifecycle::Manager::builder("test")
         .with_trap_signals(false)
         .with_prestop_check(false)
         .build();
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
-    let _monitor = manager.monitor_background();
-    (readiness, liveness)
+    let monitor = manager.monitor_background();
+    (readiness, liveness, monitor)
 }
 
 fn setup_capture_router(unit: &TestCase) -> (Router, MemorySink) {
-    let (readiness, liveness) = test_lifecycle_handlers();
+    let (readiness, liveness, _monitor) = test_lifecycle_handlers();
     let sink = MemorySink::default();
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(unit.fixed_time)

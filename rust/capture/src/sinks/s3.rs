@@ -124,8 +124,10 @@ impl S3Sink {
                         let mut buffer = inner.buffer.lock().await;
                         if buffer.should_flush() {
                             let mut old_buffer = {
+                                // Replace the current buffer with a brand-new one
                                 std::mem::replace(&mut *buffer, EventBuffer::new())
                             };
+                            // Drop the lock so writers can continue while we flush
                             drop(buffer);
                             let result = inner.flush_buffer(&mut old_buffer).await;
                             if result.is_ok() {
@@ -134,6 +136,8 @@ impl S3Sink {
                             drop(old_buffer.tx.send(result));
                         }
 
+                        // If we haven't written any events the healthcheck will stall;
+                        // force healthcheck at least every HEALTH_INTERVAL
                         if last_healthcheck.elapsed() >= HEALTH_INTERVAL {
                             inner.healthcheck().await;
                             last_healthcheck = Instant::now();

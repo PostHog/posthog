@@ -111,11 +111,11 @@ mod tests {
     use crate::utils::uuid_v7;
     use crate::v0_request::{DataType, ProcessedEventMetadata};
     use common_types::CapturedEvent;
+    use std::time::Duration;
 
     #[derive(Clone)]
     pub struct FailSink {}
 
-    // sink that always fails for testing fallback
     #[async_trait]
     impl Event for FailSink {
         async fn send(&self, _event: ProcessedEvent) -> Result<(), CaptureError> {
@@ -225,5 +225,53 @@ mod tests {
             fallback_sink.send_batch(batch).await,
             Err(CaptureError::RetryableSinkError)
         ));
+    }
+
+    #[tokio::test]
+    async fn test_advisory_handle_controls_primary_health() {
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_health_poll_interval(Duration::from_millis(50))
+            .build();
+
+        let kafka_handle = manager.register(
+            "kafka-advisory",
+            lifecycle::ComponentOptions::new()
+                .with_liveness_deadline(Duration::from_millis(200))
+                .is_advisory(true),
+        );
+        let _s3_handle = manager.register(
+            "s3-sink",
+            lifecycle::ComponentOptions::new().with_liveness_deadline(Duration::from_millis(200)),
+        );
+
+        let _monitor = manager.monitor_background();
+
+        let sink =
+            FallbackSink::new_with_advisory(PrintSink {}, PrintSink {}, kafka_handle.clone());
+
+        // Advisory handle starts healthy
+        kafka_handle.report_healthy();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            sink.primary_is_healthy(),
+            "primary should be healthy when kafka advisory reports healthy"
+        );
+
+        // Let the advisory handle's deadline expire without calling report_healthy
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert!(
+            !sink.primary_is_healthy(),
+            "primary should be unhealthy when kafka advisory deadline expires"
+        );
+
+        // Recovery: report healthy again
+        kafka_handle.report_healthy();
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert!(
+            sink.primary_is_healthy(),
+            "primary should recover when kafka advisory reports healthy again"
+        );
     }
 }

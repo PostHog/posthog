@@ -4,7 +4,6 @@ use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
-use common_liveness::SyncLivenessReporter;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
@@ -20,17 +19,15 @@ use tracing::{info_span, instrument, Instrument};
 use super::producer::RdKafkaProducer;
 
 pub struct KafkaContext {
-    liveness: Vec<Box<dyn SyncLivenessReporter>>,
+    liveness: lifecycle::Handle,
 }
 
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
-        // Signal liveness on all handles (standard + advisory) when brokers are up
+        // Signal liveness when brokers are up
         let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
         if brokers_up {
-            for handle in &self.liveness {
-                handle.report_healthy();
-            }
+            self.liveness.report_healthy();
         }
 
         let total_brokers = stats.brokers.len();
@@ -185,7 +182,6 @@ impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
         liveness: lifecycle::Handle,
-        advisory: Option<lifecycle::Handle>,
         partition: Option<OverflowLimiter>,
         replay_overflow_limiter: Option<RedisLimiter>,
     ) -> anyhow::Result<KafkaSink> {
@@ -259,15 +255,9 @@ impl KafkaSink {
 
         debug!("rdkafka configuration: {client_config:?}");
 
-        let mut liveness_reporters: Vec<Box<dyn SyncLivenessReporter>> =
-            vec![Box::new(liveness.clone())];
-        if let Some(ref adv) = advisory {
-            liveness_reporters.push(Box::new(adv.clone()));
-        }
-
         let producer: FutureProducer<KafkaContext> =
             client_config.create_with_context(KafkaContext {
-                liveness: liveness_reporters,
+                liveness: liveness.clone(),
             })?;
 
         // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
@@ -281,9 +271,6 @@ impl KafkaSink {
             .is_ok()
         {
             liveness.report_healthy();
-            if let Some(adv) = advisory {
-                adv.report_healthy();
-            }
             info!("connected to Kafka brokers");
         };
 
@@ -603,7 +590,7 @@ mod tests {
             kafka_producer_sticky_partitioning_linger_ms: 10,
             kafka_producer_enable_idempotence: false,
         };
-        let sink = KafkaSink::new(config, handle, None, limiter, None)
+        let sink = KafkaSink::new(config, handle, limiter, None)
             .await
             .expect("failed to create sink");
         (cluster, sink)

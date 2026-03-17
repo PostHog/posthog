@@ -27,7 +27,7 @@ use limiters::token_dropper::TokenDropper;
 
 pub struct LifecycleHandles {
     pub server: lifecycle::Handle,
-    pub sink: lifecycle::Handle,
+    pub sink: Option<lifecycle::Handle>,
     pub advisory: Option<lifecycle::Handle>,
     pub event_restrictions: Option<lifecycle::Handle>,
     pub readiness: lifecycle::ReadinessHandler,
@@ -40,16 +40,17 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(60)),
     );
 
-    let sink_opts = lifecycle::ComponentOptions::new()
-        .with_liveness_deadline(Duration::from_secs(45))
-        .with_stall_threshold(4);
+    let sink_opts =
+        lifecycle::ComponentOptions::new().with_liveness_deadline(Duration::from_secs(30));
 
-    let (sink, advisory) = if config.s3_fallback_enabled {
+    let (sink, advisory) = if config.print_sink || config.noop_sink {
+        (None, None)
+    } else if config.s3_fallback_enabled {
         let kafka = manager.register("kafka-sink", sink_opts.clone().is_advisory(true));
         let s3 = manager.register("s3-sink", sink_opts);
-        (s3, Some(kafka))
+        (Some(s3), Some(kafka))
     } else {
-        (manager.register("kafka-sink", sink_opts), None)
+        (Some(manager.register("kafka-sink", sink_opts)), None)
     };
 
     let event_restrictions =
@@ -246,7 +247,7 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
 async fn create_sink(
     config: &Config,
     redis_client: Arc<RedisClient>,
-    sink_handle: lifecycle::Handle,
+    sink_handle: Option<lifecycle::Handle>,
     advisory_handle: Option<lifecycle::Handle>,
 ) -> anyhow::Result<Box<dyn Event + Send + Sync>> {
     if config.print_sink {
@@ -255,6 +256,7 @@ async fn create_sink(
         info!("NoOpSink enabled, events will be silently dropped");
         Ok(Box::new(NoOpSink::new()))
     } else {
+        let sink_handle = sink_handle.expect("sink lifecycle handle required for Kafka/S3 sinks");
         let partition = match config.overflow_enabled {
             false => None,
             true => {
@@ -298,21 +300,19 @@ async fn create_sink(
             _ => None,
         };
 
-        let kafka_sink = KafkaSink::new(
-            config.kafka.clone(),
-            sink_handle,
-            advisory_handle.clone(),
-            partition,
-            replay_overflow_limiter,
-        )
-        .await
-        .expect("failed to start Kafka sink");
-
         if config.s3_fallback_enabled {
-            let s3_liveness_handle = advisory_handle
-                .as_ref()
-                .expect("advisory handle required for S3 fallback")
-                .clone();
+            let kafka_handle =
+                advisory_handle.expect("kafka advisory handle required for fallback");
+            let s3_handle = sink_handle;
+
+            let kafka_sink = KafkaSink::new(
+                config.kafka.clone(),
+                kafka_handle.clone(),
+                partition,
+                replay_overflow_limiter,
+            )
+            .await
+            .expect("failed to start Kafka sink");
 
             let s3_sink = S3Sink::new(
                 config
@@ -321,7 +321,7 @@ async fn create_sink(
                     .expect("S3 bucket required when fallback enabled"),
                 config.s3_fallback_prefix.clone(),
                 config.s3_fallback_endpoint.clone(),
-                s3_liveness_handle,
+                s3_handle,
             )
             .await
             .expect("failed to create S3 sink");
@@ -329,9 +329,18 @@ async fn create_sink(
             Ok(Box::new(FallbackSink::new_with_advisory(
                 kafka_sink,
                 s3_sink,
-                advisory_handle.expect("advisory handle required for fallback"),
+                kafka_handle,
             )))
         } else {
+            let kafka_sink = KafkaSink::new(
+                config.kafka.clone(),
+                sink_handle,
+                partition,
+                replay_overflow_limiter,
+            )
+            .await
+            .expect("failed to start Kafka sink");
+
             Ok(Box::new(kafka_sink))
         }
     }
