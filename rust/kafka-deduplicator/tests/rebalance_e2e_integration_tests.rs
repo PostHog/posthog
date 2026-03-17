@@ -46,8 +46,8 @@ use kafka_deduplicator::processor_rebalance_handler::ProcessorRebalanceHandler;
 use kafka_deduplicator::rocksdb::store::RocksDbConfig;
 use kafka_deduplicator::store::{DeduplicationStore, DeduplicationStoreConfig};
 use kafka_deduplicator::store_manager::StoreManager;
-use kafka_deduplicator::test_utils::test_helpers::TestRawEventBuilder;
 use kafka_deduplicator::test_utils::create_test_tracker;
+use kafka_deduplicator::test_utils::test_helpers::TestRawEventBuilder;
 
 mod common;
 use common::{
