@@ -551,3 +551,20 @@ impl EventDefinition {
         res
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn as_unresolved_is_noop_for_unresolved() {
+        let gt = GroupType::Unresolved("company".into());
+        assert_eq!(gt.as_unresolved(), GroupType::Unresolved("company".into()));
+    }
+
+    #[test]
+    fn as_unresolved_strips_resolved_index() {
+        let gt = GroupType::Resolved("company".into(), 2);
+        assert_eq!(gt.as_unresolved(), GroupType::Unresolved("company".into()));
+    }
+}
