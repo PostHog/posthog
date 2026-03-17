@@ -67,7 +67,7 @@ export function NotificationRow({
                         {notification.source_url && (
                             <Tooltip title="Go to source">
                                 <button
-                                    className="p-0.5 rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary"
+                                    className="p-0.5 rounded hover:bg-fill-highlight-200 text-secondary hover:text-primary cursor-pointer"
                                     onClick={handleNavigate}
                                 >
                                     <IconOpenInNew className="size-3.5" />
@@ -75,7 +75,10 @@ export function NotificationRow({
                             </Tooltip>
                         )}
                         <Tooltip title={notification.read ? 'Mark as unread' : 'Mark as read'}>
-                            <button className="p-0.5 rounded hover:bg-fill-highlight-200" onClick={handleToggleRead}>
+                            <button
+                                className="p-0.5 rounded hover:bg-fill-highlight-200 cursor-pointer"
+                                onClick={handleToggleRead}
+                            >
                                 <div
                                     className={`size-2.5 rounded-full border ${
                                         notification.read
