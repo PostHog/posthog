@@ -348,11 +348,14 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
         serializer = OAuthAuthorizationSerializer(data=request.data, context={"user": request.user})
 
         if not serializer.is_valid():
+            client_id = request.data.get("client_id", "unknown")
+            logger.warning("oauth_authorize_validation_error", client_id=client_id, errors=serializer.errors)
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         try:
             application = OAuthApplication.objects.get(client_id=serializer.validated_data["client_id"])
         except OAuthApplication.DoesNotExist:
+            logger.warning("oauth_authorize_invalid_client", client_id=serializer.validated_data["client_id"])
             return Response({"error": "Invalid client_id"}, status=status.HTTP_400_BAD_REQUEST)
 
         credentials = {
@@ -378,6 +381,11 @@ class OAuthAuthorizationView(OAuthLibMixin, APIView):
             )
 
         except OAuthToolkitError as error:
+            logger.warning(
+                "oauth_authorize_toolkit_error",
+                client_id=serializer.validated_data["client_id"],
+                error=str(error),
+            )
             return self.error_response(
                 error, application, no_redirect=True, state=serializer.validated_data.get("state")
             )
