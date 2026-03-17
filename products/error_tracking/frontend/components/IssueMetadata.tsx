@@ -2,7 +2,6 @@ import { useValues } from 'kea'
 import { PropsWithChildren, useState } from 'react'
 import { match } from 'ts-pattern'
 
-import { IconChevronRight } from '@posthog/icons'
 import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
@@ -72,16 +71,6 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                             () => (
                                 <>
                                     <TimeBoundary
-                                        time={firstSeen}
-                                        loading={issueLoading}
-                                        label="First Seen"
-                                        updateDateRange={(dateRange) => {
-                                            dateRange.date_from = firstSeen?.toISOString()
-                                            return dateRange
-                                        }}
-                                    />
-                                    <IconChevronRight />
-                                    <TimeBoundary
                                         time={lastSeen}
                                         loading={summaryLoading}
                                         label="Last Seen"
@@ -90,6 +79,17 @@ export const Metadata = ({ children, className }: PropsWithChildren<{ className?
                                             return dateRange
                                         }}
                                     />
+                                    <span className="text-xs text-muted ml-1">(</span>
+                                    <TimeBoundary
+                                        time={firstSeen}
+                                        loading={issueLoading}
+                                        label="First Seen"
+                                        updateDateRange={(dateRange) => {
+                                            dateRange.date_from = firstSeen?.toISOString()
+                                            return dateRange
+                                        }}
+                                    />
+                                    <span className="text-xs text-muted">old)</span>
                                 </>
                             )
                         )
