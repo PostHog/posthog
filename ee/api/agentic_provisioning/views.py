@@ -393,9 +393,8 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     if not memberships:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
 
-    non_demo_teams: list[Team] = []
-    for membership in memberships:
-        non_demo_teams.extend(membership.organization.teams.filter(is_demo=False))
+    org_ids = [m.organization_id for m in memberships]
+    non_demo_teams = list(Team.objects.filter(organization_id__in=org_ids, is_demo=False))
 
     if not non_demo_teams:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_team")
@@ -453,7 +452,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
     except Team.DoesNotExist:
         return Response({"error": "team_not_found"}, status=404)
 
-    if not user.organization_memberships.filter(organization=team.organization).exists():
+    if not user.organization_memberships.filter(organization_id=team.organization_id).exists():
         return Response({"error": "team_not_accessible"}, status=403)
 
     cache.delete(pending_key)

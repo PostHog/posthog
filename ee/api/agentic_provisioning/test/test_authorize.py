@@ -101,8 +101,7 @@ class TestAgenticAuthorize(APIBaseTest):
         assert data["token_type"] == "bearer"
 
 
-@override_settings(STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
-class TestAgenticAuthorizeMultiOrg(APIBaseTest):
+class AgenticAuthorizeMultiOrgBase(APIBaseTest):
     def setUp(self):
         super().setUp()
         self.org2 = Organization.objects.create(name="Second Org")
@@ -119,6 +118,9 @@ class TestAgenticAuthorizeMultiOrg(APIBaseTest):
         }
         cache.set(f"{PENDING_AUTH_CACHE_PREFIX}{state}", data, timeout=600)
 
+
+@override_settings(STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
+class TestAgenticAuthorizeMultiOrg(AgenticAuthorizeMultiOrgBase):
     def test_multi_org_redirects_to_spa(self):
         self._set_pending_auth("state_multi", self.user.email)
         res = self.client.get("/api/agentic/authorize?state=state_multi&scope=query:read+project:read")
@@ -133,23 +135,7 @@ class TestAgenticAuthorizeMultiOrg(APIBaseTest):
 
 
 @override_settings(STRIPE_ORCHESTRATOR_CALLBACK_URL=DUMMY_CALLBACK)
-class TestAgenticAuthorizeConfirm(APIBaseTest):
-    def setUp(self):
-        super().setUp()
-        self.org2 = Organization.objects.create(name="Second Org")
-        OrganizationMembership.objects.create(user=self.user, organization=self.org2, level=15)
-        self.team2 = Team.objects.create(organization=self.org2, name="Second Project", api_token="token_2")
-
-    def _set_pending_auth(self, state: str, email: str, **extra):
-        data = {
-            "email": email,
-            "scopes": ["query:read", "project:read"],
-            "stripe_account_id": "acct_123",
-            "region": "US",
-            **extra,
-        }
-        cache.set(f"{PENDING_AUTH_CACHE_PREFIX}{state}", data, timeout=600)
-
+class TestAgenticAuthorizeConfirm(AgenticAuthorizeMultiOrgBase):
     def test_confirm_creates_auth_code_for_selected_team(self):
         self._set_pending_auth("state_confirm", self.user.email)
         res = self.client.post(
