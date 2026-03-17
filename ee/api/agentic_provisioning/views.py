@@ -451,7 +451,7 @@ def agentic_authorize_confirm(request: Request) -> Response:
         return Response({"error": "email_mismatch"}, status=403)
 
     try:
-        team = Team.objects.get(id=team_id)
+        team = Team.objects.get(id=team_id, is_demo=False)
     except Team.DoesNotExist:
         return Response({"error": "team_not_found"}, status=404)
 
