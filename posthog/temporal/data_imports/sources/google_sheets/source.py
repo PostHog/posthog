@@ -111,6 +111,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        caption='Share the sheet with our service account by entering **google-sheets@posthog-external.iam.gserviceaccount.com** into the "Add people" field. We only require "Viewer" permissions to sync the sheet.',
                     )
                 ],
             ),
