@@ -374,7 +374,7 @@ def create_or_update_slack_ticket(
             )
             return None
         if slack_team_id and not ticket.slack_team_id:
-            Ticket.objects.filter(id=ticket.id).update(slack_team_id=slack_team_id)
+            Ticket.objects.filter(id=ticket.id, team=team).update(slack_team_id=slack_team_id)
 
         # Allow messages with only images (no text)
         if not cleaned_text and not images:
@@ -407,7 +407,7 @@ def create_or_update_slack_ticket(
         )
 
         # Increment unread_team_count
-        Ticket.objects.filter(id=ticket.id).update(
+        Ticket.objects.filter(id=ticket.id, team=team).update(
             unread_team_count=F("unread_team_count") + 1,
         )
 

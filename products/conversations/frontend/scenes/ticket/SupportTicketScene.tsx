@@ -183,7 +183,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         }
                     />
                     <div className="hidden lg:block">
-                        <Resizer {...resizerLogicProps} />
+                        <Resizer {...resizerLogicProps} className="z-20" />
                     </div>
                 </div>
 

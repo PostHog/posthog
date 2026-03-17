@@ -53,7 +53,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: |
-                  bin/ci-wait-for-docker launch
+                  bin/ci-wait-for-docker launch --down
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
@@ -137,7 +137,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
               run: |
-                  bin/ci-wait-for-docker launch
+                  bin/ci-wait-for-docker launch --down
 
             - name: Set up Python
               uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
