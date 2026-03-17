@@ -355,9 +355,9 @@ def _classify_batch(client: Any, batch: list[dict[str, Any]]) -> list[AccountCla
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=0,
+        temperature=1,
         response_format={"type": "json_object"},
-        timeout=60,
+        timeout=180,
     )
     raw = response.choices[0].message.content or ""
     results = parse_llm_response(raw)
@@ -417,6 +417,7 @@ def archetype_account_data(
         {
             "total_accounts": dagster.MetadataValue.int(len(df)),
             "accounts_with_usage": dagster.MetadataValue.int(len(has_usage)),
+            "source": dagster.MetadataValue.text("hogql"),
         }
     )
 
@@ -472,9 +473,9 @@ def archetype_llm_classification(
     # LLM classification for changed accounts
     new_classifications: list[AccountClassification] = []
     if accounts_to_classify:
-        classify_df = pl.DataFrame(accounts_to_classify)
+        classify_df = pl.DataFrame(accounts_to_classify, infer_schema_length=None)
         batches = prepare_llm_batches(classify_df)
-        client = get_llm_client("archetype_classification")
+        client = get_llm_client("customer_archetype_classification")
 
         for i, batch in enumerate(batches):
             context.log.info(f"LLM batch {i + 1}/{len(batches)}: {len(batch)} accounts")
