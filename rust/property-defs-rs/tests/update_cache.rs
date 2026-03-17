@@ -1,5 +1,8 @@
+use std::sync::Arc;
+
 use chrono::Utc;
 use property_defs_rs::{
+    batch_ingestion::PropertyDefinitionsBatch,
     types::{
         EventDefinition, EventProperty, GroupType, PropertyDefinition, PropertyParentType,
         PropertyValueType, Update,
@@ -124,24 +127,35 @@ fn test_resolved_group_prop_cannot_remove_unresolved_cache_entry() {
 }
 
 #[test]
-fn test_as_unresolved_removes_cache_entry_across_resolve_boundary() {
-    let cache = Cache::new(10, 10, 10);
+fn test_uncache_batch_evicts_unresolved_entry_for_group_prop() {
+    let cache = Arc::new(Cache::new(10, 10, 10));
 
+    // Producer inserts the unresolved form (before resolution happens)
     let unresolved = make_group_prop_def(Some(GroupType::Unresolved("company".into())));
     cache.insert(unresolved.clone());
     assert!(cache.contains_key(&unresolved));
 
-    // Build the removal key the same way uncache_batch now does: revert
-    // group_type_index to Unresolved before removing.
-    let resolved = make_group_prop_def(Some(GroupType::Resolved("company".into(), 2)));
-    let cache_key = match &resolved {
-        Update::Property(pd) => {
-            let mut reverted = pd.clone();
-            reverted.group_type_index = reverted.group_type_index.map(|gt| gt.as_unresolved());
-            Update::Property(reverted)
-        }
-        other => other.clone(),
+    // Consumer resolves the group type, then append adds it to the batch
+    let resolved_pd = PropertyDefinition {
+        team_id: 1,
+        project_id: 1,
+        name: "company_name".into(),
+        is_numerical: false,
+        property_type: Some(PropertyValueType::String),
+        event_type: PropertyParentType::Group,
+        group_type_index: Some(GroupType::Resolved("company".into(), 2)),
+        property_type_format: None,
+        query_usage_30_day: None,
+        volume_30_day: None,
     };
-    cache.remove(&cache_key);
-    assert!(!cache.contains_key(&unresolved), "entry should be uncached");
+    let mut batch = PropertyDefinitionsBatch::new(10);
+    batch.append(resolved_pd);
+
+    // Simulate batch write failure: uncache_batch should evict the
+    // original unresolved entry so the update can be retried
+    batch.uncache_batch(&cache);
+    assert!(
+        !cache.contains_key(&unresolved),
+        "entry should be uncached after batch failure"
+    );
 }
