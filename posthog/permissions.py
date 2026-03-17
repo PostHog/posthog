@@ -530,7 +530,7 @@ class APIScopePermission(ScopeBasePermission):
                 if team.id not in scoped_teams:
                     raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
             except (KeyError, AttributeError):
-                raise PermissionDenied(f"API keys with scoped projects are only supported on project-based endpoints.")
+                raise PermissionDenied("API keys with scoped projects are only supported on project-based endpoints.")
 
         if scoped_organizations:
             try:
