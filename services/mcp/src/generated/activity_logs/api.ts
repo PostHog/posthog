@@ -3,12 +3,12 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 1 ops
+ * PostHog API - MCP 1 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
 
-export const ActivityLogListParams = zod.object({
+export const ActivityLogListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -19,7 +19,7 @@ export const ActivityLogListParams = zod.object({
 export const activityLogListQueryPageSizeDefault = 100
 export const activityLogListQueryPageSizeMax = 1000
 
-export const ActivityLogListQueryParams = zod.object({
+export const ActivityLogListQueryParams = /* @__PURE__ */ zod.object({
     item_id: zod.string().min(1).optional().describe('Filter by the ID of the affected resource.'),
     page: zod
         .number()
@@ -166,52 +166,3 @@ export const ActivityLogListQueryParams = zod.object({
         ),
     user: zod.string().optional().describe('Filter by user UUID who performed the action.'),
 })
-
-export const activityLogListResponseUserDistinctIdMax = 200
-
-export const activityLogListResponseUserFirstNameMax = 150
-
-export const activityLogListResponseUserLastNameMax = 150
-
-export const activityLogListResponseUserEmailMax = 254
-
-export const activityLogListResponseActivityMax = 79
-
-export const activityLogListResponseItemIdMax = 72
-
-export const activityLogListResponseScopeMax = 79
-
-export const ActivityLogListResponseItem = zod.object({
-    id: zod.string().optional(),
-    user: zod.object({
-        id: zod.number().optional(),
-        uuid: zod.string().optional(),
-        distinct_id: zod.string().max(activityLogListResponseUserDistinctIdMax).nullish(),
-        first_name: zod.string().max(activityLogListResponseUserFirstNameMax).optional(),
-        last_name: zod.string().max(activityLogListResponseUserLastNameMax).optional(),
-        email: zod.string().email().max(activityLogListResponseUserEmailMax),
-        is_email_verified: zod.boolean().nullish(),
-        hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
-        role_at_organization: zod
-            .union([
-                zod
-                    .enum(['engineering', 'data', 'product', 'founder', 'leadership', 'marketing', 'sales', 'other'])
-                    .describe(
-                        '* `engineering` - Engineering\n* `data` - Data\n* `product` - Product Management\n* `founder` - Founder\n* `leadership` - Leadership\n* `marketing` - Marketing\n* `sales` - Sales / Success\n* `other` - Other'
-                    ),
-                zod.enum(['']),
-                zod.literal(null),
-            ])
-            .nullish(),
-    }),
-    unread: zod.boolean().optional().describe("is the date of this log item newer than the user's bookmark"),
-    organization_id: zod.string().nullish(),
-    was_impersonated: zod.boolean().nullish(),
-    is_system: zod.boolean().nullish(),
-    activity: zod.string().max(activityLogListResponseActivityMax),
-    item_id: zod.string().max(activityLogListResponseItemIdMax).nullish(),
-    scope: zod.string().max(activityLogListResponseScopeMax),
-    detail: zod.unknown().nullish(),
-    created_at: zod.string().datetime({}).optional(),
-})
-export const ActivityLogListResponse = zod.array(ActivityLogListResponseItem)
