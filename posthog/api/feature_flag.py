@@ -812,7 +812,8 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError(f"{path} must be between 0 and 100, got {value}")
 
         def _validate_integer(value: Any, path: str) -> None:
-            if value is not None and type(value) is not int:
+            # Check bool before int because bool is a subclass of int
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
                 raise serializers.ValidationError(f"{path} must be an integer or null, got {type(value).__name__}")
 
         _validate_integer(aggregation_group_type_index, "aggregation_group_type_index")
