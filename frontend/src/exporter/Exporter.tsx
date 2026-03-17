@@ -102,8 +102,6 @@ export function Exporter(props: ExportedData): JSX.Element {
 
     useThemedHtml(false)
 
-    const autoRefreshAllowed = props.allowAutoRefresh === true
-
     if (type === ExportType.Unlock) {
         return <ExporterLogin whitelabel={whitelabel} />
     }
@@ -138,12 +136,9 @@ export function Exporter(props: ExportedData): JSX.Element {
                             </div>
                             <div className="SharedDashboard-header-team text-right">
                                 <span className="block">{currentTeam?.name}</span>
-                                {autoRefreshAllowed && (
-                                    <span className="block text-xs text-muted-alt">
-                                        Auto refresh every{' '}
-                                        {humanFriendlyDuration(AUTO_REFRESH_INITIAL_INTERVAL_SECONDS)}
-                                    </span>
-                                )}
+                                <span className="block text-xs text-muted-alt">
+                                    Auto refresh every {humanFriendlyDuration(AUTO_REFRESH_INITIAL_INTERVAL_SECONDS)}
+                                </span>
                             </div>
                         </div>
                     ) : type === ExportType.Embed && !whitelabel ? (
@@ -164,9 +159,7 @@ export function Exporter(props: ExportedData): JSX.Element {
                     <ExportedInsight insight={insight} themes={themes!} exportOptions={exportOptions} />
                 ) : dashboard ? (
                     <>
-                        {type !== ExportType.Image && autoRefreshAllowed && (
-                            <SharedDashboardAutoRefresh dashboardId={dashboard.id} />
-                        )}
+                        {type !== ExportType.Image && <SharedDashboardAutoRefresh dashboardId={dashboard.id} />}
                         <Dashboard
                             id={String(dashboard.id)}
                             dashboard={getQueryBasedDashboard(dashboard)!}

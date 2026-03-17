@@ -383,21 +383,6 @@ export function SharingModalContent({
                                                             />
                                                         )}
                                                     </LemonField>
-                                                    <LemonField name="allowAutoRefresh">
-                                                        {({ value, onChange }) => (
-                                                            <LemonSwitch
-                                                                fullWidth
-                                                                bordered
-                                                                label={
-                                                                    <div className="flex items-center">
-                                                                        <span>Auto refresh</span>
-                                                                    </div>
-                                                                }
-                                                                onChange={onChange}
-                                                                checked={value}
-                                                            />
-                                                        )}
-                                                    </LemonField>
                                                 </>
                                             )}
                                         </div>

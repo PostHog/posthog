@@ -3865,7 +3865,6 @@ class SharingConfigurationSettings(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    allowAutoRefresh: bool | None = None
     detailed: bool | None = None
     hideExtraDetails: bool | None = None
     legend: bool | None = None

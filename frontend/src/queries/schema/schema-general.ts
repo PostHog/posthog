@@ -1117,8 +1117,6 @@ export interface SharingConfigurationSettings {
     hideExtraDetails?: boolean
     // Recordings
     showInspector?: boolean
-    // Dashboards
-    allowAutoRefresh?: boolean
 }
 
 export interface DataVisualizationNode extends Node<never> {

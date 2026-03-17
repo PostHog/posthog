@@ -26,24 +26,23 @@ describe('SharingModal (dashboard)', () => {
         // Options sub header
         expect(screen.getByText('Options')).toBeInTheDocument()
 
-        // Auto refresh switch
-        const autoRefreshSwitch = screen.getByText('Auto refresh')
-        expect(autoRefreshSwitch).toBeInTheDocument()
+        // Dashboard options smoke checks
+        expect(screen.getByText(/Show PostHog branding/i)).toBeInTheDocument()
     })
 
-    it('toggles Auto refresh value in form state', async () => {
+    it('toggles Show PostHog branding value in form state', async () => {
         renderDashboardSharingModal()
 
-        const autoRefreshSwitch = await screen.findByText('Auto refresh')
+        const brandingSwitch = await screen.findByText(/Show PostHog branding/i)
 
         // Kea forms wiring means clicking the switch should update the underlying value
         // This is a smoke test that the control is interactive – we don't introspect Kea state here,
         // just ensure the checkbox element toggles.
-        const checkbox = autoRefreshSwitch.closest('label')?.querySelector('input[type="checkbox"]') as HTMLInputElement
+        const checkbox = brandingSwitch.closest('label')?.querySelector('input[type="checkbox"]') as HTMLInputElement
         expect(checkbox).toBeTruthy()
 
         const initialChecked = checkbox.checked
-        fireEvent.click(autoRefreshSwitch)
+        fireEvent.click(brandingSwitch)
         expect(checkbox.checked).toBe(!initialChecked)
     })
 })
@@ -76,7 +75,6 @@ describe('SharingModal (insight)', () => {
         expect(await screen.findByText(/Show title and description/i)).toBeInTheDocument()
 
         // Dashboard-only options should not be present
-        expect(screen.queryByText(/Auto refresh/i)).toBeNull()
         expect(screen.queryByText(/Show insight details/i)).toBeNull()
     })
 })

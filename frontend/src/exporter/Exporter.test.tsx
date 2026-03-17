@@ -14,7 +14,6 @@ function makeDashboardExport(overrides: Partial<ExportedData> = {}): ExportedDat
             tiles: [],
         } as any,
         themes: [],
-        allowAutoRefresh: true,
         ...overrides,
     }
 }
@@ -41,26 +40,15 @@ describe('Exporter (shared dashboard)', () => {
         document.title = initialTitle
     })
 
-    it('shows auto refresh text in header when allowAutoRefresh is true', () => {
-        const { getByText } = render(<Exporter {...makeDashboardExport({ allowAutoRefresh: true })} />)
+    it('shows auto refresh text in header', () => {
+        const { getByText } = render(<Exporter {...makeDashboardExport()} />)
 
         expect(getByText('My shared dashboard')).toBeInTheDocument()
         expect(getByText(/Auto refresh every/i)).toBeInTheDocument()
     })
 
-    it('does not show auto refresh text when allowAutoRefresh is false or missing', () => {
-        const { queryByText, rerender } = render(<Exporter {...makeDashboardExport({ allowAutoRefresh: false })} />)
-
-        expect(queryByText(/Auto refresh every/i)).toBeNull()
-
-        rerender(<Exporter {...makeDashboardExport({ allowAutoRefresh: undefined })} />)
-        expect(queryByText(/Auto refresh every/i)).toBeNull()
-    })
-
-    it('does not show auto refresh text for image exports even when allowAutoRefresh is true', () => {
-        const { queryByText } = render(
-            <Exporter {...makeDashboardExport({ type: ExportType.Image, allowAutoRefresh: true })} />
-        )
+    it('does not show auto refresh text for image exports', () => {
+        const { queryByText } = render(<Exporter {...makeDashboardExport({ type: ExportType.Image })} />)
 
         expect(queryByText(/Auto refresh every/i)).toBeNull()
     })
