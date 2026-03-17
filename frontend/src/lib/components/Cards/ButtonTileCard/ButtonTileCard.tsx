@@ -57,20 +57,20 @@ function ButtonTileCardInternal(
 
     return (
         <div
-            className={clsx('ButtonTileCard bg-surface-primary border rounded flex flex-col', className)}
+            className={clsx('ButtonTileCard bg-surface-primary border rounded flex flex-col h-full', className)}
             data-attr="button-tile-card"
             {...divProps}
             ref={ref}
         >
             {moreButtonOverlay && !shouldHideMoreButton && (
-                <div className="absolute right-4 top-4">
+                <div className="absolute right-4 top-4 z-10">
                     <More overlay={moreButtonOverlay} />
                 </div>
             )}
 
             <div
                 className={clsx(
-                    'ButtonTileCard__body w-full p-4',
+                    'ButtonTileCard__body w-full p-4 pr-14',
                     button_tile.placement === 'right' ? 'justify-end' : 'justify-start',
                     onDragHandleMouseDown && 'cursor-grab'
                 )}

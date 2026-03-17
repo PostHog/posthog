@@ -1197,7 +1197,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                       return {
                                           type: 'BUTTON_TILE',
                                           url: tile.button_tile.url,
-                                          button_text: tile.button_tile.button_text,
+                                          text: tile.button_tile.text,
                                           placement: tile.button_tile.placement,
                                           style: tile.button_tile.style,
                                           layouts: tile.layouts,
