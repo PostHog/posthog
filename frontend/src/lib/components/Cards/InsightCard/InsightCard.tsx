@@ -3,7 +3,7 @@ import './InsightCard.scss'
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { BindLogic, useValues } from 'kea'
-import React, { lazy, useState } from 'react'
+import React, { useState } from 'react'
 import { LayoutItem } from 'react-grid-layout'
 import { useInView } from 'react-intersection-observer'
 
@@ -27,6 +27,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { extractValidationError } from '~/queries/nodes/InsightViz/utils'
+import { Query } from '~/queries/Query/Query'
 import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
@@ -43,8 +44,6 @@ import {
 import { DashboardResizeHandles } from '../handles'
 import { EditModeEdgeOverlay } from './EditModeEdgeOverlay'
 import { InsightMeta } from './InsightMeta'
-
-const Query = lazy(() => import('~/queries/Query/Query').then((module) => ({ default: module.Query })))
 
 const IS_STORYBOOK = inStorybook() || inStorybookTestRunner()
 

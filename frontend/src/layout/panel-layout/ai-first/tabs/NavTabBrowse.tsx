@@ -11,6 +11,7 @@ import {
     IconNotification,
     IconStar,
 } from '@posthog/icons'
+import { Tooltip } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
@@ -18,6 +19,9 @@ import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
+import { ContextMenuItem } from 'lib/ui/ContextMenu/ContextMenu'
+import { DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator } from 'lib/ui/DropdownMenu/DropdownMenu'
+import { LinkListItem } from 'lib/ui/LinkListItem/LinkListItem'
 import { humanFriendlyDetailedTime } from 'lib/utils'
 import { cn } from 'lib/utils/css-classes'
 import { removeProjectIdIfPresent } from 'lib/utils/router-utils'
@@ -28,10 +32,12 @@ import { NavLink } from '~/layout/panel-layout/ai-first/NavLink'
 import { PanelLayoutNavIdentifier, panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { ProjectTree } from '~/layout/panel-layout/ProjectTree/ProjectTree'
-import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { joinPath, splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
+import { BrowserLikeMenuItems } from '../../ProjectTree/menus/BrowserLikeMenuItems'
 import { PanelIndicatorIcon, SectionTrigger } from '../Nav'
 import { navRecentsLogic } from './navRecentsLogic'
 
@@ -72,8 +78,11 @@ function formatRelativeDate(dateStr: string | null | undefined): string {
     if (!dateStr) {
         return ''
     }
-    const now = new Date()
     const date = new Date(dateStr)
+    if (isNaN(date.getTime())) {
+        return ''
+    }
+    const now = new Date()
     const diffMs = now.getTime() - date.getTime()
     const diffMins = Math.floor(diffMs / 60000)
     if (diffMins < 1) {
@@ -94,6 +103,73 @@ function formatRelativeDate(dateStr: string | null | undefined): string {
     return `${diffMonths}mo`
 }
 
+function useStarredState(item: FileSystemEntry): {
+    isAlreadyStarred: boolean
+    addShortcutItem: (item: FileSystemEntry) => void
+} {
+    const { addShortcutItem } = useActions(projectTreeDataLogic)
+    const { shortcutNonFolderPaths } = useValues(projectTreeDataLogic)
+    const shortcutPath = joinPath([splitPath(item.path).pop() ?? 'Unnamed'])
+    return { isAlreadyStarred: shortcutNonFolderPaths.has(shortcutPath), addShortcutItem }
+}
+
+function AddToStarredContextAction({ item }: { item: FileSystemEntry }): JSX.Element {
+    const { isAlreadyStarred, addShortcutItem } = useStarredState(item)
+
+    if (isAlreadyStarred) {
+        return (
+            <ContextMenuItem asChild disabled>
+                <ButtonPrimitive menuItem disabled>
+                    <IconStar className="size-4 text-tertiary" />
+                    Already starred
+                </ButtonPrimitive>
+            </ContextMenuItem>
+        )
+    }
+
+    return (
+        <ContextMenuItem asChild>
+            <ButtonPrimitive menuItem onClick={() => addShortcutItem(item)}>
+                <IconStar className="size-4 text-tertiary" />
+                Add to starred
+            </ButtonPrimitive>
+        </ContextMenuItem>
+    )
+}
+
+function AddToStarredDropdownAction({ item }: { item: FileSystemEntry }): JSX.Element {
+    const { isAlreadyStarred, addShortcutItem } = useStarredState(item)
+
+    if (isAlreadyStarred) {
+        return (
+            <DropdownMenuGroup>
+                <BrowserLikeMenuItems MenuItem={DropdownMenuItem} href={item.href ?? ''} />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild disabled>
+                    <ButtonPrimitive menuItem disabled>
+                        <IconStar className="size-4 text-tertiary" />
+                        Already starred
+                    </ButtonPrimitive>
+                </DropdownMenuItem>
+            </DropdownMenuGroup>
+        )
+    }
+
+    return (
+        <DropdownMenuGroup>
+            <BrowserLikeMenuItems MenuItem={DropdownMenuItem} href={item.href ?? ''} />
+            <DropdownMenuSeparator />
+
+            <DropdownMenuItem asChild>
+                <ButtonPrimitive menuItem onClick={() => addShortcutItem(item)}>
+                    <IconStar className="size-4 text-tertiary" />
+                    Add to starred
+                </ButtonPrimitive>
+            </DropdownMenuItem>
+        </DropdownMenuGroup>
+    )
+}
+
 export function NavTabBrowse(): JSX.Element {
     const { showLayoutPanel, setActivePanelIdentifier, clearActivePanelIdentifier, toggleNavSection } =
         useActions(panelLayoutLogic)
@@ -108,6 +184,8 @@ export function NavTabBrowse(): JSX.Element {
     const { firstTabIsActive } = useValues(sceneLogic)
     const isProductAutonomyEnabled = useFeatureFlag('PRODUCT_AUTONOMY')
     const { recentItems, recentItemsLoading } = useValues(navRecentsLogic)
+    const { loadRecentItems } = useActions(navRecentsLogic)
+    const currentPath = removeProjectIdIfPresent(pathname)
 
     function handlePanelTriggerClick(item: PanelLayoutNavIdentifier): void {
         if (activePanelIdentifier !== item) {
@@ -222,7 +300,12 @@ export function NavTabBrowse(): JSX.Element {
             {!isLayoutNavCollapsed && (
                 <Collapsible
                     open={expandedNavSections.recents ?? false}
-                    onOpenChange={() => toggleNavSection('recents')}
+                    onOpenChange={() => {
+                        if (!expandedNavSections.recents) {
+                            loadRecentItems({})
+                        }
+                        toggleNavSection('recents')
+                    }}
                     className="mt-2 group/colorful-product-icons colorful-product-icons-true"
                 >
                     <SectionTrigger icon={<IconClock />} label="Recents" isCollapsed={isLayoutNavCollapsed} />
@@ -236,32 +319,40 @@ export function NavTabBrowse(): JSX.Element {
                         ) : (
                             recentItems.map((item: FileSystemEntry) => {
                                 const name = getItemName(item)
-                                const currentPath = removeProjectIdIfPresent(pathname)
                                 const isActive = item.href ? currentPath === item.href : false
                                 return (
-                                    <Link
-                                        key={item.id}
-                                        to={item.href}
-                                        buttonProps={{
-                                            menuItem: true,
-                                            active: isActive,
-                                            className: 'group -outline-offset-2 pr-0',
-                                        }}
-                                        tooltip={name}
-                                        tooltipPlacement="right"
-                                        data-attr={`nav-recent-item-${item.id}`}
-                                    >
-                                        {iconForType(item.type as FileSystemIconType)}
-                                        <span className="flex-1 line-clamp-1 text-secondary group-hover:text-primary">
-                                            {name}
-                                        </span>
-                                        <span
-                                            className="opacity-30 text-xs pr-1.5"
-                                            title={humanFriendlyDetailedTime(item.last_viewed_at)}
-                                        >
-                                            {formatRelativeDate(item.last_viewed_at)}
-                                        </span>
-                                    </Link>
+                                    <Tooltip title={name} placement="right" key={item.id}>
+                                        <LinkListItem.Root>
+                                            <LinkListItem.Group>
+                                                <Link
+                                                    to={item.href}
+                                                    buttonProps={{
+                                                        menuItem: true,
+                                                        active: isActive,
+                                                        className: 'group -outline-offset-2 pr-0',
+                                                    }}
+                                                    data-attr={`nav-recent-item-${item.id}`}
+                                                    extraContextMenuItems={<AddToStarredContextAction item={item} />}
+                                                >
+                                                    <LinkListItem.Content
+                                                        icon={iconForType(item.type as FileSystemIconType)}
+                                                        title={name}
+                                                        meta={
+                                                            <span
+                                                                title={humanFriendlyDetailedTime(item.last_viewed_at)}
+                                                            >
+                                                                {formatRelativeDate(item.last_viewed_at)}
+                                                            </span>
+                                                        }
+                                                    />
+                                                </Link>
+                                                <LinkListItem.Trigger />
+                                            </LinkListItem.Group>
+                                            <LinkListItem.Actions>
+                                                <AddToStarredDropdownAction item={item} />
+                                            </LinkListItem.Actions>
+                                        </LinkListItem.Root>
+                                    </Tooltip>
                                 )
                             })
                         )}

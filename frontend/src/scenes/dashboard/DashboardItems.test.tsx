@@ -94,6 +94,11 @@ jest.mock('./items/DashboardTextItem', () => ({
 
 jest.mock('react-grid-layout', () => {
     return {
+        useContainerWidth: () => ({
+            width: 1200,
+            containerRef: { current: null },
+            mounted: true,
+        }),
         Responsive: ({
             className,
             rowHeight,

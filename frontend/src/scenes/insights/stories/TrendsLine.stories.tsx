@@ -204,7 +204,6 @@ const waitForTrendsCanvasToStabilize: NonNullable<Story['play']> = async ({ canv
 TrendsLineMultiEditViewports.parameters = {
     testOptions: {
         waitForSelector: '[data-attr=trend-line-graph] > canvas',
-        snapshotTargetSelector: '[data-attr=trend-line-graph]',
         viewportWidths: ['medium', 'wide', 'superwide'],
     },
 }
