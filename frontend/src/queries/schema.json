@@ -376,6 +376,117 @@
             "enum": ["numeric", "duration", "duration_ms", "percentage", "percentage_scaled", "currency", "short"],
             "type": "string"
         },
+        "AiEventsQuery": {
+            "additionalProperties": false,
+            "description": "Query node for AI events that transparently chooses the `ai_events` table (within 30-day TTL) or the `events` table (beyond TTL). When using `ai_events`, property references like `properties.$ai_*` are rewritten to dedicated column names.",
+            "properties": {
+                "actionId": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Show events matching a given action"
+                },
+                "after": {
+                    "description": "Only fetch events that happened after this timestamp",
+                    "type": "string"
+                },
+                "before": {
+                    "description": "Only fetch events that happened before this timestamp",
+                    "type": "string"
+                },
+                "event": {
+                    "description": "Limit to events matching this string",
+                    "type": ["string", "null"]
+                },
+                "events": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "type": "string"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter to events matching any of these event names"
+                },
+                "filterTestAccounts": {
+                    "description": "Filter test accounts",
+                    "type": "boolean"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyFilterLike"
+                    },
+                    "type": "array"
+                },
+                "kind": {
+                    "const": "AiEventsQuery",
+                    "type": "string"
+                },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to return"
+                },
+                "modifiers": {
+                    "$ref": "#/definitions/HogQLQueryModifiers",
+                    "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to skip before returning rows"
+                },
+                "orderBy": {
+                    "description": "Columns to order by",
+                    "items": {
+                        "type": "string"
+                    },
+                    "type": "array"
+                },
+                "personId": {
+                    "description": "Show events for a given person",
+                    "type": "string"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "$ref": "#/definitions/EventsQueryResponse"
+                },
+                "select": {
+                    "description": "Return a limited set of data. Required.",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                },
+                "source": {
+                    "$ref": "#/definitions/InsightActorsQuery",
+                    "description": "source for querying events for insights"
+                },
+                "tags": {
+                    "$ref": "#/definitions/QueryLogTags"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                },
+                "where": {
+                    "description": "HogQL filters to apply on returned data",
+                    "items": {
+                        "$ref": "#/definitions/HogQLExpression"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["kind", "select"],
+            "type": "object"
+        },
         "AlertCalculationInterval": {
             "enum": ["hourly", "daily", "weekly", "monthly"],
             "type": "string"
@@ -596,6 +707,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceNeighborsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AiEventsQuery"
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"
@@ -10848,6 +10962,9 @@
                         },
                         {
                             "$ref": "#/definitions/EventsQuery"
+                        },
+                        {
+                            "$ref": "#/definitions/AiEventsQuery"
                         },
                         {
                             "$ref": "#/definitions/PersonsNode"
@@ -22690,6 +22807,7 @@
                 "LogAttributesQuery",
                 "LogValuesQuery",
                 "SessionBatchEventsQuery",
+                "AiEventsQuery",
                 "DataTableNode",
                 "DataVisualizationNode",
                 "SavedInsightNode",
@@ -28717,6 +28835,9 @@
                 },
                 {
                     "$ref": "#/definitions/TraceNeighborsQuery"
+                },
+                {
+                    "$ref": "#/definitions/AiEventsQuery"
                 },
                 {
                     "$ref": "#/definitions/VectorSearchQuery"

@@ -21,6 +21,7 @@ import {
     EndpointsUsageTrendsQuery,
     ErrorTrackingIssueCorrelationQuery,
     ErrorTrackingQuery,
+    AiEventsQuery,
     EventsNode,
     EventsQuery,
     ExperimentFunnelsQuery,
@@ -108,8 +109,8 @@ export function isGroupNode(node?: Record<string, any> | null): node is GroupNod
     return node?.kind === NodeKind.GroupNode
 }
 
-export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery {
-    return node?.kind === NodeKind.EventsQuery
+export function isEventsQuery(node?: Record<string, any> | null): node is EventsQuery | AiEventsQuery {
+    return node?.kind === NodeKind.EventsQuery || node?.kind === NodeKind.AiEventsQuery
 }
 
 export function isSessionsQuery(node?: Record<string, any> | null): node is SessionsQuery {

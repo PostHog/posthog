@@ -13,6 +13,7 @@ from pydantic import BaseModel, ConfigDict
 from posthog.schema import (
     ActorsPropertyTaxonomyQuery,
     ActorsQuery,
+    AiEventsQuery,
     CacheMissResponse,
     CalendarHeatmapQuery,
     ChartDisplayType,
@@ -181,6 +182,7 @@ RunnableQueryNode = Union[
     LifecycleQuery,
     ActorsQuery,
     EventsQuery,
+    AiEventsQuery,
     SessionBatchEventsQuery,
     HogQLQuery,
     InsightActorsQuery,
@@ -732,6 +734,16 @@ def get_query_runner(
 
         return ActorsPropertyTaxonomyQueryRunner(
             query=cast(ActorsPropertyTaxonomyQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+        )
+    if kind == "AiEventsQuery":
+        from .ai.ai_events_query_runner import AiEventsQueryRunner
+
+        return AiEventsQueryRunner(
+            query=cast(AiEventsQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,
