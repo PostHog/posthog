@@ -1,6 +1,8 @@
+import asyncio
 from enum import Enum
 from typing import Any, Literal
 
+from django.conf import settings
 from django.db.models import Case, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Now
 
@@ -22,12 +24,14 @@ from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.experiment import Experiment, ExperimentHoldout
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentTimeseriesRecalculation
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.utils import str_to_bool
 
 from products.experiments.backend.experiment_service import ExperimentService
@@ -504,7 +508,27 @@ class EnterpriseExperimentsViewSet(
 
         service = ExperimentService(team=self.team, user=request.user)
         result = service.request_timeseries_recalculation(experiment, metric=metric, fingerprint=fingerprint)
-        status_code = 200 if result.pop("is_existing", False) else 201
+        is_existing = result.pop("is_existing", False)
+
+        if not is_existing:
+            recalculation_id = str(result["id"])
+            try:
+                temporal = sync_connect()
+                asyncio.run(
+                    temporal.start_workflow(
+                        "experiment-timeseries-recalculation-workflow",
+                        ExperimentTimeseriesRecalculationWorkflowInputs(recalculation_id=recalculation_id),
+                        id=f"experiment-recalculation-{recalculation_id}",
+                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                    )
+                )
+            except Exception:
+                ExperimentTimeseriesRecalculation.objects.filter(id=recalculation_id).update(
+                    status=ExperimentTimeseriesRecalculation.Status.FAILED
+                )
+                raise
+
+        status_code = 200 if is_existing else 201
         return Response(result, status=status_code)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
