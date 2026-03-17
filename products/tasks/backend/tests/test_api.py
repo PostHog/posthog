@@ -1,5 +1,6 @@
 import json
 import time
+import uuid
 
 from unittest.mock import MagicMock, patch
 
@@ -10,8 +11,9 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
-from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.personal_api_key import hash_key_value
+from posthog.models.utils import generate_random_token_personal
 from posthog.storage import object_storage
 
 from products.tasks.backend.models import CodeInvite, CodeInviteRedemption, SandboxEnvironment, Task, TaskRun
@@ -2160,3 +2162,122 @@ class TestSandboxEnvironmentAPI(BaseTaskAPITest):
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_environment_variables_never_returned(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Secret Env",
+                "network_access_level": "full",
+                "environment_variables": {"SECRET_KEY": "supersecret"},
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertNotIn("environment_variables", data)
+        self.assertTrue(data["has_environment_variables"])
+
+        detail = self.client.get(self.detail_url(data["id"])).json()
+        self.assertNotIn("environment_variables", detail)
+        self.assertTrue(detail["has_environment_variables"])
+
+        list_data = self.client.get(self.base_url).json()
+        for env in list_data["results"]:
+            self.assertNotIn("environment_variables", env)
+
+    def test_has_environment_variables_false_when_empty(self):
+        response = self.client.post(
+            self.base_url,
+            {"name": "No Vars", "network_access_level": "full"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertFalse(response.json()["has_environment_variables"])
+
+    def test_custom_with_defaults_merges_without_duplicates(self):
+        response = self.client.post(
+            self.base_url,
+            {
+                "name": "Dedup Test",
+                "network_access_level": "custom",
+                "allowed_domains": ["github.com", "custom.io"],
+                "include_default_domains": True,
+            },
+            format="json",
+        )
+        effective = response.json()["effective_domains"]
+        self.assertEqual(effective.count("github.com"), 1)
+        self.assertIn("custom.io", effective)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_task_stores_sandbox_environment_id_in_state(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "org/repo"
+        task.github_integration = Integration.objects.create(team=self.team, kind="github")
+        task.save()
+
+        env = SandboxEnvironment.objects.create(
+            team=self.team, name="Test Env", network_access_level="trusted", created_by=self.user
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background", "sandbox_environment_id": str(env.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        task_run = TaskRun.objects.filter(task=task).latest("created_at")
+        self.assertEqual(task_run.state.get("sandbox_environment_id"), str(env.id))
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_task_rejects_invalid_sandbox_environment_id(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "org/repo"
+        task.github_integration = Integration.objects.create(team=self.team, kind="github")
+        task.save()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background", "sandbox_environment_id": str(uuid.uuid4())},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_task_rejects_other_team_sandbox_environment(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "org/repo"
+        task.github_integration = Integration.objects.create(team=self.team, kind="github")
+        task.save()
+
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+        env = SandboxEnvironment.objects.create(
+            team=other_team, name="Other Team Env", network_access_level="full", created_by=self.user
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background", "sandbox_environment_id": str(env.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_task_without_sandbox_environment_backward_compatible(self, mock_workflow):
+        task = self.create_task()
+        task.repository = "org/repo"
+        task.github_integration = Integration.objects.create(team=self.team, kind="github")
+        task.save()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {"mode": "background"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        task_run = TaskRun.objects.filter(task=task).latest("created_at")
+        self.assertNotIn("sandbox_environment_id", task_run.state)

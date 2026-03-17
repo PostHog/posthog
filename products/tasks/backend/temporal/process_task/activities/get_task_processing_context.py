@@ -44,8 +44,18 @@ class TaskProcessingContext:
         return (self.state or {}).get("interaction_origin")
 
     @property
-    def allowed_domains(self) -> list[str] | None:
-        return (self.state or {}).get("allowed_domains")
+    def sandbox_environment_id(self) -> str | None:
+        return (self.state or {}).get("sandbox_environment_id")
+
+    def get_sandbox_environment(self):
+        """Resolve the SandboxEnvironment, team-scoped via the TaskRun model."""
+        from products.tasks.backend.models import TaskRun
+
+        try:
+            task_run = TaskRun.objects.select_related("task").get(id=self.run_id)
+            return task_run.get_sandbox_environment()
+        except TaskRun.DoesNotExist:
+            return None
 
     @property
     def branch(self) -> str | None:

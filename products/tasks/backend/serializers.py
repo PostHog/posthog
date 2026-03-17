@@ -464,6 +464,15 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
     effective_domains = serializers.SerializerMethodField(
         help_text="Computed domain allowlist based on network_access_level and allowed_domains"
     )
+    environment_variables = serializers.JSONField(
+        write_only=True,
+        required=False,
+        default=dict,
+        help_text="Encrypted environment variables (write-only, never returned in responses)",
+    )
+    has_environment_variables = serializers.SerializerMethodField(
+        help_text="Whether this environment has any environment variables set"
+    )
 
     class Meta:
         model = SandboxEnvironment
@@ -475,16 +484,20 @@ class SandboxEnvironmentSerializer(serializers.ModelSerializer):
             "include_default_domains",
             "repositories",
             "environment_variables",
+            "has_environment_variables",
             "private",
             "effective_domains",
             "created_by",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_by", "created_at", "updated_at", "effective_domains"]
+        read_only_fields = ["id", "created_by", "created_at", "updated_at", "effective_domains", "has_environment_variables"]
 
     def get_effective_domains(self, obj: SandboxEnvironment) -> list[str]:
         return obj.get_effective_domains()
+
+    def get_has_environment_variables(self, obj: SandboxEnvironment) -> bool:
+        return bool(obj.environment_variables)
 
     def validate_environment_variables(self, value):
         if value:
@@ -511,6 +524,7 @@ class SandboxEnvironmentListSerializer(serializers.ModelSerializer):
             "id",
             "name",
             "network_access_level",
+            "allowed_domains",
             "repositories",
             "private",
             "created_by",

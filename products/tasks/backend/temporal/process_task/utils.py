@@ -92,3 +92,29 @@ def get_github_token(github_integration_id: int) -> Optional[str]:
 
 def get_sandbox_name_for_task(task_id: str) -> str:
     return f"task-sandbox-{task_id}"
+
+
+def build_sandbox_environment_variables(
+    github_token: str,
+    access_token: str,
+    team_id: int,
+    sandbox_environment: Optional[Any] = None,
+) -> dict[str, str]:
+    """Build the environment variables dict for a sandbox, merging user env vars from SandboxEnvironment."""
+    from products.tasks.backend.services.connection_token import get_sandbox_jwt_public_key
+
+    env_vars: dict[str, str] = {
+        "GITHUB_TOKEN": github_token,
+        "POSTHOG_PERSONAL_API_KEY": access_token,
+        "POSTHOG_API_URL": get_sandbox_api_url(),
+        "POSTHOG_PROJECT_ID": str(team_id),
+        "JWT_PUBLIC_KEY": get_sandbox_jwt_public_key(),
+    }
+
+    if settings.SANDBOX_LLM_GATEWAY_URL:
+        env_vars["LLM_GATEWAY_URL"] = settings.SANDBOX_LLM_GATEWAY_URL
+
+    if sandbox_environment and sandbox_environment.environment_variables:
+        env_vars.update(sandbox_environment.environment_variables)
+
+    return env_vars

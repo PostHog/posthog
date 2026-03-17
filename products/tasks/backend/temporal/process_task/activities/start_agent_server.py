@@ -75,6 +75,9 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
             scopes=scopes,
         )
 
+        sandbox_env = ctx.get_sandbox_environment()
+        allowed_domains = sandbox_env.get_effective_domains() if sandbox_env else None
+
         try:
             sandbox.start_agent_server(
                 repository=ctx.repository,
@@ -84,7 +87,7 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
                 interaction_origin=ctx.interaction_origin,
                 branch=ctx.branch,
                 mcp_configs=mcp_configs or None,
-                allowed_domains=ctx.allowed_domains,
+                allowed_domains=allowed_domains or None,
             )
         except Exception as e:
             raise SandboxExecutionError(

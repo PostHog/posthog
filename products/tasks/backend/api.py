@@ -250,13 +250,10 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         if sandbox_environment_id is not None:
             from .models import SandboxEnvironment
 
-            sandbox_env = SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).first()
-            if not sandbox_env:
+            if not SandboxEnvironment.objects.filter(id=sandbox_environment_id, team=task.team).exists():
                 return Response({"detail": "Invalid sandbox_environment_id"}, status=400)
-            effective_domains = sandbox_env.get_effective_domains()
-            if effective_domains:
-                extra_state = extra_state or {}
-                extra_state["allowed_domains"] = effective_domains
+            extra_state = extra_state or {}
+            extra_state["sandbox_environment_id"] = str(sandbox_environment_id)
 
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 

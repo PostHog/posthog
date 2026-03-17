@@ -694,7 +694,7 @@ class DockerSandbox:
         config_yaml = generate_config_yaml()
         policy_yaml = generate_policy_yaml(allowed_domains)
 
-        self.execute("mkdir -p /etc/agentsh/policies", timeout_seconds=5)
+        self.execute("mkdir -p /etc/agentsh/policies /var/log/agentsh /var/lib/agentsh/sessions", timeout_seconds=5)
         self.write_file("/etc/agentsh/config.yaml", config_yaml.encode())
         self.write_file("/etc/agentsh/policies/default.yaml", policy_yaml.encode())
 

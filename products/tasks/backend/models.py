@@ -285,6 +285,25 @@ class TaskRun(models.Model):
         """Get the execution mode from state. Defaults to 'background'."""
         return (self.state or {}).get("mode", "background")
 
+    def get_sandbox_environment(self) -> Optional["SandboxEnvironment"]:
+        """Resolve the SandboxEnvironment for this run, scoped to team and respecting privacy.
+
+        Private environments are only accessible if the task creator matches the
+        environment creator. If either created_by is null, private environments
+        are not accessible.
+        """
+        env_id = (self.state or {}).get("sandbox_environment_id")
+        if not env_id:
+            return None
+        env = SandboxEnvironment.objects.filter(id=env_id, team_id=self.team_id).first()
+        if not env:
+            return None
+        if env.private:
+            task_user_id = self.task.created_by_id
+            if not task_user_id or env.created_by_id != task_user_id:
+                return None
+        return env
+
     @staticmethod
     def get_workflow_id(task_id: str | uuid.UUID, run_id: str | uuid.UUID) -> str:
         """Get the Temporal workflow ID for a task run."""
