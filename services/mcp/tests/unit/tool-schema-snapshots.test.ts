@@ -23,6 +23,7 @@ function createMockContext(): Context {
         },
         stateManager: {
             getApiKey: async () => ({ scopes: ['*'] }),
+            getAiConsentGiven: async () => true,
         } as any,
         sessionManager: new SessionManager({} as any),
     }
