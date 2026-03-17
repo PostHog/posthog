@@ -70,8 +70,9 @@ RUN curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg | d
 ARG AGENTSH_TAG=v0.16.1
 RUN set -eux; \
     version="${AGENTSH_TAG#v}"; \
+    arch="$(dpkg --print-architecture)"; \
     curl -fsSL -o /tmp/agentsh.deb \
-      "https://github.com/canyonroad/agentsh/releases/download/${AGENTSH_TAG}/agentsh_${version}_linux_amd64.deb" && \
+      "https://github.com/canyonroad/agentsh/releases/download/${AGENTSH_TAG}/agentsh_${version}_linux_${arch}.deb" && \
     dpkg -i /tmp/agentsh.deb && \
     rm /tmp/agentsh.deb && \
     agentsh --version && \

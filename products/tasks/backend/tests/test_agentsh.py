@@ -3,7 +3,12 @@ from django.test import TestCase, override_settings
 import yaml
 from parameterized import parameterized
 
-from products.tasks.backend.services.agentsh import build_exec_prefix, generate_config_yaml, generate_policy_yaml
+from products.tasks.backend.services.agentsh import (
+    INFRASTRUCTURE_DOMAINS,
+    build_exec_prefix,
+    generate_config_yaml,
+    generate_policy_yaml,
+)
 
 
 class TestGenerateConfigYaml(TestCase):
@@ -28,15 +33,23 @@ class TestGenerateConfigYaml(TestCase):
 
 class TestGeneratePolicyYaml(TestCase):
     def test_passes_through_provided_domains(self):
-        domains = ["github.com", "api.anthropic.com", "custom.example.com"]
+        domains = ["github.com", "custom.example.com"]
         policy = yaml.safe_load(generate_policy_yaml(domains))
         allow_rule = next(r for r in policy["network_rules"] if r["name"] == "allow-domains")
-        self.assertEqual(allow_rule["domains"], domains)
+        for d in domains:
+            self.assertIn(d, allow_rule["domains"])
 
-    def test_empty_domains_produces_empty_allow_list(self):
+    def test_always_includes_infrastructure_domains(self):
         policy = yaml.safe_load(generate_policy_yaml([]))
         allow_rule = next(r for r in policy["network_rules"] if r["name"] == "allow-domains")
-        self.assertEqual(allow_rule["domains"], [])
+        for d in INFRASTRUCTURE_DOMAINS:
+            self.assertIn(d, allow_rule["domains"])
+
+    def test_infrastructure_domains_not_duplicated(self):
+        policy = yaml.safe_load(generate_policy_yaml(list(INFRASTRUCTURE_DOMAINS)))
+        allow_rule = next(r for r in policy["network_rules"] if r["name"] == "allow-domains")
+        for d in INFRASTRUCTURE_DOMAINS:
+            self.assertEqual(allow_rule["domains"].count(d), 1)
 
     def test_outputs_valid_yaml(self):
         raw = generate_policy_yaml(["example.com"])
