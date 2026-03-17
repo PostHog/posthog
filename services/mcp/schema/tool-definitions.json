@@ -262,6 +262,7 @@
         "title": "Generate SQL",
         "required_scopes": ["query:read"],
         "new_mcp": false,
+        "requires_ai_consent": true,
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,

@@ -345,7 +345,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const _params: AppMetricsTotalsRequest = {
                         ...params,
                         breakdownBy: ['instance_id', 'metric_name'],
-                        metricName: ['succeeded', 'failed', 'disabled_permanently', 'rate_limited', 'triggered'],
+                        metricName: ['succeeded', 'failed', 'rate_limited', 'triggered'],
                     }
                     const response = await loadAppMetricsTotals(_params, timezone)
                     await breakpoint(10)
@@ -362,9 +362,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
                             if (['succeeded', 'failed'].includes(metricName)) {
                                 instanceId = EXIT_NODE_ID
-                            } else if (['disabled_permanently', 'rate_limited', 'triggered'].includes(metricName)) {
+                            } else if (['rate_limited', 'triggered'].includes(metricName)) {
                                 instanceId = TRIGGER_NODE_ID
-                                if (['disabled_permanently', 'rate_limited'].includes(metricName)) {
+                                if (['rate_limited'].includes(metricName)) {
                                     metricName = 'failed'
                                 }
                                 if (['triggered'].includes(metricName)) {
