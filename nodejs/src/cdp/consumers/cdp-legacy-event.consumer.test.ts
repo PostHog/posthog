@@ -32,7 +32,7 @@ describe('CdpLegacyEventsConsumer', () => {
         await resetTestDatabase()
         consumer = new CdpLegacyEventsConsumer(hub, hub)
         legacyPluginExecutor = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())

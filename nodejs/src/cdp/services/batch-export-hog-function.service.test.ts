@@ -41,7 +41,7 @@ describe('BatchExportHogFunctionService', () => {
 
     beforeAll(async () => {
         hub = await createHub({ SITE_URL: 'http://localhost:8000' })
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         api = new CdpApi(hub, hub)
         app = setupExpressApp()
