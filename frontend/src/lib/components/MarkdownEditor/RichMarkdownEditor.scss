@@ -1,0 +1,113 @@
+.RichMarkdownEditor {
+    .RichMarkdownEditor__content {
+        position: relative;
+    }
+
+    .ProseMirror {
+        min-height: 100%;
+        outline: none;
+
+        p {
+            margin-bottom: 0.5rem;
+        }
+
+        ul,
+        ol {
+            padding-left: 1.5rem;
+
+            li {
+                display: list-item;
+                margin-top: 0.25em;
+
+                p {
+                    margin: 0;
+                }
+            }
+        }
+
+        ul {
+            list-style-type: disc;
+        }
+
+        ol {
+            list-style-type: decimal;
+        }
+
+        ul[data-type='taskList'] {
+            padding-left: 0;
+            list-style-type: none;
+
+            > li {
+                display: flex;
+                gap: 0.5rem;
+                align-items: flex-start;
+
+                > label {
+                    flex: 0 0 auto;
+                    margin-top: 0.15rem;
+                    user-select: none;
+                }
+
+                > div {
+                    flex: 1 1 auto;
+                }
+
+                input[type='checkbox'] {
+                    width: 1rem;
+                    height: 1rem;
+                    accent-color: var(--color-accent);
+                    border-radius: 4px;
+                    transform: translateY(1px);
+                }
+            }
+        }
+
+        code {
+            padding: 0.15em 0.4em;
+            font-family: 'SF Mono', 'Fira Code', Monaco, monospace;
+            font-size: 0.875em;
+            color: var(--danger);
+            background: var(--bg-fill-primary);
+            border-radius: 4px;
+        }
+
+        pre {
+            padding: 0.75rem 1rem;
+            margin: 0.75rem 0;
+            overflow-x: auto;
+            background: var(--color-bg-fill-tertiary);
+            border: 1px solid var(--color-border-primary);
+            border-radius: 8px;
+
+            code {
+                padding: 0;
+                font-size: 0.875rem;
+                line-height: 1.5;
+                color: inherit;
+                white-space: pre;
+                background: transparent;
+                border-radius: 0;
+            }
+        }
+
+        blockquote {
+            padding-left: 1rem;
+            margin: 0.75rem 0;
+            font-style: italic;
+            color: var(--muted);
+            border-left: 3px solid var(--color-border-primary);
+        }
+
+        > .is-empty:first-child::before {
+            float: left;
+            height: 0;
+            color: rgb(0 0 0 / 60%);
+            pointer-events: none;
+            content: attr(data-placeholder);
+
+            [theme='dark'] & {
+                color: rgb(255 255 255 / 60%);
+            }
+        }
+    }
+}
