@@ -26,7 +26,7 @@ jobs:
         if: github.event_name != 'merge_group'
         # Set job outputs to values from filter step
         outputs:
-            frontend: ${{ steps.bot-snapshot.outputs.skip == 'true' && 'false' || steps.filter.outputs.frontend || 'true' }}
+            frontend: ${{ steps.filter.outputs.frontend || 'true' }}
         steps:
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
@@ -43,31 +43,6 @@ jobs:
                         - 'package.json'
                         - '.github/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
-
-            # Skip CI when a bot commit contains only image files (e.g. snapshot updates).
-            # Snapshot-only commits can never produce new diffs, so re-running is pure waste.
-            - name: Check for bot snapshot-only commit
-              id: bot-snapshot
-              if: github.event_name == 'pull_request' && (steps.filter.outputs.frontend || 'true') == 'true'
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  ACTOR="${{ github.actor }}"
-                  if [[ "$ACTOR" != "tests-posthog[bot]" ]] && [[ "$ACTOR" != "posthog-bot" ]]; then
-                    exit 0
-                  fi
-                  FILES=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha }}" --jq '.files[].filename')
-                  if [ -z "$FILES" ]; then
-                    exit 0
-                  fi
-                  shopt -s nocasematch
-                  while IFS= read -r file; do
-                    if [[ ! "$file" =~ \.(png|jpg|jpeg|gif|svg)$ ]]; then
-                      exit 0
-                    fi
-                  done <<< "$FILES"
-                  echo "skip=true" >> "$GITHUB_OUTPUT"
-                  echo "::notice::Skipping CI - bot commit with only image files"
 
     build-storybook:
         name: Build Storybook
@@ -147,7 +122,7 @@ jobs:
 
                     # Trusted bots that are allowed to run in update mode
                     # Add bot usernames here to allow snapshot auto-updates on their PRs
-                    TRUSTED_BOTS=("mendral-app[bot]")
+                    TRUSTED_BOTS=("mendral-app[bot]" "cursor[bot]")
 
                     IS_TRUSTED=false
                     for bot in "${TRUSTED_BOTS[@]}"; do

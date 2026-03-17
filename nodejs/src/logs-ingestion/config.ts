@@ -1,3 +1,11 @@
+import {
+    KAFKA_LOGS_CLICKHOUSE,
+    KAFKA_LOGS_INGESTION,
+    KAFKA_LOGS_INGESTION_DLQ,
+    KAFKA_LOGS_INGESTION_OVERFLOW,
+} from '../config/kafka-topics'
+import { isProdEnv } from '../utils/env-utils'
+
 export type LogsIngestionConsumerConfig = {
     LOGS_INGESTION_CONSUMER_GROUP_ID: string
     LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: string
@@ -19,4 +27,32 @@ export type LogsIngestionConsumerConfig = {
     REDIS_POOL_MIN_SIZE: number
     REDIS_POOL_MAX_SIZE: number
     KAFKA_CLIENT_RACK: string | undefined
+}
+
+export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerConfig {
+    return {
+        LOGS_INGESTION_CONSUMER_GROUP_ID: 'ingestion-logs',
+        LOGS_INGESTION_CONSUMER_CONSUME_TOPIC: KAFKA_LOGS_INGESTION,
+        LOGS_INGESTION_CONSUMER_OVERFLOW_TOPIC: KAFKA_LOGS_INGESTION_OVERFLOW,
+        LOGS_INGESTION_CONSUMER_DLQ_TOPIC: KAFKA_LOGS_INGESTION_DLQ,
+        LOGS_INGESTION_CONSUMER_CLICKHOUSE_TOPIC: KAFKA_LOGS_CLICKHOUSE,
+        LOGS_REDIS_HOST: '127.0.0.1',
+        LOGS_REDIS_PORT: 6379,
+        LOGS_REDIS_PASSWORD: '',
+        LOGS_REDIS_TLS: isProdEnv() ? true : false,
+        LOGS_LIMITER_ENABLED_TEAMS: isProdEnv() ? '' : '*',
+        LOGS_LIMITER_DISABLED_FOR_TEAMS: '',
+        LOGS_LIMITER_BUCKET_SIZE_KB: 10000,
+        LOGS_LIMITER_REFILL_RATE_KB_PER_SECOND: 1000,
+        LOGS_LIMITER_TTL_SECONDS: 60 * 60 * 24,
+        LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
+        LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
+        // Overlapping fields with CommonConfig, included for standalone usage
+        // ok to connect to localhost over plaintext
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
+        REDIS_URL: 'redis://127.0.0.1',
+        REDIS_POOL_MIN_SIZE: 1,
+        REDIS_POOL_MAX_SIZE: 3,
+        KAFKA_CLIENT_RACK: undefined,
+    }
 }

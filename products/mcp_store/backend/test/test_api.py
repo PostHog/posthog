@@ -10,17 +10,17 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from products.mcp_store.backend.api import _is_valid_twig_callback_url
+from products.mcp_store.backend.api import _is_valid_posthog_code_callback_url
 from products.mcp_store.backend.models import RECOMMENDED_SERVERS, MCPOAuthState, MCPServer, MCPServerInstallation
 
 ALLOW_URL = patch("products.mcp_store.backend.api.is_url_allowed", return_value=(True, None))
 
 
-class TestIsValidTwigCallbackUrl(TestCase):
+class TestIsValidPosthogCodeCallbackUrl(TestCase):
     @parameterized.expand(
         [
             ("array_scheme", "array://callback", True),
-            ("twig_scheme", "twig://oauth/callback", True),
+            ("twig_scheme", "twig://oauth/callback", False),
             ("posthog_code_scheme", "posthog-code://oauth/callback", True),
             ("https_rejected", "https://evil.com/redirect", False),
             ("http_rejected", "http://example.com/callback", False),
@@ -29,7 +29,7 @@ class TestIsValidTwigCallbackUrl(TestCase):
         ]
     )
     def test_callback_url_validation(self, _name, url, expected):
-        assert _is_valid_twig_callback_url(url) == expected
+        assert _is_valid_posthog_code_callback_url(url) == expected
 
 
 class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
@@ -329,7 +329,7 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "url": "https://mcp.example.com",
                 "auth_type": "api_key",
                 "install_source": "posthog-code",
-                "twig_callback_url": "https://evil.com/steal",
+                "posthog_code_callback_url": "https://evil.com/steal",
             },
             format="json",
         )
@@ -344,7 +344,7 @@ class TestInstallCustomAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
                 "url": "https://mcp.code2.com",
                 "auth_type": "api_key",
                 "install_source": "posthog-code",
-                "twig_callback_url": "posthog-code://oauth/callback",
+                "posthog_code_callback_url": "posthog-code://oauth/callback",
             },
             format="json",
         )
@@ -369,7 +369,13 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         return MCPServer.objects.create(**defaults)
 
     def _create_oauth_state(
-        self, installation, server, state_token, pkce_verifier="", install_source="posthog", twig_callback_url=""
+        self,
+        installation,
+        server,
+        state_token,
+        pkce_verifier="",
+        install_source="posthog",
+        posthog_code_callback_url="",
     ):
         from datetime import timedelta
 
@@ -383,7 +389,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             server=server,
             pkce_verifier=pkce_verifier,
             install_source=install_source,
-            twig_callback_url=twig_callback_url,
+            posthog_code_callback_url=posthog_code_callback_url,
             expires_at=timezone.now() + timedelta(seconds=600),
         )
 
@@ -482,7 +488,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             state_token,
             pkce_verifier="test-verifier",
             install_source="posthog-code",
-            twig_callback_url=callback_url,
+            posthog_code_callback_url=callback_url,
         )
 
         client = APIClient()
@@ -512,7 +518,7 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         callback_url = "posthog-code://oauth/callback"
         state_token = "test-posthog-code-error"
         self._create_oauth_state(
-            installation, server, state_token, install_source="posthog-code", twig_callback_url=callback_url
+            installation, server, state_token, install_source="posthog-code", posthog_code_callback_url=callback_url
         )
 
         client = APIClient()

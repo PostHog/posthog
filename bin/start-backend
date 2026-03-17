@@ -1,6 +1,9 @@
 #!/bin/bash
 set -e
 
+export PROMETHEUS_MULTIPROC_DIR=$(mktemp -d)
+trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+
 export OBJECT_STORAGE_ENDPOINT=http://localhost:19000
 export SESSION_RECORDING_V2_S3_ENDPOINT=http://localhost:8333
 

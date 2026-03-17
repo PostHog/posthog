@@ -8,6 +8,11 @@ use std::time::{SystemTime, UNIX_EPOCH};
 pub const SURVEY_TARGETING_FLAG_PREFIX: &str = "survey-targeting-";
 pub const PRODUCT_TOUR_TARGETING_FLAG_PREFIX: &str = "product-tour-targeting-";
 
+pub fn is_billable_flag_key(key: &str) -> bool {
+    !key.starts_with(SURVEY_TARGETING_FLAG_PREFIX)
+        && !key.starts_with(PRODUCT_TOUR_TARGETING_FLAG_PREFIX)
+}
+
 const CACHE_BUCKET_SIZE: u64 = 60 * 2; // duration in seconds
 
 pub fn get_team_request_key(team_id: i32, request_type: FlagRequestType) -> String {

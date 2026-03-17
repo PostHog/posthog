@@ -3,8 +3,10 @@ import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdka
 
 import { instrumentFn } from '~/common/tracing/tracing-utils'
 
+import { CommonConfig } from '../common/config'
 import { buildIntegerMatcher } from '../config/config'
 import { KAFKA_CLICKHOUSE_TOPHOG } from '../config/kafka-topics'
+import { IngestionConsumerConfig } from '../ingestion/config'
 import { BatchPipelineUnwrapper } from '../ingestion/pipelines/batch-pipeline-unwrapper'
 import {
     SessionReplayPipelineInput,
@@ -22,14 +24,14 @@ import { SessionMetadataStore } from '../session-replay/shared/metadata/session-
 import { RetentionService } from '../session-replay/shared/retention/retention-service'
 import { TeamService } from '../session-replay/shared/teams/team-service'
 import { KeyStore, RecordingEncryptor } from '../session-replay/shared/types'
-import { HealthCheckResult, PluginServerService, PluginsServerConfig, RedisPool, ValueMatcher } from '../types'
+import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '../types'
 import { PostgresRouter } from '../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../utils/db/redis'
 import { EventIngestionRestrictionManager } from '../utils/event-ingestion-restrictions'
 import { logger } from '../utils/logger'
 import { captureException } from '../utils/posthog'
 import { PromiseScheduler } from '../utils/promise-scheduler'
-import { SessionRecordingConfig } from './config'
+import { SessionRecordingApiConfig, SessionRecordingConfig } from './config'
 import { KafkaOffsetManager } from './kafka/offset-manager'
 import { SessionRecordingIngesterMetrics } from './metrics'
 import { BlackholeSessionBatchFileStorage } from './sessions/blackhole-session-batch-writer'
@@ -46,8 +48,9 @@ import { SessionTracker } from './sessions/session-tracker'
  * This type covers SessionRecordingConfig plus infra config needed for Redis pools and encryption.
  */
 export type SessionRecordingIngesterConfig = SessionRecordingConfig &
+    SessionRecordingApiConfig &
     Pick<
-        PluginsServerConfig,
+        CommonConfig,
         // For KafkaProducerWrapper.create
         | 'KAFKA_CLIENT_RACK'
         // For createRedisPool (common Redis config not in SessionRecordingConfig)
@@ -60,12 +63,11 @@ export type SessionRecordingIngesterConfig = SessionRecordingConfig &
         | 'POSTHOG_REDIS_HOST'
         | 'POSTHOG_REDIS_PORT'
         | 'POSTHOG_REDIS_PASSWORD'
-        // For encryption key management
-        | 'SESSION_RECORDING_KMS_ENDPOINT'
-        | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
+    > &
+    Pick<
+        IngestionConsumerConfig,
         // For TopHog metrics
-        | 'INGESTION_PIPELINE'
-        | 'INGESTION_LANE'
+        'INGESTION_PIPELINE' | 'INGESTION_LANE'
     >
 
 export class SessionRecordingIngester {
@@ -380,7 +382,8 @@ export class SessionRecordingIngester {
         // Clean up resources owned by this ingester
         this.keyStore.stop()
         // Note: kafkaMetadataProducer may be shared (e.g., config.kafkaProducer in production),
-        // so callers are responsible for disconnecting it if they created it
+        // so callers are responsible for disconnecting it. We only disconnect kafkaMessageProducer
+        // which we always own.
         await this.kafkaMessageProducer.disconnect()
         await this.redisPool.drain()
         await this.redisPool.clear()

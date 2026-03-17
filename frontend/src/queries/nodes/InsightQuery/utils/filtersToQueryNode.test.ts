@@ -25,6 +25,7 @@ import {
     FunnelsFilterType,
     GroupMathType,
     InsightType,
+    LifecycleDatawarehouseFilter,
     LifecycleFilterType,
     PathType,
     PathsFilterType,
@@ -116,6 +117,40 @@ describe('actionsAndEventsToSeries', () => {
                 event: '$autocapture',
                 name: 'item4',
                 math: BaseMathType.FirstTimeForUser,
+            },
+        ])
+    })
+
+    it('converts lifecycle data warehouse series to lifecycle nodes', () => {
+        const data_warehouse: LifecycleDatawarehouseFilter[] = [
+            {
+                type: 'data_warehouse',
+                id: 'warehouse_orders',
+                order: 0,
+                name: 'Orders',
+                table_name: 'warehouse_orders',
+                timestamp_field: 'timestamp',
+                aggregation_target_field: 'order_id',
+                created_at_field: 'created_at',
+            },
+        ]
+
+        const result = actionsAndEventsToSeries(
+            { data_warehouse },
+            true,
+            MathAvailability.None,
+            NodeKind.LifecycleDataWarehouseNode
+        )
+
+        expect(result).toEqual([
+            {
+                kind: NodeKind.LifecycleDataWarehouseNode,
+                id: 'warehouse_orders',
+                name: 'Orders',
+                table_name: 'warehouse_orders',
+                timestamp_field: 'timestamp',
+                aggregation_target_field: 'order_id',
+                created_at_field: 'created_at',
             },
         ])
     })

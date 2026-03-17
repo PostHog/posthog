@@ -18,7 +18,7 @@ mod tests {
                 reset_hash_key_override_lookup_count, set_feature_flag_hash_key_overrides,
             },
             flag_models::{
-                FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup,
+                FeatureFlag, FeatureFlagList, FlagFilters, FlagPropertyGroup, Holdout,
                 MultivariateFlagOptions, MultivariateFlagVariant,
             },
         },
@@ -182,6 +182,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -257,6 +258,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -338,6 +340,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -367,6 +370,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -456,6 +460,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -723,6 +728,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -1195,6 +1201,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -1391,6 +1398,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -1443,6 +1451,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -1516,6 +1525,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -1560,6 +1570,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -1640,6 +1651,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -1718,6 +1730,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -1778,6 +1791,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -1825,6 +1839,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -1957,6 +1972,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -2021,6 +2037,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -2067,6 +2084,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -2138,6 +2156,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             Some(false),
             Some(true),
@@ -2370,6 +2389,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -2475,6 +2495,7 @@ mod tests {
                     variant: None,
                 }]),
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -2634,6 +2655,7 @@ mod tests {
                     variant: None,
                 }]),
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -2745,6 +2767,7 @@ mod tests {
                     variant: None,
                 }]),
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -2896,6 +2919,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -2992,6 +3016,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -3088,6 +3113,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -3205,6 +3231,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -3301,6 +3328,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -3397,6 +3425,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -3485,6 +3514,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -3568,6 +3598,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -3666,6 +3697,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -3742,6 +3774,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -3848,6 +3881,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -3937,6 +3971,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -3967,6 +4002,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -4091,6 +4127,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -4157,6 +4194,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -4251,6 +4289,7 @@ mod tests {
                     rollout_percentage: Some(70.0),
                     variant: Some("holdout".to_string()),
                 }]),
+                holdout: None,
                 multivariate: Some(multivariate_json.clone()),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -4284,6 +4323,7 @@ mod tests {
                     rollout_percentage: Some(70.0),
                     variant: Some("holdout".to_string()),
                 }]),
+                holdout: None,
                 multivariate: Some(multivariate_json.clone()),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -4317,6 +4357,7 @@ mod tests {
                     rollout_percentage: Some(0.0),
                     variant: Some("holdout".to_string()),
                 }]),
+                holdout: None,
                 multivariate: Some(multivariate_json),
                 aggregation_group_type_index: None,
                 payloads: None,
@@ -4413,6 +4454,427 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_feature_flag_with_new_holdout_format() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // example_id is outside 70% holdout, example_id2 is within
+        let _person1 = context
+            .insert_person(
+                team.id,
+                "example_id".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
+
+        let _person2 = context
+            .insert_person(
+                team.id,
+                "example_id2".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
+
+        let multivariate_json = MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "first-variant".to_string(),
+                    name: Some("First Variant".to_string()),
+                    rollout_percentage: 50.0,
+                },
+                MultivariateFlagVariant {
+                    key: "second-variant".to_string(),
+                    name: Some("Second Variant".to_string()),
+                    rollout_percentage: 25.0,
+                },
+                MultivariateFlagVariant {
+                    key: "third-variant".to_string(),
+                    name: Some("Third Variant".to_string()),
+                    rollout_percentage: 25.0,
+                },
+            ],
+        };
+
+        // New format: holdout field only, no holdout_groups
+        let flag_with_new_holdout = create_test_flag(
+            Some(1),
+            Some(team.id),
+            Some("Flag with new holdout".to_string()),
+            Some("flag-with-gt-filter".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: Some(json!(4)),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: None,
+                holdout: Some(Holdout {
+                    id: 1,
+                    exclusion_percentage: 70.0,
+                }),
+                multivariate: Some(multivariate_json.clone()),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        // Outside holdout — should get a regular variant
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "example_id".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag_with_new_holdout])
+            .await
+            .unwrap();
+
+        let result = matcher
+            .get_match(&flag_with_new_holdout, None, None, &None)
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("second-variant".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+
+        // Inside holdout — should get holdout-{id} variant
+        let router2 = context.create_postgres_router();
+        let mut matcher2 = FeatureFlagMatcher::new(
+            "example_id2".to_string(),
+            None,
+            team.id,
+            router2,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher2
+            .prepare_flag_evaluation_state(&[&flag_with_new_holdout])
+            .await
+            .unwrap();
+
+        let result = matcher2
+            .get_match(&flag_with_new_holdout, None, None, &None)
+            .unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("holdout-1".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
+    }
+
+    #[tokio::test]
+    async fn test_feature_flag_holdout_new_format_takes_precedence() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        // example_id2 is within 70% holdout
+        let _person = context
+            .insert_person(
+                team.id,
+                "example_id2".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
+
+        let multivariate_json = MultivariateFlagOptions {
+            variants: vec![
+                MultivariateFlagVariant {
+                    key: "first-variant".to_string(),
+                    name: Some("First Variant".to_string()),
+                    rollout_percentage: 50.0,
+                },
+                MultivariateFlagVariant {
+                    key: "second-variant".to_string(),
+                    name: Some("Second Variant".to_string()),
+                    rollout_percentage: 50.0,
+                },
+            ],
+        };
+
+        // Both formats present — new `holdout` should take precedence.
+        // holdout says id=42, holdout_groups says variant="holdout" (legacy).
+        // The variant returned should be "holdout-42" (from new format), not "holdout" (from legacy).
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag-both-formats".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: Some(json!(4)),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: Some(vec![FlagPropertyGroup {
+                    properties: Some(vec![]),
+                    rollout_percentage: Some(70.0),
+                    variant: Some("holdout".to_string()),
+                }]),
+                holdout: Some(Holdout {
+                    id: 42,
+                    exclusion_percentage: 70.0,
+                }),
+                multivariate: Some(multivariate_json),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "example_id2".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        assert!(result.matches);
+        assert_eq!(result.variant, Some("holdout-42".to_string()));
+        assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
+    }
+
+    #[tokio::test]
+    async fn test_feature_flag_with_new_holdout_format_zero_percent() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let _person = context
+            .insert_person(
+                team.id,
+                "example_id2".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag-zero-holdout".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: Some(json!(4)),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: None,
+                holdout: Some(Holdout {
+                    id: 1,
+                    exclusion_percentage: 0.0,
+                }),
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "control".to_string(),
+                            name: None,
+                            rollout_percentage: 50.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "test".to_string(),
+                            name: None,
+                            rollout_percentage: 50.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        // 0% exclusion — nobody is held out, should get a regular variant
+        let router = context.create_postgres_router();
+        let mut matcher = FeatureFlagMatcher::new(
+            "example_id2".to_string(),
+            None,
+            team.id,
+            router,
+            cohort_cache.clone(),
+            None,
+            None,
+        );
+
+        matcher
+            .prepare_flag_evaluation_state(&[&flag])
+            .await
+            .unwrap();
+
+        let result = matcher.get_match(&flag, None, None, &None).unwrap();
+        assert!(result.matches);
+        assert_eq!(result.reason, FeatureFlagMatchReason::ConditionMatch);
+        assert!(
+            result.variant == Some("control".to_string())
+                || result.variant == Some("test".to_string()),
+            "Expected a regular variant, got {:?}",
+            result.variant
+        );
+    }
+
+    #[tokio::test]
+    async fn test_feature_flag_with_new_holdout_format_hundred_percent() {
+        let context = TestContext::new(None).await;
+        let cohort_cache = Arc::new(CohortCacheManager::new(
+            context.non_persons_reader.clone(),
+            None,
+            None,
+        ));
+        let team = context.insert_new_team(None).await.unwrap();
+
+        let _person = context
+            .insert_person(
+                team.id,
+                "example_id".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
+
+        let _person2 = context
+            .insert_person(
+                team.id,
+                "example_id2".to_string(),
+                Some(json!({"$some_prop": 5})),
+            )
+            .await
+            .unwrap();
+
+        let flag = create_test_flag(
+            Some(1),
+            Some(team.id),
+            None,
+            Some("flag-full-holdout".to_string()),
+            Some(FlagFilters {
+                groups: vec![FlagPropertyGroup {
+                    properties: Some(vec![PropertyFilter {
+                        key: "$some_prop".to_string(),
+                        value: Some(json!(4)),
+                        operator: Some(OperatorType::Gt),
+                        prop_type: PropertyType::Person,
+                        group_type_index: None,
+                        negation: None,
+                    }]),
+                    rollout_percentage: Some(100.0),
+                    variant: None,
+                }],
+                holdout_groups: None,
+                holdout: Some(Holdout {
+                    id: 1,
+                    exclusion_percentage: 100.0,
+                }),
+                multivariate: Some(MultivariateFlagOptions {
+                    variants: vec![
+                        MultivariateFlagVariant {
+                            key: "control".to_string(),
+                            name: None,
+                            rollout_percentage: 50.0,
+                        },
+                        MultivariateFlagVariant {
+                            key: "test".to_string(),
+                            name: None,
+                            rollout_percentage: 50.0,
+                        },
+                    ],
+                }),
+                aggregation_group_type_index: None,
+                payloads: None,
+                super_groups: None,
+            }),
+            None,
+            Some(true),
+            None,
+        );
+
+        // 100% exclusion — everyone is held out, both users should get holdout variant
+        for distinct_id in ["example_id", "example_id2"] {
+            let router = context.create_postgres_router();
+            let mut matcher = FeatureFlagMatcher::new(
+                distinct_id.to_string(),
+                None,
+                team.id,
+                router,
+                cohort_cache.clone(),
+                None,
+                None,
+            );
+
+            matcher
+                .prepare_flag_evaluation_state(&[&flag])
+                .await
+                .unwrap();
+
+            let result = matcher.get_match(&flag, None, None, &None).unwrap();
+            assert!(result.matches);
+            assert_eq!(result.variant, Some("holdout-1".to_string()));
+            assert_eq!(result.reason, FeatureFlagMatchReason::HoldoutConditionValue);
+        }
+    }
+
+    #[tokio::test]
     async fn test_variants() {
         // Ported from posthog/test/test_feature_flag.py test_variants
         let context = TestContext::new(None).await;
@@ -4457,6 +4919,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -4603,6 +5066,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -4666,6 +5130,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -4734,6 +5199,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -4921,6 +5387,7 @@ mod tests {
                     variant: None,
                 }]),
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -5406,6 +5873,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -5663,6 +6131,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -5960,6 +6429,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             },
             deleted: false,
             active: true,
@@ -6759,6 +7229,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -6851,6 +7322,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -6956,6 +7428,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7066,6 +7539,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7163,6 +7637,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7244,6 +7719,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7267,6 +7743,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7290,6 +7767,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7409,6 +7887,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7432,6 +7911,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7545,6 +8025,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7576,6 +8057,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7678,6 +8160,7 @@ mod tests {
                     variant: None,
                 }]),
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7776,6 +8259,7 @@ mod tests {
                     variant: None,
                 }]),
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7880,6 +8364,7 @@ mod tests {
                     variant: None,
                 }]),
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -7982,6 +8467,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,
@@ -8012,6 +8498,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             None,
             None,

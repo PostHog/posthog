@@ -41,7 +41,7 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import action
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
-from posthog.event_usage import report_user_action
+from posthog.event_usage import get_request_analytics_properties, report_user_action
 from posthog.helpers import create_dashboard_from_template
 from posthog.helpers.dashboard_templates import create_from_template
 from posthog.hogql_queries.query_runner import ExecutionMode
@@ -129,6 +129,14 @@ def serialize_tile_with_context(tile, order: int, context: dict) -> tuple[int, d
         tile_data["insight"]["query"] = query
         tile_data["error"] = {"type": type(e).__name__, "message": str(e)}
         return order, tile_data
+
+
+class ReorderTilesRequestSerializer(serializers.Serializer):
+    tile_order = serializers.ListField(
+        child=serializers.IntegerField(),
+        min_length=1,
+        help_text="Array of tile IDs in the desired display order (top to bottom, left to right).",
+    )
 
 
 class CanEditDashboard(BasePermission):
@@ -248,6 +256,12 @@ class DashboardBasicSerializer(
             "team_id",
         ]
         read_only_fields = fields
+        extra_kwargs = {
+            "name": {"help_text": "Name of the dashboard."},
+            "description": {"help_text": "Description of the dashboard."},
+            "pinned": {"help_text": "Whether the dashboard is pinned to the top of the list."},
+            "restriction_level": {"help_text": "Controls who can edit the dashboard."},
+        }
 
     def get_effective_restriction_level(self, dashboard: Dashboard) -> Dashboard.RestrictionLevel:
         if self.context.get("is_shared"):
@@ -274,8 +288,10 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
     effective_restriction_level = serializers.SerializerMethodField()
     access_control_version = serializers.SerializerMethodField()
     is_shared = serializers.BooleanField(source="is_sharing_enabled", read_only=True, required=False)
-    breakdown_colors = serializers.JSONField(required=False)
-    data_color_theme_id = serializers.IntegerField(required=False, allow_null=True)
+    breakdown_colors = serializers.JSONField(required=False, help_text="Custom color mapping for breakdown values.")
+    data_color_theme_id = serializers.IntegerField(
+        required=False, allow_null=True, help_text="ID of the color theme used for chart visualizations."
+    )
     quick_filter_ids = serializers.ListField(
         child=serializers.CharField(),
         required=False,
@@ -338,9 +354,24 @@ class DashboardMetadataSerializer(DashboardBasicSerializer):
 
 class DashboardSerializer(DashboardMetadataSerializer):
     tiles = serializers.SerializerMethodField()
-    use_template = serializers.CharField(write_only=True, allow_blank=True, required=False)
-    use_dashboard = serializers.IntegerField(write_only=True, allow_null=True, required=False)
-    delete_insights = serializers.BooleanField(write_only=True, required=False, default=False)
+    use_template = serializers.CharField(
+        write_only=True,
+        allow_blank=True,
+        required=False,
+        help_text="Template key to create the dashboard from a predefined template.",
+    )
+    use_dashboard = serializers.IntegerField(
+        write_only=True,
+        allow_null=True,
+        required=False,
+        help_text="ID of an existing dashboard to duplicate.",
+    )
+    delete_insights = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+        help_text="When deleting, also delete insights that are only on this dashboard.",
+    )
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
     class Meta:
@@ -844,6 +875,7 @@ class DashboardsViewSet(
         """
         results = {}
         tiles = dashboard.tiles.filter(insight__isnull=False).select_related("insight")
+        analytics_props = get_request_analytics_properties(request)
 
         for tile in tiles:
             insight = tile.insight
@@ -862,7 +894,7 @@ class DashboardsViewSet(
                     query,
                     execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE,
                     user=request.user if request.user.is_authenticated else None,
-                    request=request,
+                    analytics_props=analytics_props,
                 )
 
                 result_data = None
@@ -1090,6 +1122,49 @@ class DashboardsViewSet(
             context=self.get_serializer_context(),
         )
         return Response(serializer.data)
+
+    @extend_schema(request=ReorderTilesRequestSerializer, responses={200: DashboardSerializer})
+    @action(methods=["POST"], detail=True, required_scopes=["dashboard:write"])
+    def reorder_tiles(self, request: Request, *args: Any, **kwargs: Any) -> Response:
+        dashboard = self.get_object()
+        if dashboard.deleted:
+            raise exceptions.NotFound()
+        serializer = ReorderTilesRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tile_order: list[int] = serializer.validated_data["tile_order"]
+
+        if len(tile_order) != len(set(tile_order)):
+            return Response(
+                {"detail": "tile_order must contain unique tile IDs"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        tile_width = 6
+        tile_height = 5
+
+        tiles = DashboardTile.objects.filter(dashboard=dashboard, id__in=tile_order)
+        tile_map = {tile.id: tile for tile in tiles}
+
+        missing = set(tile_order) - set(tile_map.keys())
+        if missing:
+            return Response(
+                {"detail": f"Tile IDs not found on this dashboard: {sorted(missing)}"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        for index, tile_id in enumerate(tile_order):
+            tile = tile_map[tile_id]
+            row = index // 2
+            col = index % 2
+            tile.layouts = {
+                "sm": {"x": col * tile_width, "y": row * tile_height, "w": tile_width, "h": tile_height},
+                # xs is single-column (full 6-col mobile grid width)
+                "xs": {"x": 0, "y": index * tile_height, "w": tile_width, "h": tile_height},
+            }
+
+        DashboardTile.objects.bulk_update(tile_map.values(), ["layouts"])
+
+        return Response(DashboardSerializer(dashboard, context=self.get_serializer_context()).data)
 
     @action(
         methods=["POST"],

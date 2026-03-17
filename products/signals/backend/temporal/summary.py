@@ -1,7 +1,7 @@
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
 
@@ -216,7 +216,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
                 document_id,
                 content,
                 metadata,
-                toString(timestamp) as timestamp
+                timestamp
             FROM (
                 SELECT
                     document_id,
@@ -246,7 +246,12 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
 
         signals = []
         for row in result.results or []:
-            document_id, content, metadata_str, timestamp = row
+            document_id, content, metadata_str, timestamp_raw = row
+            # HogQL returns datetime objects, but defend against strings too
+            if isinstance(timestamp_raw, str):
+                timestamp_raw = datetime.fromisoformat(timestamp_raw.replace("Z", "+00:00"))
+            if timestamp_raw.tzinfo is None:
+                timestamp_raw = timestamp_raw.replace(tzinfo=UTC)
             # Purposefully throw here if we fail - we rely on metadata being correct, and it's not llm generated, so
             # no defensive parsing, we want to fail loudly.
             metadata = json.loads(metadata_str)
@@ -258,7 +263,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
                     source_type=metadata.get("source_type", ""),
                     source_id=metadata.get("source_id", ""),
                     weight=metadata.get("weight", 0.0),
-                    timestamp=timestamp,
+                    timestamp=timestamp_raw,
                     extra=metadata.get("extra", {}),
                 )
             )

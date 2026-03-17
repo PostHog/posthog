@@ -877,9 +877,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         instance: ExternalDataSource = self.get_object()
         after = request.query_params.get("after", None)
         before = request.query_params.get("before", None)
+        schemas = request.query_params.getlist("schemas")
 
         jobs = instance.jobs.filter(billable=True).prefetch_related("schema").order_by("-created_at")
 
+        if schemas:
+            jobs = jobs.filter(schema__name__in=schemas)
         if after:
             after_date = parser.parse(after)
             jobs = jobs.filter(created_at__gt=after_date)
