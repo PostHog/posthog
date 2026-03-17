@@ -1310,6 +1310,7 @@ class TestWarmUserTeamsCacheTask(TestCase):
             user=user,
             secure_value=hash_key_value(token),
             mask_value=mask_key_value(token),
+            scopes=["*"],
         )
 
         # Clear any calls from the initial creation
