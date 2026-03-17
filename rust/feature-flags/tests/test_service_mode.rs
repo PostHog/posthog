@@ -6,144 +6,87 @@ use feature_flags::config::{Config, ServiceMode};
 pub mod common;
 
 #[tokio::test]
-async fn service_mode_all_serves_all_routes() {
-    let config = Config::default_test_config();
-    assert_eq!(config.service_mode, ServiceMode::All);
+async fn service_mode_route_availability() {
+    let cases: &[(ServiceMode, &[(&str, bool)])] = &[
+        (
+            ServiceMode::All,
+            &[
+                ("/flags", true),
+                ("/decide", true),
+                ("/flags/definitions", true),
+            ],
+        ),
+        (
+            ServiceMode::Flags,
+            &[
+                ("/flags", true),
+                ("/decide", true),
+                ("/flags/definitions", false),
+            ],
+        ),
+        (
+            ServiceMode::Definitions,
+            &[
+                ("/flags", false),
+                ("/decide", false),
+                ("/flags/definitions", true),
+            ],
+        ),
+    ];
 
-    let server = ServerHandle::for_config(config).await;
-    let client = reqwest::Client::new();
+    for (mode, expectations) in cases {
+        let mut config = Config::default_test_config();
+        config.service_mode = mode.clone();
+        let server = ServerHandle::for_config(config).await;
+        let client = reqwest::Client::new();
 
-    // /flags should be reachable
-    let resp = client
-        .get(format!("http://{}/flags", server.addr))
-        .send()
-        .await
-        .unwrap();
-    assert_ne!(resp.status(), StatusCode::NOT_FOUND);
-
-    // /decide should be reachable
-    let resp = client
-        .get(format!("http://{}/decide", server.addr))
-        .send()
-        .await
-        .unwrap();
-    assert_ne!(resp.status(), StatusCode::NOT_FOUND);
-
-    // /flags/definitions should be reachable
-    let resp = client
-        .get(format!("http://{}/flags/definitions", server.addr))
-        .send()
-        .await
-        .unwrap();
-    assert_ne!(resp.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn service_mode_flags_excludes_definitions() {
-    let mut config = Config::default_test_config();
-    config.service_mode = ServiceMode::Flags;
-
-    let server = ServerHandle::for_config(config).await;
-    let client = reqwest::Client::new();
-
-    // /flags should be reachable
-    let resp = client
-        .get(format!("http://{}/flags", server.addr))
-        .send()
-        .await
-        .unwrap();
-    assert_ne!(resp.status(), StatusCode::NOT_FOUND);
-
-    // /decide should be reachable
-    let resp = client
-        .get(format!("http://{}/decide", server.addr))
-        .send()
-        .await
-        .unwrap();
-    assert_ne!(resp.status(), StatusCode::NOT_FOUND);
-
-    // /flags/definitions should NOT be reachable
-    let resp = client
-        .get(format!("http://{}/flags/definitions", server.addr))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-}
-
-#[tokio::test]
-async fn service_mode_definitions_excludes_flags() {
-    let mut config = Config::default_test_config();
-    config.service_mode = ServiceMode::Definitions;
-
-    let server = ServerHandle::for_config(config).await;
-    let client = reqwest::Client::new();
-
-    // /flags should NOT be reachable
-    let resp = client
-        .get(format!("http://{}/flags", server.addr))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-
-    // /decide should NOT be reachable
-    let resp = client
-        .get(format!("http://{}/decide", server.addr))
-        .send()
-        .await
-        .unwrap();
-    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
-
-    // /flags/definitions should be reachable
-    let resp = client
-        .get(format!("http://{}/flags/definitions", server.addr))
-        .send()
-        .await
-        .unwrap();
-    assert_ne!(resp.status(), StatusCode::NOT_FOUND);
+        for &(path, reachable) in *expectations {
+            let resp = client
+                .get(format!("http://{}{}", server.addr, path))
+                .send()
+                .await
+                .unwrap();
+            if reachable {
+                assert_ne!(
+                    resp.status(),
+                    StatusCode::NOT_FOUND,
+                    "{path} should be reachable in {mode:?} mode",
+                );
+            } else {
+                assert_eq!(
+                    resp.status(),
+                    StatusCode::NOT_FOUND,
+                    "{path} should NOT be reachable in {mode:?} mode",
+                );
+            }
+        }
+    }
 }
 
 #[tokio::test]
 async fn service_mode_health_checks_always_available() {
-    for mode in [ServiceMode::All, ServiceMode::Flags, ServiceMode::Definitions] {
+    for mode in [
+        ServiceMode::All,
+        ServiceMode::Flags,
+        ServiceMode::Definitions,
+    ] {
         let mut config = Config::default_test_config();
         config.service_mode = mode.clone();
 
         let server = ServerHandle::for_config(config).await;
         let client = reqwest::Client::new();
 
-        let resp = client
-            .get(format!("http://{}/", server.addr))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(
-            resp.status(),
-            StatusCode::OK,
-            "/ should be available in {mode:?} mode"
-        );
-
-        let resp = client
-            .get(format!("http://{}/_readiness", server.addr))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(
-            resp.status(),
-            StatusCode::OK,
-            "/_readiness should be available in {mode:?} mode"
-        );
-
-        let resp = client
-            .get(format!("http://{}/_liveness", server.addr))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(
-            resp.status(),
-            StatusCode::OK,
-            "/_liveness should be available in {mode:?} mode"
-        );
+        for path in ["/", "/_readiness", "/_liveness", "/_startup"] {
+            let resp = client
+                .get(format!("http://{}{path}", server.addr))
+                .send()
+                .await
+                .unwrap();
+            assert_ne!(
+                resp.status(),
+                StatusCode::NOT_FOUND,
+                "{path} should be available in {mode:?} mode"
+            );
+        }
     }
 }
