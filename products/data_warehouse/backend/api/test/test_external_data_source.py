@@ -1746,6 +1746,44 @@ class TestExternalDataSource(APIBaseTest):
             assert len(data) == 1
             assert data[0]["id"] == str(job3.pk)
 
+    @parameterized.expand(
+        [
+            ("single_schema", "?schemas=Customers", 1),
+            ("multiple_schemas", "?schemas=Customers&schemas=Invoices", 2),
+            ("no_filter", "", 2),
+        ]
+    )
+    def test_source_jobs_schema_filter(self, _name, query_string, expected_count):
+        source = self._create_external_data_source()
+        schema1 = ExternalDataSchema.objects.create(
+            name="Customers", team_id=self.team.pk, source_id=source.pk, table=None
+        )
+        schema2 = ExternalDataSchema.objects.create(
+            name="Invoices", team_id=self.team.pk, source_id=source.pk, table=None
+        )
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema1,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=100,
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        )
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema2,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=200,
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs{query_string}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == expected_count
+
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),

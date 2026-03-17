@@ -163,6 +163,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
+                        minHeight="min(400px, calc(100svh - 320px))"
+                        maxHeight="min(600px, calc(100svh - 320px))"
                         extraActions={
                             aiSuggestionEnabled ? (
                                 <AIConsentPopoverWrapper>
@@ -251,7 +253,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex justify-between">
                                     <span className="text-muted-alt">Channel</span>
                                     <span className="capitalize">
-                                        <ChannelsTag channel={ticket.channel_source} />
+                                        <ChannelsTag channel={ticket.channel_source} detail={ticket.channel_detail} />
                                     </span>
                                 </div>
                             )}

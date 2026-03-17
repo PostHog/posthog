@@ -19,7 +19,7 @@ export function OptOutScene(): JSX.Element {
     const { openImportModal } = useActions(customerIOImportLogic)
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-8" data-attr="opt-out-scene">
             <div>
                 <div className="flex justify-between items-center mb-4">
                     <h2 className="text-xl font-semibold">Message categories</h2>
