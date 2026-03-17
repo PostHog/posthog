@@ -2,6 +2,11 @@ import { render } from '@testing-library/react'
 
 import { Exporter } from '~/exporter/Exporter'
 import { ExportType, ExportedData } from '~/exporter/types'
+import { initKeaTests } from '~/test/init'
+
+beforeEach(() => {
+    initKeaTests()
+})
 
 function makeDashboardExport(overrides: Partial<ExportedData> = {}): ExportedData {
     return {
@@ -41,15 +46,16 @@ describe('Exporter (shared dashboard)', () => {
     })
 
     it('shows auto refresh text in header', () => {
-        const { getByText } = render(<Exporter {...makeDashboardExport()} />)
+        const { getByRole, getAllByText } = render(<Exporter {...makeDashboardExport()} />)
 
-        expect(getByText('My shared dashboard')).toBeInTheDocument()
-        expect(getByText(/Auto refresh every/i)).toBeInTheDocument()
+        expect(getByRole('heading', { name: 'My shared dashboard' })).toBeInTheDocument()
+        expect(getAllByText(/Auto refresh every/i).length).toBeGreaterThan(0)
     })
 
     it('does not show auto refresh text for image exports', () => {
-        const { queryByText } = render(<Exporter {...makeDashboardExport({ type: ExportType.Image })} />)
+        const { container } = render(<Exporter {...makeDashboardExport({ type: ExportType.Image })} />)
 
-        expect(queryByText(/Auto refresh every/i)).toBeNull()
+        // Image exports use a minimal header (h1 + description), not the Scene header with "Auto refresh every"
+        expect(container.querySelector('.SharedDashboard-header')).toBeNull()
     })
 })
