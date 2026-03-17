@@ -173,7 +173,6 @@ describe('funnelDataLogic', () => {
                 series: [],
                 funnelsFilter: {
                     customAggregationTarget: true,
-                    funnelAggregateByHogQL: 'properties.$session_id',
                 },
             }
 
