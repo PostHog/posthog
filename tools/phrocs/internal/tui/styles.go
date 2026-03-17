@@ -31,6 +31,9 @@ var (
 // Outer width of the process list column (including border)
 const sidebarWidth = 24
 
+// Outer width of the container sidebar (including border)
+const containerSidebarWidth = 24
+
 const headerHeight = 1
 const footerHeightShort = 3
 const footerHeightFull = 5

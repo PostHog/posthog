@@ -21,6 +21,7 @@ type focusPane int
 const (
 	focusSidebar focusPane = iota
 	focusOutput
+	focusContainerSidebar
 )
 
 type Model struct {
@@ -49,6 +50,14 @@ type Model struct {
 	searchQuery   string
 	searchMatches []int // line indices that contain the match
 	searchCursor  int   // index into searchMatches (current highlighted match)
+
+	// Docker container sidebar (visible when docker-compose proc is selected)
+	containers         []DockerContainer
+	containerCursor    int // 0 = status overview, 1+ = container index
+	containerOffset    int
+	containerLines     []string
+	containerLogStream *containerLogStream
+	composeFile        string
 
 	keys     keyMap
 	help     help.Model
@@ -109,7 +118,13 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.dbg("resize: %dx%d", msg.Width, msg.Height)
 		m.width = msg.Width
 		m.height = msg.Height
+		wasReady := m.ready
 		m = m.applySize()
+		if !wasReady && m.ready {
+			var loadCmds []tea.Cmd
+			m, loadCmds = m.loadActiveProc()
+			cmds = append(cmds, loadCmds...)
+		}
 
 	case tea.BackgroundColorMsg:
 		isDark := msg.IsDark()
@@ -123,6 +138,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case process.OutputMsg:
 		// Rebuild viewport content only for the active process to keep rendering cheap
 		if m.ready && m.activeProc() != nil && m.activeProc().Name == msg.Name {
+			// In docker mode the viewport shows the status table or container logs,
+			// not the process's combined output
+			if m.isDockerMode() {
+				break
+			}
 			m.viewport.SetContent(m.buildContent())
 			// Don't auto-scroll while the user is selecting text in copy mode
 			if m.atBottom && !m.copyMode {
@@ -143,6 +163,37 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.cursor = max(0, len(m.procs)-1)
 		}
 		m.ensureSidebarCursorVisible()
+
+	case containerListMsg:
+		if m.isDockerMode() {
+			m.containers = msg.Containers
+			total := m.containerEntryCount()
+			if m.containerCursor >= total {
+				m.containerCursor = max(0, total-1)
+			}
+			m.ensureContainerCursorVisible()
+			if m.containerCursor == 0 {
+				m.viewport.SetContent(renderContainerStatusTable(m.containers, m.viewport.Width()))
+			}
+		}
+
+	case containerPollTickMsg:
+		if m.isDockerMode() {
+			cmds = append(cmds, fetchContainerList(m.composeFile), pollContainersTick())
+		}
+
+	case containerLogLineMsg:
+		svc := m.selectedContainerService()
+		if m.isDockerMode() && svc == msg.Service {
+			if len(m.containerLines) >= maxContainerLogLines {
+				m.containerLines = m.containerLines[1:]
+			}
+			m.containerLines = append(m.containerLines, msg.Line)
+			m.viewport.SetContent(strings.Join(m.containerLines, "\n"))
+			if m.atBottom && !m.copyMode {
+				m.viewport.GotoBottom()
+			}
+		}
 
 	case tea.KeyPressMsg:
 		m.dbg("key: %q", msg.String())
@@ -260,16 +311,31 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m = m.applySize()
 
 		case key.Matches(msg, m.keys.SwapFocus):
-			if m.focusedPane == focusSidebar {
-				m.focusedPane = focusOutput
-				m.dbg("focus: sidebar → output")
+			if m.isDockerMode() {
+				switch m.focusedPane {
+				case focusSidebar:
+					m.focusedPane = focusOutput
+					m.dbg("focus: sidebar → output")
+				case focusOutput:
+					m.focusedPane = focusContainerSidebar
+					m.dbg("focus: output → containers")
+				case focusContainerSidebar:
+					m.focusedPane = focusSidebar
+					m.dbg("focus: containers → sidebar")
+				}
 			} else {
-				m.focusedPane = focusSidebar
-				m.dbg("focus: output → sidebar")
+				if m.focusedPane == focusSidebar {
+					m.focusedPane = focusOutput
+					m.dbg("focus: sidebar → output")
+				} else {
+					m.focusedPane = focusSidebar
+					m.dbg("focus: output → sidebar")
+				}
 			}
 
 		case key.Matches(msg, m.keys.NextProc):
 			// When sidebar focused: navigate to next process
+			// When container sidebar focused: navigate to next container
 			// When output focused: scroll down
 			if m.focusedPane == focusSidebar {
 				if m.cursor < len(m.procs)-1 {
@@ -277,7 +343,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor++
 					m.ensureSidebarCursorVisible()
 					m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
-					m = m.loadActiveProc()
+					var loadCmds []tea.Cmd
+					m, loadCmds = m.loadActiveProc()
+					cmds = append(cmds, loadCmds...)
+				}
+			} else if m.focusedPane == focusContainerSidebar && m.isDockerMode() {
+				total := m.containerEntryCount()
+				if m.containerCursor < total-1 {
+					m.containerCursor++
+					m.ensureContainerCursorVisible()
+					m.dbg("container selected: %d", m.containerCursor)
+					m = m.loadContainerView()
 				}
 			} else {
 				// Forward to viewport for scrolling
@@ -289,6 +365,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case key.Matches(msg, m.keys.PrevProc):
 			// When sidebar focused: navigate to previous process
+			// When container sidebar focused: navigate to previous container
 			// When output focused: scroll up
 			if m.focusedPane == focusSidebar {
 				if m.cursor > 0 {
@@ -296,7 +373,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.cursor--
 					m.ensureSidebarCursorVisible()
 					m.dbg("proc selected: %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
-					m = m.loadActiveProc()
+					var loadCmds []tea.Cmd
+					m, loadCmds = m.loadActiveProc()
+					cmds = append(cmds, loadCmds...)
+				}
+			} else if m.focusedPane == focusContainerSidebar && m.isDockerMode() {
+				if m.containerCursor > 0 {
+					m.containerCursor--
+					m.ensureContainerCursorVisible()
+					m.dbg("container selected: %d", m.containerCursor)
+					m = m.loadContainerView()
 				}
 			} else {
 				// Forward to viewport for scrolling
@@ -334,6 +420,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.ExecProcess(exec.Command("lazydocker"), nil)
 
 		case key.Matches(msg, m.keys.Search):
+			if m.isDockerMode() {
+				break
+			}
 			m.searchMode = true
 			m.searchQuery = ""
 			m.searchMatches = nil
@@ -364,6 +453,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.CopyMode):
+			if m.isDockerMode() {
+				break
+			}
 			// Enter copy mode
 			m.copyMode = true
 			// Expand the viewport to full width before recording the cursor
@@ -401,7 +493,25 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.ensureSidebarCursorVisible()
 					if prev != m.cursor {
 						m.dbg("proc selected (mouse): %d→%d (%s)", prev, m.cursor, m.procs[m.cursor].Name)
-						m = m.loadActiveProc()
+						var loadCmds []tea.Cmd
+						m, loadCmds = m.loadActiveProc()
+						return m, tea.Batch(loadCmds...)
+					}
+					return m, nil
+				}
+			} else if m.isDockerMode() && msg.X >= m.width-containerSidebarWidth {
+				// Clicked in container sidebar
+				m.focusedPane = focusContainerSidebar
+				m.dbg("focus: mouse click → containers")
+				row := msg.Y - headerHeight - 1
+				idx := m.containerOffset + row
+				if idx >= 0 && idx < m.containerEntryCount() {
+					prev := m.containerCursor
+					m.containerCursor = idx
+					m.ensureContainerCursorVisible()
+					if prev != m.containerCursor {
+						m.dbg("container selected (mouse): %d", m.containerCursor)
+						m = m.loadContainerView()
 					}
 					return m, nil
 				}
@@ -437,6 +547,8 @@ func (m Model) View() tea.View {
 	var middle string
 	if m.copyMode {
 		middle = m.renderOutput()
+	} else if m.isDockerMode() {
+		middle = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), m.renderOutput(), m.renderContainerSidebar())
 	} else {
 		middle = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), m.renderOutput())
 	}
@@ -479,6 +591,9 @@ func (m Model) applySize() Model {
 	// The PTY width is always the sidebar-adjusted value so processes don't
 	// receive a spurious resize when the user enters or exits copy mode
 	ptyW := m.width - sidebarWidth
+	if m.isDockerMode() && !m.copyMode {
+		ptyW -= containerSidebarWidth
+	}
 	if ptyW < 1 {
 		ptyW = 1
 	}
@@ -492,7 +607,6 @@ func (m Model) applySize() Model {
 		m.viewport = viewport.New(viewport.WithWidth(vpW), viewport.WithHeight(contentH))
 		m.viewport.MouseWheelDelta = m.mouseScrollSpeed
 		m.ready = true
-		m = m.loadActiveProc()
 	} else {
 		m.viewport.SetWidth(vpW)
 		m.viewport.SetHeight(contentH)
@@ -513,14 +627,48 @@ func (m Model) applySize() Model {
 // Reloads the viewport with the selected process's output.
 // Switching processes always exits copy mode and search typing mode,
 // but preserves the search query so matches are shown in the new process.
-func (m Model) loadActiveProc() Model {
+func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 	if !m.ready {
-		return m
+		return m, nil
 	}
+
+	// Stop any active container log stream from the previous selection
+	if m.containerLogStream != nil {
+		m.containerLogStream.Stop()
+		m.containerLogStream = nil
+	}
+
 	m.copyMode = false
 	m.searchMode = false
 	m.viewport.StyleLineFunc = nil
-	m.viewport.SetContent(m.buildContent())
+
+	// Resize viewport to account for container sidebar appearing/disappearing
+	m = m.applySize()
+
+	var cmds []tea.Cmd
+
+	if m.isDockerMode() {
+		m.composeFile = parseComposeFile(m.activeProc().Cfg.Shell)
+		m.containerCursor = 0
+		m.containerOffset = 0
+		m.containerLines = nil
+		m.searchQuery = ""
+		m.searchMatches = nil
+		m.searchCursor = 0
+		m.viewport.SetContent(renderContainerStatusTable(m.containers, m.viewport.Width()))
+		cmds = append(cmds, fetchContainerList(m.composeFile), pollContainersTick())
+	} else {
+		// Reset focus if container sidebar is going away
+		if m.focusedPane == focusContainerSidebar {
+			m.focusedPane = focusSidebar
+		}
+		m.containers = nil
+		m.containerCursor = 0
+		m.containerOffset = 0
+		m.containerLines = nil
+		m.viewport.SetContent(m.buildContent())
+	}
+
 	if m.atBottom {
 		m.viewport.GotoBottom()
 	}
@@ -528,7 +676,7 @@ func (m Model) loadActiveProc() Model {
 	if m.searchQuery != "" {
 		m.recomputeSearch()
 	}
-	return m
+	return m, cmds
 }
 
 // Joins the active process's output lines into a viewport content string
@@ -853,6 +1001,139 @@ func (m *Model) ensureSidebarCursorVisible() {
 	if m.cursor >= m.sidebarOffset+h {
 		m.sidebarOffset = m.cursor - h + 1
 	}
+}
+
+// Returns true when the active process is a docker-compose process
+func (m Model) isDockerMode() bool {
+	p := m.activeProc()
+	return p != nil && isDockerComposeShell(p.Cfg.Shell)
+}
+
+// Returns the service name of the selected container, or "" for status view
+func (m Model) selectedContainerService() string {
+	if m.containerCursor <= 0 || m.containerCursor > len(m.containers) {
+		return ""
+	}
+	return m.containers[m.containerCursor-1].Service
+}
+
+// Returns the total number of entries in the container sidebar (1 status + N containers)
+func (m Model) containerEntryCount() int {
+	return 1 + len(m.containers)
+}
+
+func (m *Model) ensureContainerCursorVisible() {
+	h := m.sidebarHeight()
+	total := m.containerEntryCount()
+	if total <= h {
+		m.containerOffset = 0
+		return
+	}
+
+	maxOffset := total - h
+	if m.containerOffset > maxOffset {
+		m.containerOffset = maxOffset
+	}
+	if m.containerOffset < 0 {
+		m.containerOffset = 0
+	}
+
+	if m.containerCursor < m.containerOffset {
+		m.containerOffset = m.containerCursor
+	}
+	if m.containerCursor >= m.containerOffset+h {
+		m.containerOffset = m.containerCursor - h + 1
+	}
+}
+
+// Updates the viewport when the container selection changes
+func (m Model) loadContainerView() Model {
+	if m.containerLogStream != nil {
+		m.containerLogStream.Stop()
+		m.containerLogStream = nil
+	}
+	m.containerLines = nil
+
+	svc := m.selectedContainerService()
+	if svc == "" {
+		// Status view
+		m.viewport.SetContent(renderContainerStatusTable(m.containers, m.viewport.Width()))
+		m.viewport.GotoTop()
+		m.atBottom = false
+	} else {
+		// Start streaming logs for the selected container
+		m.containerLogStream = startContainerLogStream(m.composeFile, svc, m.mgr.Send())
+		m.viewport.SetContent("")
+		m.atBottom = true
+	}
+	return m
+}
+
+func (m Model) renderContainerSidebar() string {
+	h := m.sidebarHeight()
+	if h < 1 {
+		h = 1
+	}
+
+	innerW := containerSidebarWidth - 1
+	totalEntries := m.containerEntryCount()
+
+	start := m.containerOffset
+	if start < 0 {
+		start = 0
+	}
+	if start > max(0, totalEntries-1) {
+		start = max(0, totalEntries-1)
+	}
+	end := min(totalEntries, start+h)
+
+	var rows []string
+	for i := start; i < end; i++ {
+		if i == 0 {
+			// "Status" overview row
+			icon := "◻"
+			name := "Status"
+			if m.containerCursor == 0 {
+				base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
+				iconSeg := base.PaddingLeft(1).Foreground(colorBlue).Render(icon)
+				nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
+				rows = append(rows, iconSeg+nameSeg)
+			} else {
+				iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(colorBlue).Render(icon)
+				nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2).Render(" " + name)
+				rows = append(rows, iconSeg+nameSeg)
+			}
+		} else {
+			c := m.containers[i-1]
+			icon := containerStateIcon(c.State)
+			iconColor := containerStateColor(c.State)
+			name := truncate(c.Service, innerW-3)
+
+			if i == m.containerCursor {
+				base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
+				iconSeg := base.PaddingLeft(1).Foreground(iconColor).Render(icon)
+				nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
+				rows = append(rows, iconSeg+nameSeg)
+			} else {
+				iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor).Render(icon)
+				nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2).Render(" " + name)
+				rows = append(rows, iconSeg+nameSeg)
+			}
+		}
+	}
+
+	// Pad remaining rows so the sidebar border extends the full height
+	for i := end - start; i < h; i++ {
+		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
+	}
+
+	var style lipgloss.Style
+	if m.focusedPane == focusContainerSidebar {
+		style = borderFocusedStyle
+	} else {
+		style = borderStyle
+	}
+	return style.Height(h).Render(strings.Join(rows, "\n"))
 }
 
 func (m Model) renderOutput() string {
