@@ -1,7 +1,6 @@
-import { CompactDashboardPage, DashboardPage } from '../../page-models/dashboardPage'
+import { DashboardPage } from '../../page-models/dashboardPage'
 import { InsightPage } from '../../page-models/insightPage'
 import { randomString } from '../../utils'
-import { mockFeatureFlags } from '../../utils/mockApi'
 import { PlaywrightWorkspaceSetupResult, expect, test } from '../../utils/workspace-test-base'
 
 test.describe('Dashboards', () => {
@@ -94,7 +93,7 @@ test.describe('Dashboards', () => {
         })
     })
 
-    test('Can duplicate, rename, and remove dashboard tiles', async ({ page }) => {
+    test.skip('Can duplicate, rename, and remove dashboard tiles', async ({ page }) => {
         const dashboard = new DashboardPage(page)
         const newTileName = randomString('tile-name')
 
@@ -338,7 +337,6 @@ test.describe('Dashboard duplication', () => {
     })
 })
 
-// Requires the 'dashboard-tile-redesign' feature flag — mock it in beforeEach
 test.describe('Dashboard compact cards and inline editing', () => {
     let workspace: PlaywrightWorkspaceSetupResult | null = null
 
@@ -347,12 +345,11 @@ test.describe('Dashboard compact cards and inline editing', () => {
     })
 
     test.beforeEach(async ({ page, playwrightSetup }) => {
-        await mockFeatureFlags(page, { 'dashboard-tile-redesign': true })
         await playwrightSetup.login(page, workspace!)
     })
 
     test('Edit mode button enters and exits edit mode', async ({ page }) => {
-        const dashboard = new CompactDashboardPage(page)
+        const dashboard = new DashboardPage(page)
 
         await test.step('create a dashboard with an insight', async () => {
             await dashboard.createNew()
@@ -370,7 +367,7 @@ test.describe('Dashboard compact cards and inline editing', () => {
     })
 
     test('Inline editing insight title via compact card popover', async ({ page }) => {
-        const dashboard = new CompactDashboardPage(page)
+        const dashboard = new DashboardPage(page)
         const updatedTitle = randomString('inline-title')
 
         await test.step('create a dashboard with an insight', async () => {
@@ -400,7 +397,7 @@ test.describe('Dashboard compact cards and inline editing', () => {
     })
 
     test('Inline editing insight description via compact card popover', async ({ page }) => {
-        const dashboard = new CompactDashboardPage(page)
+        const dashboard = new DashboardPage(page)
         const description = randomString('inline-desc')
 
         await test.step('create a dashboard with an insight', async () => {

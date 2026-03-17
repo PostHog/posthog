@@ -367,6 +367,21 @@ async fn authenticate_flag_definitions(
     // Try team secret token first (from Authorization header only)
     // Secret tokens have priority over personal API keys
     if let Some(token) = auth::extract_team_secret_token(headers) {
+        // Try managed project secret API key (posthog_projectsecretapikey) first
+        // TODO: track last_used_at for project secret API keys (similar to PAK path below)
+        if auth::validate_project_secret_api_key_for_team(state, &token, team.id)
+            .await
+            .is_ok()
+        {
+            inc(
+                FLAG_DEFINITIONS_AUTH_COUNTER,
+                &[("method".to_string(), "project_secret_api_key".to_string())],
+                1,
+            );
+            return Ok(());
+        }
+
+        // Fall back to legacy secret_api_token on posthog_team
         let result = auth::validate_secret_api_token_for_team(state, &token, team.id).await;
         if result.is_ok() {
             inc(

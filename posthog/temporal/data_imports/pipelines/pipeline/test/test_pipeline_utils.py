@@ -355,6 +355,13 @@ def test_table_from_py_list_decimal_fallback_optimal_type(data, schema, expected
     "batch_type, batch_values, delta_type, expected_type, expect_string",
     [
         (
+            pa.decimal128(10, 2),
+            [decimal.Decimal("12.5"), decimal.Decimal("89.0")],
+            pa.decimal128(38, 2),
+            pa.decimal128(38, 2),
+            False,
+        ),
+        (
             pa.decimal256(76, 32),
             [decimal.Decimal("1234567.5"), decimal.Decimal("89.0")],
             pa.decimal128(38, 32),
@@ -369,8 +376,6 @@ def test_table_from_py_list_decimal_fallback_optimal_type(data, schema, expected
             False,
         ),
         (pa.decimal128(5, 2), [decimal.Decimal("123.45")], pa.decimal128(38, 32), pa.decimal128(38, 32), False),
-        (pa.decimal128(7, 1), [decimal.Decimal("123456.1")], pa.decimal128(38, 32), pa.decimal128(38, 32), False),
-        (pa.decimal128(10, 2), [decimal.Decimal("99999999.99")], pa.decimal128(38, 32), pa.decimal128(38, 30), False),
         (pa.decimal256(76, 0), [decimal.Decimal("1" * 39)], pa.decimal128(38, 32), None, True),
         (pa.decimal128(5, 2), [decimal.Decimal("123.45"), None], pa.decimal128(38, 32), pa.decimal128(38, 32), False),
         (
@@ -441,6 +446,49 @@ def test_evolve_pyarrow_schema_decimal_integration_table_from_py_list():
     assert evolved_table.schema.field("amount").type == pa.decimal128(38, 31)
 
 
+@pytest.mark.parametrize(
+    "incoming_type, incoming_values, expected_type",
+    [
+        (
+            pa.decimal128(10, 2),
+            [decimal.Decimal("12.50"), decimal.Decimal("89.00")],
+            pa.decimal128(10, 2),
+        ),
+        (
+            pa.decimal128(38, 2),
+            [decimal.Decimal("12.50"), decimal.Decimal("89.00")],
+            pa.decimal128(10, 2),
+        ),
+        (
+            pa.decimal128(38, 2),
+            [decimal.Decimal("12345678901.23"), decimal.Decimal("89.00")],
+            pa.decimal128(38, 2),
+        ),
+        (
+            pa.decimal128(10, 3),
+            [decimal.Decimal("1234567.123"), decimal.Decimal("89.00")],
+            pa.decimal128(11, 3),
+        ),
+    ],
+)
+def test_evolve_pyarrow_schema_decimal_does_not_widen_unnecessarily_and_can_widen_when_needed(
+    incoming_type: pa.Decimal128Type, incoming_values: list[decimal.Decimal], expected_type: pa.Decimal128Type
+):
+    arrow_table = pa.table(
+        {
+            "id": pa.array([1, 2], type=pa.int64()),
+            "amount": pa.array(incoming_values, type=incoming_type),
+        }
+    )
+    delta_schema = deltalake.Schema.from_arrow(
+        pa.schema([pa.field("id", pa.int64(), nullable=False), pa.field("amount", pa.decimal128(10, 2), nullable=True)])  # type: ignore[arg-type]
+    )
+
+    evolved_table = _evolve_pyarrow_schema(arrow_table, delta_schema)
+
+    assert evolved_table.schema.field("amount").type == expected_type
+
+
 def test_evolve_pyarrow_schema_with_struct_containing_datetime_and_decimal():
     """Test that _evolve_pyarrow_schema can handle struct columns with non-JSON-serializable types."""
     metadata_struct_type = pa.struct(
@@ -501,6 +549,116 @@ def test_evolve_pyarrow_schema_with_list_containing_datetime():
     tags_values = evolved_table.column("tags").to_pylist()
     assert len(tags_values) == 2
     assert all(isinstance(val, str) for val in tags_values)
+
+
+class TestEvolveSchemaFirstPass:
+    """First pass: normalize incoming table types before delta alignment."""
+
+    def test_no_delta_schema_returns_delta_compatible_table(self):
+        arrow_table = pa.table({"id": pa.array([1], type=pa.int64()), "name": pa.array(["a"])})
+        result = _evolve_pyarrow_schema(arrow_table, None)
+        assert result.schema.field("id").type == pa.int64()
+        assert result.schema.field("name").type in (pa.string(), pa.large_string())
+
+    def test_duration_column_converted_to_seconds(self):
+        durations = pa.array([datetime.timedelta(seconds=90), datetime.timedelta(seconds=3661), None])
+        arrow_table = pa.table({"elapsed": durations})
+        result = _evolve_pyarrow_schema(arrow_table, None)
+        values = result.column("elapsed").to_pylist()
+        assert values[0] == 90.0
+        assert values[1] == 3661.0
+        assert values[2] is None
+
+    def test_nanosecond_timestamp_normalized_to_microseconds(self):
+        ns_ts = pa.array([1_000_000_000, 2_000_000_000], type=pa.timestamp("ns"))
+        arrow_table = pa.table({"ts": ns_ts})
+        result = _evolve_pyarrow_schema(arrow_table, None)
+        assert result.schema.field("ts").type == pa.timestamp("us")
+
+    def test_tz_timestamp_stripped_to_utc_microseconds(self):
+        tz_ts = pa.array([1_000_000, 2_000_000], type=pa.timestamp("us", tz="America/New_York"))
+        arrow_table = pa.table({"ts": tz_ts})
+        result = _evolve_pyarrow_schema(arrow_table, None)
+        assert result.schema.field("ts").type == pa.timestamp("us")
+        assert result.schema.field("ts").type.tz is None
+
+
+class TestEvolveSchemaSecondPassMissingColumns:
+    """Second pass: columns present in delta but missing from incoming table."""
+
+    def test_missing_nullable_column_appended_with_nulls(self):
+        arrow_table = pa.table({"id": pa.array([1, 2], type=pa.int64())})
+        delta_schema = deltalake.Schema.from_arrow(
+            pa.schema([pa.field("id", pa.int64()), pa.field("name", pa.string(), nullable=True)])  # type: ignore[arg-type]
+        )
+        result = _evolve_pyarrow_schema(arrow_table, delta_schema)
+        assert "name" in result.column_names
+        assert result.column("name").to_pylist() == [None, None]
+
+    def test_missing_non_nullable_column_appended_with_defaults(self):
+        arrow_table = pa.table({"id": pa.array([1, 2], type=pa.int64())})
+        delta_schema = deltalake.Schema.from_arrow(
+            pa.schema([pa.field("id", pa.int64()), pa.field("count", pa.int64(), nullable=False)])
+        )
+        result = _evolve_pyarrow_schema(arrow_table, delta_schema)
+        assert "count" in result.column_names
+        assert result.column("count").to_pylist() == [0, 0]
+
+
+class TestEvolveSchemaSecondPassDecimal:
+    """Second pass: decimal reconciliation between incoming and delta types."""
+
+    def test_downcast_skipped_when_scales_differ(self):
+        arrow_table = pa.table({"amount": pa.array([decimal.Decimal("1.50")], type=pa.decimal128(38, 4))})
+        delta_schema = deltalake.Schema.from_arrow(pa.schema([pa.field("amount", pa.decimal128(10, 2), nullable=True)]))
+        result = _evolve_pyarrow_schema(arrow_table, delta_schema)
+        result_type = result.schema.field("amount").type
+        assert pa.types.is_decimal128(result_type)
+        # max_int_digits = max(8, 34) = 34, merged_scale = min(max(2,4), 38-34) = 4, precision = 38
+        assert result_type == pa.decimal128(38, 4)
+
+
+class TestEvolveSchemaSecondPassTimestamp:
+    """Second pass: timestamp alignment between incoming and delta types."""
+
+    def test_timestamp_tz_mismatch_casted(self):
+        utc_ts = pa.array([datetime.datetime(2024, 1, 1, 0, 0, 0)], type=pa.timestamp("us", tz="UTC"))
+        arrow_table = pa.table({"ts": utc_ts})
+        delta_schema = deltalake.Schema.from_arrow(pa.schema([pa.field("ts", pa.timestamp("us"), nullable=True)]))
+        result = _evolve_pyarrow_schema(arrow_table, delta_schema)
+        assert result.schema.field("ts").type == pa.timestamp("us")
+        assert result.schema.field("ts").type.tz is None
+
+    def test_string_column_parsed_to_delta_timestamp(self):
+        arrow_table = pa.table({"ts": pa.array(["2024-01-01T12:00:00", "2024-06-15T08:30:00"])})
+        delta_schema = deltalake.Schema.from_arrow(pa.schema([pa.field("ts", pa.timestamp("us"), nullable=True)]))
+        result = _evolve_pyarrow_schema(arrow_table, delta_schema)
+        assert result.schema.field("ts").type == pa.timestamp("us")
+        values = result.column("ts").to_pylist()
+        assert values[0] == datetime.datetime(2024, 1, 1, 12, 0, 0)
+        assert values[1] == datetime.datetime(2024, 6, 15, 8, 30, 0)
+
+
+class TestEvolveSchemaSecondPassGenericCast:
+    """Second pass: non-decimal, non-timestamp type mismatches."""
+
+    def test_int32_casted_to_int64(self):
+        arrow_table = pa.table({"count": pa.array([1, 2, 3], type=pa.int32())})
+        delta_schema = deltalake.Schema.from_arrow(pa.schema([pa.field("count", pa.int64(), nullable=True)]))
+        result = _evolve_pyarrow_schema(arrow_table, delta_schema)
+        assert result.schema.field("count").type == pa.int64()
+        assert result.column("count").to_pylist() == [1, 2, 3]
+
+
+class TestEvolveSchemaSecondPassNullability:
+    """Second pass: nullable incoming column aligned to non-nullable delta field."""
+
+    def test_nullable_incoming_backfilled_for_non_nullable_delta(self):
+        arrow_table = pa.table({"name": pa.array(["hello", None, "world"])})
+        delta_schema = deltalake.Schema.from_arrow(pa.schema([pa.field("name", pa.large_string(), nullable=False)]))
+        result = _evolve_pyarrow_schema(arrow_table, delta_schema)
+        values = result.column("name").to_pylist()
+        assert values == ["hello", "", "world"]
 
 
 @pytest.mark.parametrize(

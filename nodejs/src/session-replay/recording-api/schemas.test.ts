@@ -36,26 +36,26 @@ describe('RecordingParamsSchema', () => {
 
 describe('GetBlockQuerySchema', () => {
     it('accepts valid query params', () => {
-        const result = GetBlockQuerySchema.safeParse({ key: 'some/key', start: '0', end: '100' })
+        const result = GetBlockQuerySchema.safeParse({ key: 'some/key', start_byte: '0', end_byte: '100' })
 
         expect(result.success).toBe(true)
         if (result.success) {
             expect(result.data.key).toBe('some/key')
-            expect(result.data.start).toBe(0)
-            expect(result.data.end).toBe(100)
+            expect(result.data.start_byte).toBe(0)
+            expect(result.data.end_byte).toBe(100)
         }
     })
 
     it('accepts start equal to end', () => {
-        const result = GetBlockQuerySchema.safeParse({ key: 'some/key', start: '50', end: '50' })
+        const result = GetBlockQuerySchema.safeParse({ key: 'some/key', start_byte: '50', end_byte: '50' })
 
         expect(result.success).toBe(true)
     })
 
     it.each([
-        { query: { start: '0', end: '100' }, desc: 'missing key' },
-        { query: { key: 'k', end: '100' }, desc: 'missing start' },
-        { query: { key: 'k', start: '0' }, desc: 'missing end' },
+        { query: { start_byte: '0', end_byte: '100' }, desc: 'missing key' },
+        { query: { key: 'k', end_byte: '100' }, desc: 'missing start_byte' },
+        { query: { key: 'k', start_byte: '0' }, desc: 'missing end_byte' },
     ])('rejects $desc', ({ query }) => {
         const result = GetBlockQuerySchema.safeParse(query)
 
@@ -63,23 +63,23 @@ describe('GetBlockQuerySchema', () => {
     })
 
     it.each([
-        { query: { key: 'k', start: '-1', end: '100' }, desc: 'negative start' },
-        { query: { key: 'k', start: 'abc', end: '100' }, desc: 'non-numeric start' },
-        { query: { key: 'k', start: '0', end: 'abc' }, desc: 'non-numeric end' },
-        { query: { key: 'k', start: '1.5', end: '100' }, desc: 'float start' },
-        { query: { key: '', start: '0', end: '100' }, desc: 'empty key' },
+        { query: { key: 'k', start_byte: '-1', end_byte: '100' }, desc: 'negative start_byte' },
+        { query: { key: 'k', start_byte: 'abc', end_byte: '100' }, desc: 'non-numeric start_byte' },
+        { query: { key: 'k', start_byte: '0', end_byte: 'abc' }, desc: 'non-numeric end_byte' },
+        { query: { key: 'k', start_byte: '1.5', end_byte: '100' }, desc: 'float start_byte' },
+        { query: { key: '', start_byte: '0', end_byte: '100' }, desc: 'empty key' },
     ])('rejects $desc', ({ query }) => {
         const result = GetBlockQuerySchema.safeParse(query)
 
         expect(result.success).toBe(false)
     })
 
-    it('rejects start greater than end', () => {
-        const result = GetBlockQuerySchema.safeParse({ key: 'k', start: '100', end: '50' })
+    it('rejects start_byte greater than end_byte', () => {
+        const result = GetBlockQuerySchema.safeParse({ key: 'k', start_byte: '100', end_byte: '50' })
 
         expect(result.success).toBe(false)
         if (!result.success) {
-            expect(result.error.issues[0].message).toBe('start must be less than or equal to end')
+            expect(result.error.issues[0].message).toBe('start_byte must be less than or equal to end_byte')
         }
     })
 })

@@ -24,7 +24,7 @@ import {
 } from 'lib/components/TaxonomicFilter/types'
 import { IconCohort } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
-import { capitalizeFirstLetter, isString, pluralize, toParams } from 'lib/utils'
+import { capitalizeFirstLetter, isString, objectsEqual, pluralize, toParams } from 'lib/utils'
 import {
     getEventDefinitionIcon,
     getEventMetadataDefinitionIcon,
@@ -1240,6 +1240,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                     ),
             ],
             (infiniteListCounts) => infiniteListCounts,
+            { resultEqualityCheck: objectsEqual },
         ],
         value: [() => [(_, props) => props.value], (value) => value],
         groupType: [() => [(_, props) => props.groupType], (groupType) => groupType],
