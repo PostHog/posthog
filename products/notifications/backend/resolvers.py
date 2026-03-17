@@ -29,4 +29,5 @@ class RecipientsResolver:
                     role_id=target_id,
                 ).values_list("user_id", flat=True)
             )
-        return []
+        else:
+            return []

@@ -15,9 +15,9 @@ logger = structlog.get_logger(__name__)
 
 
 def _get_redis_client():
-    from django.core.cache import cache
+    from django_redis import get_redis_connection
 
-    return cache.client.get_client()
+    return get_redis_connection("default")
 
 
 def _publish_to_redis(event: NotificationEvent) -> None:

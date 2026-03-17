@@ -1,3 +1,5 @@
+from typing import cast
+
 from django.db.models import Exists, OuterRef, Subquery
 
 from rest_framework.request import Request
@@ -6,6 +8,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.models import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.rbac.user_access_control import UserAccessControl
 
@@ -21,24 +24,28 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     posthog_feature_flag = "real-time-notifications"
     permission_classes = [PostHogFeatureFlagPermission]
 
+    def _get_user(self) -> User:
+        return cast(User, self.request.user)
+
     def _get_base_queryset(self):
+        user = self._get_user()
         team = self.team
         return (
             NotificationEvent.objects.filter(
                 organization_id=team.organization_id,
-                resolved_user_ids__contains=[self.request.user.id],
+                resolved_user_ids__contains=[user.id],
             )
             .annotate(
                 read=Exists(
                     NotificationReadState.objects.filter(
                         notification_event_id=OuterRef("id"),
-                        user=self.request.user,
+                        user_id=user.id,
                     )
                 ),
                 read_at=Subquery(
                     NotificationReadState.objects.filter(
                         notification_event_id=OuterRef("id"),
-                        user=self.request.user,
+                        user_id=user.id,
                     ).values("created_at")[:1]
                 ),
             )
@@ -57,7 +64,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         if not ac_types_to_check:
             return queryset
 
-        user_ac = UserAccessControl(self.request.user, self.team)
+        user_ac = UserAccessControl(self._get_user(), self.team)
         if not user_ac.access_controls_supported:
             return queryset
 
@@ -76,7 +83,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
         queryset = self._filter_by_access_control(queryset)
         results = queryset[:50]
         serializer = NotificationEventSerializer(results, many=True)
-        return Response(serializer.data)
+        return Response({"results": serializer.data})
 
     @action(methods=["GET"], detail=False)
     def unread_count(self, request: Request, **kwargs) -> Response:
@@ -87,21 +94,26 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
 
     @action(methods=["POST"], detail=False)
     def mark_all_read(self, request: Request, **kwargs) -> Response:
+        user = self._get_user()
         queryset = self._get_base_queryset().filter(read=False)
         event_ids = list(queryset.values_list("id", flat=True))
         if event_ids:
-            read_states = [NotificationReadState(notification_event_id=eid, user=request.user) for eid in event_ids]
+            read_states = [NotificationReadState(notification_event_id=eid, user=user) for eid in event_ids]
             NotificationReadState.objects.bulk_create(read_states, ignore_conflicts=True)
         return Response({"updated": len(event_ids)})
 
     @action(methods=["POST"], detail=True, url_path="mark_read")
     def mark_read(self, request: Request, **kwargs) -> Response:
+        user = self._get_user()
         event = self.get_object()
-        NotificationReadState.objects.get_or_create(notification_event=event, user=request.user)
+        # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
+        NotificationReadState.objects.get_or_create(notification_event=event, user=user)
         return Response({"status": "ok"})
 
     @action(methods=["POST"], detail=True, url_path="mark_unread")
     def mark_unread(self, request: Request, **kwargs) -> Response:
+        user = self._get_user()
         event = self.get_object()
-        NotificationReadState.objects.filter(notification_event=event, user=request.user).delete()
+        # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
+        NotificationReadState.objects.filter(notification_event=event, user=user).delete()
         return Response({"status": "ok"})
