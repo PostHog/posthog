@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use axum::async_trait;
+use async_trait::async_trait;
 use base64::Engine;
 use posthog_symbol_data::{read_symbol_data, write_symbol_data, SourceAndMap};
 use reqwest::Url;

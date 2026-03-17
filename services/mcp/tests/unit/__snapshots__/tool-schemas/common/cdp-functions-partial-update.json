@@ -1,0 +1,496 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "description": {
+            "description": "Human-readable description of what this function does.",
+            "type": "string"
+        },
+        "enabled": {
+            "description": "Whether the function is active and processing events.",
+            "type": "boolean"
+        },
+        "execution_order": {
+            "anyOf": [
+                {
+                    "maximum": 32767,
+                    "minimum": 0,
+                    "type": "number"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Execution priority for transformations. Lower values run first."
+        },
+        "filters": {
+            "description": "Event filters that control which events trigger this function.",
+            "properties": {
+                "actions": {
+                    "items": {
+                        "additionalProperties": {},
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "bytecode": {
+                    "anyOf": [
+                        {},
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
+                "bytecode_error": {
+                    "type": "string"
+                },
+                "data_warehouse": {
+                    "items": {
+                        "additionalProperties": {},
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "events": {
+                    "items": {
+                        "additionalProperties": {},
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "filter_test_accounts": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "items": {
+                        "additionalProperties": {},
+                        "propertyNames": {
+                            "type": "string"
+                        },
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                "source": {
+                    "default": "events",
+                    "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                    "enum": ["events", "person-updates", "data-warehouse-table"],
+                    "type": "string"
+                },
+                "transpiled": {}
+            },
+            "type": "object"
+        },
+        "hog": {
+            "description": "Source code. Hog language for most types; TypeScript for site_destination and site_app.",
+            "type": "string"
+        },
+        "icon_url": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "URL for the function's icon displayed in the UI."
+        },
+        "id": {
+            "description": "A UUID string identifying this hog function.",
+            "type": "string"
+        },
+        "inputs": {
+            "additionalProperties": {
+                "properties": {
+                    "bytecode": {
+                        "items": {},
+                        "type": "array"
+                    },
+                    "order": {
+                        "type": "number"
+                    },
+                    "templating": {
+                        "description": "* `hog` - hog\n* `liquid` - liquid",
+                        "enum": ["hog", "liquid"],
+                        "type": "string"
+                    },
+                    "transpiled": {},
+                    "value": {}
+                },
+                "type": "object"
+            },
+            "description": "Values for each input defined in inputs_schema.",
+            "propertyNames": {
+                "type": "string"
+            },
+            "type": "object"
+        },
+        "inputs_schema": {
+            "description": "Schema defining the configurable input parameters for this function.",
+            "items": {
+                "properties": {
+                    "choices": {
+                        "items": {
+                            "additionalProperties": {},
+                            "propertyNames": {
+                                "type": "string"
+                            },
+                            "type": "object"
+                        },
+                        "type": "array"
+                    },
+                    "default": {},
+                    "description": {
+                        "type": "string"
+                    },
+                    "hidden": {
+                        "default": false,
+                        "type": "boolean"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "label": {
+                        "type": "string"
+                    },
+                    "required": {
+                        "default": false,
+                        "type": "boolean"
+                    },
+                    "secret": {
+                        "default": false,
+                        "type": "boolean"
+                    },
+                    "templating": {
+                        "anyOf": [
+                            {
+                                "const": true,
+                                "type": "boolean"
+                            },
+                            {
+                                "const": false,
+                                "type": "boolean"
+                            },
+                            {
+                                "const": "hog",
+                                "type": "string"
+                            },
+                            {
+                                "const": "liquid",
+                                "type": "string"
+                            }
+                        ],
+                        "description": "* `True` - True\n* `False` - False\n* `hog` - hog\n* `liquid` - liquid"
+                    },
+                    "type": {
+                        "description": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags",
+                        "enum": [
+                            "string",
+                            "number",
+                            "boolean",
+                            "dictionary",
+                            "choice",
+                            "json",
+                            "integration",
+                            "integration_field",
+                            "email",
+                            "native_email",
+                            "posthog_assignee",
+                            "posthog_ticket_tags"
+                        ],
+                        "type": "string"
+                    }
+                },
+                "required": ["type", "key"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "mappings": {
+            "anyOf": [
+                {
+                    "items": {
+                        "properties": {
+                            "filters": {
+                                "properties": {
+                                    "actions": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "data_warehouse": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "events": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "filter_test_accounts": {
+                                        "type": "boolean"
+                                    },
+                                    "properties": {
+                                        "items": {
+                                            "additionalProperties": {},
+                                            "propertyNames": {
+                                                "type": "string"
+                                            },
+                                            "type": "object"
+                                        },
+                                        "type": "array"
+                                    },
+                                    "source": {
+                                        "default": "events",
+                                        "description": "* `events` - events\n* `person-updates` - person-updates\n* `data-warehouse-table` - data-warehouse-table",
+                                        "enum": ["events", "person-updates", "data-warehouse-table"],
+                                        "type": "string"
+                                    }
+                                },
+                                "type": "object"
+                            },
+                            "inputs": {
+                                "additionalProperties": {
+                                    "properties": {
+                                        "bytecode": {
+                                            "items": {},
+                                            "type": "array"
+                                        },
+                                        "order": {
+                                            "type": "number"
+                                        },
+                                        "templating": {
+                                            "description": "* `hog` - hog\n* `liquid` - liquid",
+                                            "enum": ["hog", "liquid"],
+                                            "type": "string"
+                                        },
+                                        "transpiled": {},
+                                        "value": {}
+                                    },
+                                    "type": "object"
+                                },
+                                "propertyNames": {
+                                    "type": "string"
+                                },
+                                "type": "object"
+                            },
+                            "inputs_schema": {
+                                "items": {
+                                    "properties": {
+                                        "choices": {
+                                            "items": {
+                                                "additionalProperties": {},
+                                                "propertyNames": {
+                                                    "type": "string"
+                                                },
+                                                "type": "object"
+                                            },
+                                            "type": "array"
+                                        },
+                                        "default": {},
+                                        "description": {
+                                            "type": "string"
+                                        },
+                                        "hidden": {
+                                            "default": false,
+                                            "type": "boolean"
+                                        },
+                                        "key": {
+                                            "type": "string"
+                                        },
+                                        "label": {
+                                            "type": "string"
+                                        },
+                                        "required": {
+                                            "default": false,
+                                            "type": "boolean"
+                                        },
+                                        "secret": {
+                                            "default": false,
+                                            "type": "boolean"
+                                        },
+                                        "templating": {
+                                            "anyOf": [
+                                                {
+                                                    "const": true,
+                                                    "type": "boolean"
+                                                },
+                                                {
+                                                    "const": false,
+                                                    "type": "boolean"
+                                                },
+                                                {
+                                                    "const": "hog",
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "const": "liquid",
+                                                    "type": "string"
+                                                }
+                                            ],
+                                            "description": "* `True` - True\n* `False` - False\n* `hog` - hog\n* `liquid` - liquid"
+                                        },
+                                        "type": {
+                                            "description": "* `string` - string\n* `number` - number\n* `boolean` - boolean\n* `dictionary` - dictionary\n* `choice` - choice\n* `json` - json\n* `integration` - integration\n* `integration_field` - integration_field\n* `email` - email\n* `native_email` - native_email\n* `posthog_assignee` - posthog_assignee\n* `posthog_ticket_tags` - posthog_ticket_tags",
+                                            "enum": [
+                                                "string",
+                                                "number",
+                                                "boolean",
+                                                "dictionary",
+                                                "choice",
+                                                "json",
+                                                "integration",
+                                                "integration_field",
+                                                "email",
+                                                "native_email",
+                                                "posthog_assignee",
+                                                "posthog_ticket_tags"
+                                            ],
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": ["type", "key"],
+                                    "type": "object"
+                                },
+                                "type": "array"
+                            },
+                            "name": {
+                                "type": "string"
+                            }
+                        },
+                        "type": "object"
+                    },
+                    "type": "array"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Event-to-destination field mappings. Only for destination and site_destination types."
+        },
+        "masking": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "bytecode": {
+                            "anyOf": [
+                                {},
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Compiled bytecode for the hash expression. Auto-generated."
+                        },
+                        "hash": {
+                            "description": "Hog expression used to compute the masking hash.",
+                            "type": "string"
+                        },
+                        "threshold": {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Optional threshold count before masking applies."
+                        },
+                        "ttl": {
+                            "description": "Time-to-live in seconds for the masking cache (60–86400).",
+                            "maximum": 86400,
+                            "minimum": 60,
+                            "type": "number"
+                        }
+                    },
+                    "required": ["ttl", "hash"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "PII masking configuration with TTL, threshold, and hash expression."
+        },
+        "name": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Display name for the function."
+        },
+        "template_id": {
+            "anyOf": [
+                {
+                    "maxLength": 400,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "ID of the template to create this function from."
+        },
+        "type": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation",
+                            "enum": [
+                                "destination",
+                                "site_destination",
+                                "internal_destination",
+                                "source_webhook",
+                                "warehouse_source_webhook",
+                                "site_app",
+                                "transformation"
+                            ],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Function type: destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation.\n\n* `destination` - Destination\n* `site_destination` - Site Destination\n* `internal_destination` - Internal Destination\n* `source_webhook` - Source Webhook\n* `warehouse_source_webhook` - Warehouse Source Webhook\n* `site_app` - Site App\n* `transformation` - Transformation"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

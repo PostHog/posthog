@@ -11,7 +11,7 @@ import { isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 
-import { InsightQueryNode, StickinessQuery, TrendsQuery } from '~/queries/schema/schema-general'
+import { InsightQueryNode, ProductAnalyticsInsightQueryNode } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, InsightLogicProps, PropertyGroupFilterValue } from '~/types'
 
 import { InsightTestAccountFilter } from '../filters/InsightTestAccountFilter'
@@ -20,8 +20,8 @@ import { propertyGroupFilterLogic } from './propertyGroupFilterLogic'
 
 type PropertyGroupFiltersProps = {
     insightProps: InsightLogicProps
-    query: TrendsQuery | StickinessQuery
-    setQuery: (node: TrendsQuery | StickinessQuery) => void
+    query: ProductAnalyticsInsightQueryNode
+    setQuery: (node: ProductAnalyticsInsightQueryNode) => void
     pageKey: string
     eventNames?: string[]
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]

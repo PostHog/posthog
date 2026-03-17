@@ -2872,10 +2872,6 @@
                 "completion_token": 0.0000012,
                 "cache_read_token": 3e-8
             },
-            "siliconflow-fp8": {
-                "prompt_token": 2.9e-7,
-                "completion_token": 0.0000012
-            },
             "venice": {
                 "prompt_token": 3.5e-7,
                 "completion_token": 0.0000015,
@@ -3460,10 +3456,6 @@
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000025,
                 "cache_read_token": 1.5e-7
-            },
-            "siliconflow-fp8": {
-                "prompt_token": 5.5e-7,
-                "completion_token": 0.0000025
             }
         }
     },
@@ -3510,9 +3502,9 @@
                 "cache_read_token": 1e-7
             },
             "nextbit-fp4": {
-                "prompt_token": 7.5e-7,
+                "prompt_token": 0.000001,
                 "completion_token": 0.000004,
-                "cache_read_token": 2.5e-7
+                "cache_read_token": 5.5e-7
             },
             "novita": {
                 "prompt_token": 5.7e-7,
@@ -4494,6 +4486,12 @@
                 "cache_read_token": 1.75e-7,
                 "web_search": 0.01
             },
+            "azure": {
+                "prompt_token": 0.00000175,
+                "completion_token": 0.000014,
+                "cache_read_token": 1.75e-7,
+                "web_search": 0.01
+            },
             "openai": {
                 "prompt_token": 0.00000175,
                 "completion_token": 0.000014,
@@ -5144,14 +5142,14 @@
         "model": "qwen/qwen-plus",
         "cost": {
             "default": {
-                "prompt_token": 4e-7,
-                "completion_token": 0.0000012,
-                "cache_read_token": 8e-8
+                "prompt_token": 2.6e-7,
+                "completion_token": 7.8e-7,
+                "cache_read_token": 5.2e-8
             },
             "alibaba": {
-                "prompt_token": 4e-7,
-                "completion_token": 0.0000012,
-                "cache_read_token": 8e-8
+                "prompt_token": 2.6e-7,
+                "completion_token": 7.8e-7,
+                "cache_read_token": 5.2e-8
             }
         }
     },
@@ -5200,12 +5198,12 @@
         "model": "qwen/qwen-vl-max",
         "cost": {
             "default": {
-                "prompt_token": 8e-7,
-                "completion_token": 0.0000032
+                "prompt_token": 5.2e-7,
+                "completion_token": 0.00000208
             },
             "alibaba": {
-                "prompt_token": 8e-7,
-                "completion_token": 0.0000032
+                "prompt_token": 5.2e-7,
+                "completion_token": 0.00000208
             }
         }
     },
@@ -5737,14 +5735,14 @@
         "model": "qwen/qwen3-max",
         "cost": {
             "default": {
-                "prompt_token": 0.0000012,
-                "completion_token": 0.000006,
-                "cache_read_token": 2.4e-7
+                "prompt_token": 7.8e-7,
+                "completion_token": 0.0000039,
+                "cache_read_token": 1.56e-7
             },
             "alibaba": {
-                "prompt_token": 0.0000012,
-                "completion_token": 0.000006,
-                "cache_read_token": 2.4e-7
+                "prompt_token": 7.8e-7,
+                "completion_token": 0.0000039,
+                "cache_read_token": 1.56e-7
             }
         }
     },
@@ -5792,10 +5790,6 @@
             "parasail-fp8": {
                 "prompt_token": 1e-7,
                 "completion_token": 0.0000011
-            },
-            "siliconflow-fp8": {
-                "prompt_token": 1.4e-7,
-                "completion_token": 0.0000014
             }
         }
     },
@@ -6134,12 +6128,12 @@
         "model": "qwen/qwen3.5-flash-02-23",
         "cost": {
             "default": {
-                "prompt_token": 1e-7,
-                "completion_token": 4e-7
+                "prompt_token": 6.5e-8,
+                "completion_token": 2.6e-7
             },
             "alibaba": {
-                "prompt_token": 1e-7,
-                "completion_token": 4e-7
+                "prompt_token": 6.5e-8,
+                "completion_token": 2.6e-7
             }
         }
     },

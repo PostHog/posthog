@@ -3,6 +3,7 @@ import { combineUrl, encodeParams } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarProps } from '~/types'
 
@@ -95,7 +96,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
                             return props.uiHost.replace(/\/+$/, '')
                         }
                     } catch {
-                        // invalid URL, fall through to other sources
+                        toolbarLogger.warn('config', 'Invalid uiHost URL provided', { uiHost: props.uiHost })
                     }
                 }
 
@@ -141,6 +142,8 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
 
     listeners(({ values, actions }) => ({
         authenticate: async () => {
+            toolbarLogger.info('auth', 'Authentication initiated')
+
             // If the uiHost check found a problem, open the config modal instead of proceeding.
             if (values.authStatus === 'error') {
                 toolbarPosthogJS.capture('toolbar ui host config modal opened', { ui_host: values.uiHost })
@@ -185,6 +188,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
             window.location.href = `${values.uiHost}/toolbar_oauth/authorize/?redirect=${redirect}&code_challenge=${codeChallenge}`
         },
         logout: () => {
+            toolbarLogger.info('auth', 'User logged out')
             toolbarPosthogJS.capture('toolbar logout')
             localStorage.removeItem(LOCALSTORAGE_KEY)
             localStorage.removeItem(OAUTH_LOCALSTORAGE_KEY)
@@ -193,7 +197,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         },
         tokenExpired: () => {
             toolbarPosthogJS.capture('toolbar token expired')
-            console.warn('PostHog Toolbar session expired. Clearing session.')
+            toolbarLogger.warn('auth', 'Session expired, clearing session')
             if (values.props.source !== 'localstorage') {
                 lemonToast.error('Please re-authenticate to continue using the toolbar.')
             }
@@ -300,7 +304,7 @@ function restoreOAuthTokens(
             }
         }
     } catch {
-        // ignore localStorage errors
+        toolbarLogger.warn('auth', 'Failed to parse stored OAuth tokens from localStorage')
     }
 }
 
@@ -331,12 +335,18 @@ function initInstrumentation(
         }
     }
 
+    const loadStart = (window as any).__posthog_toolbar_load_start as number | undefined
+    delete (window as any).__posthog_toolbar_load_start
+    const loadDurationMs = loadStart ? Math.round(performance.now() - loadStart) : undefined
+
     toolbarPosthogJS.capture('toolbar loaded', {
         is_authenticated: values.isAuthenticated,
+        source: props.source || 'unknown',
         ui_host: values.uiHost,
         api_host: values.apiHost,
         ui_host_explicit: !!props.uiHost,
         ui_host_matches_api_host: values.uiHost === values.apiHost,
+        load_duration_ms: loadDurationMs,
     })
 }
 
@@ -462,17 +472,17 @@ async function exchangeCodeForTokens(
         const raw = localStorage.getItem(PKCE_STORAGE_KEY)
         pkceData = JSON.parse(raw || '{}')
     } catch {
-        // corrupted data
+        toolbarLogger.warn('auth', 'Failed to parse PKCE data from localStorage')
     }
     localStorage.removeItem(PKCE_STORAGE_KEY)
 
     if (!pkceData.verifier) {
-        console.warn('PostHog Toolbar: no PKCE verifier found, cannot exchange code')
+        toolbarLogger.warn('auth', 'No PKCE verifier found, cannot exchange code')
         actions.setAuthStatus('idle')
         return false
     }
     if (pkceData.ts && Date.now() - pkceData.ts > PKCE_TTL_MS) {
-        console.warn('PostHog Toolbar: PKCE verifier expired')
+        toolbarLogger.warn('auth', 'PKCE verifier expired')
         actions.setAuthStatus('idle')
         return false
     }
@@ -485,6 +495,7 @@ async function exchangeCodeForTokens(
         code_verifier: pkceData.verifier,
     })
 
+    const startTime = performance.now()
     try {
         const res = await fetch(tokenEndpoint, {
             method: 'POST',
@@ -493,15 +504,28 @@ async function exchangeCodeForTokens(
         })
         const data = await res.json()
         if (data.access_token && data.refresh_token) {
+            toolbarPosthogJS.capture('toolbar oauth exchange', {
+                status: 'success',
+                duration_ms: Math.round(performance.now() - startTime),
+            })
             actions.setOAuthTokens(data.access_token, data.refresh_token, clientId)
             return true
         }
-        console.error('PostHog Toolbar: token exchange failed', data.error || data)
+        toolbarPosthogJS.capture('toolbar oauth exchange', {
+            status: 'error',
+            error: data.error || 'unknown',
+            duration_ms: Math.round(performance.now() - startTime),
+        })
+        toolbarLogger.error('auth', 'Token exchange failed', { error: data.error || data })
         captureToolbarException(new Error(`Token exchange failed: ${data.error || 'unknown'}`), 'token_exchange')
         lemonToast.error('Authentication failed. Please try again.')
         return false
     } catch (err) {
-        console.error('PostHog Toolbar: token exchange network error', err)
+        toolbarPosthogJS.capture('toolbar oauth exchange', {
+            status: 'network_error',
+            duration_ms: Math.round(performance.now() - startTime),
+        })
+        toolbarLogger.error('auth', 'Token exchange network error')
         captureToolbarException(err, 'token_exchange_network')
         lemonToast.error('Authentication failed due to a network error. Please try again.')
         return false
@@ -543,6 +567,9 @@ export async function toolbarFetch(
         headers['Content-Type'] = 'application/json'
     }
 
+    const startTime = performance.now()
+    let didRetry = false
+
     let response = await fetch(fullUrl, {
         method,
         headers,
@@ -550,6 +577,7 @@ export async function toolbarFetch(
     })
 
     response = await withTokenRefresh(response, async (newAccessToken) => {
+        didRetry = true
         const retryHeaders: Record<string, string> = { Authorization: `Bearer ${newAccessToken}` }
         if (payload) {
             retryHeaders['Content-Type'] = 'application/json'
@@ -559,6 +587,17 @@ export async function toolbarFetch(
             headers: retryHeaders,
             ...(payload ? { body: JSON.stringify(payload) } : {}),
         })
+    })
+
+    const durationMs = Math.round(performance.now() - startTime)
+    const { pathname } = combineUrl(url)
+
+    toolbarPosthogJS.capture('toolbar api request', {
+        method,
+        pathname,
+        status: response.status,
+        duration_ms: durationMs,
+        did_token_retry: didRetry,
     })
 
     if (response.status === 403) {
