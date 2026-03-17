@@ -303,6 +303,7 @@ export function getDefaultConfig(): PluginsServerConfig {
         CLICKHOUSE_USER: 'default',
         CLICKHOUSE_PASSWORD: undefined,
         CLICKHOUSE_SECURE: false,
+        CLICKHOUSE_CA: undefined,
         SESSION_RECORDING_V2_REPLAY_EVENTS_KAFKA_TOPIC: 'clickhouse_session_replay_events',
         SESSION_RECORDING_V2_CONSOLE_LOG_ENTRIES_KAFKA_TOPIC: 'log_entries',
         SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT: 1000,

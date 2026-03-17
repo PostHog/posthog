@@ -22,6 +22,7 @@ import { LemonButton, LemonDivider, LemonMenu, LemonModal, LemonTable, Tooltip }
 
 import { ExportButton } from 'lib/components/ExportButton/ExportButton'
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { TZLabel } from 'lib/components/TZLabel'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -149,6 +150,11 @@ const cleanClickhouseType = (type: string | undefined): string | undefined => {
     }
 
     return type.replace(/\(.+\)+/, '')
+}
+
+const isDateTimeType = (type: string | undefined): boolean => {
+    const cleanedType = cleanClickhouseType(type)
+    return cleanedType === 'DateTime' || cleanedType === 'DateTime32' || cleanedType === 'DateTime64'
 }
 
 function RowDetailsModal({ isOpen, onClose, row, columns, columnKeys }: RowDetailsModalProps): JSX.Element {
@@ -336,6 +342,7 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
             },
             ...(response?.columns?.map((column: string, index: number) => {
                 const type = types?.[index]?.[1]
+                const isDateTimeColumn = isDateTimeType(type)
 
                 const maxContentLength = Math.max(
                     column.length,
@@ -416,6 +423,11 @@ export function OutputPane({ tabId }: { tabId: string }): JSX.Element {
                                 return <span className="text-red">Error parsing value</span>
                             }
                         }
+
+                        if (isDateTimeColumn && typeof value === 'string' && value) {
+                            return <TZLabel time={value} timestampStyle="absolute" />
+                        }
+
                         return value
                     },
                 }

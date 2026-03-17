@@ -80,7 +80,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
-from posthog.session_recordings.session_recording_v2_service import list_blocks
+from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
 from posthog.session_recordings.utils import (
     clean_prompt_whitespace,
     filter_from_params_to_query,
@@ -1344,7 +1344,7 @@ class SessionRecordingViewSet(
             timer("list_blocks__stream_blob_v2_to_client"),
             tracer.start_as_current_span("list_blocks__stream_blob_v2_to_client"),
         ):
-            blocks = list_blocks(recording)
+            blocks = await list_blocks_async(recording)
             if not blocks:
                 raise exceptions.NotFound("Session recording not found")
 
