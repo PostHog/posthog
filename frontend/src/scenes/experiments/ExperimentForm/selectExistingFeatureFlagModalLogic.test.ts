@@ -362,8 +362,9 @@ describe('selectExistingFeatureFlagModalLogic', () => {
 
             await expectLogic(logic, () => {
                 logic.actions.setFilters({ page: 2 })
+                logic.actions.loadFeatureFlags()
             })
-                .delay(350)
+                .toDispatchActions(['loadFeatureFlagsSuccess'])
                 .toMatchValues({
                     pagination: {
                         controlled: true,
