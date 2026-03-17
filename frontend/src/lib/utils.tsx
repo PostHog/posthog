@@ -813,7 +813,11 @@ export function humanFriendlyDuration(
         maxUnits,
         secondsPrecision,
         secondsFixed,
-    }: { maxUnits?: number; secondsPrecision?: number; secondsFixed?: number } = {}
+    }: {
+        maxUnits?: number
+        secondsPrecision?: number
+        secondsFixed?: number
+    } = {}
 ): string {
     // Convert `d` (seconds) to a human-readable duration string.
     // Example: `1d 10hrs 9mins 8s`
@@ -865,7 +869,9 @@ export function humanFriendlyDetailedTime(
     date: dayjs.Dayjs | string | null | undefined,
     formatDate = 'MMMM DD, YYYY',
     formatTime = 'h:mm:ss A',
-    options: { timestampStyle?: 'relative' | 'absolute' } = { timestampStyle: 'relative' }
+    options: { timestampStyle?: 'relative' | 'absolute' } = {
+        timestampStyle: 'relative',
+    }
 ): string {
     if (!date) {
         return 'Never'
@@ -1249,11 +1255,6 @@ export const dateMapping: DateMappingOption[] = [
         defaultInterval: 'month',
     },
 
-    {
-        key: 'This week',
-        values: ['-0wStart', '-0wEnd'],
-        defaultInterval: 'day',
-    },
     {
         key: 'Last week',
         values: ['-1wStart', '-1wEnd'],
@@ -1916,7 +1917,10 @@ export function shortTimeZone(timeZone?: string, atDate?: Date): string | null {
     const date = atDate ? new Date(atDate) : new Date()
     try {
         const localeTimeStringParts = date
-            .toLocaleTimeString('en-us', { timeZoneName: 'short', timeZone: timeZone || undefined })
+            .toLocaleTimeString('en-us', {
+                timeZoneName: 'short',
+                timeZone: timeZone || undefined,
+            })
             .replace('GMT', 'UTC')
             .split(' ')
         return localeTimeStringParts[localeTimeStringParts.length - 1]
@@ -1962,7 +1966,12 @@ export function resolveWebhookService(webhookUrl: string): string {
     return 'your webhook service'
 }
 
-export function hexToRGB(hex: string): { r: number; g: number; b: number; a: number } {
+export function hexToRGB(hex: string): {
+    r: number
+    g: number
+    b: number
+    a: number
+} {
     // Remove the "#" if it exists
     hex = hex.replace(/^#/, '')
 
@@ -2496,11 +2505,17 @@ export function getRelativeNextPath(nextPath: string | null | undefined, locatio
 export const formatPercentage = (x: number, options?: { precise?: boolean; compact?: boolean }): string => {
     let result: string
     if (options?.precise) {
-        result = (x / 100).toLocaleString(undefined, { style: 'percent', maximumFractionDigits: 1 })
+        result = (x / 100).toLocaleString(undefined, {
+            style: 'percent',
+            maximumFractionDigits: 1,
+        })
     } else if (x >= 1000) {
         result = humanFriendlyLargeNumber(x) + '%'
     } else {
-        result = (x / 100).toLocaleString(undefined, { style: 'percent', maximumSignificantDigits: 2 })
+        result = (x / 100).toLocaleString(undefined, {
+            style: 'percent',
+            maximumSignificantDigits: 2,
+        })
     }
     if (options?.compact) {
         result = result.replace(/\s+%/, '%')
