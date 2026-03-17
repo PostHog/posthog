@@ -60,6 +60,8 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
         columns: configurableColumns,
         setColumns: (columns: string[]) => {
             const allColumns = hasStarColumn ? ['*', ...columns] : columns
+            // Strip stale `columns` from queryWithDefaults — source.select is the source of truth
+            const { columns: _discardColumns, ...queryWithoutColumns } = query
             if (isEventsQuery(query.source) || isSessionsQuery(query.source)) {
                 let orderBy = query.source.orderBy
                 if (orderBy && orderBy.length > 0) {
@@ -72,7 +74,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                     }
                 }
                 setQuery?.({
-                    ...query,
+                    ...queryWithoutColumns,
                     source: {
                         ...query.source,
                         orderBy,
@@ -81,7 +83,7 @@ export function ColumnConfigurator({ query, setQuery }: ColumnConfiguratorProps)
                 })
             } else if (isActorsQuery(query.source) || isGroupsQuery(query.source)) {
                 setQuery?.({
-                    ...query,
+                    ...queryWithoutColumns,
                     source: {
                         ...query.source,
                         select: allColumns,

@@ -35,6 +35,12 @@ export type RecordingApiConfig = Pick<
         | 'SESSION_RECORDING_API_REDIS_PORT'
         | 'SESSION_RECORDING_KMS_ENDPOINT'
         | 'SESSION_RECORDING_DYNAMODB_ENDPOINT'
+        | 'CLICKHOUSE_HOST'
+        | 'CLICKHOUSE_DATABASE'
+        | 'CLICKHOUSE_USER'
+        | 'CLICKHOUSE_PASSWORD'
+        | 'CLICKHOUSE_SECURE'
+        | 'CLICKHOUSE_CA'
     > &
     Pick<
         SessionRecordingConfig,
@@ -45,3 +51,11 @@ export type RecordingApiConfig = Pick<
         | 'SESSION_RECORDING_V2_S3_BUCKET'
         | 'SESSION_RECORDING_V2_S3_PREFIX'
     >
+
+export interface RecordingBlock {
+    key: string
+    start_byte: number
+    end_byte: number
+    start_timestamp: string
+    end_timestamp: string
+}

@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { identifierToHuman } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -57,7 +58,7 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         updateStage: (stage: EarlyAccessFeatureStage) => ({ stage }),
         deleteEarlyAccessFeature: (earlyAccessFeatureId: EarlyAccessFeatureType['id']) => ({ earlyAccessFeatureId }),
         setActiveTab: (activeTab: EarlyAccessFeatureTabs) => ({ activeTab }),
-        showGAPromotionConfirmation: (onConfirm: () => void) => ({ onConfirm }),
+        showGAPromotionConfirmation: (onConfirm: (rolloutToAll: boolean) => void) => ({ onConfirm }),
     }),
     loaders(({ props, values, actions }) => ({
         earlyAccessFeature: {
@@ -228,6 +229,26 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        saveEarlyAccessFeatureFailure: ({ errorObject }) => {
+            // kea-loaders calls the failure action with (error.message, error), so:
+            //   `error` = the message string
+            //   `errorObject` = the full ApiError instance
+            // The ApiError has .attr and .detail from exceptions_hog's response format.
+            if (errorObject) {
+                const attr = errorObject.attr
+                const detail = errorObject.detail
+                if (attr && detail) {
+                    const message = detail.replace(/^This field/, identifierToHuman(attr))
+                    lemonToast.error(`Could not save early access feature: ${message}`)
+                    return
+                }
+                if (detail) {
+                    lemonToast.error(`Could not save early access feature: ${detail}`)
+                    return
+                }
+            }
+            lemonToast.error('Could not save early access feature.')
+        },
         saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }) => {
             lemonToast.success('Early access feature saved')
             earlyAccessFeaturesLogic.findMounted()?.actions.loadEarlyAccessFeatures()
@@ -241,14 +262,22 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         },
         showGAPromotionConfirmation: async ({ onConfirm }) => {
             const { LemonDialog } = await import('lib/lemon-ui/LemonDialog')
+            const React = await import('react')
+            const { GAPromotionDialogContent } = await import('./GAPromotionDialogContent')
+            let rolloutToAll = false
             LemonDialog.open({
                 title: 'Promote to General Availability?',
                 description:
                     'Once promoted to General Availability, this feature cannot be edited anymore. Users will have access to the stable version.',
+                content: React.createElement(GAPromotionDialogContent, {
+                    onChange: (checked: boolean) => {
+                        rolloutToAll = checked
+                    },
+                }),
                 primaryButton: {
                     children: 'Promote to GA',
                     type: 'primary',
-                    onClick: onConfirm,
+                    onClick: () => onConfirm(rolloutToAll),
                 },
                 secondaryButton: {
                     children: 'Cancel',
@@ -257,8 +286,12 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
             })
         },
         updateStage: async ({ stage }) => {
-            const save = (): void => {
-                actions.saveEarlyAccessFeature({ ...values.earlyAccessFeature, stage })
+            const save = (rolloutToAll?: boolean): void => {
+                actions.saveEarlyAccessFeature({
+                    ...values.earlyAccessFeature,
+                    stage,
+                    ...(rolloutToAll ? { rollout_to_all: true } : {}),
+                })
 
                 // Mark stage update task as completed when user changes stage
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.UpdateFeatureStage)

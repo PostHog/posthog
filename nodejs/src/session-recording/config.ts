@@ -11,6 +11,12 @@ export type SessionRecordingApiConfig = {
     SESSION_RECORDING_API_REDIS_PORT: number
     SESSION_RECORDING_KMS_ENDPOINT: string | undefined
     SESSION_RECORDING_DYNAMODB_ENDPOINT: string | undefined
+    CLICKHOUSE_HOST: string
+    CLICKHOUSE_DATABASE: string
+    CLICKHOUSE_USER: string
+    CLICKHOUSE_PASSWORD: string | undefined
+    CLICKHOUSE_SECURE: boolean
+    CLICKHOUSE_CA: string | undefined
 }
 
 export type SessionRecordingConfig = {
@@ -69,6 +75,12 @@ export function getDefaultSessionRecordingApiConfig(): SessionRecordingApiConfig
         SESSION_RECORDING_API_REDIS_PORT: 6379,
         SESSION_RECORDING_KMS_ENDPOINT: undefined,
         SESSION_RECORDING_DYNAMODB_ENDPOINT: undefined,
+        CLICKHOUSE_HOST: 'localhost',
+        CLICKHOUSE_DATABASE: 'default',
+        CLICKHOUSE_USER: 'default',
+        CLICKHOUSE_PASSWORD: undefined,
+        CLICKHOUSE_SECURE: false,
+        CLICKHOUSE_CA: undefined,
     }
 }
 
