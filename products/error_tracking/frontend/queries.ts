@@ -151,7 +151,7 @@ export const errorTrackingIssueEventsQuery = ({
     const group = filterGroup.values[0] as UniversalFiltersGroup
     const properties = [...group.values] as AnyPropertyFilter[]
 
-    let where_string = `properties.$exception_fingerprint in [${fingerprints.map((f) => `'${f}'`).join(', ')}]`
+    let where_string = `properties.$exception_fingerprint in [${fingerprints.map((f) => `'${f}'`).join(', ')}] AND isNotNull(properties.$exception_issue_id)`
     if (searchQuery) {
         // This is an ugly hack for the fact I don't think we support nested property filters in
         // the eventsquery

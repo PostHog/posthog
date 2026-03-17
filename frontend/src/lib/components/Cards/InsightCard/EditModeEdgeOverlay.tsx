@@ -13,6 +13,17 @@ const edgeOverlayBaseStyle: React.CSSProperties = {
     background: 'none',
 }
 
+const edges: { style: React.CSSProperties; cursor: React.CSSProperties['cursor'] }[] = [
+    // top – vertical resize cursor
+    { style: { left: 0, right: 0, top: -6, height: 12 }, cursor: 'ns-resize' },
+    // bottom – vertical resize cursor
+    { style: { left: 0, right: 0, bottom: -6, height: 12 }, cursor: 'ns-resize' },
+    // left – horizontal resize cursor
+    { style: { top: 0, bottom: 0, left: -6, width: 12 }, cursor: 'ew-resize' },
+    // right – horizontal resize cursor
+    { style: { top: 0, bottom: 0, right: -6, width: 12 }, cursor: 'ew-resize' },
+]
+
 export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnterEditMode }) => {
     const handlePress = (event: React.MouseEvent<HTMLDivElement>): void => {
         // Treat any press (click or drag attempt) as intent to edit
@@ -20,17 +31,6 @@ export const EditModeEdgeOverlay: React.FC<EditModeEdgeOverlayProps> = ({ onEnte
         event.stopPropagation()
         onEnterEditMode()
     }
-
-    const edges: { style: React.CSSProperties; cursor: React.CSSProperties['cursor'] }[] = [
-        // top – vertical resize cursor
-        { style: { left: 0, right: 0, top: -6, height: 12 }, cursor: 'ns-resize' },
-        // bottom – vertical resize cursor
-        { style: { left: 0, right: 0, bottom: -6, height: 12 }, cursor: 'ns-resize' },
-        // left – horizontal resize cursor
-        { style: { top: 0, bottom: 0, left: -6, width: 12 }, cursor: 'ew-resize' },
-        // right – horizontal resize cursor
-        { style: { top: 0, bottom: 0, right: -6, width: 12 }, cursor: 'ew-resize' },
-    ]
 
     return (
         <>

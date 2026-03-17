@@ -399,6 +399,7 @@ export interface PersonalAPIKeyType {
     id: string
     label: string
     value?: string
+    is_legacy_hashing: boolean
     mask_value?: string | null
     created_at: string
     last_used_at: string | null
@@ -462,6 +463,26 @@ export interface OrganizationDomainType {
     scim_enabled?: boolean
     scim_base_url?: string
     scim_bearer_token?: string
+}
+
+export interface SCIMRequestLogType {
+    id: string
+    request_method: string
+    request_path: string
+    request_headers: Record<string, string>
+    request_body: Record<string, any> | null
+    response_status: number
+    response_body: Record<string, any> | null
+    identity_provider: string
+    duration_ms: number | null
+    created_at: string
+}
+
+export interface PaginatedSCIMRequestLogs {
+    count: number
+    next: string | null
+    previous: string | null
+    results: SCIMRequestLogType[]
 }
 
 /** Member properties relevant at both organization and project level. */
@@ -1329,11 +1350,19 @@ export interface ActionFilter extends EntityFilter {
 
 export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
 
-export interface DataWarehouseFilter extends ActionFilter {
+export type DataWarehouseFilter = TrendsDataWarehouseFilter | LifecycleDatawarehouseFilter
+export interface TrendsDataWarehouseFilter extends ActionFilter {
+    table_name: string
     id_field: string
     timestamp_field: string
     distinct_id_field: string
+}
+
+export interface LifecycleDatawarehouseFilter extends ActionFilter {
     table_name: string
+    timestamp_field: string
+    aggregation_target_field: string
+    created_at_field: string
 }
 
 export const isDataWarehouseFilter = (filter: EntityFilter): filter is DataWarehouseFilter =>
@@ -4227,6 +4256,8 @@ export interface PersonProperty {
 }
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
+
+export type LabelGroupType = GroupTypeIndex | 'people'
 
 export interface GroupType {
     group_type: string

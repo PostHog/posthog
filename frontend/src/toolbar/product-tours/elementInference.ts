@@ -2,6 +2,8 @@ import { querySelectorAllDeep } from 'query-selector-shadow-dom'
 
 import { TAGS_TO_IGNORE } from 'lib/actionUtils'
 
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
+import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { TOOLBAR_ID, elementIsVisible, getParent } from '~/toolbar/utils'
 
 export interface SelectorGroup {
@@ -127,7 +129,7 @@ function getAncestorSelectors(element: HTMLElement, config: InferenceConfig): Ar
                 const matches = document.body.querySelectorAll(selector)
                 selectorMap.set(selector, matches.length)
             } catch {
-                console.warn('[ElementInference] Invalid selector during ancestor checks', selector, parent, element)
+                toolbarLogger.warn('element_inference', 'Invalid selector during ancestor checks', { selector })
                 continue
             }
         }
@@ -225,7 +227,7 @@ export function inferSelector(
             offset: number
         ): void => {
             if (offset < 0) {
-                console.warn('[ElementInference] Element not found in its own selector matches', css, element)
+                toolbarLogger.warn('element_inference', 'Element not found in its own selector matches', { css })
                 return
             }
             let group = map.get(cardinality)
@@ -269,7 +271,7 @@ export function inferSelector(
         }
 
         if (notextMap.size === 0 && textMap.size === 0) {
-            console.warn('[ElementInference] No selectors found for element', element)
+            toolbarLogger.warn('element_inference', 'No selectors found for element')
             return null
         }
 
@@ -294,7 +296,8 @@ export function inferSelector(
             },
         }
     } catch (error) {
-        console.error('[ElementInference] Error inferring selector:', error)
+        toolbarLogger.error('element_inference', 'Error inferring selector')
+        captureToolbarException(error, 'element_inference')
         return null
     }
 }
