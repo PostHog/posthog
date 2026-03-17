@@ -1,4 +1,6 @@
-import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, stringToPluginServerMode } from './types'
+import { CommonConfig } from './common/config'
+import { SessionRecordingConfig } from './session-recording/config'
+import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
 import { isDevEnv } from './utils/env-utils'
 
 // =============================================================================
@@ -86,7 +88,11 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
 
-export function getPluginServerCapabilities(config: PluginsServerConfig): PluginServerCapabilities {
+// TODO: SESSION_RECORDING_OVERFLOW_ENABLED leaks session recording config into capability resolution — remove once overflow is handled within the session recording consumer
+export function getPluginServerCapabilities(
+    config: Pick<CommonConfig, 'PLUGIN_SERVER_MODE' | 'NODEJS_CAPABILITY_GROUPS'> &
+        Pick<SessionRecordingConfig, 'SESSION_RECORDING_OVERFLOW_ENABLED'>
+): PluginServerCapabilities {
     const mode: PluginServerMode | null = config.PLUGIN_SERVER_MODE
         ? stringToPluginServerMode[config.PLUGIN_SERVER_MODE]
         : null

@@ -1,0 +1,47 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "description": {
+            "description": "Updated description.",
+            "type": "string"
+        },
+        "enabled": {
+            "description": "Enable or disable the evaluation.",
+            "type": "boolean"
+        },
+        "evaluation_config": {
+            "description": "Updated evaluation configuration.",
+            "properties": {
+                "prompt": {
+                    "type": "string"
+                },
+                "source": {
+                    "type": "string"
+                }
+            },
+            "type": "object"
+        },
+        "evaluationId": {
+            "description": "The UUID of the evaluation to update.",
+            "format": "uuid",
+            "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+            "type": "string"
+        },
+        "name": {
+            "description": "Updated name.",
+            "maxLength": 400,
+            "type": "string"
+        },
+        "output_config": {
+            "description": "Updated output configuration.",
+            "properties": {
+                "allows_na": {
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        }
+    },
+    "required": ["evaluationId"],
+    "type": "object"
+}
