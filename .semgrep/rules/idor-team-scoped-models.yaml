@@ -101,6 +101,7 @@ rules:
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
                               |ErrorTrackingSpikeDetectionConfig
+                              |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
@@ -271,6 +272,7 @@ rules:
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
                         |ErrorTrackingSpikeDetectionConfig
+                        |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
