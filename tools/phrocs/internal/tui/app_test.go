@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
+	"github.com/posthog/posthog/phrocs/internal/docker"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
@@ -29,6 +30,25 @@ func readyModel(t *testing.T, names ...string) Model {
 	m := New(mgr, 3, nil)
 	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return next.(Model)
+}
+
+func readyDockerModel(t *testing.T) Model {
+	t.Helper()
+	f := false
+	mgr := process.NewManager(&config.Config{
+		Procs: map[string]config.ProcConfig{
+			"docker": {Shell: "docker compose -f docker-compose.dev.yml up", Autostart: &f},
+		},
+		MouseScrollSpeed: 3,
+		Scrollback:       1000,
+	})
+	m := New(mgr, 3, nil)
+	next, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	dockerModel := next.(Model)
+	dockerModel.containers = []docker.DockerContainer{{Service: "web"}}
+	dockerModel.containerCursor = 1
+	dockerModel.containerLines = []string{"regular line", "error: failed"}
+	return dockerModel
 }
 
 func keypress(r rune) tea.KeyPressMsg {
@@ -458,6 +478,69 @@ func TestSearch_escClearsActiveSearch(t *testing.T) {
 	}
 	if len(m.searchMatches) != 0 {
 		t.Error("esc should clear search matches")
+	}
+}
+
+func TestSearch_dockerUsesContainerLogs(t *testing.T) {
+	m := readyDockerModel(t)
+
+	m = update(m, keypress('/'))
+	m = update(m, keypress('e'))
+	m = update(m, keypress('r'))
+	m = update(m, keypress('r'))
+
+	if len(m.searchMatches) != 1 {
+		t.Fatalf("want 1 docker log match for 'err', got %d", len(m.searchMatches))
+	}
+	if m.searchMatches[0] != 1 {
+		t.Fatalf("docker match index: want 1, got %d", m.searchMatches[0])
+	}
+}
+
+func TestSearch_dockerIgnoresProcessLines(t *testing.T) {
+	m := readyDockerModel(t)
+	p, _ := m.mgr.Get("docker")
+	p.AppendLine("error from process stream")
+
+	m = update(m, keypress('/'))
+	m = update(m, keypress('e'))
+	m = update(m, keypress('r'))
+	m = update(m, keypress('r'))
+
+	if len(m.searchMatches) != 1 {
+		t.Fatalf("want 1 match from container logs only, got %d", len(m.searchMatches))
+	}
+	if m.searchMatches[0] != 1 {
+		t.Fatalf("docker match index: want 1, got %d", m.searchMatches[0])
+	}
+}
+
+func TestSearch_dockerIncrementalLogLineUpdatesMatches(t *testing.T) {
+	m := readyDockerModel(t)
+	m.searchQuery = "err"
+	m.recomputeSearch()
+
+	m = update(m, docker.ContainerLogLineMsg{Service: "web", Line: "new error line"})
+
+	if len(m.searchMatches) != 2 {
+		t.Fatalf("want 2 matches after new docker log line, got %d", len(m.searchMatches))
+	}
+	if m.searchMatches[1] != 2 {
+		t.Fatalf("new docker match index: want 2, got %d", m.searchMatches[1])
+	}
+}
+
+func TestCopySelectedText_dockerUsesContainerLogs(t *testing.T) {
+	m := readyDockerModel(t)
+	m.containerLines = []string{"first", "\x1b[31msecond\x1b[0m", "third"}
+	m.copyMode = true
+	m.copyAnchor = 0
+	m.copyCursor = 1
+
+	got := m.copySelectedText()
+	want := "first\nsecond"
+	if got != want {
+		t.Fatalf("copySelectedText docker: want %q, got %q", want, got)
 	}
 }
 

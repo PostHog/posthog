@@ -138,7 +138,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.viewport.SetContent(m.buildContent())
 			// Don't auto-scroll while the user is selecting text in copy mode
-			if m.viewportAtBottom && !m.copyMode {
+			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
 				m.viewport.GotoBottom()
 			}
 			// Incrementally update search matches to avoid rescanning the full
@@ -179,13 +179,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case docker.ContainerLogLineMsg:
 		svc := m.selectedContainerService()
 		if m.isDockerMode() && svc == msg.Service {
-			if len(m.containerLines) >= docker.MaxContainerLogLines {
+			evicted := len(m.containerLines) >= docker.MaxContainerLogLines
+			if evicted {
 				m.containerLines = m.containerLines[1:]
 			}
 			m.containerLines = append(m.containerLines, msg.Line)
+			lineIndex := len(m.containerLines) - 1
 			m.viewport.SetContent(strings.Join(m.containerLines, "\n"))
-			if m.viewportAtBottom && !m.copyMode {
+			if m.viewportAtBottom && !m.copyMode && !m.searchMode {
 				m.viewport.GotoBottom()
+			}
+			if m.searchQuery != "" {
+				m.updateSearchForLine(msg.Line, lineIndex, evicted)
 			}
 		}
 
@@ -203,8 +208,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.searchMatches = nil
 				m.searchCursor = 0
 				m.viewport.StyleLineFunc = nil
+				m = m.applySize()
 			case s == "enter":
 				m.searchMode = false
+				m = m.applySize()
 				// Keep matches visible
 				if len(m.searchMatches) > 0 {
 					m.searchCursor = 0
@@ -433,14 +440,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.Search):
-			if m.isDockerMode() {
-				break
-			}
 			m.searchMode = true
 			m.searchQuery = ""
 			m.searchMatches = nil
 			m.searchCursor = 0
 			m.viewport.StyleLineFunc = nil
+			m = m.applySize()
 
 		case key.Matches(msg, m.keys.SearchNext):
 			if len(m.searchMatches) > 0 {
@@ -466,9 +471,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 
 		case key.Matches(msg, m.keys.CopyMode):
-			if m.isDockerMode() {
-				break
-			}
 			// Enter copy mode
 			m.copyMode = true
 			// Expand the viewport to full width before recording the cursor
@@ -556,7 +558,7 @@ func (m Model) View() tea.View {
 		return v
 	}
 	var middle string
-	if m.copyMode {
+	if m.copyMode || m.searchMode {
 		middle = m.renderOutput()
 	} else if m.isDockerMode() {
 		middle = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), m.renderOutput(), m.renderContainerSidebar())
@@ -572,7 +574,7 @@ func (m Model) View() tea.View {
 	v.AltScreen = true
 	// Disable mouse capture in copy mode so the terminal handles native text
 	// selection within the expanded output pane
-	if m.copyMode {
+	if m.copyMode || m.searchMode {
 		v.MouseMode = tea.MouseModeNone
 	} else {
 		v.MouseMode = tea.MouseModeCellMotion
@@ -602,7 +604,7 @@ func (m Model) applySize() Model {
 	// The PTY width is always the sidebar-adjusted value so processes don't
 	// receive a spurious resize when the user enters or exits copy mode
 	ptyW := m.width - sidebarWidth
-	if m.isDockerMode() && !m.copyMode {
+	if m.isDockerMode() && !m.copyMode && !m.searchMode {
 		ptyW -= containerSidebarWidth
 	}
 	if ptyW < 1 {
@@ -610,7 +612,7 @@ func (m Model) applySize() Model {
 	}
 	// Reduce the viewport width to account for borders
 	vpW := ptyW - horizontalBorderCount
-	if m.copyMode {
+	if m.copyMode || m.searchMode {
 		vpW = m.width - horizontalBorderCount
 	}
 
@@ -742,11 +744,10 @@ func (m *Model) ensureCopyCursorVisible() {
 // Returns the plain text of the selected line range, with
 // ANSI escape codes stripped so the clipboard gets clean text.
 func (m Model) copySelectedText() string {
-	p := m.activeProc()
-	if p == nil {
+	lines := m.searchableLines()
+	if len(lines) == 0 {
 		return ""
 	}
-	lines := p.Lines()
 	anchor := m.copyAnchor
 	if anchor < 0 {
 		anchor = m.copyCursor
@@ -771,13 +772,12 @@ func (m *Model) recomputeSearch() {
 		m.viewport.StyleLineFunc = nil
 		return
 	}
-	p := m.activeProc()
-	if p == nil {
+	lines := m.searchableLines()
+	if len(lines) == 0 {
 		m.searchMatches = nil
 		return
 	}
 	query := strings.ToLower(m.searchQuery)
-	lines := p.Lines()
 	m.searchMatches = nil
 	for i, line := range lines {
 		if strings.Contains(strings.ToLower(ansi.Strip(line)), query) {
@@ -820,7 +820,11 @@ func (m *Model) applySearchStyle() {
 // Adjusts existing indices for scrollback eviction, then checks the new line.
 // This keeps search O(M) per incoming line rather than O(N).
 func (m *Model) updateSearchForNewLine(msg process.OutputMsg) {
-	if msg.Evicted && len(m.searchMatches) > 0 {
+	m.updateSearchForLine(msg.Line, msg.LineIndex, msg.Evicted)
+}
+
+func (m *Model) updateSearchForLine(line string, lineIndex int, evicted bool) {
+	if evicted && len(m.searchMatches) > 0 {
 		// The line at index 0 was dropped; remove it from matches if present.
 		if m.searchMatches[0] == 0 {
 			m.searchMatches = m.searchMatches[1:]
@@ -835,10 +839,21 @@ func (m *Model) updateSearchForNewLine(msg process.OutputMsg) {
 			m.searchMatches[i]--
 		}
 	}
-	if strings.Contains(strings.ToLower(ansi.Strip(msg.Line)), strings.ToLower(m.searchQuery)) {
-		m.searchMatches = append(m.searchMatches, msg.LineIndex)
+	if strings.Contains(strings.ToLower(ansi.Strip(line)), strings.ToLower(m.searchQuery)) {
+		m.searchMatches = append(m.searchMatches, lineIndex)
 	}
 	m.applySearchStyle()
+}
+
+func (m Model) searchableLines() []string {
+	if m.isDockerMode() {
+		return m.containerLines
+	}
+	p := m.activeProc()
+	if p == nil {
+		return nil
+	}
+	return p.Lines()
 }
 
 // Scrolls the viewport so the current search match is centered.
@@ -1071,6 +1086,9 @@ func (m Model) loadContainerView() Model {
 		m.containerLogStream = docker.StartContainerLogStream(m.composeFile, svc, m.mgr.Send())
 		m.viewport.SetContent("")
 		m.viewportAtBottom = true
+	}
+	if m.searchQuery != "" {
+		m.recomputeSearch()
 	}
 	return m
 }
