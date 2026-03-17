@@ -2,15 +2,19 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 
 import {
     createDefaultPropertyFilter,
+    PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE,
     taxonomicFilterTypeToPropertyFilterType,
 } from 'lib/components/PropertyFilters/utils'
+import { recentTaxonomicFiltersLogic } from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import { sessionRecordingSavedFiltersLogic } from 'scenes/session-recordings/filters/sessionRecordingSavedFiltersLogic'
+import { teamLogic } from 'scenes/teamLogic'
 
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { EntityTypes } from '~/types'
 import {
     ActionFilter,
+    AnyPropertyFilter,
     EventPropertyFilter,
     FeaturePropertyFilter,
     FilterLogicalOperator,
@@ -35,6 +39,29 @@ function isApplicableSavedFilter(
     item: unknown
 ): item is SessionRecordingPlaylistType & { filters: NonNullable<SessionRecordingPlaylistType['filters']> } {
     return typeof item === 'object' && item !== null && 'short_id' in item && 'filters' in item && item.filters != null
+}
+
+function recordRecentFromPropertyFilter(propertyFilter: AnyPropertyFilter): void {
+    if (!recentTaxonomicFiltersLogic.isMounted()) {
+        return
+    }
+    const key = 'key' in propertyFilter ? propertyFilter.key : undefined
+    const filterType = 'type' in propertyFilter ? propertyFilter.type : undefined
+    if (!key || !filterType) {
+        return
+    }
+    const groupType = PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[filterType]
+    if (!groupType) {
+        return
+    }
+    recentTaxonomicFiltersLogic.actions.recordRecentFilter(
+        groupType,
+        groupType,
+        key,
+        { name: key },
+        teamLogic.values.currentTeamId ?? undefined,
+        propertyFilter
+    )
 }
 
 export const DEFAULT_UNIVERSAL_GROUP_FILTER: UniversalFiltersGroup = {
@@ -145,7 +172,16 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
     listeners(({ props, values, actions }) => ({
         setGroupType: () => props.onChange(values.filterGroup),
         setGroupValues: () => props.onChange(values.filterGroup),
-        replaceGroupValue: () => props.onChange(values.filterGroup),
+        replaceGroupValue: ({ value }) => {
+            props.onChange(values.filterGroup)
+            if (typeof value === 'object' && 'key' in value && 'type' in value && 'value' in value) {
+                const filterValue = (value as AnyPropertyFilter).value
+                const hasValue = filterValue && !(Array.isArray(filterValue) && filterValue.length === 0)
+                if (hasValue) {
+                    recordRecentFromPropertyFilter(value as AnyPropertyFilter)
+                }
+            }
+        },
         removeGroupValue: () => props.onChange(values.filterGroup),
 
         addGroupFilter: ({ taxonomicGroup, propertyKey, item }) => {
@@ -196,6 +232,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                 } else {
                     newValues.push(urlFilter)
                 }
+                recordRecentFromPropertyFilter(urlFilter)
                 actions.setGroupValues(newValues)
                 return
             }
@@ -221,6 +258,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                 } else {
                     newValues.push(screenNameFilter)
                 }
+                recordRecentFromPropertyFilter(screenNameFilter)
                 actions.setGroupValues(newValues)
                 return
             }
@@ -239,6 +277,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                     properties: [elTextFilter],
                 }
                 newValues.push(eventFilter)
+                recordRecentFromPropertyFilter(elTextFilter)
                 actions.setGroupValues(newValues)
                 return
             }
@@ -251,6 +290,7 @@ export const universalFiltersLogic = kea<universalFiltersLogicType>([
                     type: PropertyFilterType.Person,
                 }
                 newValues.push(emailFilter)
+                recordRecentFromPropertyFilter(emailFilter)
                 actions.setGroupValues(newValues)
                 return
             }

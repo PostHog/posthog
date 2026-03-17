@@ -4,6 +4,11 @@ import { loaders } from 'kea-loaders'
 import { combineUrl } from 'kea-router'
 
 import api from 'lib/api'
+import { formatPropertyLabel } from 'lib/components/PropertyFilters/utils'
+import {
+    hasRecentContext,
+    recentTaxonomicFiltersLogic,
+} from 'lib/components/TaxonomicFilter/recentTaxonomicFiltersLogic'
 import { MAX_TOP_MATCHES_PER_GROUP, taxonomicFilterLogic } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import {
     InfiniteListLogicProps,
@@ -132,9 +137,19 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
     connect((props: InfiniteListLogicProps) => ({
         values: [
             taxonomicFilterLogic(props),
-            ['searchQuery', 'value', 'groupType', 'taxonomicGroups', 'topMatchItemsWithSkeletons', 'anyGroupLoading'],
+            [
+                'searchQuery',
+                'value',
+                'groupType',
+                'taxonomicGroups',
+                'taxonomicGroupTypes',
+                'topMatchItemsWithSkeletons',
+                'anyGroupLoading',
+            ],
             teamLogic,
             ['currentTeamId'],
+            recentTaxonomicFiltersLogic,
+            ['recentFilterItems'],
         ],
         actions: [taxonomicFilterLogic(props), ['setSearchQuery', 'selectItem', 'infiniteListResultsReceived']],
     })),
@@ -323,6 +338,21 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             (listGroupType: TaxonomicFilterGroupType): boolean =>
                 listGroupType === TaxonomicFilterGroupType.SuggestedFilters,
         ],
+        contextFilteredRecentItems: [
+            (s) => [s.recentFilterItems, s.taxonomicGroupTypes],
+            (
+                recentFilterItems: TaxonomicDefinitionTypes[],
+                taxonomicGroupTypes: TaxonomicFilterGroupType[]
+            ): TaxonomicDefinitionTypes[] => {
+                if (!recentFilterItems?.length) {
+                    return []
+                }
+                const availableTypes = new Set(taxonomicGroupTypes)
+                return recentFilterItems.filter(
+                    (item) => hasRecentContext(item) && availableTypes.has(item._recentContext.sourceGroupType)
+                )
+            },
+        ],
         allowNonCapturedEvents: [
             () => [(_, props) => props.allowNonCapturedEvents],
             (allowNonCapturedEvents: boolean | undefined) => allowNonCapturedEvents ?? false,
@@ -423,6 +453,11 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
         rawLocalItems: [
             (selectors) => [
                 (state, props: InfiniteListLogicProps) => {
+                    // For RecentFilters, use context-filtered items
+                    if (props.listGroupType === TaxonomicFilterGroupType.RecentFilters) {
+                        return selectors.contextFilteredRecentItems(state, props)
+                    }
+
                     const taxonomicGroups = selectors.taxonomicGroups(state)
                     const group = taxonomicGroups.find((g) => g.type === props.listGroupType)
 
@@ -461,15 +496,20 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
 
                 const haystack = (rawLocalItems || []).map((item) => {
                     const itemGroup = getItemGroup(item, taxonomicGroups, group)
+                    const recentLabel =
+                        hasRecentContext(item) && item._recentContext.propertyFilter
+                            ? formatPropertyLabel(item._recentContext.propertyFilter, {})
+                            : undefined
                     return {
                         name: itemGroup?.getName?.(item) || '',
                         posthogName: asPostHogName(itemGroup, item),
+                        recentLabel,
                         item: item,
                     }
                 })
 
                 return new Fuse(haystack, {
-                    keys: ['name', 'posthogName'],
+                    keys: ['name', 'posthogName', 'recentLabel'],
                     threshold: 0.3,
                     ignoreLocation: true,
                 })
@@ -513,14 +553,30 @@ export const infiniteListLogic = kea<infiniteListLogicType>([
             },
         ],
         items: [
-            (s) => [s.remoteItems, s.localItems, s.listGroupType, s.topMatchItemsWithSkeletons, s.searchQuery],
-            (remoteItems, localItems, listGroupType, topMatchItemsWithSkeletons, searchQuery) => {
-                const topMatches =
-                    listGroupType === TaxonomicFilterGroupType.SuggestedFilters ? topMatchItemsWithSkeletons : []
-                const combinedResults = [...localItems.results, ...remoteItems.results, ...topMatches]
+            (s) => [
+                s.remoteItems,
+                s.localItems,
+                s.listGroupType,
+                s.topMatchItemsWithSkeletons,
+                s.searchQuery,
+                s.contextFilteredRecentItems,
+            ],
+            (
+                remoteItems,
+                localItems,
+                listGroupType,
+                topMatchItemsWithSkeletons,
+                searchQuery,
+                contextFilteredRecentItems
+            ) => {
+                const isSuggested = listGroupType === TaxonomicFilterGroupType.SuggestedFilters
+                const topMatches = isSuggested ? topMatchItemsWithSkeletons : []
+                const recentPrefix = isSuggested && !searchQuery ? (contextFilteredRecentItems || []).slice(0, 3) : []
+                const combinedResults = [...recentPrefix, ...localItems.results, ...remoteItems.results, ...topMatches]
                 return {
                     results: searchQuery ? promoteMatchingProperties(combinedResults, searchQuery) : combinedResults,
                     count:
+                        recentPrefix.length +
                         localItems.count +
                         remoteItems.count +
                         topMatches.filter((item) => !isSkeletonItem(item)).length,
