@@ -64,7 +64,7 @@ class TestTrack:
             ),
             patch.object(telemetry, "_post_event") as mock_post,
         ):
-            telemetry.track("command_invoked", {"command": "test"})
+            telemetry.track("command_completed", {"command": "test"})
             telemetry.flush(timeout=1.0)
             mock_post.assert_called_once()
             host, payload = mock_post.call_args[0]
@@ -78,7 +78,7 @@ class TestTrack:
             patch.object(telemetry, "get_config_path", return_value=config_path),
             patch.object(telemetry, "_post_event") as mock_post,
         ):
-            telemetry.track("command_invoked")
+            telemetry.track("command_completed")
             mock_post.assert_not_called()
 
     def test_noops_when_notice_not_shown(self, tmp_path):
@@ -88,7 +88,7 @@ class TestTrack:
             patch.object(telemetry, "get_config_path", return_value=config_path),
             patch.object(telemetry, "_post_event") as mock_post,
         ):
-            telemetry.track("command_invoked")
+            telemetry.track("command_completed")
             mock_post.assert_not_called()
 
 
@@ -169,7 +169,7 @@ class TestTelemetryCommands:
 
 
 class TestInvokeTelemetry:
-    def test_invoke_fires_telemetry_for_command(self, tmp_path):
+    def test_invoke_fires_started_and_invoked_events(self, tmp_path):
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True}))
         with (
@@ -185,10 +185,14 @@ class TestInvokeTelemetry:
             result = runner.invoke(cli, ["quickstart"])
             telemetry.flush(timeout=1.0)
             assert result.exit_code == 0
-            mock_post.assert_called_once()
-            _, payload = mock_post.call_args[0]
-            assert payload["event"] == "command_invoked"
-            props = payload["properties"]
-            assert props["command"] == "quickstart"
-            assert props["exit_code"] == 0
-            assert "duration_s" in props
+
+            assert mock_post.call_count == 2
+            payloads = [call[0][1] for call in mock_post.call_args_list]
+
+            started = next(p for p in payloads if p["event"] == "command_started")
+            assert started["properties"]["command"] == "quickstart"
+
+            invoked = next(p for p in payloads if p["event"] == "command_completed")
+            assert invoked["properties"]["command"] == "quickstart"
+            assert invoked["properties"]["exit_code"] == 0
+            assert "duration_s" in invoked["properties"]

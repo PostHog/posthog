@@ -143,6 +143,11 @@ def cli(ctx: click.Context) -> None:
         if ctx.invoked_subcommand != "telemetry:off":
             telemetry.show_first_run_notice_if_needed()
 
+    # Fire early so long-running commands (e.g. hogli start) are always counted
+    # even if the process is killed without a clean exit.
+    if ctx.invoked_subcommand:
+        telemetry.track("command_started", {"command": ctx.invoked_subcommand})
+
 
 @cli.command(name="quickstart", help="Show getting started with PostHog development")
 def quickstart() -> None:
@@ -306,7 +311,7 @@ except ImportError:
 
 
 def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
-    """Send a command_invoked telemetry event. Never raises."""
+    """Send a command_completed telemetry event. Never raises."""
     command = ctx.invoked_subcommand
     # Skip when CLI itself errors before reaching a subcommand (e.g. bad flag)
     if command is None and exit_code != 0:
@@ -331,7 +336,7 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
             "in_flox": os.environ.get("FLOX_ENV") is not None,
             "is_worktree": (REPO_ROOT / ".git").is_file(),
         }
-        telemetry.track("command_invoked", props)
+        telemetry.track("command_completed", props)
     except Exception:
         pass
 
