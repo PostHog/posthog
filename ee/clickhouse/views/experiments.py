@@ -390,8 +390,13 @@ class EnterpriseExperimentsViewSet(
     def duplicate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         source_experiment: Experiment = self.get_object()
 
+        legacy_kinds = ("ExperimentTrendsQuery", "ExperimentFunnelsQuery")
         all_metrics = (source_experiment.metrics or []) + (source_experiment.metrics_secondary or [])
-        if any(m.get("kind") in ("ExperimentTrendsQuery", "ExperimentFunnelsQuery") for m in all_metrics):
+        has_legacy_inline = any(m.get("kind") in legacy_kinds for m in all_metrics)
+        has_legacy_saved = source_experiment.experimenttosavedmetric_set.filter(
+            saved_metric__query__kind__in=legacy_kinds
+        ).exists()
+        if has_legacy_inline or has_legacy_saved:
             return Response(
                 {"detail": "Duplication is not supported for experiments using legacy metrics."},
                 status=400,
