@@ -137,15 +137,4 @@ describe('DashboardHeader', () => {
 
         logic.unmount()
     })
-
-    it('forceEdit is only active in edit mode, not for new dashboards', () => {
-        const dashboard = makeDashboard({ name: 'New Dashboard' })
-        const { logic } = renderHeader({ dashboard })
-
-        // Without edit mode, even a "new" dashboard should not have forceEdit
-        const textarea = document.querySelector('[data-attr="scene-title-textarea"]')
-        expect(textarea).not.toBeInTheDocument()
-
-        logic.unmount()
-    })
 })

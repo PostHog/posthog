@@ -34,6 +34,7 @@ const sidebarWidth = 24
 const headerHeight = 1
 const footerHeightShort = 3
 const footerHeightFull = 5
+const horizontalBorderCount = 3
 
 var (
 	// Header
@@ -81,10 +82,24 @@ var (
 			Foreground(colorGrey).
 			PaddingLeft(1)
 
+	// Scroll position indicator (floating top-right of output pane)
+	scrollIndicatorStyle = lipgloss.NewStyle().
+				Foreground(colorBlack).
+				Background(colorYellow).
+				Padding(0, 1)
+
 	// Copy mode
 	copyModeStyle = lipgloss.NewStyle().
 			Background(colorBlue).
 			Foreground(colorWhite)
+
+	// Search mode
+	searchMatchStyle = lipgloss.NewStyle().
+				Background(colorDarkGrey)
+
+	searchCurrentMatchStyle = lipgloss.NewStyle().
+				Background(colorYellow).
+				Foreground(colorBlack)
 )
 
 func statusIconChar(s process.Status) string {

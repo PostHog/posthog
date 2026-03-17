@@ -2,11 +2,12 @@ import json
 import hashlib
 import logging
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, get_args
 from urllib.parse import urlencode
 
 from django.db.models import Q, QuerySet
 
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, serializers, viewsets
 from rest_framework.decorators import action
 from rest_framework.pagination import BasePagination, CursorPagination, PageNumberPagination
@@ -16,7 +17,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.exceptions_capture import capture_exception
 from posthog.models import NotificationViewed
-from posthog.models.activity_logging.activity_log import ActivityLog, apply_activity_visibility_restrictions
+from posthog.models.activity_logging.activity_log import (
+    ActivityLog,
+    ActivityScope,
+    apply_activity_visibility_restrictions,
+)
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks import exporter
 
@@ -91,12 +96,55 @@ class ActivityLogPagination(BasePagination):
             return self.cursor_pagination.get_paginated_response(data)
 
 
+class ActivityLogScopeField(serializers.ChoiceField):
+    def __init__(self, **kwargs):
+        choices = get_args(ActivityScope)
+        super().__init__(choices=choices, **kwargs)
+
+
+class ActivityLogQueryParamsSerializer(serializers.Serializer):
+    user = serializers.UUIDField(
+        required=False,
+        help_text="Filter by user UUID who performed the action.",
+    )
+    scope = ActivityLogScopeField(
+        required=False,
+        help_text='Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".',
+    )
+    scopes = serializers.ListField(
+        child=ActivityLogScopeField(),
+        required=False,
+        help_text='Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".',
+    )
+    item_id = serializers.CharField(
+        required=False,
+        help_text="Filter by the ID of the affected resource.",
+    )
+    page = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="Page number for pagination. When provided, uses page-based pagination ordered by most recent first.",
+    )
+    page_size = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=1000,
+        default=100,
+        help_text="Number of results per page (default: 100, max: 1000). Only used with page-based pagination.",
+    )
+
+
+@extend_schema(tags=["activity_logs"])
 class ActivityLogViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet, mixins.ListModelMixin):
     scope_object = "activity_log"
     queryset = ActivityLog.objects.all()
     serializer_class = ActivityLogSerializer
     pagination_class = ActivityLogPagination
     filter_rewrite_rules = {"project_id": "team_id"}
+
+    @extend_schema(parameters=[ActivityLogQueryParamsSerializer])
+    def list(self, request, *args, **kwargs):
+        return super().list(request, *args, **kwargs)
 
     def _should_skip_parents_filter(self) -> bool:
         """
