@@ -3,6 +3,10 @@ import {
     KAFKA_LOGS_INGESTION,
     KAFKA_LOGS_INGESTION_DLQ,
     KAFKA_LOGS_INGESTION_OVERFLOW,
+    KAFKA_TRACES_CLICKHOUSE,
+    KAFKA_TRACES_INGESTION,
+    KAFKA_TRACES_INGESTION_DLQ,
+    KAFKA_TRACES_INGESTION_OVERFLOW,
 } from '../config/kafka-topics'
 import { isProdEnv } from '../utils/env-utils'
 
