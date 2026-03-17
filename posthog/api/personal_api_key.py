@@ -146,9 +146,7 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         ret = super().to_representation(instance)
-        # TRICKY: Legacy Personal API keys have scopes=None and are shown as ["*"].
-        # An empty list [] is NOT legacy and must be preserved as-is.
-        ret["scopes"] = ["*"] if ret["scopes"] is None else ret["scopes"]
+        ret["scopes"] = ret["scopes"] or []
         return ret
 
     def create(self, validated_data: dict, **kwargs) -> PersonalAPIKey:
