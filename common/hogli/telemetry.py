@@ -4,7 +4,7 @@ Events are sent via a direct HTTP POST to PostHog's /capture endpoint.
 No SDK is used because the `posthog` package name collides with the repo module.
 
 Opt-out precedence:
-    POSTHOG_TELEMETRY_OPT_OUT=1 -> DO_NOT_TRACK=1 -> config enabled: false
+    CI=* -> POSTHOG_TELEMETRY_OPT_OUT=1 -> DO_NOT_TRACK=1 -> config enabled: false
 
 Config file: ~/.config/posthog/hogli_telemetry.json
 """
@@ -65,6 +65,8 @@ def is_enabled() -> bool:
 
     Checks, in order: POSTHOG_TELEMETRY_OPT_OUT, DO_NOT_TRACK, config file.
     """
+    if os.environ.get("CI"):
+        return False
     if os.environ.get("POSTHOG_TELEMETRY_OPT_OUT") == "1":
         return False
     if os.environ.get("DO_NOT_TRACK") == "1":

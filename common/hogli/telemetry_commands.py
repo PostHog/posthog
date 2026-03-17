@@ -17,7 +17,6 @@ def telemetry_on() -> None:
 def telemetry_off() -> None:
     telemetry.set_enabled(False)
     click.echo("Telemetry disabled.")
-    click.echo("Tip: set POSTHOG_TELEMETRY_OPT_OUT=1 in CI environments.")
 
 
 @cli.command(name="telemetry:status", help="Show current telemetry settings")
@@ -30,7 +29,9 @@ def telemetry_status() -> None:
     click.echo(f"Telemetry: {'enabled' if enabled else 'disabled'}")
 
     # Show which mechanism controls the state
-    if os.environ.get("POSTHOG_TELEMETRY_OPT_OUT") == "1":
+    if os.environ.get("CI"):
+        click.echo("Controlled by: CI environment detected")
+    elif os.environ.get("POSTHOG_TELEMETRY_OPT_OUT") == "1":
         click.echo("Controlled by: POSTHOG_TELEMETRY_OPT_OUT=1")
     elif os.environ.get("DO_NOT_TRACK") == "1":
         click.echo("Controlled by: DO_NOT_TRACK=1")
