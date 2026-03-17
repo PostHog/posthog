@@ -1,12 +1,15 @@
 import { HogBytecode } from '../cdp/types'
 import { PropertyFilter } from '../types'
 
+export type EvaluationStatus = 'active' | 'paused'
+
 export interface Evaluation {
     id: string
     team_id: number
     name: string
     description?: string
     enabled: boolean
+    status: EvaluationStatus
     evaluation_type: string
     evaluation_config: Record<string, any>
     output_type: string

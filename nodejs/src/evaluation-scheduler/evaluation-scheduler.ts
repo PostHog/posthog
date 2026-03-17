@@ -176,7 +176,7 @@ export type EvaluationMatchResult =
 
 export class EvaluationMatcher {
     async shouldTriggerEvaluation(event: RawKafkaEvent, evaluation: Evaluation): Promise<EvaluationMatchResult> {
-        if (!evaluation.enabled) {
+        if (!evaluation.enabled || evaluation.status === 'paused') {
             return { matched: false, reason: 'disabled' }
         }
 

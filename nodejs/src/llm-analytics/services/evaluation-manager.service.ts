@@ -10,6 +10,7 @@ const EVALUATION_FIELDS = [
     'team_id',
     'name',
     'enabled',
+    'status',
     'evaluation_type',
     'evaluation_config',
     'output_type',
@@ -105,7 +106,7 @@ export class EvaluationManagerService {
         logger.debug('[EvaluationManager]', 'Fetching team evaluations', { teamIds })
         const response = await this.postgres.query<EvaluationInfo>(
             PostgresUse.COMMON_READ,
-            `SELECT id, team_id FROM llm_analytics_evaluation WHERE enabled = TRUE AND deleted = FALSE AND team_id = ANY($1)`,
+            `SELECT id, team_id FROM llm_analytics_evaluation WHERE enabled = TRUE AND status = 'active' AND deleted = FALSE AND team_id = ANY($1)`,
             [teamIds],
             'fetchAllTeamEvaluations'
         )

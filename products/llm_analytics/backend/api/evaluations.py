@@ -158,14 +158,29 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 model_config_data, instance.team_id
             )
 
-        # When a user re-enables a paused evaluation, reset the failure tracking state
-        if validated_data.get("enabled") is True and instance.status == Evaluation.Status.PAUSED:
+        # When a user re-enables a paused evaluation, reset the failure tracking
+        # state and backfill events that were missed during the pause window.
+        is_resuming = validated_data.get("enabled") is True and instance.status == Evaluation.Status.PAUSED
+        paused_at = instance.paused_at
+
+        if is_resuming:
             validated_data["status"] = Evaluation.Status.ACTIVE
             validated_data["consecutive_failures"] = 0
             validated_data["paused_reason"] = None
             validated_data["paused_at"] = None
 
-        return super().update(instance, validated_data)
+        result = super().update(instance, validated_data)
+
+        if is_resuming and paused_at is not None:
+            from posthog.tasks.backfill_paused_evaluations import backfill_paused_evaluation_events
+
+            backfill_paused_evaluation_events.delay(
+                evaluation_id=str(instance.id),
+                team_id=instance.team_id,
+                paused_at_iso=paused_at.isoformat(),
+            )
+
+        return result
 
 
 class EvaluationFilter(django_filters.FilterSet):

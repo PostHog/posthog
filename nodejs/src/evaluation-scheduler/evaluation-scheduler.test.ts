@@ -240,6 +240,15 @@ describe('Evaluation Scheduler', () => {
             expect(result).toEqual({ matched: false, reason: 'disabled' })
         })
 
+        it('returns disabled when evaluation is paused', async () => {
+            const event = createAiGenerationEvent(teamId)
+            const evaluation = createEvaluation({ enabled: true, status: 'paused' })
+
+            const result = await matcher.shouldTriggerEvaluation(event, evaluation)
+
+            expect(result).toEqual({ matched: false, reason: 'disabled' })
+        })
+
         it('returns no_conditions when evaluation has no conditions', async () => {
             const event = createAiGenerationEvent(teamId)
             const evaluation = createEvaluation({ enabled: true, conditions: [] })

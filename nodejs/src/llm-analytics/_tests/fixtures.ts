@@ -13,6 +13,7 @@ export const createEvaluation = (evaluation: Partial<Evaluation>): Evaluation =>
         team_id: 1,
         name: 'Test Evaluation',
         enabled: true,
+        status: 'active',
         evaluation_type: 'llm_judge',
         evaluation_config: { prompt: 'Test prompt' },
         output_type: 'boolean',
