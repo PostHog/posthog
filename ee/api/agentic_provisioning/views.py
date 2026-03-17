@@ -20,6 +20,7 @@ import structlog
 import posthoganalytics
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -365,6 +366,7 @@ def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
 @login_required
 def agentic_authorize(request: Any) -> HttpResponseBase:
     state = request.GET.get("state", "")
+    scope = request.GET.get("scope", "")
     if not state:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=missing_state")
 
@@ -376,24 +378,81 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
     if request.user.email != pending["email"]:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
 
+    user = request.user
+    memberships = list(user.organization_memberships.select_related("organization").all())
+    if not memberships:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
+
+    non_demo_teams: list[Team] = []
+    for membership in memberships:
+        non_demo_teams.extend(membership.organization.teams.filter(is_demo=False))
+
+    if not non_demo_teams:
+        return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_team")
+
+    if len(memberships) == 1 and len(non_demo_teams) == 1:
+        cache.delete(pending_key)
+
+        organization = memberships[0].organization
+        team = non_demo_teams[0]
+
+        code = secrets.token_urlsafe(32)
+        cache.set(
+            f"{AUTH_CODE_CACHE_PREFIX}{code}",
+            {
+                "user_id": user.id,
+                "org_id": str(organization.id),
+                "team_id": team.id,
+                "stripe_account_id": pending.get("stripe_account_id", ""),
+                "scopes": pending.get("scopes", []),
+                "region": pending.get("region", "US"),
+            },
+            timeout=AUTH_CODE_TTL_SECONDS,
+        )
+
+        callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
+        params = urlencode({"code": code, "state": state})
+        return HttpResponseRedirect(f"{callback_url}?{params}")
+
+    base = settings.SITE_URL.rstrip("/")
+    params = urlencode({"state": state, "scope": scope})
+    return HttpResponseRedirect(f"{base}/agentic/authorize?{params}")
+
+
+@api_view(["POST"])
+@permission_classes([IsAuthenticated])
+def agentic_authorize_confirm(request: Request) -> Response:
+    state = request.data.get("state", "")
+    team_id = request.data.get("team_id")
+
+    if not state or team_id is None:
+        return Response({"error": "state and team_id are required"}, status=400)
+
+    pending_key = f"{PENDING_AUTH_CACHE_PREFIX}{state}"
+    pending = cache.get(pending_key)
+    if pending is None:
+        return Response({"error": "expired_or_invalid_state"}, status=400)
+
+    if request.user.email != pending["email"]:
+        return Response({"error": "email_mismatch"}, status=403)
+
+    try:
+        team = Team.objects.get(id=team_id)
+    except Team.DoesNotExist:
+        return Response({"error": "team_not_found"}, status=404)
+
+    if not request.user.organization_memberships.filter(organization=team.organization).exists():
+        return Response({"error": "team_not_accessible"}, status=403)
+
     cache.delete(pending_key)
 
     user = request.user
-    membership = user.organization_memberships.first()
-    if not membership:
-        return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_organization")
-
-    organization = membership.organization
-    team = organization.teams.filter(is_demo=False).first() or organization.teams.first()
-    if not team:
-        return HttpResponseRedirect(f"{settings.SITE_URL}?error=no_team")
-
     code = secrets.token_urlsafe(32)
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
         {
             "user_id": user.id,
-            "org_id": str(organization.id),
+            "org_id": str(team.organization_id),
             "team_id": team.id,
             "stripe_account_id": pending.get("stripe_account_id", ""),
             "scopes": pending.get("scopes", []),
@@ -404,7 +463,9 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
     callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
     params = urlencode({"code": code, "state": state})
-    return HttpResponseRedirect(f"{callback_url}?{params}")
+    redirect_url = f"{callback_url}?{params}"
+
+    return Response({"redirect_url": redirect_url})
 
 
 # ---------------------------------------------------------------------------

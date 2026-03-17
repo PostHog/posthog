@@ -10,6 +10,7 @@ export enum Scene {
     Action = 'Action',
     Actions = 'Actions',
     AdvancedActivityLogs = 'AdvancedActivityLogs',
+    AgenticAuthorize = 'AgenticAuthorize',
     Annotations = 'Annotations',
     Approval = 'Approval',
     AsyncMigrations = 'AsyncMigrations',
