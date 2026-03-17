@@ -8,6 +8,8 @@ publish = false
 http = { workspace = true }
 metrics = { workspace = true }
 pin-project = "1.1"
+sqlx = { workspace = true }
+tokio = { workspace = true }
 tower = { workspace = true }
 
 [lints]

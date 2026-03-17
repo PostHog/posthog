@@ -14,9 +14,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_common::GrpcMetricsLayer;
+use personhog_common::{spawn_pool_monitor, GrpcMetricsLayer, MonitoredPool};
 use personhog_replica::config::Config;
-use personhog_replica::pool_monitor::spawn_pool_monitor;
 use personhog_replica::service::PersonHogReplicaService;
 use personhog_replica::storage::postgres::PostgresStorage;
 
@@ -138,14 +137,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage = create_storage(&config).await;
 
     // Spawn background pool health monitor
-    let separate_pools = !config.replica_database_url.is_empty()
+    let mut pools = vec![MonitoredPool {
+        pool: storage.primary_pool.clone(),
+        label: "primary".to_string(),
+        max_connections: config.max_pg_connections,
+    }];
+    let has_separate_replica = !config.replica_database_url.is_empty()
         && config.replica_database_url != config.primary_database_url;
+    if has_separate_replica {
+        pools.push(MonitoredPool {
+            pool: storage.replica_pool.clone(),
+            label: "replica".to_string(),
+            max_connections: config.max_pg_connections,
+        });
+    }
     spawn_pool_monitor(
-        storage.primary_pool.clone(),
-        storage.replica_pool.clone(),
-        config.max_pg_connections,
+        "replica",
+        pools,
         Duration::from_secs(config.pool_monitor_interval_secs),
-        separate_pools,
     );
 
     let service = PersonHogReplicaService::new(storage);
