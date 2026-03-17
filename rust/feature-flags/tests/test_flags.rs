@@ -5685,8 +5685,14 @@ async fn test_skip_writes_suppresses_billing_redis_counter(
 
 #[tokio::test]
 async fn test_api_cohort_flag_integration() -> Result<()> {
-    // Step 1: Create and verify API-like cohort data structure
-    let cohort_data = json!({
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+    let distinct_id = "test_user_api";
+
+    // Step 1: Verify API-like cohort serialization format (matches Django output)
+    let cohort_filters = json!({
         "properties": {
             "type": "AND",
             "values": [
@@ -5707,51 +5713,55 @@ async fn test_api_cohort_flag_integration() -> Result<()> {
     });
 
     // Verify cohort structure matches Django API output
-    assert!(cohort_data["properties"]["type"] == "AND");
-    assert!(cohort_data["properties"]["values"].is_array());
+    assert!(cohort_filters["properties"]["type"] == "AND");
+    assert!(cohort_filters["properties"]["values"].is_array());
+    assert!(cohort_filters["properties"]["values"][0]["type"] == "OR");
 
-    // Step 2: Create and verify API-like flag data structure that references cohorts
-    let flag_data = json!({
-        "groups": [
-            {
-                "properties": [
-                    {
-                        "key": "id",
-                        "type": "cohort",
-                        "value": 123,
-                        "operator": "in"
-                    }
-                ],
-                "rollout_percentage": 100,
-                "variant": null
-            }
-        ],
-        "multivariate": null,
-        "aggregation_group_type_index": null,
-        "payloads": {},
-        "super_groups": []
-    });
+    // Step 2: Create flag with API-like serialization that references a cohort
+    let flag_json = json!([{
+        "id": 1,
+        "key": "api-cohort-flag",
+        "name": "API Cohort Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": ["test@api.example.com"],
+                            "operator": "exact"
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                    "variant": null
+                }
+            ],
+            "multivariate": null,
+            "aggregation_group_type_index": null,
+            "payloads": {},
+            "super_groups": []
+        }
+    }]);
 
     // Verify flag structure matches Django API output
-    assert!(flag_data["groups"].is_array());
-    assert!(flag_data["groups"][0]["properties"][0]["type"] == "cohort");
+    assert!(flag_json.is_array());
+    assert!(flag_json[0]["filters"]["groups"].is_array());
+    assert!(flag_json[0]["filters"]["groups"][0]["properties"].is_array());
 
-    // Step 3: Test basic /flags endpoint functionality with minimal setup
-    let team_token = "phc_test_token_minimal";
-    let team_id = 456;
-    let config = DEFAULT_TEST_CONFIG.clone();
-    let server = ServerHandle::for_config_with_mock_redis(
-        config,
-        vec![],
-        vec![(team_token.to_string(), team_id)],
-    )
-    .await;
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    // Step 3: Hit /flags with real request and verify flag evaluation
+    let server = ServerHandle::for_config(config).await;
 
     let payload = json!({
-        "token": team_token,
-        "distinct_id": "test_user_minimal",
+        "token": token,
+        "distinct_id": distinct_id,
         "person_properties": {
-            "email": "test@minimal.example.com"
+            "email": "test@api.example.com"
         }
     });
 
@@ -5759,11 +5769,21 @@ async fn test_api_cohort_flag_integration() -> Result<()> {
         .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
 
-    // Test validates API serialization patterns and basic endpoint functionality
-    if response.status() == StatusCode::OK {
-        let json_response = response.json::<Value>().await?;
-        assert!(json_response.get("flags").is_some());
-    }
+    assert_eq!(StatusCode::OK, response.status());
+
+    let json_response = response.json::<Value>().await?;
+    assert!(json_response.get("flags").is_some());
+
+    // Verify the flag evaluated correctly - user should match the person property criteria
+    let flags = json_response["flags"].as_object().unwrap();
+    let flag_result = flags.get("api-cohort-flag").unwrap();
+    assert_eq!(
+        flag_result["enabled"],
+        Value::Bool(true),
+        "Flag should evaluate to enabled=true for user matching property criteria"
+    );
+    assert_eq!(flag_result["key"], "api-cohort-flag");
+    assert_eq!(flag_result["reason"]["code"], "condition_match");
 
     Ok(())
 }
