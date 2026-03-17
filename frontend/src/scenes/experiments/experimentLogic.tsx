@@ -1392,8 +1392,9 @@ export const experimentLogic = kea<experimentLogicType>([
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to launch experiment')
+            } finally {
+                actions.setLaunchExperimentLoading(false)
             }
-            actions.setLaunchExperimentLoading(false)
         },
         changeExperimentStartDate: async ({ startDate }) => {
             actions.updateExperiment({ start_date: startDate })

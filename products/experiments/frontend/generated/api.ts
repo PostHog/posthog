@@ -306,14 +306,11 @@ export const getExperimentsLaunchCreateUrl = (projectId: string, id: number) => 
 export const experimentsLaunchCreate = async (
     projectId: string,
     id: number,
-    experimentApi: NonReadonly<ExperimentApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getExperimentsLaunchCreateUrl(projectId, id), {
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsLaunchCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(experimentApi),
     })
 }
 

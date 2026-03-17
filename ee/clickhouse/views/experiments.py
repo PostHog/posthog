@@ -390,6 +390,10 @@ class EnterpriseExperimentsViewSet(
 
         return Response({"result": warning})
 
+    @extend_schema(
+        request=None,
+        responses=ExperimentSerializer,
+    )
     @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
     def launch(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
