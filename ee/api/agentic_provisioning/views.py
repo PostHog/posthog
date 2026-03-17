@@ -92,7 +92,7 @@ ANALYTICS_DEPLOYABLE_SERVICE: dict[str, Any] = {
         "component": {
             "options": [
                 {
-                    "default": True,
+                    "parent_service_ids": [FREE_PLAN_ID],
                     "type": "free",
                 },
                 {

@@ -35,7 +35,7 @@ class TestProvisioningServices(StripeProvisioningTestBase):
         assert analytics["pricing"]["type"] == "component"
         options = analytics["pricing"]["component"]["options"]
         assert len(options) == 2
-        assert options[0]["default"] is True
+        assert options[0]["parent_service_ids"] == ["free"]
         assert options[0]["type"] == "free"
         assert options[1]["parent_service_ids"] == ["pay_as_you_go"]
         assert options[1]["type"] == "paid"
