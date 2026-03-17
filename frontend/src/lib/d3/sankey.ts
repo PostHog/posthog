@@ -21,7 +21,7 @@ export type SankeyNode<N extends SankeyExtraProperties, L extends SankeyExtraPro
     sourceLinks: Array<SankeyLink<N, L>>
     targetLinks: Array<SankeyLink<N, L>>
     value: number
-    fixedValue: number
+    fixedValue?: number
     index: number
     depth: number
     height: number
@@ -203,12 +203,12 @@ export default function sankey<
     let id: (d: SankeyNode<N, L>) => string | number = (d) => d.index
     let align: (node: SankeyNode<N, L>, n: number) => number = sankeyJustify
     let sort: ((a: SankeyNode<N, L>, b: SankeyNode<N, L>) => number) | null | undefined
-    let nodesFn = (graph: SankeyGraph<N, L>): SankeyNode<N, L>[] => graph.nodes
-    let linksFn = (graph: SankeyGraph<N, L>): SankeyLink<N, L>[] => graph.links
+    let nodesFn: (graph: SankeyInputGraph) => SankeyNode<N, L>[] = (graph) => graph.nodes
+    let linksFn: (graph: SankeyInputGraph) => SankeyLink<N, L>[] = (graph) => graph.links
 
     let sankeyLayout: SankeyLayout<N, L>
 
-    function layout(graph: SankeyGraph<N, L>): SankeyGraph<N, L> {
+    function layout(graph: SankeyInputGraph): SankeyGraph<N, L> {
         const g = { nodes: nodesFn(graph), links: linksFn(graph) }
         computeNodeLinks(g)
         computeNodeValues(g)
@@ -379,7 +379,10 @@ export default function sankey<
 
     function computeNodeValues({ nodes: nodeList }: { nodes: SankeyNode<N, L>[] }): void {
         for (const node of nodeList) {
-            node.value = Math.max(sum(node.sourceLinks, nodeValue), sum(node.targetLinks, nodeValue))
+            node.value =
+                node.fixedValue === undefined
+                    ? Math.max(sum(node.sourceLinks, nodeValue), sum(node.targetLinks, nodeValue))
+                    : node.fixedValue
         }
     }
 
@@ -425,8 +428,8 @@ export default function sankey<
 
     function computeNodeLayers({ nodes: nodeList }: { nodes: SankeyNode<N, L>[] }): SankeyNode<N, L>[][] {
         const x = max(nodeList, (d) => d.depth)! + 1
-        const kx = (x1 - x0 - dx) / (x - 1)
-        const columns: SankeyNode<N, L>[][] = new Array(x)
+        const kx = x <= 1 ? 0 : (x1 - x0 - dx) / (x - 1)
+        const columns = Array.from({ length: x }, () => [] as SankeyNode<N, L>[])
         for (const node of nodeList) {
             const i = Math.max(0, Math.min(x - 1, Math.floor(align(node, x))))
             node.layer = i

@@ -1,6 +1,7 @@
 import * as d3 from 'd3'
 
 import { D3Selector, D3Transition } from 'lib/hooks/useD3'
+// eslint-disable-next-line import/no-cycle
 import { INITIAL_CONFIG } from 'scenes/insights/views/Histogram/histogramUtils'
 
 export const getOrCreateEl = (
