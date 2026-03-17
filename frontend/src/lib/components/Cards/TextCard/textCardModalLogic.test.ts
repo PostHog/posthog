@@ -47,7 +47,24 @@ describe('textCardModalLogic', () => {
 
     it('does not show toast for expected form validation errors', async () => {
         const logic = textCardModalLogic({
-            dashboard: makeDashboard(),
+            dashboard: makeDashboard('x'.repeat(4001)),
+            textTileId: 1,
+            onClose: jest.fn(),
+        })
+        logic.mount()
+
+        await expectLogic(logic).toMatchValues({
+            textTileValidationErrors: { body: 'Text is too long (4000 characters max)' },
+        })
+
+        logic.actions.submitTextTileFailure({ error: 'Validation failed', errors: {} } as any, {})
+
+        expect(lemonToast.error).not.toHaveBeenCalled()
+    })
+
+    it('rejects empty text card body in form validation', async () => {
+        const logic = textCardModalLogic({
+            dashboard: makeDashboard(''),
             textTileId: 'new',
             onClose: jest.fn(),
         })

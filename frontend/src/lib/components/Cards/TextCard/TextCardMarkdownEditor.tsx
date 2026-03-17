@@ -1,36 +1,13 @@
-import { Color } from '@tiptap/extension-color'
-import { Image } from '@tiptap/extension-image'
-import { Link } from '@tiptap/extension-link'
-import { TaskItem, TaskList } from '@tiptap/extension-list'
 import { Placeholder } from '@tiptap/extension-placeholder'
-import { TextAlign } from '@tiptap/extension-text-align'
-import { TextStyle } from '@tiptap/extension-text-style'
-import { Underline } from '@tiptap/extension-underline'
 import { Extensions } from '@tiptap/react'
-import StarterKit from '@tiptap/starter-kit'
 
 import { TextContent } from 'lib/components/Cards/TextCard/TextCard'
 import { RichMarkdownEditor } from 'lib/components/MarkdownEditor/RichMarkdownEditor'
 
-import { markdownToTextCardDoc, textCardDocToMarkdown } from './textCardMarkdown'
+import { markdownToTextCardDoc, textCardDocToMarkdown, TEXT_CARD_MARKDOWN_EXTENSIONS } from './textCardMarkdown'
 
 const TEXT_CARD_MARKDOWN_EDITOR_EXTENSIONS: Extensions = [
-    StarterKit.configure({
-        heading: {
-            levels: [1, 2, 3],
-        },
-        link: false,
-    }),
-    TaskList,
-    TaskItem.configure({ nested: true }),
-    Underline,
-    TextStyle,
-    Color,
-    TextAlign.configure({
-        types: ['heading', 'paragraph'],
-    }),
-    Link.configure({ openOnClick: false }),
-    Image,
+    ...TEXT_CARD_MARKDOWN_EXTENSIONS,
     Placeholder.configure({ placeholder: 'Write your markdown here...' }),
 ]
 

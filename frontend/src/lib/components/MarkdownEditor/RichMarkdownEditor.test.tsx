@@ -49,6 +49,11 @@ const fakeEditor = {
     }),
     isActive: jest.fn(() => false),
     getAttributes: jest.fn(() => ({})),
+    on: jest.fn(),
+    off: jest.fn(),
+    view: {
+        dom: document.createElement('div'),
+    },
 }
 
 jest.mock('lib/components/RichContentEditor', () => ({
@@ -88,7 +93,7 @@ describe('RichMarkdownEditor', () => {
             />
         )
 
-        const counter = screen.getByText('9/5 (limit reached)')
+        const counter = screen.getByText('9/5 characters (limit reached)')
         expect(counter).toBeInTheDocument()
         expect(counter).toHaveClass('text-danger')
     })
@@ -137,5 +142,43 @@ describe('RichMarkdownEditor', () => {
 
         expect(markdownToDoc).toHaveBeenCalledWith('new value')
         expect(setContentMock).toHaveBeenCalledWith(expect.any(Object), { emitUpdate: false })
+    })
+
+    it('syncs latest markdown on form submit capture', () => {
+        const onChange = jest.fn()
+        const markdownToDoc = jest.fn(() => ({ type: 'doc', content: [] }))
+        const initialDocToMarkdown = jest.fn(() => 'old value')
+        const submitDocToMarkdown = jest.fn(() => 'latest resized markdown')
+
+        const { container, rerender } = render(
+            <form data-attr="editor-form">
+                <RichMarkdownEditor
+                    value="old value"
+                    onChange={onChange}
+                    extensions={[]}
+                    markdownToDoc={markdownToDoc}
+                    docToMarkdown={initialDocToMarkdown}
+                />
+            </form>
+        )
+
+        const editorDom = container.querySelector('[data-attr="rich-markdown-editor-area"]') as HTMLDivElement
+        fakeEditor.view.dom = editorDom
+
+        rerender(
+            <form data-attr="editor-form">
+                <RichMarkdownEditor
+                    value="old value"
+                    onChange={onChange}
+                    extensions={[]}
+                    markdownToDoc={markdownToDoc}
+                    docToMarkdown={submitDocToMarkdown}
+                />
+            </form>
+        )
+
+        fireEvent.submit(container.querySelector('form') as HTMLFormElement)
+
+        expect(onChange).toHaveBeenCalledWith('latest resized markdown')
     })
 })

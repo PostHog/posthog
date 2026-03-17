@@ -5,6 +5,7 @@ import { EditorContent, Extensions } from '@tiptap/react'
 import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { useEffect, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 
 import { IconArrowLeft, IconArrowRight, IconCode, IconImage, IconList, IconMarkdownFilled } from '@posthog/icons'
 import { LemonButton, LemonDivider, LemonInput, LemonMenu } from '@posthog/lemon-ui'
@@ -36,16 +37,6 @@ type RichMarkdownEditorProps = {
     renderPreview?: (markdown: string) => JSX.Element
 }
 
-function getAlignmentLabel(editor: ReturnType<typeof useRichContentEditor> | null): string {
-    if (editor?.isActive({ textAlign: 'center' })) {
-        return 'C'
-    }
-    if (editor?.isActive({ textAlign: 'right' })) {
-        return 'R'
-    }
-    return 'L'
-}
-
 function getHeadingLabel(editor: ReturnType<typeof useRichContentEditor> | null): string {
     if (editor?.isActive('heading', { level: 1 })) {
         return 'H1'
@@ -71,19 +62,35 @@ export function RichMarkdownEditor({
     docToMarkdown,
     renderPreview,
 }: RichMarkdownEditorProps): JSX.Element {
-    const [isPreviewShown, setIsPreviewShown] = useState(false)
+    const [activeTab, setActiveTab] = useState<'write' | 'preview' | 'markdown'>('write')
     const [linkUrl, setLinkUrl] = useState('')
     const [showLinkPopover, setShowLinkPopover] = useState(false)
-    const [showColorPicker, setShowColorPicker] = useState(false)
-    const [textColor, setTextColor] = useState('#000000')
     const { objectStorageAvailable } = useValues(preflightLogic)
     const { emojiUsed } = useActions(emojiUsageLogic)
     const dropRef = useRef<HTMLDivElement>(null)
+    const lastSyncedMarkdownRef = useRef(value || '')
+
+    const syncMarkdownFromEditor = (nextMarkdown: string, options?: { force?: boolean }): void => {
+        // Centralize editor -> form sync from multiple triggers (onUpdate, transactions, tab switch, submit).
+        // We dedupe identical markdown to avoid noisy onChange loops, and force a synchronous flush on submit
+        // so non-typing updates (e.g. image resize attrs) are committed before form submission continues.
+        if (nextMarkdown === lastSyncedMarkdownRef.current) {
+            return
+        }
+
+        lastSyncedMarkdownRef.current = nextMarkdown
+        if (options?.force) {
+            flushSync(() => onChange?.(nextMarkdown))
+            return
+        }
+
+        onChange?.(nextMarkdown)
+    }
 
     const editor = useRichContentEditor({
         extensions,
         initialContent: markdownToDoc(value),
-        onUpdate: (content) => onChange?.(docToMarkdown(content)),
+        onUpdate: (content) => syncMarkdownFromEditor(docToMarkdown(content)),
     })
 
     useEffect(() => {
@@ -93,16 +100,65 @@ export function RichMarkdownEditor({
     }, [editor])
 
     useEffect(() => {
+        lastSyncedMarkdownRef.current = value || ''
+    }, [value])
+
+    useEffect(() => {
         if (!editor) {
             return
         }
 
-        const currentMarkdown = docToMarkdown(editor.getJSON())
+        const currentEditorMarkdown = docToMarkdown(editor.getJSON())
         const incomingMarkdown = value || ''
-        if (currentMarkdown !== incomingMarkdown) {
+        if (currentEditorMarkdown !== incomingMarkdown) {
             editor.commands.setContent(markdownToDoc(incomingMarkdown), { emitUpdate: false })
         }
     }, [editor, value, docToMarkdown, markdownToDoc])
+
+    useEffect(() => {
+        if (!editor) {
+            return
+        }
+        if (typeof editor.on !== 'function' || typeof editor.off !== 'function') {
+            return
+        }
+
+        // Must be effect-scoped so we attach/detach with the current editor instance.
+        // This catches doc mutations that are not plain typing updates (e.g. image resize attrs),
+        // keeping form state in sync with the latest editor JSON.
+        const handleTransaction = (): void => {
+            syncMarkdownFromEditor(docToMarkdown(editor.getJSON()))
+        }
+
+        editor.on('transaction', handleTransaction)
+        return () => {
+            editor.off('transaction', handleTransaction)
+        }
+    }, [editor, docToMarkdown])
+
+    useEffect(() => {
+        if (!editor) {
+            return
+        }
+
+        const editorElement = (editor as { view?: { dom?: HTMLElement } }).view?.dom
+        const formElement = editorElement?.closest('form')
+        if (!formElement) {
+            return
+        }
+
+        // Must be effect-scoped so the submit capture listener is correctly cleaned up/rebound.
+        // Capture-phase submit sync prevents save races by flushing latest editor state before
+        // the form submit pipeline reads values (especially important for non-typing updates).
+        const handleFormSubmitCapture = (): void => {
+            syncMarkdownFromEditor(docToMarkdown(editor.getJSON()), { force: true })
+        }
+
+        formElement.addEventListener('submit', handleFormSubmitCapture, true)
+        return () => {
+            formElement.removeEventListener('submit', handleFormSubmitCapture, true)
+        }
+    }, [editor, docToMarkdown])
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
         onUpload: (url, fileName) => {
@@ -117,9 +173,9 @@ export function RichMarkdownEditor({
         },
     })
 
-    const isAtCharacterLimit = (value || '').length > maxLength
+    const currentMarkdown = editor ? docToMarkdown(editor.getJSON()) : value || ''
+    const isAtCharacterLimit = currentMarkdown.length > maxLength
     const hasExistingLink = editor?.isActive('link') ?? false
-    const hasTextColor = editor?.getAttributes('textStyle').color ?? false
 
     const setLink = (): void => {
         if (!linkUrl) {
@@ -142,26 +198,18 @@ export function RichMarkdownEditor({
         setShowLinkPopover(true)
     }
 
-    const applyTextColor = (color: string): void => {
-        editor?.chain().focus().setColor(color).run()
-        setTextColor(color)
-    }
-
-    const removeTextColor = (): void => {
-        editor?.chain().focus().unsetColor().run()
-        setShowColorPicker(false)
-    }
-
-    const openColorPicker = (): void => {
-        const currentColor = editor?.getAttributes('textStyle').color || '#000000'
-        setTextColor(currentColor)
-        setShowColorPicker(true)
-    }
-
     return (
         <LemonTabs
-            activeKey={isPreviewShown ? 'preview' : 'write'}
-            onChange={(key) => setIsPreviewShown(key === 'preview')}
+            activeKey={activeTab}
+            onChange={(key) => {
+                const nextTab = key as 'write' | 'preview' | 'markdown'
+                setActiveTab(nextTab)
+
+                // Keep parent value in sync before showing preview/markdown tabs.
+                if (editor && nextTab !== 'write') {
+                    syncMarkdownFromEditor(docToMarkdown(editor.getJSON()))
+                }
+            }}
             tabs={[
                 {
                     key: 'write',
@@ -265,62 +313,6 @@ export function RichMarkdownEditor({
                                 >
                                     "
                                 </LemonButton>
-                                <Popover
-                                    visible={showColorPicker}
-                                    onClickOutside={() => setShowColorPicker(false)}
-                                    showArrow={false}
-                                    overlay={
-                                        <div className="p-2 flex flex-col gap-2 min-w-48">
-                                            <div className="flex items-center gap-2">
-                                                <input
-                                                    type="color"
-                                                    value={textColor}
-                                                    onChange={(e) => applyTextColor(e.target.value)}
-                                                    className="w-8 h-8 cursor-pointer border border-border rounded"
-                                                />
-                                                <LemonInput
-                                                    size="small"
-                                                    placeholder="#000000"
-                                                    value={textColor}
-                                                    onChange={(newValue) => {
-                                                        setTextColor(newValue)
-                                                        if (/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(newValue)) {
-                                                            editor?.chain().setColor(newValue).run()
-                                                        }
-                                                    }}
-                                                    className="flex-1"
-                                                />
-                                            </div>
-                                            {hasTextColor && (
-                                                <LemonButton
-                                                    size="small"
-                                                    status="danger"
-                                                    onClick={removeTextColor}
-                                                    fullWidth
-                                                >
-                                                    Remove color
-                                                </LemonButton>
-                                            )}
-                                        </div>
-                                    }
-                                >
-                                    <LemonButton
-                                        size="small"
-                                        active={!!hasTextColor}
-                                        onClick={openColorPicker}
-                                        tooltip="Text color"
-                                        sideIcon={null}
-                                    >
-                                        <span
-                                            className="font-bold"
-                                            style={{
-                                                borderBottom: `3px solid ${hasTextColor || textColor}`,
-                                            }}
-                                        >
-                                            A
-                                        </span>
-                                    </LemonButton>
-                                </Popover>
                                 <LemonDivider vertical className="mx-1 self-stretch" />
                                 <LemonMenu
                                     items={[
@@ -358,29 +350,6 @@ export function RichMarkdownEditor({
                                         icon={<IconList />}
                                         tooltip="Lists"
                                     />
-                                </LemonMenu>
-                                <LemonMenu
-                                    items={[
-                                        {
-                                            label: 'Align left',
-                                            onClick: () => editor?.chain().focus().setTextAlign('left').run(),
-                                            active: !!editor?.isActive({ textAlign: 'left' }),
-                                        },
-                                        {
-                                            label: 'Align center',
-                                            onClick: () => editor?.chain().focus().setTextAlign('center').run(),
-                                            active: !!editor?.isActive({ textAlign: 'center' }),
-                                        },
-                                        {
-                                            label: 'Align right',
-                                            onClick: () => editor?.chain().focus().setTextAlign('right').run(),
-                                            active: !!editor?.isActive({ textAlign: 'right' }),
-                                        },
-                                    ]}
-                                >
-                                    <LemonButton size="small" tooltip="Text alignment" sideIcon={null}>
-                                        <span className="font-semibold">{getAlignmentLabel(editor)}</span>
-                                    </LemonButton>
                                 </LemonMenu>
                                 <Popover
                                     visible={showLinkPopover}
@@ -481,7 +450,7 @@ export function RichMarkdownEditor({
                                     isAtCharacterLimit ? 'text-danger' : 'text-muted'
                                 }`}
                             >
-                                {(value || '').length}/{maxLength}
+                                {currentMarkdown.length}/{maxLength} characters
                                 {isAtCharacterLimit ? ' (limit reached)' : ''}
                             </div>
                         </div>
@@ -490,8 +459,17 @@ export function RichMarkdownEditor({
                 {
                     key: 'preview',
                     label: 'Preview',
-                    content: value ? (
-                        (renderPreview?.(value) ?? <LemonMarkdown>{value}</LemonMarkdown>)
+                    content: currentMarkdown ? (
+                        (renderPreview?.(currentMarkdown) ?? <LemonMarkdown>{currentMarkdown}</LemonMarkdown>)
+                    ) : (
+                        <i>Nothing to preview</i>
+                    ),
+                },
+                {
+                    key: 'markdown',
+                    label: 'Markdown',
+                    content: currentMarkdown ? (
+                        <pre className="RichMarkdownEditor__rawPreview">{currentMarkdown}</pre>
                     ) : (
                         <i>Nothing to preview</i>
                     ),

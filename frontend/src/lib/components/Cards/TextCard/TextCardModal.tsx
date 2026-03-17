@@ -43,7 +43,7 @@ export function TextCardModal({
             title=""
             onClose={handleClose}
             hasUnsavedInput={hasUnsavedInput}
-            className="min-w-full lg:min-w-4xl"
+            className="min-w-full lg:min-w-6xl"
             footer={
                 <>
                     <LemonButton
@@ -68,7 +68,7 @@ export function TextCardModal({
         >
             <Form
                 logic={textCardModalLogic}
-                props={{ dashboard, textTileId }}
+                props={{ dashboard, textTileId: textTileId ?? 'new', onClose }}
                 formKey="textTile"
                 id="text-tile-form"
                 enableFormOnSubmit
@@ -76,22 +76,16 @@ export function TextCardModal({
                 <Field name="body" label="">
                     {({ value, onChange }) =>
                         shouldUseLegacyMarkdownEditor ? (
-                            <>
-                                <LemonTextAreaMarkdown
-                                    value={value}
-                                    onChange={onChange}
-                                    maxLength={4000}
-                                    minRows={8}
-                                    maxRows={20}
-                                    data-attr="text-card-edit-area"
-                                />
-                                <p className="text-xs text-muted mt-2">
-                                    This card uses markdown that is not fully supported by the rich editor yet, so it is
-                                    using the legacy markdown editor to prevent content loss.
-                                </p>
-                            </>
+                            <LemonTextAreaMarkdown
+                                value={value}
+                                onChange={onChange}
+                                maxLength={4000}
+                                minRows={8}
+                                maxRows={36}
+                                data-attr="text-card-edit-area"
+                            />
                         ) : (
-                            <TextCardMarkdownEditor value={value} onChange={onChange} minRows={8} maxRows={20} />
+                            <TextCardMarkdownEditor value={value} onChange={onChange} minRows={8} maxRows={36} />
                         )
                     }
                 </Field>

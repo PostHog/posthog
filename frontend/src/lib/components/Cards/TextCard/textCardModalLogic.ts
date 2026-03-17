@@ -86,7 +86,7 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             } as TextTileForm,
             errors: ({ body }) => {
                 return {
-                    body: !body
+                    body: !body.trim()
                         ? 'This card would be empty! Type something first'
                         : body.length > MAX_TEXT_CARD_BODY_LENGTH
                           ? `Text is too long (${MAX_TEXT_CARD_BODY_LENGTH} characters max)`

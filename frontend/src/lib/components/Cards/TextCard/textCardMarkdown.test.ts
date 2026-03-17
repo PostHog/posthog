@@ -1,4 +1,12 @@
-import { isTextCardMarkdownRoundTripSafe, markdownToTextCardDoc, textCardDocToMarkdown } from './textCardMarkdown'
+import { JSONContent } from '@tiptap/core'
+
+import {
+    isTextCardMarkdownRoundTripSafe,
+    markdownToTextCardDoc,
+    textCardDocToMarkdown,
+    TEXT_CARD_MARKDOWN_EXTENSIONS,
+    TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS,
+} from './textCardMarkdown'
 
 describe('textCardMarkdown', () => {
     it.each([undefined, null, '', '   \n\t '])('returns an empty doc for blank markdown: %p', (markdown) => {
@@ -6,6 +14,15 @@ describe('textCardMarkdown', () => {
             type: 'doc',
             content: [{ type: 'paragraph' }],
         })
+    })
+
+    it('serializes an empty tiptap doc to an empty markdown string', () => {
+        expect(
+            textCardDocToMarkdown({
+                type: 'doc',
+                content: [{ type: 'paragraph' }],
+            })
+        ).toBe('')
     })
 
     it('parses legacy markdown into tiptap content', () => {
@@ -26,18 +43,90 @@ describe('textCardMarkdown', () => {
         expect(markdown).toContain('![img](https://example.com/image.png)')
     })
 
+    it('preserves resized image dimensions when serializing markdown', () => {
+        const doc: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'image',
+                    attrs: {
+                        src: 'https://example.com/image.png',
+                        alt: 'img',
+                        width: 320,
+                        height: 180,
+                    },
+                },
+            ],
+        }
+
+        const markdown = textCardDocToMarkdown(doc)
+        const roundTripDoc = markdownToTextCardDoc(markdown)
+        const imageNode = roundTripDoc.content?.[0]
+
+        expect(markdown).toContain('<img ')
+        expect(markdown).toContain('width="320"')
+        expect(markdown).toContain('height="180"')
+        expect(imageNode?.type).toBe('image')
+        expect(String(imageNode?.attrs?.width)).toBe('320')
+        expect(String(imageNode?.attrs?.height)).toBe('180')
+    })
+
     it.each([
         '# Heading\n\nRegular paragraph',
         '**bold** _italic_ `code`',
         '1. first\n2. second',
         '- [x] done\n- [ ] pending',
         '![img](https://example.com/test.png)',
-        '<div>raw html</div>',
     ])('identifies round-trip safe markdown: %p', (markdown) => {
         expect(isTextCardMarkdownRoundTripSafe(markdown)).toBe(true)
     })
 
-    it.each(['| a | b |\n| - | - |\n| c | d |'])('identifies markdown requiring legacy fallback: %p', (markdown) => {
-        expect(isTextCardMarkdownRoundTripSafe(markdown)).toBe(false)
+    it('does not append storage metadata markers to markdown output', () => {
+        const richDoc: JSONContent = {
+            type: 'doc',
+            content: [
+                {
+                    type: 'paragraph',
+                    attrs: { textAlign: 'center' },
+                    content: [
+                        { type: 'text', text: 'underlined', marks: [{ type: 'underline' }] },
+                        { type: 'text', text: ' ' },
+                        { type: 'text', text: 'inline code', marks: [{ type: 'code' }] },
+                    ],
+                },
+                {
+                    type: 'codeBlock',
+                    attrs: { language: null },
+                    content: [{ type: 'text', text: 'const a = 1;' }],
+                },
+            ],
+        }
+
+        const markdown = textCardDocToMarkdown(richDoc)
+        const roundTripDoc = markdownToTextCardDoc(markdown)
+
+        expect(markdown).toContain('++underlined++')
+        expect(markdown).toContain('`inline code`')
+        expect(markdown).toContain('```')
+        expect(markdown).not.toContain('<!--ph-text-card-doc:')
+        expect(roundTripDoc).not.toEqual(richDoc)
+    })
+
+    it('supports underline markdown round-trip', () => {
+        const markdown = '++underlined++'
+        const doc = markdownToTextCardDoc(markdown)
+        const serialized = textCardDocToMarkdown(doc)
+
+        expect(serialized).toContain('++underlined++')
+    })
+
+    it('uses non-clickable links while editing and clickable links in readonly', () => {
+        const editableLink = TEXT_CARD_MARKDOWN_EXTENSIONS.find((extension) => extension.name === 'link')
+        const readonlyLink = TEXT_CARD_MARKDOWN_READONLY_EXTENSIONS.find((extension) => extension.name === 'link')
+        const editableOptions = editableLink?.options as { openOnClick?: boolean } | undefined
+        const readonlyOptions = readonlyLink?.options as { openOnClick?: boolean } | undefined
+
+        expect(editableOptions?.openOnClick).toBe(false)
+        expect(readonlyOptions?.openOnClick).toBe(true)
     })
 })
