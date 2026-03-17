@@ -22,6 +22,9 @@ def backfill_holdout_format(apps, schema_editor):
         if not holdout_groups or flag.filters.get("holdout"):
             continue
 
+        if not isinstance(holdout_groups, list) or len(holdout_groups) == 0:
+            continue
+
         condition = holdout_groups[0]
         variant = condition.get("variant", "")
         # Parse holdout ID from variant string "holdout-{id}"
