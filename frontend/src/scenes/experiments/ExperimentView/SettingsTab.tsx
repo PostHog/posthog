@@ -27,6 +27,7 @@ export function SettingsTab(): JSX.Element {
 
     const returnTo = `${urls.experiment(experiment.id)}`
 
+    // Only show alerts section for saved experiments, as the alert relies on experiment.id for filtering
     const shouldShowSignificanceAlerts =
         featureFlags[FEATURE_FLAGS.EXPERIMENT_SIGNIFICANCE_ALERTS] && typeof experiment.id === 'number'
 
