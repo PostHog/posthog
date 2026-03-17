@@ -1,4 +1,4 @@
-import { afterMount, kea, path } from 'kea'
+import { kea, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -26,8 +26,5 @@ export const navRecentsLogic = kea<navRecentsLogicType>([
                 },
             },
         ],
-    }),
-    afterMount(({ actions }) => {
-        actions.loadRecentItems({})
     }),
 ])

@@ -138,6 +138,7 @@ pub struct KafkaTopicConfig {
     pub replay_overflow_topic: String,
     pub dlq_topic: String,
     pub error_tracking_topic: String,
+    pub traces_topic: String,
 }
 
 impl From<&KafkaConfig> for KafkaTopicConfig {
@@ -152,6 +153,7 @@ impl From<&KafkaConfig> for KafkaTopicConfig {
             replay_overflow_topic: config.kafka_replay_overflow_topic.clone(),
             dlq_topic: config.kafka_dlq_topic.clone(),
             error_tracking_topic: config.kafka_error_tracking_topic.clone(),
+            traces_topic: config.kafka_traces_topic.clone(),
         }
     }
 }
@@ -570,6 +572,7 @@ mod tests {
             kafka_heatmaps_topic: "events_plugin_ingestion".to_string(),
             kafka_replay_overflow_topic: "session_recording_snapshot_item_overflow".to_string(),
             kafka_dlq_topic: "events_plugin_ingestion_dlq".to_string(),
+            kafka_traces_topic: "traces_ingestion".to_string(),
             kafka_tls: false,
             kafka_client_id: "".to_string(),
             kafka_metadata_max_age_ms: 60000,
@@ -877,6 +880,7 @@ mod tests {
         const CLIENT_INGESTION_WARNING_TOPIC: &str = "client_ingestion_warning";
         const REPLAY_OVERFLOW_TOPIC: &str = "replay_overflow";
         const ERROR_TRACKING_TOPIC: &str = "error_tracking_events";
+        const TRACES_TOPIC: &str = "tracing_ingestion";
 
         fn create_test_topics() -> KafkaTopicConfig {
             KafkaTopicConfig {
@@ -889,6 +893,7 @@ mod tests {
                 replay_overflow_topic: REPLAY_OVERFLOW_TOPIC.to_string(),
                 dlq_topic: DLQ_TOPIC.to_string(),
                 error_tracking_topic: ERROR_TRACKING_TOPIC.to_string(),
+                traces_topic: TRACES_TOPIC.to_string(),
             }
         }
 

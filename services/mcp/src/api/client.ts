@@ -149,7 +149,7 @@ export class ApiClient {
         method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE'
         path: string
         body?: Record<string, unknown>
-        query?: Record<string, string | number | boolean | string[] | undefined>
+        query?: Record<string, string | number | boolean | (string | number)[] | undefined>
     }): Promise<T> {
         const searchParams = new URLSearchParams()
         if (opts.query) {
