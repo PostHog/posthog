@@ -20,8 +20,8 @@ import type { sessionProfileLogicType } from './sessionProfileLogicType'
 function getTimestampFromUUIDv7(sessionId: string): { startDate: Date; endDate: Date } {
     const uuidHex = sessionId.replace(/-/g, '')
     const timestampMs = parseInt(uuidHex.substring(0, 12), 16)
-    // Subtract 1 hour to handle client clock being ahead of server
-    const startDate = new Date(timestampMs - 60 * 60 * 1000)
+    // Subtract 1 day to handle client clock being ahead of server
+    const startDate = new Date(timestampMs - 24 * 60 * 60 * 1000)
     // Add 2 days buffer to ensure we capture all events for the session
     const endDate = new Date(timestampMs + 2 * 24 * 60 * 60 * 1000)
     return { startDate, endDate }
