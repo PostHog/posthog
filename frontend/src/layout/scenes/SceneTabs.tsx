@@ -38,7 +38,7 @@ export function SceneTabs(): JSX.Element {
     const { isLayoutNavbarVisibleForMobile } = useValues(panelLayoutLogic)
     const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
     const { showOfframpModal } = useActions(sidePanelOfframpLogic)
-    const { isSceneTabsOfframpDismissed } = useValues(sidePanelOfframpLogic)
+    const { isSceneTabsOfframpDismissed, isOrganizationCreatedAfterPanelRemoval } = useValues(sidePanelOfframpLogic)
 
     const handleDragEnd = ({ active, over }: DragEndEvent): void => {
         if (!over || over.id === 'new' || active.id === over.id) {
@@ -138,7 +138,7 @@ export function SceneTabs(): JSX.Element {
                             </Link>
                         </AppShortcut>
 
-                        {!isSceneTabsOfframpDismissed && (
+                        {!isSceneTabsOfframpDismissed && !isOrganizationCreatedAfterPanelRemoval && (
                             <ButtonPrimitive
                                 onClick={() => {
                                     showOfframpModal()
