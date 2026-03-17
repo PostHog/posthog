@@ -249,6 +249,7 @@ def _get_workflow_args(temporal: TemporalClient, batch_export: BatchExport) -> d
     """Decode the workflow args from a Temporal schedule."""
     schedule = describe_schedule(temporal, str(batch_export.id))
     codec = temporal.data_converter.payload_codec
+    assert codec is not None
     payloads = async_to_sync(codec.decode)([schedule.schedule.action.args[0]])
     return json.loads(payloads[0].data)
 

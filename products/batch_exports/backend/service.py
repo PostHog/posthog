@@ -84,12 +84,15 @@ class BackfillDetails:
 def _field_is_type(f: Field, target: type) -> bool:
     """Check if a dataclass field's type is or contains the target type.
 
-    Handles both plain types (int, bool) and union types (int | None).
+    Handles plain types (int, bool), PEP 604 unions (int | None),
+    and typing.Optional / typing.Union.
     """
     if f.type is target:
         return True
     if isinstance(f.type, types.UnionType):
         return target in f.type.__args__
+    if typing.get_origin(f.type) is typing.Union:
+        return target in typing.get_args(f.type)
     return False
 
 
