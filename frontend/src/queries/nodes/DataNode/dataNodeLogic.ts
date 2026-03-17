@@ -66,6 +66,7 @@ import {
     isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
+    isDataVisualizationNode,
     isHogQLQuery,
     isInsightActorsQuery,
     isInsightQueryNode,
@@ -157,11 +158,11 @@ function addModifiers<T extends Record<string, any>, N extends DataNode<T> | Dat
     if (!modifiers) {
         return query
     }
-    if ('source' in query) {
-        // for Nodes with a source, add the modifier to the source instead
+    if (isDataVisualizationNode(query)) {
+        // for DataVisualizationNodes, add the modifier to the source query instead
         return {
             ...query,
-            source: addModifiers(query.source),
+            source: addModifiers(query.source, modifiers),
         }
     }
     return {
@@ -171,8 +172,8 @@ function addModifiers<T extends Record<string, any>, N extends DataNode<T> | Dat
 }
 
 function addTags<T extends Record<string, any>, N extends DataNode<T> | DataVisualizationNode>(query: N): N {
-    if ('source' in query) {
-        // for Nodes with a source, add the tags to the source instead
+    if (isDataVisualizationNode(query)) {
+        // for DataVisualizationNodes, add the tags to the source query instead
         return {
             ...query,
             source: addTags(query.source),
