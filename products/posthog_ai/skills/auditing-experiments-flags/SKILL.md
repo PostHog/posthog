@@ -73,7 +73,7 @@ If a `read_data` or `list_data` call fails for some entities:
 
 ## Reference files
 
-- [Experiment checks](./references/experiment-checks.md) — 7 experiment configuration checks
+- [Experiment checks](./references/experiment-checks.md) — 8 experiment configuration checks
 - [Flag checks](./references/flag-checks.md) — 5 feature flag checks
 - [Finding taxonomy](./references/finding-taxonomy.md) — severity and category definitions
 - [Synthesis patterns](./references/synthesis-patterns.md) — cross-finding pattern recognition
