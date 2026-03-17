@@ -16,6 +16,7 @@ import pyarrow as pa
 import requests
 import google.auth
 import google.auth.aws
+import google.auth.exceptions
 import google.auth.impersonated_credentials
 from google.api_core.exceptions import (
     Forbidden,
@@ -23,10 +24,11 @@ from google.api_core.exceptions import (
     GoogleAPICallError,
     InternalServerError,
     NotFound,
+    PermissionDenied,
     ServiceUnavailable,
     TooManyRequests,
 )
-from google.cloud import bigquery
+from google.cloud import bigquery, iam_admin_v1
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
 from structlog.contextvars import bind_contextvars
@@ -34,6 +36,7 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
 from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.models.team import Team
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger, get_write_only_logger
@@ -88,6 +91,8 @@ NON_RETRYABLE_ERROR_TYPES = (
     "MissingRequiredPermissionsError",
     # Raised when a query takes too long to start (i.e. remains in "PENDING" state for too long).
     "StartQueryTimeoutError",
+    # A service account we are supposed to impersonate does not exist.
+    "ServiceAccountNotFoundError",
 )
 
 LOGGER = get_write_only_logger(__name__)
@@ -314,13 +319,6 @@ class BigQueryTable(Table[BigQueryField]):
         return self.parents[1]
 
 
-class AWSCredentialsMissingError(Exception):
-    def __init__(self, missing: collections.abc.Sequence[str] | str):
-        if isinstance(missing, str):
-            missing = (missing,)
-        super().__init__(f"One or more required credentials are missing: {', '.join(missing)}")
-
-
 class Boto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
     """Implementation of credential supplier for `google.auth` using `boto3`.
 
@@ -330,23 +328,30 @@ class Boto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
 
     The interface requires all methods to be blocking, but we assume credentials are
     lazily loaded, and only fetched within some method wrapped by `asyncio.to_thread`.
+
+    Moreover, `boto3` claims to automatically refresh credentials, so we delegate to it
+    for that.
+
+    All methods in the interface require raising `google.auth.exceptions.RefreshError`
+    indicating to the Google SDK whether the error can be retried or not, so we comply.
     """
 
     def __init__(self, session: boto3.Session | None = None) -> None:
         self.session = session or boto3.Session()
 
     def get_aws_security_credentials(self, context, request) -> google.auth.aws.AwsSecurityCredentials:
+        """Return AWS credentials using boto3."""
         session_credentials = self.session.get_credentials()
         if session_credentials is None:
-            raise AWSCredentialsMissingError("session")
+            raise google.auth.exceptions.RefreshError("Cannot obtain AWS credentials", retryable=False)
 
         credentials = session_credentials.get_frozen_credentials()
 
         if credentials.access_key is None:
-            raise AWSCredentialsMissingError("access_key")
+            raise google.auth.exceptions.RefreshError("Cannot obtain AWS credentials", retryable=False)
 
         if credentials.secret_key is None:
-            raise AWSCredentialsMissingError("secret_key")
+            raise google.auth.exceptions.RefreshError("Cannot obtain AWS credentials", retryable=False)
 
         return google.auth.aws.AwsSecurityCredentials(
             credentials.access_key,
@@ -364,7 +369,122 @@ class Boto3CredentialsSupplier(google.auth.aws.AwsSecurityCredentialsSupplier):
         if env_aws_region is not None:
             return env_aws_region
 
-        raise AWSCredentialsMissingError("region_name")
+        raise google.auth.exceptions.RefreshError("AWS region not populated", retryable=False)
+
+
+class ServiceAccountNotFoundError(Exception):
+    def __init__(self, email: str):
+        super().__init__(f"Service account '{email}' was not found")
+
+
+class ServiceAccountOwnershipError(Exception):
+    def __init__(self, email: str):
+        super().__init__(f"Could not verify that service account '{email}' is owned by your organization")
+
+
+def get_our_google_cloud_credentials() -> google.auth.impersonated_credentials.Credentials:
+    """Return our own Google Cloud credentials, using AWS authentication."""
+    our_credentials = google.auth.impersonated_credentials.Credentials(
+        source_credentials=google.auth.aws.Credentials(
+            audience=settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD,
+            subject_token_type="urn:ietf:params:aws:token-type:aws4_request",  # Only possible value
+            token_url="https://sts.googleapis.com/v1/token",  # Default
+            aws_security_credentials_supplier=Boto3CredentialsSupplier(),
+            scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        ),
+        target_principal=settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
+        target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+        lifetime=3600,
+    )
+    return our_credentials
+
+
+async def get_service_account_description(
+    service_account_email: str,
+) -> str:
+    """Return the service account's description.
+
+    Uses our credentials to authenticate.
+    """
+    our_credentials = get_our_google_cloud_credentials()
+    client = iam_admin_v1.IAMAsyncClient(credentials=our_credentials)
+
+    try:
+        sa = await client.get_service_account(
+            request=iam_admin_v1.GetServiceAccountRequest(name=f"projects/-/serviceAccounts/{service_account_email}")
+        )
+    except PermissionDenied:
+        EXTERNAL_LOGGER.exception(
+            "Failed to describe the service account '%s' to verify ownership. "
+            "Have you granted 'iam.serviceAccounts.get' to the PostHog service account to operate on it?",
+            service_account_email,
+        )
+        raise MissingRequiredPermissionsError()
+    except NotFound:
+        raise ServiceAccountNotFoundError(service_account_email)
+
+    return sa.description
+
+
+async def verify_impersonated_service_account_ownership(
+    service_account_email: str,
+    team_id: int,
+    max_attempts: int = 3,
+) -> None:
+    """Verify the service account is owned by the organization `team_id` belongs to.
+
+    We do this by checking if 'posthog:{organization_id}' is present in the service
+    account's description, which we require users to do when signing up.
+
+    This helps mitigate the confused deputy problem which can happen if a malicious
+    organization were to sign up with another organization's service account.
+
+    This verification only makes sense when impersonating a user's service account. If
+    we are using credentials directly then it is reasonable to assume only the
+    organization who owns the account could have generated said credentials. And if that
+    turns out to not be the case, then said organization would have had their Google
+    Cloud account breached and that's not something we can verify here.
+
+    Finally, Google Cloud uses some form of eventual consistency for service account
+    updates. This can mean that a service account description is updated but not fully
+    propagated by the time we get here, so we retry a `max_attempts` times if the
+    description does not match the first time.
+    """
+    team = await Team.objects.aget(id=team_id)
+    organization_id = team.organization_id
+
+    attempt = 0
+    initial_interval = 3
+    backoff = 2
+
+    while attempt < max_attempts:
+        description = await get_service_account_description(service_account_email)
+
+        if f"posthog:{organization_id}" in description:
+            return
+
+        await asyncio.sleep(initial_interval**attempt)
+        attempt += 1
+
+    if f"posthog:{organization_id}" not in description:
+        raise ServiceAccountOwnershipError(service_account_email)
+
+
+def impersonate_service_account(
+    integration: GoogleCloudServiceAccountIntegration,
+) -> google.auth.impersonated_credentials.Credentials:
+    """Impersonate a user's service account using our own credentials."""
+    service_account_email = integration.service_account_email
+    our_credentials = get_our_google_cloud_credentials()
+
+    their_credentials = google.auth.impersonated_credentials.Credentials(
+        source_credentials=our_credentials,
+        target_principal=service_account_email,
+        target_scopes=["https://www.googleapis.com/auth/bigquery"],
+        lifetime=3600,
+    )
+
+    return their_credentials
 
 
 class BigQueryClient:
@@ -388,7 +508,10 @@ class BigQueryClient:
         return None
 
     @classmethod
-    def from_service_account_integration(cls, integration: GoogleCloudServiceAccountIntegration) -> typing.Self:
+    def from_service_account_integration(
+        cls,
+        integration: GoogleCloudServiceAccountIntegration,
+    ) -> typing.Self:
         """Initialize a client from a service account integration.
 
         The integration can contain the keys of the service account we are meant to use,
@@ -396,25 +519,7 @@ class BigQueryClient:
         impersonate the service account using our own.
         """
         if not integration.has_key():
-            our_credentials = google.auth.impersonated_credentials.Credentials(
-                source_credentials=google.auth.aws.Credentials(
-                    audience=settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD,
-                    subject_token_type="urn:ietf:params:aws:token-type:aws4_request",  # Only possible value
-                    token_url="https://sts.googleapis.com/v1/token",  # Default
-                    aws_security_credentials_supplier=Boto3CredentialsSupplier(),
-                    scopes=["https://www.googleapis.com/auth/cloud-platform"],
-                ),
-                target_principal=settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT,
-                target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
-                lifetime=3600,
-            )
-
-            their_credentials = google.auth.impersonated_credentials.Credentials(
-                source_credentials=our_credentials,
-                target_principal=integration.service_account_email,
-                target_scopes=["https://www.googleapis.com/auth/bigquery"],
-                lifetime=3600,
-            )
+            their_credentials = impersonate_service_account(integration)
         else:
             their_credentials = service_account.Credentials.from_service_account_info(
                 integration.service_account_info,
@@ -1160,8 +1265,14 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
 
         google_cloud_integration = await _get_google_cloud_service_account_integration(inputs)
         if google_cloud_integration is not None:
+            if not google_cloud_integration.has_key():
+                await verify_impersonated_service_account_ownership(
+                    google_cloud_integration.service_account_email, inputs.team_id
+                )
             bq_client = BigQueryClient.from_service_account_integration(google_cloud_integration)
+
         else:
+            # TODO: Migrate everyone and remove this
             bq_client = BigQueryClient.from_service_account_inputs(
                 inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, inputs.project_id
             )

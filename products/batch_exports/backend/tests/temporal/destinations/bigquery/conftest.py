@@ -11,8 +11,13 @@ from google.cloud import bigquery
 
 from posthog.models.integration import Integration
 
+from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils import (
+    impersonated_integration,
+    key_file_integration,
+    set_service_account_description_for_integration,
+)
 from products.batch_exports.backend.tests.temporal.destinations.s3.utils import (
-    has_valid_credentials as has_valid_aws_credentials,
+    check_valid_credentials as has_valid_aws_credentials,
 )
 
 
@@ -63,44 +68,22 @@ def bigquery_dataset(bigquery_config, bigquery_client) -> typing.Generator[bigqu
         )
 
 
-async def key_file_integration(ateam, bigquery_config):
-    integration = await Integration.objects.acreate(
-        team_id=ateam.pk,
-        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
-        integration_id=f"{ateam.id}-{bigquery_config['client_email']}",
-        config={
-            "project_id": bigquery_config["project_id"],
-            "service_account_email": bigquery_config["client_email"],
-        },
-        sensitive_config={
-            "private_key": bigquery_config["private_key"],
-            "private_key_id": bigquery_config["private_key_id"],
-            "token_uri": bigquery_config["token_uri"],
-        },
-    )
-    return integration
+@pytest.fixture
+def service_account_description(aorganization, request) -> str:
+    try:
+        description = request.param
+    except Exception:
+        return f"posthog:{str(aorganization.id)}"
 
-
-async def impersonated_integration(ateam, bigquery_config):
-    """Configure integration to impersonate our test service account.
-
-    This requires the `BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT` setting to be set, as
-    that's the original service account that will be assumed to do the impersonation.
-    """
-    integration = await Integration.objects.acreate(
-        team_id=ateam.pk,
-        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
-        integration_id=f"{ateam.id}-{bigquery_config['client_email']}",
-        config={
-            "project_id": bigquery_config["project_id"],
-            "service_account_email": bigquery_config["client_email"],
-        },
-    )
-    return integration
+    if description is None:
+        return f"posthog:{str(aorganization.id)}"
+    return description
 
 
 @pytest_asyncio.fixture
-async def integration(request, ateam, bigquery_config) -> None | Integration:
+async def integration(
+    request, aorganization, ateam, bigquery_config, service_account_description
+) -> None | Integration:
     try:
         integration_type = request.param
     except Exception:
@@ -108,10 +91,11 @@ async def integration(request, ateam, bigquery_config) -> None | Integration:
 
     match integration_type:
         case "impersonated":
-            if not has_valid_aws_credentials():
+            if not await has_valid_aws_credentials():
                 pytest.skip("AWS credentials not available")
 
             integration = await impersonated_integration(ateam, bigquery_config)
+            await set_service_account_description_for_integration(integration, service_account_description)
         case "key_file":
             integration = await key_file_integration(ateam, bigquery_config)
         case _:
