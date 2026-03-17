@@ -25,6 +25,7 @@ from .run_evaluation import (
     ExecuteLLMJudgeInputs,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
+    SendTrialUsageEmailInputs,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
     execute_hog_eval_activity,
@@ -32,7 +33,7 @@ from .run_evaluation import (
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
     run_hog_eval,
-    send_trial_exhausted_email_activity,
+    send_trial_usage_email_activity,
 )
 
 
@@ -956,16 +957,30 @@ class TestIncrementTrialEvalCountActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.parametrize(
-        "trial_eval_limit, trial_evals_used, expected_result, expected_used_after",
+        "trial_eval_limit, trial_evals_used, expected_threshold, expected_used_after",
         [
-            (100, 0, False, 1),
-            (5, 4, True, 5),
-            (5, 5, False, 6),  # already exceeded — should not re-trigger
+            (100, 0, None, 1),
+            (100, 49, 50, 50),
+            (100, 74, 75, 75),
+            (100, 99, 100, 100),
+            (100, 100, None, 101),  # already exceeded — should not re-trigger
+            (100, 50, None, 51),  # just past 50% — no threshold
+            (10, 4, 50, 5),  # 50% of 10
+            (10, 9, 100, 10),  # 100% of 10
         ],
-        ids=["not_reached", "just_reached", "already_exceeded"],
+        ids=[
+            "no_threshold",
+            "50pct_reached",
+            "75pct_reached",
+            "100pct_reached",
+            "already_exceeded",
+            "past_50pct",
+            "small_limit_50pct",
+            "small_limit_100pct",
+        ],
     )
     async def test_increment_trial_eval_count(
-        self, setup_data, trial_eval_limit, trial_evals_used, expected_result, expected_used_after
+        self, setup_data, trial_eval_limit, trial_evals_used, expected_threshold, expected_used_after
     ):
         team = setup_data["team"]
         config, _ = await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
@@ -975,15 +990,24 @@ class TestIncrementTrialEvalCountActivity:
 
         result = await increment_trial_eval_count_activity(team.id)
 
-        assert result is expected_result
+        assert result == expected_threshold
         config = await sync_to_async(EvaluationConfig.objects.get)(team_id=team.id)
         assert config.trial_evals_used == expected_used_after
 
 
-class TestSendTrialExhaustedEmailActivity:
+class TestSendTrialUsageEmailActivity:
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_sends_email_to_org_members(self, setup_data):
+    @pytest.mark.parametrize(
+        "threshold_pct, expected_template",
+        [
+            (50, "llm_analytics_trial_warning"),
+            (75, "llm_analytics_trial_warning"),
+            (100, "llm_analytics_trial_exhausted"),
+        ],
+        ids=["50pct_warning", "75pct_warning", "100pct_exhausted"],
+    )
+    async def test_sends_correct_template_for_threshold(self, setup_data, threshold_pct, expected_template):
         team = setup_data["team"]
         await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
 
@@ -994,12 +1018,13 @@ class TestSendTrialExhaustedEmailActivity:
             mock_message = MagicMock()
             mock_email_class.return_value = mock_message
 
-            await send_trial_exhausted_email_activity(team.id)
+            await send_trial_usage_email_activity(
+                SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=threshold_pct)
+            )
 
             mock_email_class.assert_called_once()
             call_kwargs = mock_email_class.call_args[1]
-            assert "trial_exhausted" in call_kwargs["campaign_key"]
-            assert call_kwargs["template_name"] == "llm_analytics_trial_exhausted"
+            assert call_kwargs["template_name"] == expected_template
             mock_message.send.assert_called_once()
 
     @pytest.mark.asyncio
@@ -1012,14 +1037,14 @@ class TestSendTrialExhaustedEmailActivity:
             patch("posthog.email.is_email_available", return_value=False),
             patch("posthog.email.EmailMessage") as mock_email_class,
         ):
-            await send_trial_exhausted_email_activity(team.id)
+            await send_trial_usage_email_activity(SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=50))
 
             mock_email_class.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.django_db(transaction=True)
-    async def test_deduplicates_via_campaign_key(self, setup_data):
-        """The campaign key is per-organization, so the same org only gets one email."""
+    @pytest.mark.parametrize("threshold_pct", [50, 75, 100], ids=["50pct", "75pct", "100pct"])
+    async def test_campaign_key_includes_threshold_and_org(self, setup_data, threshold_pct):
         team = setup_data["team"]
         await sync_to_async(EvaluationConfig.objects.get_or_create)(team_id=team.id)
 
@@ -1030,8 +1055,10 @@ class TestSendTrialExhaustedEmailActivity:
             mock_message = MagicMock()
             mock_email_class.return_value = mock_message
 
-            await send_trial_exhausted_email_activity(team.id)
+            await send_trial_usage_email_activity(
+                SendTrialUsageEmailInputs(team_id=team.id, threshold_pct=threshold_pct)
+            )
 
             call_kwargs = mock_email_class.call_args[1]
             org_id = str(setup_data["organization"].id)
-            assert call_kwargs["campaign_key"] == f"llm_analytics_trial_exhausted_{org_id}"
+            assert call_kwargs["campaign_key"] == f"llm_analytics_trial_{threshold_pct}pct_{org_id}"

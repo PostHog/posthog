@@ -195,21 +195,28 @@ async def update_key_state_activity(key_id: str, state: str, error_message: str 
     await database_sync_to_async(_update)()
 
 
+TRIAL_NOTIFICATION_THRESHOLDS = [50, 75, 100]
+
+
 @temporalio.activity.defn
-async def increment_trial_eval_count_activity(team_id: int) -> bool:
+async def increment_trial_eval_count_activity(team_id: int) -> int | None:
     """Increment trial eval counter after successful execution with PostHog key.
 
-    Returns True if this increment caused the trial limit to be reached.
-    Uses == rather than >= so that only the exact transition triggers the
-    notification. Concurrent increments may overshoot, but MessagingRecord
-    deduplication prevents duplicate emails regardless.
+    Returns the usage percentage threshold that was just crossed (50, 75, or
+    100), or None if no threshold was crossed. Uses exact equality so that
+    only the increment that crosses the boundary triggers a notification.
+    Concurrent increments may overshoot, but MessagingRecord deduplication
+    prevents duplicate emails regardless.
     """
     from django.db.models import F
 
-    def _increment() -> bool:
+    def _increment() -> int | None:
         EvaluationConfig.objects.filter(team_id=team_id).update(trial_evals_used=F("trial_evals_used") + 1)
         config = EvaluationConfig.objects.get(team_id=team_id)
-        return config.trial_evals_used == config.trial_eval_limit
+        for pct in TRIAL_NOTIFICATION_THRESHOLDS:
+            if config.trial_evals_used == int(config.trial_eval_limit * pct / 100):
+                return pct
+        return None
 
     return await database_sync_to_async(_increment)()
 
@@ -224,36 +231,60 @@ async def disable_evaluation_activity(evaluation_id: str, team_id: int) -> None:
     await database_sync_to_async(_disable)()
 
 
+@dataclass
+class SendTrialUsageEmailInputs:
+    team_id: int
+    threshold_pct: int
+
+
 @temporalio.activity.defn
-async def send_trial_exhausted_email_activity(team_id: int) -> None:
-    """Send an email to org members when trial evaluations are exhausted."""
+async def send_trial_usage_email_activity(inputs: SendTrialUsageEmailInputs) -> None:
+    """Send an email to org members about trial evaluation usage.
+
+    Handles both warning emails (50%, 75%) and the exhaustion email (100%).
+    """
 
     def _send():
         from posthog.email import EmailMessage, is_email_available
 
         if not is_email_available(with_absolute_urls=True):
-            logger.info("Email not available, skipping trial exhausted notification", team_id=team_id)
+            logger.info(
+                "Email not available, skipping trial usage notification",
+                team_id=inputs.team_id,
+                threshold_pct=inputs.threshold_pct,
+            )
             return
 
         try:
-            team = Team.objects.select_related("organization").get(id=team_id)
+            team = Team.objects.select_related("organization").get(id=inputs.team_id)
         except Team.DoesNotExist:
-            logger.warning("Team not found for trial exhausted email", team_id=team_id)
+            logger.warning("Team not found for trial usage email", team_id=inputs.team_id)
             return
 
-        config = EvaluationConfig.objects.filter(team_id=team_id).first()
+        config = EvaluationConfig.objects.filter(team_id=inputs.team_id).first()
         if not config:
             return
 
         settings_url = f"/project/{team.pk}/settings/environment-llm-analytics#llm-analytics-byok"
-        campaign_key = f"llm_analytics_trial_exhausted_{team.organization_id}"
+        campaign_key = f"llm_analytics_trial_{inputs.threshold_pct}pct_{team.organization_id}"
+        is_exhausted = inputs.threshold_pct >= 100
+
+        if is_exhausted:
+            subject = "Your LLM analytics trial evaluations have been used up"
+            template_name = "llm_analytics_trial_exhausted"
+        else:
+            subject = f"You've used {inputs.threshold_pct}% of your LLM analytics trial evaluations"
+            template_name = "llm_analytics_trial_warning"
 
         message = EmailMessage(
             campaign_key=campaign_key,
-            subject="Your LLM analytics trial evaluations have been used up",
-            template_name="llm_analytics_trial_exhausted",
+            subject=subject,
+            template_name=template_name,
             template_context={
                 "trial_eval_limit": config.trial_eval_limit,
+                "trial_evals_used": config.trial_evals_used,
+                "trial_evals_remaining": config.trial_evals_remaining,
+                "threshold_pct": inputs.threshold_pct,
                 "settings_url": settings_url,
             },
         )
@@ -264,9 +295,10 @@ async def send_trial_exhausted_email_activity(team_id: int) -> None:
         if message.to:
             message.send()
             logger.info(
-                "Sent trial exhausted email",
-                team_id=team_id,
+                "Sent trial usage email",
+                team_id=inputs.team_id,
                 org_id=str(team.organization_id),
+                threshold_pct=inputs.threshold_pct,
                 recipient_count=len(message.to),
             )
 
@@ -879,6 +911,19 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                                 schedule_to_close_timeout=timedelta(seconds=30),
                                 retry_policy=RetryPolicy(maximum_attempts=2),
                             )
+                            try:
+                                await temporalio.workflow.execute_activity(
+                                    send_trial_usage_email_activity,
+                                    SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=100),
+                                    activity_id=f"send-trial-usage-email-100pct-{evaluation['team_id']}",
+                                    schedule_to_close_timeout=timedelta(seconds=30),
+                                    retry_policy=RetryPolicy(maximum_attempts=2),
+                                )
+                            except Exception:
+                                temporalio.workflow.logger.exception(
+                                    "Failed to send trial exhausted email",
+                                    team_id=evaluation["team_id"],
+                                )
                         return {
                             "verdict": None,
                             "skipped": True,
@@ -904,7 +949,7 @@ class RunEvaluationWorkflow(PostHogWorkflow):
 
             # Increment trial eval counter if using PostHog key (LLM judge only — no cost for hog evals)
             if not result.get("is_byok"):
-                trial_limit_reached = await temporalio.workflow.execute_activity(
+                threshold_pct = await temporalio.workflow.execute_activity(
                     increment_trial_eval_count_activity,
                     evaluation["team_id"],
                     activity_id=f"increment-trial-{evaluation['id']}",
@@ -912,20 +957,21 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                     retry_policy=RetryPolicy(maximum_attempts=2),
                 )
 
-                if trial_limit_reached:
+                if threshold_pct is not None:
                     try:
                         await temporalio.workflow.execute_activity(
-                            send_trial_exhausted_email_activity,
-                            evaluation["team_id"],
-                            activity_id=f"send-trial-exhausted-email-{evaluation['team_id']}",
+                            send_trial_usage_email_activity,
+                            SendTrialUsageEmailInputs(team_id=evaluation["team_id"], threshold_pct=threshold_pct),
+                            activity_id=f"send-trial-usage-email-{threshold_pct}pct-{evaluation['team_id']}",
                             schedule_to_close_timeout=timedelta(seconds=30),
                             retry_policy=RetryPolicy(maximum_attempts=2),
                         )
                     except Exception:
                         # Email failure should not fail the evaluation workflow
                         temporalio.workflow.logger.exception(
-                            "Failed to send trial exhausted email",
+                            "Failed to send trial usage email",
                             team_id=evaluation["team_id"],
+                            threshold_pct=threshold_pct,
                         )
 
         # Activity 4: Emit evaluation event

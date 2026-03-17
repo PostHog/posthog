@@ -1,0 +1,29 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% load posthog_filters %}
+{% block preheader %}You've used {{ threshold_pct }}% of your LLM analytics trial evaluations{% endblock %}
+{% block heading %}You've used {{ threshold_pct }}% of your trial evaluations{% endblock %}
+{% block section %}
+<p>
+    Your team has used <strong>{{ trial_evals_used }}</strong> of <strong>{{ trial_eval_limit }}</strong> trial evaluations for LLM analytics, with <strong>{{ trial_evals_remaining }}</strong> remaining.
+</p>
+<p>
+    Once your trial evaluations run out, any active evaluations using trial credits will be paused. To ensure uninterrupted evaluations, add your own provider API key.
+</p>
+<div class="mb mt text-center">
+    <a class="button" href="{% absolute_uri settings_url %}">Add your API key</a>
+</div>
+<div class="mt">
+    <p>
+        If the button above doesn't work, paste this link into your browser:<br />
+        <a href="{% absolute_uri settings_url %}">{% absolute_uri settings_url %}</a>
+    </p>
+</div>
+{% endblock %}
+
+{% block footer %}
+Need help?
+<a href="https://posthog.com/questions?{{ utm_tags }}"
+    target="_blank"><b>Visit support</b></a>
+or
+<a href="https://posthog.com/docs/ai-engineering?{{ utm_tags }}"
+    target="_blank"><b>read our documentation</b></a>.
+{% endblock %}
