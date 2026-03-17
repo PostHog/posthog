@@ -212,12 +212,12 @@ async fn test_simple_batch_kafka_consumer() -> Result<()> {
     let coordinator = create_test_tracker();
     let processor = Arc::new(TestProcessor { sender: chan_tx });
     let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
-
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
         handler,
         processor,
         offset_tracker,
+        None, // on_commit - not needed in tests
         shutdown_rx,
         &test_topic,
         batch_size,
@@ -521,6 +521,7 @@ async fn test_offset_commits_with_routing_processor() -> Result<()> {
         rebalance_handler,
         routing_processor,
         offset_tracker.clone(),
+        None, // on_commit - not needed in tests
         shutdown_rx,
         &test_topic,
         50, // batch size
@@ -665,12 +666,12 @@ async fn test_seek_partitions_rewinds_consumer() -> Result<()> {
     let coordinator = create_test_tracker();
     let processor = Arc::new(TestProcessor { sender: chan_tx });
     let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
-
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
         handler.clone(),
         processor,
         offset_tracker,
+        None, // on_commit - not needed in tests
         shutdown_rx,
         &test_topic,
         10,
@@ -795,12 +796,12 @@ async fn test_seek_partitions_command_handled() -> Result<()> {
     let coordinator = create_test_tracker();
     let processor = Arc::new(NoopProcessor);
     let offset_tracker = Arc::new(OffsetTracker::new(coordinator));
-
     let consumer = BatchConsumer::<CapturedEvent>::new(
         &config,
         handler.clone(),
         processor,
         offset_tracker,
+        None, // on_commit - not needed in tests
         shutdown_rx,
         &test_topic,
         10,

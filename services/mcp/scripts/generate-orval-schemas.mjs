@@ -152,42 +152,35 @@ function stripUuidFormat(obj) {
 function prepareOrval(moduleName, filteredSchema, tmpDir) {
     const moduleOutputDir = path.join(generatedRoot, moduleName)
     const tempFile = path.join(tmpDir, `${moduleName}.json`)
-    const configFile = path.join(tmpDir, `orval-${moduleName}.config.mjs`)
     const outputFile = path.join(moduleOutputDir, 'api.ts')
 
     fs.writeFileSync(tempFile, JSON.stringify(filteredSchema, null, 2))
     fs.mkdirSync(moduleOutputDir, { recursive: true })
 
-    const config = `
-import { defineConfig } from 'orval';
-export default defineConfig({
-  api: {
-    input: '${tempFile}',
-    output: {
-      target: '${outputFile}',
-      mode: 'split',
-      client: 'zod',
-      prettier: false,
-      override: {
-        header: (info) => [
-          'Auto-generated from the Django backend OpenAPI schema.',
-          'MCP service uses these Zod schemas for generated tool handlers.',
-          'To regenerate: hogli build:openapi',
-          '',
-          ...(info?.title ? [info.title] : []),
-          ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
-        ],
-        components: {
-          schemas: { suffix: 'Api' },
+    const config = {
+        input: tempFile,
+        output: {
+            target: outputFile,
+            mode: 'split',
+            client: 'zod',
+            prettier: false,
+            override: {
+                header: (info) => [
+                    'Auto-generated from the Django backend OpenAPI schema.',
+                    'MCP service uses these Zod schemas for generated tool handlers.',
+                    'To regenerate: hogli build:openapi',
+                    '',
+                    ...(info?.title ? [info.title] : []),
+                    ...(info?.version ? ['OpenAPI spec version: ' + info.version] : []),
+                ],
+                components: {
+                    schemas: { suffix: 'Api' },
+                },
+            },
         },
-      },
-    },
-  },
-});
-`
+    }
 
-    fs.writeFileSync(configFile, config)
-    return { configFile, outputFile, moduleOutputDir }
+    return { config, outputFile, moduleOutputDir }
 }
 
 function postprocessOrvalOutput(outputFile) {
@@ -236,13 +229,13 @@ for (const def of definitions) {
     const pathCount = Object.keys(filtered.paths).length
     const schemaCount = Object.keys(filtered.components.schemas).length
 
-    const { configFile, outputFile, moduleOutputDir } = prepareOrval(def.moduleName, filtered, tmpDir)
-    tasks.push({ def, configFile, outputFile, moduleOutputDir, pathCount, schemaCount, operationIds })
+    const { config, outputFile, moduleOutputDir } = prepareOrval(def.moduleName, filtered, tmpDir)
+    tasks.push({ def, config, outputFile, moduleOutputDir, pathCount, schemaCount, operationIds })
 }
 
-// Phase 2: Run all Orval processes in parallel (max 4 concurrent)
-const orvalJobs = tasks.map((t) => ({ configFile: t.configFile, label: t.def.moduleName }))
-const results = await runOrvalParallel(orvalJobs, { cwd: repoRoot })
+// Phase 2: Run all Orval generations in parallel (in-process, no subprocess overhead)
+const orvalJobs = tasks.map((t) => ({ config: t.config, label: t.def.moduleName }))
+const results = await runOrvalParallel(orvalJobs)
 
 const outputDirs = []
 let failed = false
