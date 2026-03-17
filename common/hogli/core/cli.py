@@ -21,8 +21,6 @@ from hogli.core.manifest import REPO_ROOT, get_category_for_command, load_manife
 
 BIN_DIR = REPO_ROOT / "bin"
 
-_HOGLI_VERSION = "0.1.0"
-
 
 class CategorizedGroup(click.Group):
     """Custom Click group that formats help output like git help with categories.
@@ -330,7 +328,6 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
             "os": platform.system(),
             "arch": platform.machine(),
             "python_version": platform.python_version(),
-            "hogli_version": _HOGLI_VERSION,
             "is_ci": any(os.environ.get(v) for v in ci_env_vars),
             "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
             "in_flox": os.environ.get("FLOX_ENV") is not None,
@@ -341,5 +338,10 @@ def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
         pass
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Main entry point."""
     cli()
+
+
+if __name__ == "__main__":
+    main()

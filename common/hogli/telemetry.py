@@ -6,8 +6,7 @@ No SDK is used because the `posthog` package name collides with the repo module.
 Opt-out precedence:
     POSTHOG_TELEMETRY_OPT_OUT=1 -> DO_NOT_TRACK=1 -> config enabled: false
 
-Config file: $XDG_CONFIG_HOME/posthog/hogli_telemetry.json
-             (default ~/.config/posthog/hogli_telemetry.json)
+Config file: ~/.config/posthog/hogli_telemetry.json
 """
 
 from __future__ import annotations
@@ -25,6 +24,8 @@ from typing import Any
 
 import click
 
+# Write-only project token -- routes events to the correct PostHog project.
+# It cannot read data; safe to embed in source code.
 _API_KEY = "phc_khyO4pFrNHv2DOP98Q0L5oMByChkIVmr4LevQRGkd2z"
 _HOST = "https://us.i.posthog.com"
 
@@ -35,9 +36,7 @@ _HOST = "https://us.i.posthog.com"
 
 
 def get_config_path() -> Path:
-    xdg = os.environ.get("XDG_CONFIG_HOME")
-    base = Path(xdg) if xdg else Path.home() / ".config"
-    return base / "posthog" / "hogli_telemetry.json"
+    return Path.home() / ".config" / "posthog" / "hogli_telemetry.json"
 
 
 def _load_config() -> dict[str, Any]:
@@ -125,13 +124,9 @@ def track(event: str, properties: dict[str, Any] | None = None) -> None:
 
     Silently no-ops if telemetry is disabled or on any error.
     """
-    if os.environ.get("POSTHOG_TELEMETRY_OPT_OUT") == "1":
-        return
-    if os.environ.get("DO_NOT_TRACK") == "1":
+    if not is_enabled():
         return
     config = _load_config()
-    if not config.get("enabled", True):
-        return
     if not config.get("first_run_notice_shown"):
         return
 
