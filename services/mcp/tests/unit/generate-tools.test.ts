@@ -298,7 +298,7 @@ describe('generateToolCode with input_schema', () => {
             new Set<string>()
         )
 
-        expect(result.code).toContain('_posthogUrl:')
+        expect(result.code).toContain('withPostHogUrl(')
         expect(result.code).toContain('getProjectBaseUrl')
     })
 

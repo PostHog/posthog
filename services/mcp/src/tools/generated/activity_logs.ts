@@ -3,13 +3,14 @@ import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
 import { ActivityLogListQueryParams } from '@/generated/activity_logs/api'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ActivityLogsListSchema = ActivityLogListQueryParams
 
 const activityLogsList = (): ToolBase<
     typeof ActivityLogsListSchema,
-    Schemas.PaginatedActivityLogList & { _posthogUrl: string }
+    WithPostHogUrl<Schemas.PaginatedActivityLogList>
 > => ({
     name: 'activity-logs-list',
     schema: ActivityLogsListSchema,
@@ -27,10 +28,7 @@ const activityLogsList = (): ToolBase<
                 user: params.user,
             },
         })
-        return {
-            ...(result as any),
-            _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/activity`,
-        }
+        return await withPostHogUrl(context, result, '/activity-logs')
     },
 })
 

@@ -1,0 +1,16 @@
+# UI app definitions only — tools for experiments are handwritten in services/mcp/src/tools/experiments/
+category: Experiments
+feature: experiments
+url_prefix: /experiments
+ui_apps:
+    experiment:
+        type: detail
+        view_prop: experiment
+    experiment-list:
+        type: list
+        detail_tool: experiment-get
+        detail_args: '{ experimentId: item.id }'
+    experiment-results:
+        type: detail
+        view_prop: data
+tools: {}

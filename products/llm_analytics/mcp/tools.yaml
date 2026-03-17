@@ -1,0 +1,11 @@
+# UI app definitions only — tools for LLM analytics are handwritten in services/mcp/src/tools/llmAnalytics/
+category: LLM analytics
+feature: llm_analytics
+url_prefix: /llm-analytics
+ui_apps:
+    llm-costs:
+        type: detail
+        view_prop: data
+        data_type: LLMCostsData
+        view_component: LLMCostsView
+tools: {}

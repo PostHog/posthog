@@ -30,14 +30,29 @@ if (existsSync(devVarsPath)) {
 }
 
 function discoverApps(): string[] {
-    return readdirSync(APPS_DIR)
+    // Top-level custom/manual apps
+    const apps = readdirSync(APPS_DIR)
         .filter((f) => f.endsWith('.tsx'))
         .map((f) => f.replace(/\.tsx$/, ''))
+
+    // Generated apps in the generated/ subdirectory
+    const generatedDir = join(APPS_DIR, 'generated')
+    if (existsSync(generatedDir)) {
+        for (const f of readdirSync(generatedDir)) {
+            if (f.endsWith('.tsx')) {
+                apps.push(`generated/${f.replace(/\.tsx$/, '')}`)
+            }
+        }
+    }
+
+    return apps
 }
 
 function buildAppAsync(appName: string): Promise<void> {
-    if (!/^[a-z_-]+$/.test(appName)) {
-        return Promise.reject(new Error(`Invalid app name "${appName}": must only contain a-z, underscore, or hyphen`))
+    if (!/^(?:generated\/)?[a-z_-]+$/.test(appName)) {
+        return Promise.reject(
+            new Error(`Invalid app name "${appName}": must only contain a-z, underscore, hyphen, or generated/ prefix`)
+        )
     }
 
     return new Promise((resolve, reject) => {
@@ -134,7 +149,7 @@ async function watchApps(apps: string[]): Promise<void> {
         const watcher = chokidar.watch(
             [
                 join(MCP_ROOT_DIR, 'src/ui-apps/**/*.{ts,tsx,css}'),
-                join(ROOT_DIR, 'products/**/mcp-apps/**/*.{ts,tsx,css}'),
+                join(ROOT_DIR, 'products/**/mcp/apps/**/*.{ts,tsx,css}'),
                 join(ROOT_DIR, 'common/mosaic/src/**/*.{ts,tsx,css}'),
             ],
             {

@@ -30,8 +30,13 @@ jobs:
                   filters: |
                       ui-apps:
                         - 'services/mcp/src/ui-apps/**'
+                        - 'services/mcp/src/resources/ui-apps.generated.ts'
                         - 'services/mcp/vite.ui-apps.config.ts'
                         - 'services/mcp/scripts/build-ui-apps.ts'
+                        - 'services/mcp/scripts/generate-ui-apps.ts'
+                        - 'services/mcp/scripts/yaml-config-schema.ts'
+                        - 'products/*/mcp/tools.yaml'
+                        - 'services/mcp/definitions/*.yaml'
                         - 'common/mosaic/**'
                         - '.github/workflows/ci-mcp-ui-apps.yml'
 
@@ -59,6 +64,18 @@ jobs:
 
             - name: Install dependencies
               run: pnpm --filter=@posthog/mcp... --filter='./products/*' install --frozen-lockfile
+
+            - name: Check generated UI apps are up to date
+              run: |
+                  cd services/mcp && pnpm run generate:ui-apps
+                  if ! git diff --exit-code -- services/mcp/src/ui-apps/apps/generated/ services/mcp/src/resources/ui-apps.generated.ts; then
+                    echo ""
+                    echo "::warning::The following generated files are out of date:"
+                    git diff --name-only -- services/mcp/src/ui-apps/apps/generated/ services/mcp/src/resources/ui-apps.generated.ts
+                    echo ""
+                    echo "::error::Generated UI app files are out of date. Run 'pnpm --filter=@posthog/mcp run generate:ui-apps' and commit the result."
+                    exit 1
+                  fi
 
             - name: Build UI Apps
               run: cd services/mcp && pnpm run build:ui-apps

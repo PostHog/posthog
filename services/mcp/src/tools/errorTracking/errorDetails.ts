@@ -1,14 +1,16 @@
 import type { z } from 'zod'
 
-import { ERROR_DETAILS_RESOURCE_URI } from '@/resources/ui-apps-constants'
+import { withUiApp } from '@/resources/ui-apps'
 import { ErrorTrackingDetailsSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = ErrorTrackingDetailsSchema
 
 type Params = z.infer<typeof schema>
+type Result = WithPostHogUrl<{ results: unknown[] }>
 
-export const errorDetailsHandler: ToolBase<typeof schema, unknown>['handler'] = async (
+export const errorDetailsHandler: ToolBase<typeof schema, Result>['handler'] = async (
     context: Context,
     params: Params
 ) => {
@@ -31,21 +33,15 @@ export const errorDetailsHandler: ToolBase<typeof schema, unknown>['handler'] = 
         throw new Error(`Failed to get error details: ${errorsResult.error.message}`)
     }
 
-    return {
-        results: errorsResult.data.results,
-        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/error_tracking/${issueId}`,
-    }
+    return withPostHogUrl(
+        { results: errorsResult.data.results },
+        `${context.api.getProjectBaseUrl(projectId)}/error_tracking/${issueId}`
+    )
 }
 
-const tool = (): ToolBase<typeof schema> => ({
-    name: 'error-details',
-    schema,
-    handler: errorDetailsHandler,
-    _meta: {
-        ui: {
-            resourceUri: ERROR_DETAILS_RESOURCE_URI,
-        },
-    },
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('error-details', {
+        name: 'error-details',
+        schema,
+        handler: errorDetailsHandler,
+    })

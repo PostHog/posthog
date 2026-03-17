@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Alerts
 feature: alerts
-url_prefix: /insights
+url_prefix: /insights?tab=alerts
 tools:
     alerts-list:
         operation: alerts_list

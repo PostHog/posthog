@@ -1,5 +1,5 @@
 import react from '@vitejs/plugin-react'
-import { readdirSync } from 'fs'
+import { existsSync, readdirSync } from 'fs'
 import { resolve } from 'path'
 import { defineConfig } from 'vite'
 
@@ -19,13 +19,24 @@ const APPS_DIR = resolve(__dirname, 'src/ui-apps/apps')
 const appName = process.env.UI_APP
 
 /**
- * Auto-discover UI apps from src/ui-apps/apps/.
- * An app is any .tsx file in the directory (e.g. debug.tsx → "debug").
+ * Auto-discover UI apps from src/ui-apps/apps/ and generated/ subdirectory.
+ * Returns app names like "debug", "query-results", "generated/action", etc.
  */
 function discoverApps(): string[] {
-    return readdirSync(APPS_DIR)
+    const apps = readdirSync(APPS_DIR)
         .filter((f) => f.endsWith('.tsx'))
         .map((f) => f.replace(/\.tsx$/, ''))
+
+    const generatedDir = resolve(APPS_DIR, 'generated')
+    if (existsSync(generatedDir)) {
+        for (const f of readdirSync(generatedDir)) {
+            if (f.endsWith('.tsx')) {
+                apps.push(`generated/${f.replace(/\.tsx$/, '')}`)
+            }
+        }
+    }
+
+    return apps
 }
 
 // Discover all apps

@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Activity logs
 feature: activity_logs
-url_prefix: /activity
+url_prefix: /activity-logs
 tools:
     activity-logs-list:
         operation: activity_log_list

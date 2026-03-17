@@ -1,7 +1,8 @@
 import type { z } from 'zod'
 
-import { QUERY_RESULTS_RESOURCE_URI } from '@/resources/ui-apps-constants'
+import { withUiApp } from '@/resources/ui-apps'
 import { QueryRunInputSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 import { analyzeQuery } from '../shared'
@@ -10,7 +11,7 @@ const schema = QueryRunInputSchema
 
 type Params = z.infer<typeof schema>
 
-type Result = { query: unknown; results: unknown; _posthogUrl: string }
+type Result = WithPostHogUrl<{ query: unknown; results: unknown }>
 
 export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const { query } = params
@@ -40,33 +41,31 @@ export const queryRunHandler: ToolBase<typeof schema, Result>['handler'] = async
         queryInfo.visualization === 'funnel' ||
         queryInfo.visualization === 'paths'
     ) {
-        return {
-            query: queryInfo.innerQuery || query,
-            results: queryResult.data.results,
-            _posthogUrl: posthogUrl,
-        }
+        return withPostHogUrl(
+            {
+                query: queryInfo.innerQuery || query,
+                results: queryResult.data.results,
+            },
+            posthogUrl
+        )
     }
 
     // HogQL/table results have columns and results arrays
-    return {
-        query,
-        results: {
-            columns: queryResult.data.columns || [],
-            results: queryResult.data.results || [],
+    return withPostHogUrl(
+        {
+            query,
+            results: {
+                columns: queryResult.data.columns || [],
+                results: queryResult.data.results || [],
+            },
         },
-        _posthogUrl: posthogUrl,
-    }
+        posthogUrl
+    )
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
-    name: 'query-run',
-    schema,
-    handler: queryRunHandler,
-    _meta: {
-        ui: {
-            resourceUri: QUERY_RESULTS_RESOURCE_URI,
-        },
-    },
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('query-results', {
+        name: 'query-run',
+        schema,
+        handler: queryRunHandler,
+    })

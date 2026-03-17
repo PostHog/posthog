@@ -6,7 +6,7 @@
 # All other fields (title, description, enrich_url, etc.) are yours to configure.
 category: Annotations
 feature: annotations
-url_prefix: /annotations
+url_prefix: /data-management/annotations
 tools:
     annotations-list:
         operation: annotations_list

@@ -1,14 +1,15 @@
 import type { z } from 'zod'
 
-import { EXPERIMENT_LIST_RESOURCE_URI } from '@/resources/ui-apps-constants'
+import { withUiApp } from '@/resources/ui-apps'
 import type { Experiment } from '@/schema/experiments'
 import { ExperimentGetAllSchema } from '@/schema/tool-inputs'
+import { withPostHogUrl, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase } from '@/tools/types'
 
 const schema = ExperimentGetAllSchema
 
 type Params = z.infer<typeof schema>
-type Result = { results: Experiment[]; _posthogUrl: string }
+type Result = WithPostHogUrl<{ results: Experiment[] }>
 
 export const getAllHandler: ToolBase<typeof schema, Result>['handler'] = async (context: Context, params: Params) => {
     const projectId = await context.stateManager.getProjectId()
@@ -24,21 +25,12 @@ export const getAllHandler: ToolBase<typeof schema, Result>['handler'] = async (
         throw new Error(`Failed to get experiments: ${results.error.message}`)
     }
 
-    return {
-        results: results.data,
-        _posthogUrl: `${context.api.getProjectBaseUrl(projectId)}/experiments`,
-    }
+    return withPostHogUrl({ results: results.data }, `${context.api.getProjectBaseUrl(projectId)}/experiments`)
 }
 
-const tool = (): ToolBase<typeof schema, Result> => ({
-    name: 'experiment-get-all',
-    schema,
-    handler: getAllHandler,
-    _meta: {
-        ui: {
-            resourceUri: EXPERIMENT_LIST_RESOURCE_URI,
-        },
-    },
-})
-
-export default tool
+export default (): ToolBase<typeof schema, Result> =>
+    withUiApp('experiment-list', {
+        name: 'experiment-get-all',
+        schema,
+        handler: getAllHandler,
+    })

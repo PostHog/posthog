@@ -7,6 +7,16 @@
 category: Feature flags
 feature: flags
 url_prefix: /feature_flags
+ui_apps:
+    feature-flag:
+        type: detail
+        view_prop: flag
+    feature-flag-list:
+        type: list
+        detail_tool: feature-flag-get-definition
+        detail_args: '{ flagId: item.id }'
+        item_name_field: key
+        click_prop: onFlagClick
 tools:
     feature-flag-get-all:
         operation: feature_flags_list
