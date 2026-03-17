@@ -5785,5 +5785,37 @@ async fn test_api_cohort_flag_integration() -> Result<()> {
     assert_eq!(flag_result["key"], "api-cohort-flag");
     assert_eq!(flag_result["reason"]["code"], "condition_match");
 
+    // Step 4: Test reverse case - user who doesn't match should get flag=false
+    let non_matching_payload = json!({
+        "token": token,
+        "distinct_id": "test_user_no_match",
+        "person_properties": {
+            "email": "nomatch@different.com"
+        }
+    });
+
+    let non_matching_response = server
+        .send_flags_request(non_matching_payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(StatusCode::OK, non_matching_response.status());
+
+    let non_matching_json_response = non_matching_response.json::<Value>().await?;
+    assert!(non_matching_json_response.get("flags").is_some());
+
+    // Verify the flag evaluated correctly - user should NOT match the person property criteria
+    let non_matching_flags = non_matching_json_response["flags"].as_object().unwrap();
+    let non_matching_flag_result = non_matching_flags.get("api-cohort-flag").unwrap();
+    assert_eq!(
+        non_matching_flag_result["enabled"],
+        Value::Bool(false),
+        "Flag should evaluate to enabled=false for user NOT matching property criteria"
+    );
+    assert_eq!(non_matching_flag_result["key"], "api-cohort-flag");
+    assert_eq!(
+        non_matching_flag_result["reason"]["code"],
+        "no_condition_match"
+    );
+
     Ok(())
 }
