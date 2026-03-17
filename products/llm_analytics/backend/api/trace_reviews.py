@@ -293,6 +293,17 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                 team=team, id__in=[score_payload["definition_id"] for score_payload in score_payloads]
             ).select_related("current_version")
         }
+        version_lookup = {
+            str(version.id): version
+            for version in ScoreDefinitionVersion.objects.filter(
+                definition__team=team,
+                id__in=[
+                    score_payload["definition_version_id"]
+                    for score_payload in score_payloads
+                    if score_payload.get("definition_version_id") is not None
+                ],
+            )
+        }
 
         resolved_scores: list[dict[str, Any]] = []
 
@@ -311,10 +322,7 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                     score_errors[index]["definition_version_id"] = "This scorer does not have a current version."
                     continue
             else:
-                definition_version = next(
-                    (version for version in definition.versions.all() if version.id == definition_version_id),
-                    None,
-                )
+                definition_version = version_lookup.get(str(definition_version_id))
                 if definition_version is None:
                     score_errors[index]["definition_version_id"] = "Unknown scorer version."
                     continue
