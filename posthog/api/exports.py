@@ -1,6 +1,7 @@
 import threading
 from datetime import timedelta
 from typing import Any
+from uuid import NAMESPACE_DNS, uuid5
 
 from django.conf import settings
 from django.http import HttpResponse
@@ -19,7 +20,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import groups
+from posthog.event_usage import EventSource, groups
 from posthog.models import Insight, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.exported_asset import ExportedAsset, get_content_response
@@ -28,6 +29,7 @@ from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.settings.temporal import TEMPORAL_WORKFLOW_MAX_ATTEMPTS
 from posthog.tasks import exporter
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.exports.workflows import ExportAssetWorkflow, ExportAssetWorkflowInputs
 from posthog.temporal.exports_video.workflow import VideoExportInputs, VideoExportWorkflow
 
 VIDEO_EXPORT_SEMAPHORE = threading.Semaphore(10)  # Allow max 10 concurrent video exports
@@ -230,20 +232,9 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                         logger.exception("video_export_workflow_dispatch_failed", asset_id=instance.id, error=str(e))
                         raise
             else:
-                exporter.export_asset(instance.id)
+                self._start_export_workflow(instance, team, user)
         else:
-            task = exporter.export_asset.delay(instance.id)
-            posthoganalytics.capture(
-                distinct_id=user.distinct_id if user else str(team.uuid),
-                event="export queued",
-                properties={
-                    **instance.get_analytics_metadata(),
-                    "force_async": force_async,
-                    "reason": reason,
-                    "task_id": task.id,
-                },
-                groups=groups(team.organization, team),
-            )
+            self._start_export_workflow(instance, team, user)
 
         posthoganalytics.capture(
             distinct_id=user.distinct_id if user else str(team.uuid),
@@ -294,6 +285,43 @@ class ExportedAssetSerializer(serializers.ModelSerializer):
                 )
                 pass
         return instance
+
+    def _start_export_workflow(self, instance: ExportedAsset, team: Any, user: User | None) -> None:
+        """Dispatch a Temporal ExportAssetWorkflow. Falls back to Celery on failure."""
+        posthoganalytics.capture(
+            distinct_id=str(team.id),
+            event="slo_export_started",
+            uuid=str(uuid5(NAMESPACE_DNS, f"slo-export-started-{instance.id}")),
+            properties={
+                "exported_asset_id": instance.id,
+                "team_id": team.id,
+                "source": EventSource.WEB if user else EventSource.API,
+                "format": instance.export_format,
+            },
+        )
+
+        async def _start():
+            client = await async_connect()
+            await client.start_workflow(
+                ExportAssetWorkflow.run,
+                ExportAssetWorkflowInputs(
+                    exported_asset_id=instance.id,
+                    team_id=team.id,
+                    source=EventSource.WEB if user else EventSource.API,
+                    export_format=instance.export_format,
+                ),
+                id=f"export-asset-{instance.id}",
+                task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE_FAILED_ONLY,
+                execution_timeout=timedelta(minutes=35),
+            )
+
+        try:
+            async_to_sync(_start)()
+            logger.info("export_workflow_dispatched", asset_id=instance.id)
+        except Exception:
+            logger.warning("export_workflow_dispatch_failed", asset_id=instance.id, exc_info=True)
+            exporter.export_asset.delay(instance.id)
 
 
 @extend_schema(tags=["core"])

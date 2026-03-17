@@ -69,6 +69,10 @@ from posthog.temporal.export_recording import (
     ACTIVITIES as EXPORT_RECORDING_ACTIVITIES,
     WORKFLOWS as EXPORT_RECORDING_WORKFLOWS,
 )
+from posthog.temporal.exports import (
+    ACTIVITIES as EXPORT_ACTIVITIES,
+    WORKFLOWS as EXPORT_WORKFLOWS,
+)
 from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
     WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
@@ -217,8 +221,8 @@ _task_queue_specs = [
     ),
     (
         settings.ANALYTICS_PLATFORM_TASK_QUEUE,
-        SUBSCRIPTION_WORKFLOWS,
-        SUBSCRIPTION_ACTIVITIES,
+        EXPORT_WORKFLOWS + SUBSCRIPTION_WORKFLOWS,
+        EXPORT_ACTIVITIES + SUBSCRIPTION_ACTIVITIES,
     ),
     (
         settings.TASKS_TASK_QUEUE,
