@@ -39,7 +39,7 @@ class TypeformSource(SimpleSource[TypeformSourceConfig]):
         return SourceConfig(
             name=SchemaExternalDataSourceType.TYPEFORM,
             label="Typeform",
-            iconPath="/static/services/typeform.svg",
+            iconPath="/static/services/typeform.png",
             caption="""Enter a Typeform personal access token to sync forms and responses.
 
 Supported endpoints:
