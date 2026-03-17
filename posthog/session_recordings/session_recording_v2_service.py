@@ -63,19 +63,31 @@ async def fetch_blocks_from_recording_api(session_id: str, team_id: int) -> list
     ]
 
 
-def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
-    """
-    Returns a list of recording blocks fetched from the recording-api.
-    Results are cached to avoid excessive calls.
-    """
+def _get_cached_blocks(recording: SessionRecording) -> tuple[str | None, list[RecordingBlock] | None]:
     cache_key = listing_cache_key(recording)
     if cache_key is not None:
         cached_blocks = cache.get(cache_key)
         if cached_blocks is not None:
             BLOCK_LISTING_CACHE_HIT_COUNTER.labels(cache_hit=True).inc()
-            return cached_blocks
+            return cache_key, cached_blocks
         else:
             BLOCK_LISTING_CACHE_HIT_COUNTER.labels(cache_hit=False).inc()
+    return cache_key, None
+
+
+def _cache_blocks(cache_key: str | None, blocks: list[RecordingBlock]) -> None:
+    if blocks and cache_key is not None:
+        cache.set(cache_key, blocks, timeout=FIVE_SECONDS)
+
+
+def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
+    """
+    Returns a list of recording blocks fetched from the recording-api.
+    Results are cached to avoid excessive calls.
+    """
+    cache_key, cached_blocks = _get_cached_blocks(recording)
+    if cached_blocks is not None:
+        return cached_blocks
 
     try:
         blocks = async_to_sync(fetch_blocks_from_recording_api)(recording.session_id, recording.team_id)
@@ -87,7 +99,27 @@ def list_blocks(recording: SessionRecording) -> list[RecordingBlock]:
         )
         return []
 
-    if blocks and cache_key is not None:
-        cache.set(cache_key, blocks, timeout=FIVE_SECONDS)
+    _cache_blocks(cache_key, blocks)
+    return blocks
 
+
+async def list_blocks_async(recording: SessionRecording) -> list[RecordingBlock]:
+    """
+    Async version of list_blocks, safe to call from within a running event loop.
+    """
+    cache_key, cached_blocks = _get_cached_blocks(recording)
+    if cached_blocks is not None:
+        return cached_blocks
+
+    try:
+        blocks = await fetch_blocks_from_recording_api(recording.session_id, recording.team_id)
+    except Exception:
+        logger.exception(
+            "recording_api_list_blocks_failed",
+            session_id=recording.session_id,
+            team_id=recording.team_id,
+        )
+        return []
+
+    _cache_blocks(cache_key, blocks)
     return blocks

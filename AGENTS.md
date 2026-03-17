@@ -12,7 +12,6 @@
 - Environment:
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
-  - If local hooks fail with missing Husky bootstrap files (for example `.husky/_/husky.sh`) or missing `lint-staged`, run `pnpm install --frozen-lockfile --filter=.` once in the repo root
 - Tests:
   - All tests: `pytest`
   - Single test: `pytest path/to/test.py::TestClass::test_method`

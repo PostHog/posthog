@@ -3,6 +3,9 @@ mod tests;
 
 use std::sync::Arc;
 
+use personhog_proto::personhog::leader::v1::{
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+};
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogService;
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
@@ -196,5 +199,14 @@ impl PersonHogService for PersonHogRouterService {
         request: Request<GetGroupTypeMappingsByProjectIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         route_request!(self, get_group_type_mappings_by_project_ids, request)
+    }
+
+    // Person property updates (routed to leader)
+
+    async fn update_person_properties(
+        &self,
+        request: Request<UpdatePersonPropertiesRequest>,
+    ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
+        route_request!(self, update_person_properties, request)
     }
 }
