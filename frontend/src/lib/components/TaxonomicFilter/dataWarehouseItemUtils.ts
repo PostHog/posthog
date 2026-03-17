@@ -3,6 +3,7 @@ import { DataWarehouseTableForInsight } from 'scenes/data-warehouse/types'
 const ID_FIELD_CANDIDATES = ['id']
 const DISTINCT_ID_FIELD_CANDIDATES = ['distinct_id', 'email', 'person_id', 'user_id', 'customer_id']
 const AGGREGATION_TARGET_FIELD_CANDIDATES = ['person_id']
+const AGGREGATION_TARGET_JOIN_CANDIDATES = [{ tableName: 'person_distinct_ids', fieldName: 'person_id' }]
 const TIMESTAMP_FIELD_CANDIDATES = [
     'created',
     'created_at',
@@ -40,6 +41,38 @@ function findDateOrDatetimeField(
     return Object.values(warehouseItem.fields).find((field) => field.type === 'datetime' || field.type === 'date')
 }
 
+function findJoinedFieldExpression(
+    warehouseItem: DataWarehouseTableForInsight,
+    tableName: string,
+    fieldName: string
+): string | undefined {
+    const normalizedTableName = normalizeFieldName(tableName)
+    const normalizedFieldName = normalizeFieldName(fieldName)
+
+    const exactJoinField = Object.values(warehouseItem.fields).find(
+        (field) =>
+            normalizeFieldName(field.name) === normalizedTableName &&
+            normalizeFieldName(field.table ?? '') === normalizedTableName &&
+            field.fields?.some((candidate) => normalizeFieldName(candidate) === normalizedFieldName)
+    )
+
+    if (exactJoinField) {
+        return `${exactJoinField.name}.${fieldName}`
+    }
+
+    const matchingJoinField = Object.values(warehouseItem.fields).find(
+        (field) =>
+            normalizeFieldName(field.table ?? '') === normalizedTableName &&
+            field.fields?.some((candidate) => normalizeFieldName(candidate) === normalizedFieldName)
+    )
+
+    if (matchingJoinField) {
+        return `${matchingJoinField.name}.${fieldName}`
+    }
+
+    return undefined
+}
+
 export function getDataWarehouseItemWithFieldDefaults(
     warehouseItem: DataWarehouseTableForInsight,
     selectedItemMeta?: Record<string, any> | null
@@ -69,12 +102,16 @@ export function getDataWarehouseItemWithFieldDefaults(
     }
 
     if (warehouseItemWithFieldDefaults.aggregation_target_field == null) {
-        const aggregationTargetField = findFieldByNameCandidates(
-            warehouseItemWithFieldDefaults,
-            AGGREGATION_TARGET_FIELD_CANDIDATES
-        )
+        const aggregationTargetJoinField = AGGREGATION_TARGET_JOIN_CANDIDATES.map(({ tableName, fieldName }) =>
+            findJoinedFieldExpression(warehouseItemWithFieldDefaults, tableName, fieldName)
+        ).find((field): field is string => Boolean(field))
+        const aggregationTargetField =
+            aggregationTargetJoinField ??
+            findFieldByNameCandidates(warehouseItemWithFieldDefaults, AGGREGATION_TARGET_FIELD_CANDIDATES)
 
-        if (aggregationTargetField) {
+        if (typeof aggregationTargetField === 'string') {
+            warehouseItemWithFieldDefaults.aggregation_target_field = aggregationTargetField
+        } else if (aggregationTargetField) {
             warehouseItemWithFieldDefaults.aggregation_target_field = aggregationTargetField.name
         }
     }
