@@ -533,10 +533,10 @@ class _TierAwareSnapshotThrottle(PersonalApiKeyRateThrottle):
             raise ValueError("_TierAwareSnapshotThrottle subclasses must set scope")
         base_scope = self.scope
         rates = _snapshot_rates()
-        rates_for_tier = rates.get(tier) or rates[SNAPSHOT_DEFAULT_TIER]
-        self.rate = rates_for_tier[base_scope]
+        resolved_tier = tier if tier in rates else SNAPSHOT_DEFAULT_TIER
+        self.rate = rates[resolved_tier][base_scope]
         self.num_requests, self.duration = self.parse_rate(self.rate)
-        self.scope = f"{base_scope}_{tier}"
+        self.scope = f"{base_scope}_{resolved_tier}"
 
     def _is_personal_api_key_request(self, request) -> bool:
         return isinstance(getattr(request, "successful_authenticator", None), PersonalAPIKeyAuthentication)

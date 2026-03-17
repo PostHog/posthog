@@ -151,7 +151,7 @@ class TestSnapshotRatesConfig(BaseTest):
 
         expected_rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_burst"]
         assert throttle.rate == expected_rate
-        assert throttle.scope == "snapshots_burst_mystery_tier"
+        assert throttle.scope == "snapshots_burst_free"
 
 
 class TestTierAwareSnapshotThrottle(BaseTest):
