@@ -17,7 +17,7 @@ export const HogFunctionsListParams = /* @__PURE__ */ zod.object({
 })
 
 export const HogFunctionsListQueryParams = /* @__PURE__ */ zod.object({
-    created_at: zod.string().datetime({}).optional(),
+    created_at: zod.iso.datetime({}).optional(),
     created_by: zod.number().optional(),
     enabled: zod.boolean().optional(),
     id: zod.string().optional(),
@@ -25,7 +25,7 @@ export const HogFunctionsListQueryParams = /* @__PURE__ */ zod.object({
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('A search term.'),
     type: zod.array(zod.string()).optional().describe('Multiple values may be separated by commas.'),
-    updated_at: zod.string().datetime({}).optional(),
+    updated_at: zod.iso.datetime({}).optional(),
 })
 
 export const HogFunctionsCreateParams = /* @__PURE__ */ zod.object({
@@ -598,7 +598,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe('Display name for the function.'),
             description: zod.string().optional().describe('Human-readable description of what this function does.'),
-            created_at: zod.string().datetime({}).optional(),
+            created_at: zod.iso.datetime({}).optional(),
             created_by: zod
                 .object({
                     id: zod.number().optional(),
@@ -615,10 +615,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         .string()
                         .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneLastNameMax)
                         .optional(),
-                    email: zod
-                        .string()
-                        .email()
-                        .max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax),
+                    email: zod.email().max(hogFunctionsInvocationsCreateBodyConfigurationOneCreatedByOneEmailMax),
                     is_email_verified: zod.boolean().nullish(),
                     hedgehog_config: zod.record(zod.string(), zod.unknown()).nullish(),
                     role_at_organization: zod
@@ -643,7 +640,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                         .nullish(),
                 })
                 .optional(),
-            updated_at: zod.string().datetime({}).optional(),
+            updated_at: zod.iso.datetime({}).optional(),
             enabled: zod.boolean().optional().describe('Whether the function is active and processing events.'),
             deleted: zod.boolean().optional().describe('Soft-delete flag. Set to true to archive the function.'),
             hog: zod

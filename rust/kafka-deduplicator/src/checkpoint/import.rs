@@ -8,7 +8,6 @@ use crate::metrics_const::{
 };
 
 use anyhow::{Context, Result};
-use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
@@ -96,11 +95,10 @@ impl CheckpointImporter {
     /// This method will:
     /// 1. List recent checkpoint metadata.json keys from remote storage for the topic+partition
     /// 2. For each key (newest to oldest, up to import_attempt_depth), lazily download the
-    ///    metadata.json and attempt to download all tracked files to a timestamped store
-    ///    directory: `<store_base_path>/<topic>_<partition>/<timestamp_millis>/`
+    ///    metadata.json and attempt to download all tracked files to the partition store
+    ///    directory: `<store_base_path>/<topic>/<partition>/`
     /// 3. If a checkpoint import fails, fall back to the next most recent
-    /// 4. If successful, write metadata.json and a `.imported_<timestamp>` marker to that directory,
-    ///    then return the store path
+    /// 4. If successful, write metadata.json to that directory and return the store path
     ///
     /// Metadata files are downloaded lazily (one at a time, only when needed) rather than
     /// eagerly in bulk, to reduce S3 pressure during rebalances when many partitions import
@@ -233,11 +231,21 @@ impl CheckpointImporter {
                 }
             };
 
-            let import_timestamp = Utc::now();
-            let local_attempt_path =
-                attempt.get_store_path(&self.store_base_path, import_timestamp);
+            let local_attempt_path = attempt.get_store_path(&self.store_base_path);
             let local_path_tag = local_attempt_path.to_string_lossy().to_string();
             let attempt_tag = attempt.get_attempt_path();
+
+            // If a stale store directory exists, remove it before importing.
+            // The caller already determined local data is stale or missing.
+            if local_attempt_path.exists() {
+                info!(
+                    topic = topic,
+                    partition = partition_number,
+                    path = %local_attempt_path.display(),
+                    "Removing stale local store before import"
+                );
+                let _ = tokio::fs::remove_dir_all(&local_attempt_path).await;
+            }
 
             // Create the directory for this import attempt
             if let Err(e) = tokio::fs::create_dir_all(&local_attempt_path).await {
@@ -290,26 +298,10 @@ impl CheckpointImporter {
                             )
                         })?;
 
-                    // Write .imported_<timestamp> marker (same metadata JSON) to identify this as an imported store
-                    let marker_filename =
-                        format!(".imported_{}", import_timestamp.timestamp_millis());
-                    let marker_path = local_attempt_path.join(&marker_filename);
-                    let marker_content = attempt.to_json()?;
-                    tokio::fs::write(&marker_path, marker_content)
-                        .await
-                        .with_context(|| {
-                            format!(
-                                "Failed to write import marker file: {}",
-                                marker_path.display()
-                            )
-                        })?;
-
                     info!(
                         checkpoint = attempt_tag,
                         local_store_path = local_path_tag,
                         original_checkpoint_timestamp = %attempt.attempt_timestamp,
-                        local_store_timestamp_millis = import_timestamp.timestamp_millis(),
-                        marker_file = %marker_filename,
                         attempt_duration_secs = attempt_duration,
                         total_duration_secs = start_time.elapsed().as_secs_f64(),
                         "Successfully imported checkpoint to local directory"
@@ -682,51 +674,12 @@ mod tests {
         let import_path = result.unwrap();
         assert!(import_path.exists(), "Import path should exist");
 
-        // Verify the import path uses a current timestamp (Utc::now()), not the checkpoint's old timestamp
-        let timestamp_str = import_path.file_name().unwrap().to_str().unwrap();
-        let timestamp_millis: i64 = timestamp_str
-            .parse()
-            .expect("Path should end with timestamp millis");
-        assert!(
-            timestamp_millis >= before_import.timestamp_millis(),
-            "Import timestamp {} should be >= before_import {}",
-            timestamp_millis,
-            before_import.timestamp_millis()
+        // Verify the import path is <base>/<topic>/<partition>
+        let expected_path = store_base_path.join(topic).join(partition.to_string());
+        assert_eq!(
+            import_path, expected_path,
+            "Import path should be <base>/<topic>/<partition>"
         );
-        assert!(
-            timestamp_millis <= after_import.timestamp_millis(),
-            "Import timestamp {} should be <= after_import {}",
-            timestamp_millis,
-            after_import.timestamp_millis()
-        );
-
-        // Verify the timestamp is NOT the old checkpoint timestamp
-        assert_ne!(
-            timestamp_millis,
-            attempt_timestamp.timestamp_millis(),
-            "Import should use Utc::now(), not the checkpoint's original timestamp"
-        );
-
-        // Verify marker file exists with correct content
-        let marker_files: Vec<_> = std::fs::read_dir(&import_path)
-            .unwrap()
-            .filter_map(|e| e.ok())
-            .filter(|e| e.file_name().to_string_lossy().starts_with(".imported_"))
-            .collect();
-        assert_eq!(marker_files.len(), 1, "Should have exactly one marker file");
-
-        let marker_filename = marker_files[0].file_name().to_string_lossy().to_string();
-        assert!(
-            marker_filename.starts_with(".imported_"),
-            "Marker file should start with .imported_"
-        );
-
-        // Verify marker file content contains checkpoint metadata
-        let marker_content = std::fs::read_to_string(marker_files[0].path()).unwrap();
-        let marker_metadata: serde_json::Value =
-            serde_json::from_str(&marker_content).expect("Marker should contain valid JSON");
-        assert_eq!(marker_metadata["topic"], topic);
-        assert_eq!(marker_metadata["partition"], partition);
 
         // Verify the imported SST file exists
         let imported_file = import_path.join("000001.sst");
@@ -832,8 +785,8 @@ mod tests {
             Duration::from_secs(60),
         );
 
-        // Record the partition directory path
-        let partition_dir = store_base_path.join(format!("{topic}_{partition}"));
+        // Record the store path
+        let store_path = store_base_path.join(topic).join(partition.to_string());
 
         // Import should fail
         let result = importer
@@ -841,21 +794,11 @@ mod tests {
             .await;
         assert!(result.is_err(), "Import should fail");
 
-        // The partition directory might exist but should have no timestamp subdirs
-        // (the guard should have cleaned them up)
-        if partition_dir.exists() {
-            let subdirs: Vec<_> = std::fs::read_dir(&partition_dir)
-                .unwrap()
-                .filter_map(|e| e.ok())
-                .filter(|e| e.path().is_dir())
-                .collect();
-            assert!(
-                subdirs.is_empty(),
-                "Cleanup guard should have removed the timestamp directory, but found: {:?}",
-                subdirs
-            );
-        }
-        // If partition_dir doesn't exist, that's also fine - means cleanup removed everything
+        // The cleanup guard should have removed the store directory
+        assert!(
+            !store_path.exists(),
+            "Cleanup guard should have removed the store directory on failure"
+        );
     }
 
     #[test]
