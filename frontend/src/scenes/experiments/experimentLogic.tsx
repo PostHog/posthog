@@ -585,6 +585,7 @@ export const experimentLogic = kea<experimentLogicType>([
         setExperiment: (experiment: Partial<Experiment>) => ({ experiment }),
         createExperiment: (draft?: boolean, folder?: string | null) => ({ draft, folder }),
         setCreateExperimentLoading: (loading: boolean) => ({ loading }),
+        setLaunchExperimentLoading: (loading: boolean) => ({ loading }),
         setExperimentType: (type?: string) => ({ type }),
         setFeatureFlagActive: (isActive: boolean) => ({ isActive }),
         addVariant: true,
@@ -1192,6 +1193,12 @@ export const experimentLogic = kea<experimentLogicType>([
                 setCreateExperimentLoading: (_, { loading }) => loading,
             },
         ],
+        launchExperimentLoading: [
+            false,
+            {
+                setLaunchExperimentLoading: (_, { loading }) => loading,
+            },
+        ],
         hogfettiTrigger: [
             null as (() => void) | null,
             {
@@ -1372,6 +1379,7 @@ export const experimentLogic = kea<experimentLogicType>([
             }
         },
         launchExperiment: async () => {
+            actions.setLaunchExperimentLoading(true)
             try {
                 const experiment: Experiment = await api.create(
                     `api/projects/${values.currentProjectId}/experiments/${values.experimentId}/launch`
@@ -1385,6 +1393,7 @@ export const experimentLogic = kea<experimentLogicType>([
             } catch (error: any) {
                 lemonToast.error(error.detail || 'Failed to launch experiment')
             }
+            actions.setLaunchExperimentLoading(false)
         },
         changeExperimentStartDate: async ({ startDate }) => {
             actions.updateExperiment({ start_date: startDate })
