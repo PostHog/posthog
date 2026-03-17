@@ -202,6 +202,7 @@ async fn test_evaluate_feature_flags() {
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -304,6 +305,7 @@ async fn test_evaluate_feature_flags_with_errors() {
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -722,6 +724,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -839,6 +842,7 @@ async fn test_evaluate_feature_flags_details() {
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1006,6 +1010,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1108,6 +1113,7 @@ async fn test_long_distinct_id() {
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
 
     let request_id = Uuid::new_v4();
@@ -1653,6 +1659,7 @@ async fn test_parallel_path_matches_sequential_results() {
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
     let sequential_result = evaluate_feature_flags(sequential_context, Uuid::new_v4())
         .await
@@ -1682,6 +1689,7 @@ async fn test_parallel_path_matches_sequential_results() {
         rayon_dispatcher: crate::rayon_dispatcher::RayonDispatcher::new(2, None),
         skip_writes: false,
         cohort_membership_provider: Arc::new(NoOpCohortMembershipProvider),
+        enable_realtime_cohort_evaluation: false,
     };
     let parallel_result = evaluate_feature_flags(parallel_context, Uuid::new_v4())
         .await
