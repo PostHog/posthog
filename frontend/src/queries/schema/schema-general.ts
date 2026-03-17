@@ -3915,6 +3915,15 @@ export enum DetectorType {
     ZSCORE = 'zscore',
     MAD = 'mad',
     THRESHOLD = 'threshold',
+    IQR = 'iqr',
+    COPOD = 'copod',
+    ECOD = 'ecod',
+    ISOLATION_FOREST = 'isolation_forest',
+    KNN = 'knn',
+    HBOS = 'hbos',
+    LOF = 'lof',
+    OCSVM = 'ocsvm',
+    PCA = 'pca',
 }
 
 /** Preprocessing transforms applied to the time series before detection */
@@ -3973,14 +3982,87 @@ export interface ThresholdDetectorConfig {
     preprocessing?: PreprocessingConfig
 }
 
-<<<<<<< HEAD
+export interface ECODDetectorConfig {
+    type: 'ecod'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+}
+
+export interface COPODDetectorConfig {
+    type: 'copod'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+}
+
+export interface IsolationForestDetectorConfig {
+    type: 'isolation_forest'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of trees in the forest (default: 100) */
+    n_estimators?: integer
+}
+
+export interface KNNDetectorConfig {
+    type: 'knn'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of neighbors to consider (default: 5) */
+    n_neighbors?: integer
+    /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
+    method?: 'largest' | 'mean' | 'median'
+}
+
+export interface HBOSDetectorConfig {
+    type: 'hbos'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of histogram bins (default: 10) */
+    n_bins?: integer
+}
+
+export interface LOFDetectorConfig {
+    type: 'lof'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** Number of neighbors for LOF (default: 20) */
+    n_neighbors?: integer
+}
+
+export interface OCSVMDetectorConfig {
+    type: 'ocsvm'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+    /** SVM kernel type (default: "rbf") */
+    kernel?: string
+    /** Upper bound on training errors fraction (default: 0.1) */
+    nu?: number
+}
+
+export interface PCADetectorConfig {
+    type: 'pca'
+    /** Anomaly probability threshold (default: 0.9) */
+    threshold?: number
+}
+
 export enum EnsembleOperator {
     AND = 'and',
     OR = 'or',
 }
 
 /** A single (leaf) detector config */
-export type SingleDetectorConfig = ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig
+export type SingleDetectorConfig =
+    | ZScoreDetectorConfig
+    | MADDetectorConfig
+    | IQRDetectorConfig
+    | ThresholdDetectorConfig
+    | ECODDetectorConfig
+    | COPODDetectorConfig
+    | IsolationForestDetectorConfig
+    | KNNDetectorConfig
+    | HBOSDetectorConfig
+    | LOFDetectorConfig
+    | OCSVMDetectorConfig
+    | PCADetectorConfig
 
 export interface EnsembleDetectorConfig {
     type: 'ensemble'
@@ -3992,48 +4074,6 @@ export interface EnsembleDetectorConfig {
 
 /** Detector configuration types */
 export type DetectorConfig = SingleDetectorConfig | EnsembleDetectorConfig
-=======
-export interface ECODDetectorConfig {
-    type: 'ecod'
-    /** Expected proportion of outliers (default: 0.1) */
-    contamination?: number
-}
-
-export interface COPODDetectorConfig {
-    type: 'copod'
-    /** Expected proportion of outliers (default: 0.1) */
-    contamination?: number
-}
-
-export interface IsolationForestDetectorConfig {
-    type: 'isolation_forest'
-    /** Expected proportion of outliers (default: 0.1) */
-    contamination?: number
-    /** Number of trees in the forest (default: 100) */
-    n_estimators?: integer
-}
-
-export interface KNNDetectorConfig {
-    type: 'knn'
-    /** Expected proportion of outliers (default: 0.1) */
-    contamination?: number
-    /** Number of neighbors to consider (default: 5) */
-    n_neighbors?: integer
-    /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
-    method?: 'largest' | 'mean' | 'median'
-}
-
-/** Detector configuration types */
-export type DetectorConfig =
-    | ZScoreDetectorConfig
-    | MADDetectorConfig
-    | IQRDetectorConfig
-    | ThresholdDetectorConfig
-    | ECODDetectorConfig
-    | COPODDetectorConfig
-    | IsolationForestDetectorConfig
-    | KNNDetectorConfig
->>>>>>> 8240248cac7 (feat(alerts): add anomaly detection framework with multiple detectors)
 
 export interface HogCompileResponse {
     bytecode: any[]

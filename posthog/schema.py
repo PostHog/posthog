@@ -652,7 +652,7 @@ class COPODDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    contamination: float | None = Field(default=None, description="Expected proportion of outliers (default: 0.1)")
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
     type: Literal["copod"] = "copod"
 
 
@@ -1174,6 +1174,15 @@ class DetectorType(StrEnum):
     ZSCORE = "zscore"
     MAD = "mad"
     THRESHOLD = "threshold"
+    IQR = "iqr"
+    COPOD = "copod"
+    ECOD = "ecod"
+    ISOLATION_FOREST = "isolation_forest"
+    KNN = "knn"
+    HBOS = "hbos"
+    LOF = "lof"
+    OCSVM = "ocsvm"
+    PCA = "pca"
 
 
 class DistanceFunc(StrEnum):
@@ -1206,7 +1215,7 @@ class ECODDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    contamination: float | None = Field(default=None, description="Expected proportion of outliers (default: 0.1)")
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
     type: Literal["ecod"] = "ecod"
 
 
@@ -3112,6 +3121,27 @@ class NodeKind(StrEnum):
 class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
     SOURCE = "Source"
     CAMPAIGN = "Campaign"
+
+
+class OCSVMDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kernel: str | None = Field(default=None, description='SVM kernel type (default: "rbf")')
+    nu: float | None = Field(
+        default=None,
+        description="Upper bound on training errors fraction (default: 0.1)",
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["ocsvm"] = "ocsvm"
+
+
+class PCADetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["pca"] = "pca"
 
 
 class PageURL(BaseModel):
@@ -5732,6 +5762,15 @@ class GroupPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
+class HBOSDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    n_bins: int | None = Field(default=None, description="Number of histogram bins (default: 10)")
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["hbos"] = "hbos"
+
+
 class HogQLAutocompleteResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5854,8 +5893,8 @@ class IsolationForestDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    contamination: float | None = Field(default=None, description="Expected proportion of outliers (default: 0.1)")
     n_estimators: int | None = Field(default=None, description="Number of trees in the forest (default: 100)")
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
     type: Literal["isolation_forest"] = "isolation_forest"
 
 
@@ -5863,12 +5902,12 @@ class KNNDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    contamination: float | None = Field(default=None, description="Expected proportion of outliers (default: 0.1)")
     method: Method | None = Field(
         default=None,
         description="Distance method: 'largest', 'mean', 'median' (default: 'largest')",
     )
     n_neighbors: int | None = Field(default=None, description="Number of neighbors to consider (default: 5)")
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
     type: Literal["knn"] = "knn"
 
 
@@ -5894,6 +5933,15 @@ class LLMTrace(BaseModel):
     totalCost: float | None = None
     totalLatency: float | None = None
     traceName: str | None = None
+
+
+class LOFDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    n_neighbors: int | None = Field(default=None, description="Number of neighbors for LOF (default: 20)")
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["lof"] = "lof"
 
 
 class LifecycleFilter(BaseModel):
@@ -5964,7 +6012,11 @@ class MADDetectorConfig(BaseModel):
     )
     threshold: float | None = Field(
         default=None,
-        description="MAD threshold multiplier for anomaly detection (default: 3.0)",
+        description=(
+            "Anomaly probability threshold [0-1]. Points above this probability are"
+            " flagged (default: 0.9)   MAD threshold multiplier for anomaly detection"
+            " (default: 3.0)"
+        ),
     )
     type: Literal["mad"] = "mad"
     window: int | None = Field(
@@ -12513,24 +12565,6 @@ class LogsQueryResponse(BaseModel):
     )
 
 
-class MADDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    preprocessing: PreprocessingConfig | None = Field(
-        default=None, description="Preprocessing transforms applied before detection"
-    )
-    threshold: float | None = Field(
-        default=None,
-        description=("Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"),
-    )
-    type: Literal["mad"] = "mad"
-    window: int | None = Field(
-        default=None,
-        description="Rolling window size for calculating median/MAD (default: 30)",
-    )
-
-
 class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -16223,9 +16257,20 @@ class EnsembleDetectorConfig(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
     )
-    detectors: list[ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig] = Field(
-        ..., description="Sub-detector configurations (minimum 2)"
-    )
+    detectors: list[
+        ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+        | HBOSDetectorConfig
+        | LOFDetectorConfig
+        | OCSVMDetectorConfig
+        | PCADetectorConfig
+    ] = Field(..., description="Sub-detector configurations (minimum 2)")
     operator: EnsembleOperator = Field(..., description="How to combine sub-detector results")
     type: Literal["ensemble"] = "ensemble"
 
@@ -17311,11 +17356,37 @@ class DatabaseSchemaViewTable(BaseModel):
 
 
 class DetectorConfig(
-    RootModel[EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig]
+    RootModel[
+        EnsembleDetectorConfig
+        | ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+        | HBOSDetectorConfig
+        | LOFDetectorConfig
+        | OCSVMDetectorConfig
+        | PCADetectorConfig
+    ]
 ):
-    root: EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig = Field(
-        ..., description="Detector configuration types"
-    )
+    root: (
+        EnsembleDetectorConfig
+        | ZScoreDetectorConfig
+        | MADDetectorConfig
+        | IQRDetectorConfig
+        | ThresholdDetectorConfig
+        | ECODDetectorConfig
+        | COPODDetectorConfig
+        | IsolationForestDetectorConfig
+        | KNNDetectorConfig
+        | HBOSDetectorConfig
+        | LOFDetectorConfig
+        | OCSVMDetectorConfig
+        | PCADetectorConfig
+    ) = Field(..., description="Detector configuration types")
 
 
 class ErrorTrackingIssueCorrelationQuery(BaseModel):

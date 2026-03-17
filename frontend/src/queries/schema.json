@@ -2816,8 +2816,8 @@
         "COPODDetectorConfig": {
             "additionalProperties": false,
             "properties": {
-                "contamination": {
-                    "description": "Expected proportion of outliers (default: 0.1)",
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
                     "type": "number"
                 },
                 "type": {
@@ -11793,35 +11793,26 @@
                     "$ref": "#/definitions/SingleDetectorConfig"
                 },
                 {
-<<<<<<< HEAD
                     "$ref": "#/definitions/EnsembleDetectorConfig"
-=======
-                    "$ref": "#/definitions/MADDetectorConfig"
-                },
-                {
-                    "$ref": "#/definitions/IQRDetectorConfig"
-                },
-                {
-                    "$ref": "#/definitions/ThresholdDetectorConfig"
-                },
-                {
-                    "$ref": "#/definitions/ECODDetectorConfig"
-                },
-                {
-                    "$ref": "#/definitions/COPODDetectorConfig"
-                },
-                {
-                    "$ref": "#/definitions/IsolationForestDetectorConfig"
-                },
-                {
-                    "$ref": "#/definitions/KNNDetectorConfig"
->>>>>>> 8240248cac7 (feat(alerts): add anomaly detection framework with multiple detectors)
                 }
             ],
             "description": "Detector configuration types"
         },
         "DetectorType": {
-            "enum": ["zscore", "mad", "threshold"],
+            "enum": [
+                "zscore",
+                "mad",
+                "threshold",
+                "iqr",
+                "copod",
+                "ecod",
+                "isolation_forest",
+                "knn",
+                "hbos",
+                "lof",
+                "ocsvm",
+                "pca"
+            ],
             "type": "string"
         },
         "DocumentArtifactContent": {
@@ -12000,8 +11991,8 @@
         "ECODDetectorConfig": {
             "additionalProperties": false,
             "properties": {
-                "contamination": {
-                    "description": "Expected proportion of outliers (default: 0.1)",
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
                     "type": "number"
                 },
                 "type": {
@@ -17565,6 +17556,25 @@
             "required": ["columns", "hogql", "kind", "limit", "offset", "results", "types"],
             "type": "object"
         },
+        "HBOSDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "n_bins": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of histogram bins (default: 10)"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "hbos",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "HasPropertiesNode": {
             "anyOf": [
                 {
@@ -19174,13 +19184,13 @@
         "IsolationForestDetectorConfig": {
             "additionalProperties": false,
             "properties": {
-                "contamination": {
-                    "description": "Expected proportion of outliers (default: 0.1)",
-                    "type": "number"
-                },
                 "n_estimators": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of trees in the forest (default: 100)"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
                 },
                 "type": {
                     "const": "isolation_forest",
@@ -19193,10 +19203,6 @@
         "KNNDetectorConfig": {
             "additionalProperties": false,
             "properties": {
-                "contamination": {
-                    "description": "Expected proportion of outliers (default: 0.1)",
-                    "type": "number"
-                },
                 "method": {
                     "description": "Distance method: 'largest', 'mean', 'median' (default: 'largest')",
                     "enum": ["largest", "mean", "median"],
@@ -19205,6 +19211,10 @@
                 "n_neighbors": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of neighbors to consider (default: 5)"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
                 },
                 "type": {
                     "const": "knn",
@@ -19321,6 +19331,25 @@
                 }
             },
             "required": ["uuid", "created_at", "properties", "distinct_id"],
+            "type": "object"
+        },
+        "LOFDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "n_neighbors": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of neighbors for LOF (default: 20)"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "lof",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "LegacyExperimentQueryResponse": {
@@ -20273,12 +20302,8 @@
         "MADDetectorConfig": {
             "additionalProperties": false,
             "properties": {
-                "preprocessing": {
-                    "$ref": "#/definitions/PreprocessingConfig",
-                    "description": "Preprocessing transforms applied before detection"
-                },
                 "threshold": {
-                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
+                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)   MAD threshold multiplier for anomaly detection (default: 3.0)",
                     "type": "number"
                 },
                 "type": {
@@ -23316,6 +23341,44 @@
                 }
             },
             "required": ["type", "notebook_id", "content"],
+            "type": "object"
+        },
+        "OCSVMDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "kernel": {
+                    "description": "SVM kernel type (default: \"rbf\")",
+                    "type": "string"
+                },
+                "nu": {
+                    "description": "Upper bound on training errors fraction (default: 0.1)",
+                    "type": "number"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "ocsvm",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "PCADetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "threshold": {
+                    "description": "Anomaly probability threshold (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "pca",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "PageURL": {
@@ -32057,7 +32120,34 @@
                     "$ref": "#/definitions/MADDetectorConfig"
                 },
                 {
+                    "$ref": "#/definitions/IQRDetectorConfig"
+                },
+                {
                     "$ref": "#/definitions/ThresholdDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ECODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/COPODDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/IsolationForestDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/KNNDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/HBOSDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/LOFDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/OCSVMDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/PCADetectorConfig"
                 }
             ],
             "description": "A single (leaf) detector config"
