@@ -11,7 +11,7 @@ Signals are automated observations that PostHog generates by monitoring a custom
 
 Signals are grouped into **Signal Reports**. When a report accumulates enough weight it gets summarized and assessed for actionability. A signal report represents a cluster of related observations that together describe a meaningful issue or trend.
 
-Signals and their embeddings are stored in the `document_embeddings` ClickHouse table, queryable via HogQL through the `execute_sql` MCP tool. They may provide a useful way to semantically query for recent things that happened in the users product.
+Signals and their embeddings are stored in the `document_embeddings` ClickHouse table, queryable via HogQL through the `posthog:execute-sql` MCP tool. They may provide a useful way to semantically query for recent things that happened in the users product.
 
 ## Table and Column Reference
 
@@ -47,26 +47,32 @@ The `timestamp` filter is required for performance — the table is partitioned 
 
 ## Deduplication Pattern
 
-The underlying table can contain multiple versions of the same signal (e.g. after a soft-delete re-emission). You MUST always deduplicate by wrapping reads in a subquery using `argMax(..., inserted_at)` grouped by `document_id`:
+The underlying table can contain multiple versions of the same signal (e.g. after a soft-delete re-emission). You MUST always deduplicate by wrapping reads in a subquery using `argMax(..., inserted_at)` grouped by `document_id`.
+
+**Note:** HogQL supports `metadata.field_name` dot access on the raw `metadata` JSON column, but this type information is lost when the column passes through aggregate functions like `argMax()`. You MUST extract individual metadata fields inside the inner dedup subquery — do NOT pass the whole `metadata` blob through `argMax` and dot into it in the outer query, as this will fail with a type error.
+
+HogQL's JSON dot access always extracts values as `Nullable(String)`, regardless of the underlying JSON type. This means `metadata.deleted` is the string `'true'`/`'false'`/`null`, not a Bool. Use `deleted != 'true'` — do NOT use `NOT deleted`.
 
 ```sql
 SELECT ... FROM (
     SELECT
         document_id,
         argMax(content, inserted_at) as content,
-        argMax(metadata, inserted_at) as metadata,
+        argMax(metadata.report_id, inserted_at) as report_id,
+        argMax(metadata.source_product, inserted_at) as source_product,
+        argMax(metadata.source_type, inserted_at) as source_type,
+        argMax(metadata.deleted, inserted_at) as deleted,
         argMax(embedding, inserted_at) as embedding,
-        argMax(timestamp, inserted_at) as timestamp
+        argMax(timestamp, inserted_at) as signal_ts
     FROM document_embeddings
     WHERE model_name = 'text-embedding-3-small-1536'
       AND product = 'signals'
       AND document_type = 'signal'
+      AND timestamp >= now() - INTERVAL 1 MONTH
     GROUP BY document_id
 )
-WHERE NOT metadata.deleted
+WHERE deleted != 'true'
 ```
-
-The outer `NOT metadata.deleted` filters soft-deleted signals. Always include it.
 
 Only select the `embedding` column in the inner subquery when you actually need it for similarity searches — it's a 1536-element float array and expensive to materialize otherwise.
 
@@ -93,16 +99,16 @@ The embedding model (`text-embedding-3-small-1536`) uses matryoshka representati
 
 ## Metadata JSON Fields
 
-The `metadata` column is a JSON string. HogQL supports direct dot access on JSON columns, so use `metadata.field_name` to extract values:
+The `metadata` column is a JSON string. HogQL supports `metadata.field_name` dot access **only on the raw table column**. After aggregation (e.g. `argMax`), the JSON type is lost and dot access will fail. Always extract the fields you need inside the dedup subquery.
 
-| Field            | Access                    | Description                                                                        |
+| Field            | Inner-query access        | Description                                                                        |
 | ---------------- | ------------------------- | ---------------------------------------------------------------------------------- |
 | `report_id`      | `metadata.report_id`      | UUID of the parent Signal Report (empty if unassigned)                             |
 | `source_product` | `metadata.source_product` | Originating product (`'error_tracking'`, `'web_analytics'`, `'experiments'`, etc.) |
 | `source_type`    | `metadata.source_type`    | Signal type (`'error_cluster'`, `'metric_anomaly'`, etc.)                          |
 | `source_id`      | `metadata.source_id`      | ID of the source entity                                                            |
 | `weight`         | `metadata.weight`         | Signal weight (contributes to report promotion threshold)                          |
-| `deleted`        | `metadata.deleted`        | Soft-deletion flag                                                                 |
+| `deleted`        | `metadata.deleted`        | Soft-deletion flag (extracted as String — compare with `!= 'true'`)                |
 | `extra`          | `metadata.extra`          | Arbitrary JSON blob from the source product                                        |
 | `match_metadata` | `metadata.match_metadata` | LLM match reasoning stored during grouping                                         |
 
@@ -116,32 +122,35 @@ Find signals most similar to a natural-language query. This is the most useful q
 SELECT
     document_id,
     content,
-    metadata.report_id as report_id,
-    metadata.source_product as source_product,
-    metadata.source_type as source_type,
+    report_id,
+    source_product,
+    source_type,
     cosineDistance(embedding, embedText('users seeing errors on checkout page', 'text-embedding-3-small-1536')) as distance
 FROM (
     SELECT
         document_id,
         argMax(content, inserted_at) as content,
-        argMax(metadata, inserted_at) as metadata,
+        argMax(metadata.report_id, inserted_at) as report_id,
+        argMax(metadata.source_product, inserted_at) as source_product,
+        argMax(metadata.source_type, inserted_at) as source_type,
+        argMax(metadata.deleted, inserted_at) as deleted,
         argMax(embedding, inserted_at) as embedding,
-        argMax(timestamp, inserted_at) as timestamp
+        argMax(timestamp, inserted_at) as signal_ts
     FROM document_embeddings
     WHERE model_name = 'text-embedding-3-small-1536'
       AND product = 'signals'
       AND document_type = 'signal'
+      AND timestamp >= now() - INTERVAL 1 MONTH
     GROUP BY document_id
 )
-WHERE timestamp >= now() - INTERVAL 1 MONTH
-  AND NOT metadata.deleted
+WHERE deleted != 'true'
 ORDER BY distance ASC
 LIMIT 10
 ```
 
 Adjust the `embedText` first argument to whatever you're looking for. Write it as a natural-language description of the kind of issue or observation you want to find.
 
-To restrict to signals that have already been grouped into a report, add `AND metadata.report_id != ''` to the outer WHERE.
+To restrict to signals that have already been grouped into a report, add `AND report_id != ''` to the outer WHERE.
 
 ## Example 2: Fetch All Signals for a Specific Report
 
@@ -151,23 +160,28 @@ Once you have a `report_id` (from a semantic search or from the Signal Reports A
 SELECT
     document_id,
     content,
-    metadata,
-    timestamp
+    report_id,
+    source_product,
+    source_type,
+    signal_ts
 FROM (
     SELECT
         document_id,
         argMax(content, inserted_at) as content,
-        argMax(metadata, inserted_at) as metadata,
-        argMax(timestamp, inserted_at) as timestamp
+        argMax(metadata.report_id, inserted_at) as report_id,
+        argMax(metadata.source_product, inserted_at) as source_product,
+        argMax(metadata.source_type, inserted_at) as source_type,
+        argMax(metadata.deleted, inserted_at) as deleted,
+        argMax(timestamp, inserted_at) as signal_ts
     FROM document_embeddings
     WHERE model_name = 'text-embedding-3-small-1536'
       AND product = 'signals'
       AND document_type = 'signal'
     GROUP BY document_id
 )
-WHERE metadata.report_id = '<report-uuid-here>'
-  AND NOT metadata.deleted
-ORDER BY timestamp ASC
+WHERE report_id = '<report-uuid-here>'
+  AND deleted != 'true'
+ORDER BY signal_ts ASC
 LIMIT 100
 ```
 
@@ -179,30 +193,24 @@ See what kinds of signals exist for this customer — returns one example per un
 SELECT
     source_product,
     source_type,
-    argMax(content, timestamp) as example_content,
-    toString(max(timestamp)) as latest_timestamp
+    count() as cnt,
+    max(signal_ts) as latest_timestamp
 FROM (
     SELECT
-        metadata.source_product as source_product,
-        metadata.source_type as source_type,
-        content,
-        timestamp
-    FROM (
-        SELECT
-            document_id,
-            argMax(content, inserted_at) as content,
-            argMax(metadata, inserted_at) as metadata,
-            argMax(timestamp, inserted_at) as timestamp
-        FROM document_embeddings
-        WHERE model_name = 'text-embedding-3-small-1536'
-          AND product = 'signals'
-          AND document_type = 'signal'
-        GROUP BY document_id
-    )
-    WHERE content != ''
+        document_id,
+        argMax(content, inserted_at) as content,
+        argMax(metadata.source_product, inserted_at) as source_product,
+        argMax(metadata.source_type, inserted_at) as source_type,
+        argMax(metadata.deleted, inserted_at) as deleted,
+        argMax(timestamp, inserted_at) as signal_ts
+    FROM document_embeddings
+    WHERE model_name = 'text-embedding-3-small-1536'
+      AND product = 'signals'
+      AND document_type = 'signal'
       AND timestamp >= now() - INTERVAL 1 MONTH
-      AND NOT metadata.deleted
+    GROUP BY document_id
 )
+WHERE deleted != 'true'
 GROUP BY source_product, source_type
 ORDER BY latest_timestamp DESC
 LIMIT 100
@@ -216,64 +224,76 @@ Find the latest signals from a particular product source (e.g. all error trackin
 SELECT
     document_id,
     content,
-    metadata.source_type as source_type,
-    metadata.report_id as report_id,
-    timestamp
+    source_type,
+    report_id,
+    signal_ts
 FROM (
     SELECT
         document_id,
         argMax(content, inserted_at) as content,
-        argMax(metadata, inserted_at) as metadata,
-        argMax(timestamp, inserted_at) as timestamp
+        argMax(metadata.source_product, inserted_at) as source_product,
+        argMax(metadata.source_type, inserted_at) as source_type,
+        argMax(metadata.report_id, inserted_at) as report_id,
+        argMax(metadata.deleted, inserted_at) as deleted,
+        argMax(timestamp, inserted_at) as signal_ts
     FROM document_embeddings
     WHERE model_name = 'text-embedding-3-small-1536'
       AND product = 'signals'
       AND document_type = 'signal'
+      AND timestamp >= now() - INTERVAL 1 WEEK
     GROUP BY document_id
 )
-WHERE metadata.source_product = 'error_tracking'
-  AND timestamp >= now() - INTERVAL 1 WEEK
-  AND NOT metadata.deleted
-ORDER BY timestamp DESC
+WHERE source_product = 'error_tracking'
+  AND deleted != 'true'
+ORDER BY signal_ts DESC
 LIMIT 100
 ```
 
 Replace `'error_tracking'` with any source product: `'web_analytics'`, `'experiments'`, `'session_replay'`, etc. Use Example 3 to discover what source products and types exist.
 
-## Example 5: Count Signals by Source Over Time
+## Example 5: Full-Text Search for Signals
 
-Get a high-level view of signal volume by source product over the last month:
+When you know a specific keyword or phrase to search for (e.g. a product name, error message, or URL), full-text search with `ILIKE` is faster and more precise than semantic search:
 
 ```sql
 SELECT
-    metadata.source_product as source_product,
-    toStartOfDay(timestamp) as day,
-    count() as signal_count
+    document_id,
+    content,
+    source_product,
+    source_type,
+    signal_ts
 FROM (
     SELECT
         document_id,
-        argMax(metadata, inserted_at) as metadata,
-        argMax(timestamp, inserted_at) as timestamp
+        argMax(content, inserted_at) as content,
+        argMax(metadata.source_product, inserted_at) as source_product,
+        argMax(metadata.source_type, inserted_at) as source_type,
+        argMax(metadata.deleted, inserted_at) as deleted,
+        argMax(timestamp, inserted_at) as signal_ts
     FROM document_embeddings
     WHERE model_name = 'text-embedding-3-small-1536'
       AND product = 'signals'
       AND document_type = 'signal'
+      AND timestamp >= now() - INTERVAL 1 MONTH
     GROUP BY document_id
 )
-WHERE timestamp >= now() - INTERVAL 1 MONTH
-  AND NOT metadata.deleted
-GROUP BY source_product, day
-ORDER BY day DESC, signal_count DESC
-LIMIT 100
+WHERE deleted != 'true'
+  AND content ILIKE '%feature flag%'
+ORDER BY signal_ts DESC
+LIMIT 10
 ```
+
+Replace `'%feature flag%'` with whatever term you're looking for. Use `ILIKE` for case-insensitive substring matching. For exact token matching, use `hasTokenCaseInsensitive(content, 'token')` instead.
 
 ## Gotchas
 
-1. **Always use `text-embedding-3-small-1536` as the model name.** This is the only model used for signals. The other available model (`text-embedding-3-large-3072`) is used by error tracking.
+1. **Always use `text-embedding-3-small-1536` as the model name.** This is the only model used for signals.
 2. **`embedText()` arguments must be string literals.** You cannot pass column references or expressions — the function resolves at compile time, not per row.
-3. **`cosineDistance` range is 0–2**, not 0–1. Good matches are typically below 0.3.
-4. **Always time-bound your queries.** The table has a 3-month TTL, but unbounded scans are expensive. Use `timestamp >= now() - INTERVAL 1 MONTH` or tighter.
-5. **Always deduplicate.** Without the `argMax(..., inserted_at) GROUP BY document_id` subquery, you will see stale and duplicate rows.
-6. **Only select `embedding` when you need it.** It's a 1536-element float array — omit it from the inner subquery when you're not doing similarity search.
-7. **Queries should not end with a semicolon.** HogQL does not use them.
-8. **Add a `LIMIT` to every query.** Maximum allowed is 500 rows.
+3. **Always time-bound your queries.** The table has a 3-month TTL, but unbounded scans are expensive. Use `timestamp >= now() - INTERVAL 1 MONTH` or tighter. Place the time filter in the inner subquery's `WHERE` clause (on the raw `timestamp` column) for best performance.
+4. **Always deduplicate.** Without the `argMax(..., inserted_at) GROUP BY document_id` subquery, you will see stale and duplicate rows.
+5. **Only select `embedding` when you need it.** It's a 1536-element float array — omit it from the inner subquery when you're not doing similarity search.
+6. **Queries should not end with a semicolon.** HogQL does not use them.
+7. **Add a `LIMIT` to every query.** Maximum allowed is 500 rows. In general, you should only select 10 or so signals, using semantic or full text search to rank them.
+8. **Extract metadata fields inside the dedup subquery.** HogQL's `metadata.field` dot access only works on the raw table column. After `argMax()` aggregation, the JSON type is lost and dot access will fail with a type error. Always use `argMax(metadata.field_name, inserted_at) as field_name` in the inner query.
+9. **All JSON dot-access values are `Nullable(String)`.** HogQL extracts every JSON field as a String, even booleans and numbers. For `metadata.deleted`, use `deleted != 'true'` — do NOT use `NOT deleted`.
+10. **Don't alias `argMax(timestamp, inserted_at)` as `timestamp` if the same inner query also filters on the raw `timestamp` column.** HogQL resolves the alias name first, causing an "aggregate in WHERE" error. Either use a distinct alias like `signal_ts`, or move the time filter to the outer query.
