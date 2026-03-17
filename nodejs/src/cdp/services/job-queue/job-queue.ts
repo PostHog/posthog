@@ -6,8 +6,9 @@
 import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
-import { HealthCheckResultError, PluginsServerConfig } from '../../../types'
+import { HealthCheckResultError } from '../../../types'
 import { logger } from '../../../utils/logger'
+import { CdpConfig } from '../../config'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CYCLOTRON_JOB_QUEUE_SOURCES,
@@ -60,15 +61,19 @@ export class CyclotronJobQueue {
     private jobQueuePostgresV2: CyclotronJobQueuePostgresV2 | null = null
     private jobQueueKafka: CyclotronJobQueueKafka
 
-    constructor(private config: PluginsServerConfig) {
+    constructor(
+        private consumerBatchSize: number,
+        private kafkaClientRack: string | undefined,
+        private config: CdpConfig
+    ) {
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
         this.producerTeamMapping = getProducerTeamMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING)
         this.producerForceScheduledToPostgres = this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES
-        this.jobQueueKafka = new CyclotronJobQueueKafka(this.config)
-        this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config)
+        this.jobQueueKafka = new CyclotronJobQueueKafka(this.kafkaClientRack, this.config)
+        this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.consumerBatchSize, this.config)
 
         if (this.config.CYCLOTRON_NODE_DATABASE_URL) {
-            this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.config)
+            this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.consumerBatchSize, this.config)
         }
 
         logger.info('🔄', 'CyclotronJobQueue initialized', {
@@ -84,7 +89,7 @@ export class CyclotronJobQueue {
     ): Promise<{ backgroundTask: Promise<any> }> {
         cyclotronBatchUtilizationGauge
             .labels({ queue: this.queue!, source })
-            .set(invocations.length / this.config.CONSUMER_BATCH_SIZE)
+            .set(invocations.length / this.consumerBatchSize)
 
         const result = await this._consumeBatch!(invocations)
         counterJobsProcessed.inc({ queue: this.queue!, source }, invocations.length)
