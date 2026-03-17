@@ -273,7 +273,7 @@ pub async fn shutdown_workers<T: Send + 'static>(workers: Vec<PartitionWorker<T>
 mod tests {
     use super::*;
     use crate::test_utils::create_test_tracker;
-    use axum::async_trait;
+    use async_trait::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct TestProcessor {
