@@ -88,7 +88,7 @@ from posthog.clickhouse.client.limit import (
     get_org_app_concurrency_limit,
 )
 from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
-from posthog.errors import clickhouse_error_type
+from posthog.errors import classify_query_error, clickhouse_error_type
 from posthog.event_usage import AnalyticsProps, groups, report_user_or_team_action
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_cache import count_query_cache_hit
@@ -106,8 +106,8 @@ logger = structlog.get_logger(__name__)
 
 QUERY_EXECUTION_TOTAL = Counter(
     "posthog_query_execution_total",
-    "Query executions by status",
-    labelnames=["query_type", "status", "error_type"],
+    "Query executions by category",
+    labelnames=["query_type", "category", "error_type"],
 )
 
 QUERY_EXECUTION_DURATION = Histogram(
@@ -1337,22 +1337,6 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
                     analytics_props=analytics_props,
                 )
 
-            if execution_mode == ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE:
-                from posthog.hogql_queries.query_coalescer import QueryCoalescer
-
-                CachedResponse = self.cached_response_type
-                dry_run = not posthoganalytics.feature_enabled(
-                    "query-coalescing",
-                    str(self.team.pk),
-                )
-                coalescer = QueryCoalescer(cache_key, self.query_id, dry_run=dry_run)
-                return coalescer.run_coalesced(
-                    execute=execute_blocking,
-                    get_cache_data=cache_manager.get_cache_data,
-                    build_response=lambda data: CachedResponse(**{**data, "is_cached": True}),
-                    max_wait=settings.QUERY_COALESCING_MAX_WAIT_SECONDS,
-                )
-
             return execute_blocking()
 
     def _execute_and_cache_blocking(
@@ -1383,10 +1367,12 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         query_start = perf_counter()
         try:
             query_result, query_duration_ms = self._call_with_rate_limits(dashboard_id=dashboard_id)
-            QUERY_EXECUTION_TOTAL.labels(query_type=query_type, status="success", error_type="none").inc()
+            QUERY_EXECUTION_TOTAL.labels(query_type=query_type, category="success", error_type="none").inc()
         except Exception as e:
             QUERY_EXECUTION_TOTAL.labels(
-                query_type=query_type, status="failure", error_type=clickhouse_error_type(e)
+                query_type=query_type,
+                category=classify_query_error(e),
+                error_type=clickhouse_error_type(e),
             ).inc()
             raise
         finally:

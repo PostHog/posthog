@@ -723,7 +723,7 @@ mod tests {
         #[case(FlagError::MissingDistinctId, 400, "missing_distinct_id")]
         #[case(FlagError::NoTokenError, 401, "missing_token")]
         #[case(FlagError::TokenValidationError, 401, "invalid_token")]
-        #[case(FlagError::PersonalApiKeyInvalid("test".into()), 401, "personal_api_key_invalid")]
+        #[case(FlagError::PersonalApiKeyInvalid, 401, "personal_api_key_invalid")]
         #[case(FlagError::SecretApiTokenInvalid, 401, "secret_api_token_invalid")]
         #[case(FlagError::NoAuthenticationProvided, 401, "no_authentication")]
         #[case(FlagError::RowNotFound, 500, "row_not_found")]

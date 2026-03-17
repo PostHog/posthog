@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use axum::async_trait;
+use async_trait::async_trait;
 use metrics::counter;
 use sqlx::PgPool;
 use tracing::error;
@@ -203,7 +203,7 @@ impl<R> OrChunkId<R> {
 mod test {
     use std::sync::Arc;
 
-    use axum::async_trait;
+    use async_trait::async_trait;
     use chrono::Utc;
     use common_types::ClickHouseEvent;
     use mockall::predicate;
