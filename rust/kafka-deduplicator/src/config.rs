@@ -302,6 +302,12 @@ pub struct Config {
     #[envconfig(default = "240")]
     pub checkpoint_partition_import_timeout_secs: u64,
 
+    // Maximum age of a local metadata.json before we consider the local store stale
+    // and fall back to S3 import. Separate from checkpoint_import_window_hours which
+    // controls the S3 listing window.
+    #[envconfig(default = "7200")] // 2 hours
+    pub local_checkpoint_max_staleness_secs: u64,
+
     //// End checkpoint configuration ////
     //// Kafka-assigner mode configuration ////
     /// gRPC endpoint for the kafka-assigner service (e.g. "http://kafka-assigner:50051").
@@ -603,6 +609,11 @@ impl Config {
     /// Get checkpoint partition import timeout as Duration
     pub fn checkpoint_partition_import_timeout(&self) -> Duration {
         Duration::from_secs(self.checkpoint_partition_import_timeout_secs)
+    }
+
+    /// Get max staleness for local checkpoint data as Duration
+    pub fn local_checkpoint_max_staleness(&self) -> Duration {
+        Duration::from_secs(self.local_checkpoint_max_staleness_secs)
     }
 
     /// Build Kafka consumer configuration for the group-based batch consumer.

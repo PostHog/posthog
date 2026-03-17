@@ -44,8 +44,7 @@ export const AnnotationsCreateBody = /* @__PURE__ */ zod.object({
         .max(annotationsCreateBodyContentMax)
         .nullish()
         .describe('Annotation text shown on charts to describe the change, release, or incident.'),
-    date_marker: zod
-        .string()
+    date_marker: zod.iso
         .datetime({})
         .nullish()
         .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
@@ -105,8 +104,7 @@ export const AnnotationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(annotationsPartialUpdateBodyContentMax)
         .nullish()
         .describe('Annotation text shown on charts to describe the change, release, or incident.'),
-    date_marker: zod
-        .string()
+    date_marker: zod.iso
         .datetime({})
         .nullish()
         .describe('When this annotation happened (ISO 8601 timestamp). Used to position it on charts.'),
