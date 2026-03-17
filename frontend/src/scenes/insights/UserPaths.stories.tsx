@@ -48,10 +48,6 @@ export const UserPaths: Story = createInsightStory(
 UserPaths.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
-        // Snapshot only the path visualization canvas, not the surrounding page chrome
-        // (InsightPageHeader, SceneTitleSection, etc.) which changes frequently and causes
-        // recurring snapshot drift on master (~30% failure rate).
-        snapshotTargetSelector: '.Paths',
     },
 }
 // The Paths component uses useResizeObserver to measure canvasWidth, then destroys
@@ -80,7 +76,6 @@ export const UserPathsEdit: Story = createInsightStory(
 UserPathsEdit.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
-        snapshotTargetSelector: '.Paths',
     },
 }
 UserPathsEdit.play = waitForPathsCanvasToStabilize
@@ -92,7 +87,6 @@ export const UserPathsEditViewports: Story = createInsightStory(
 UserPathsEditViewports.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
-        snapshotTargetSelector: '.Paths',
         viewportWidths: ['medium', 'wide', 'superwide'],
     },
 }
