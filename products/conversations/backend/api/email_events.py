@@ -47,18 +47,17 @@ def _find_thread_ticket(
 
     # Fall back to References (space-separated list of message-ids, newest last)
     if references:
-        ref_ids = references.strip().split()
+        ref_ids = [r.strip() for r in references.strip().split()]
+        mapping_by_id = {
+            m.message_id: m
+            for m in EmailMessageMapping.objects.filter(
+                message_id__in=ref_ids,
+                team_id=team_id,
+            ).select_related("ticket")
+        }
         for ref_id in reversed(ref_ids):
-            mapping = (
-                EmailMessageMapping.objects.filter(
-                    message_id=ref_id.strip(),
-                    team_id=team_id,
-                )
-                .select_related("ticket")
-                .first()
-            )
-            if mapping:
-                return mapping.ticket
+            if ref_id in mapping_by_id:
+                return mapping_by_id[ref_id].ticket
 
     return None
 

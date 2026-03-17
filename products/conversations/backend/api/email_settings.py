@@ -103,7 +103,7 @@ class EmailConnectView(APIView):
 
         forwarding_address = f"team-{config.inbound_token}@{inbound_domain}"
 
-        logger.info("email_channel_connected", team_id=team.id, domain=domain)
+        logger.info("email_channel_connected", team_id=team.id, domain=domain, user_id=user.id, user_email=user.email)
 
         return Response(
             {
@@ -137,6 +137,6 @@ class EmailDisconnectView(APIView):
         team.conversations_settings = settings
         team.save(update_fields=["conversations_settings"])
 
-        logger.info("email_channel_disconnected", team_id=team.id)
+        logger.info("email_channel_disconnected", team_id=team.id, user_id=user.id, user_email=user.email)
 
         return Response({"ok": True})
