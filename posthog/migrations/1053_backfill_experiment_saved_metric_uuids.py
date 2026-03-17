@@ -13,7 +13,7 @@ def backfill_experiment_saved_metric_uuids(apps, schema_editor):
     saved_metrics_to_update = []
     generated_uuids_by_metric_id = {}
 
-    for saved_metric in ExperimentSavedMetric.objects.all().iterator():
+    for saved_metric in ExperimentSavedMetric.objects.filter(query__uuid__isnull=True).iterator():
         query = dict(saved_metric.query or {})
         if query.get("uuid"):
             continue
