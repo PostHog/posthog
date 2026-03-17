@@ -287,22 +287,24 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
                 for position in positions:
                     score_errors[position]["definition_id"] = "Each scorer can only appear once per review."
 
+        definition_ids = [score_payload["definition_id"] for score_payload in score_payloads]
+        requested_version_ids = {
+            score_payload["definition_version_id"]
+            for score_payload in score_payloads
+            if score_payload.get("definition_version_id") is not None
+        }
+
         definition_lookup = {
             str(definition.id): definition
-            for definition in ScoreDefinition.objects.filter(
-                team=team, id__in=[score_payload["definition_id"] for score_payload in score_payloads]
-            ).select_related("current_version")
+            for definition in ScoreDefinition.objects.filter(team=team, id__in=definition_ids)
+            .select_related("current_version")
+            .prefetch_related("versions")
         }
         version_lookup = {
             str(version.id): version
-            for version in ScoreDefinitionVersion.objects.filter(
-                definition__team=team,
-                id__in=[
-                    score_payload["definition_version_id"]
-                    for score_payload in score_payloads
-                    if score_payload.get("definition_version_id") is not None
-                ],
-            )
+            for definition in definition_lookup.values()
+            for version in definition.versions.all()
+            if version.id in requested_version_ids
         }
 
         resolved_scores: list[dict[str, Any]] = []
