@@ -7,7 +7,7 @@ use crate::{
     team::team_models::Team,
 };
 use anyhow::Error;
-use axum::async_trait;
+use async_trait::async_trait;
 use common_database::{get_pool, Client, CustomDatabaseError};
 use common_hypercache::{HyperCacheConfig, HyperCacheReader};
 use common_redis::{Client as RedisClientTrait, RedisClient};
@@ -169,7 +169,6 @@ pub async fn setup_hypercache_reader(
 pub fn setup_hypercache_reader_with_mock_redis(
     redis_client: Arc<dyn RedisClientTrait + Send + Sync>,
 ) -> Arc<HyperCacheReader> {
-    use axum::async_trait;
     use common_s3::{S3Client, S3Error};
 
     // Create a simple S3 client that always returns NotFound
@@ -934,6 +933,9 @@ pub struct TestContext {
     pub persons_writer: Arc<dyn Client + Send + Sync>,
     pub non_persons_reader: Arc<dyn Client + Send + Sync>,
     pub non_persons_writer: Arc<dyn Client + Send + Sync>,
+    /// Pool for the behavioral cohorts database (cohort_membership table).
+    /// Available when `behavioral_cohorts_read_database_url` is configured in test config.
+    pub behavioral_cohorts_pool: Option<Arc<sqlx::PgPool>>,
     config: Config,
 }
 
@@ -944,11 +946,28 @@ impl TestContext {
         let (persons_reader, non_persons_reader) = setup_dual_pg_readers(Some(&config));
         let (persons_writer, non_persons_writer) = setup_dual_pg_writers(Some(&config));
 
+        let behavioral_cohorts_pool = if config.is_behavioral_cohorts_db_configured() {
+            match sqlx::PgPool::connect(&config.behavioral_cohorts_read_database_url).await {
+                Ok(pool) => Some(Arc::new(pool)),
+                Err(e) => {
+                    eprintln!(
+                        "Warning: failed to connect to behavioral cohorts database ({}), \
+                         cohort membership tests will be skipped: {e}",
+                        config.behavioral_cohorts_read_database_url
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Self {
             persons_reader,
             persons_writer,
             non_persons_reader,
             non_persons_writer,
+            behavioral_cohorts_pool,
             config,
         }
     }
@@ -1114,6 +1133,59 @@ impl TestContext {
         distinct_id: &str,
     ) -> Result<PersonId, Error> {
         get_person_id_by_distinct_id(self.persons_reader.clone(), team_id, distinct_id).await
+    }
+
+    /// Returns the person UUID for a given distinct_id, needed for cohort_membership inserts.
+    pub async fn get_person_uuid_by_distinct_id(
+        &self,
+        team_id: i32,
+        distinct_id: &str,
+    ) -> Result<Uuid, Error> {
+        let mut conn = self.persons_reader.get_connection().await?;
+        Person::from_distinct_id(&mut conn, team_id, distinct_id)
+            .await?
+            .map(|p| p.uuid)
+            .ok_or_else(|| anyhow::anyhow!("Person not found"))
+    }
+
+    /// Inserts a row into the `cohort_membership` table (behavioral cohorts database).
+    pub async fn insert_cohort_membership(
+        &self,
+        team_id: i32,
+        cohort_id: CohortId,
+        person_uuid: Uuid,
+        in_cohort: bool,
+    ) -> Result<(), Error> {
+        let pool = self
+            .behavioral_cohorts_pool
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("behavioral cohorts pool not configured"))?;
+        sqlx::query(
+            r#"INSERT INTO cohort_membership (team_id, cohort_id, person_id, in_cohort)
+               VALUES ($1, $2, $3, $4)
+               ON CONFLICT (team_id, cohort_id, person_id) DO UPDATE SET in_cohort = $4"#,
+        )
+        .bind(i64::from(team_id))
+        .bind(i64::from(cohort_id))
+        .bind(person_uuid)
+        .bind(in_cohort)
+        .execute(pool.as_ref())
+        .await?;
+        Ok(())
+    }
+
+    /// Creates a `CohortMembershipProvider` backed by the behavioral cohorts pool,
+    /// or falls back to `NoOpCohortMembershipProvider` if the pool is not available.
+    pub fn create_cohort_membership_provider(
+        &self,
+    ) -> Arc<dyn crate::cohorts::membership::CohortMembershipProvider> {
+        if let Some(pool) = &self.behavioral_cohorts_pool {
+            Arc::new(
+                crate::cohorts::membership::RealtimeCohortMembershipProvider::new(pool.clone()),
+            )
+        } else {
+            Arc::new(crate::cohorts::membership::NoOpCohortMembershipProvider)
+        }
     }
 
     /// Creates a user with configurable options

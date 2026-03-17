@@ -270,14 +270,10 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         .map(|e| e.file_name().to_string_lossy().to_string())
         .collect();
 
-    // Separate marker file and metadata.json (written by importer) from S3-downloaded checkpoint files
-    let marker_files: Vec<_> = all_imported_files
-        .iter()
-        .filter(|f| f.starts_with(".imported_"))
-        .collect();
+    // Separate metadata.json (written by importer) from S3-downloaded checkpoint files
     let imported_files: Vec<_> = all_imported_files
         .iter()
-        .filter(|f| !f.starts_with(".imported_") && *f != METADATA_FILENAME)
+        .filter(|f| *f != METADATA_FILENAME)
         .cloned()
         .collect();
 
@@ -298,14 +294,6 @@ async fn test_checkpoint_export_import_via_minio() -> Result<()> {
         loaded_metadata.updated_at,
         downloaded_metadata.attempt_timestamp
     );
-
-    // Verify marker file exists (created by import to identify imported stores)
-    assert_eq!(
-        marker_files.len(),
-        1,
-        "Should have exactly one .imported_* marker file, found: {marker_files:?}"
-    );
-    info!(marker_file = ?marker_files[0], "Verified import marker file exists");
 
     info!(
         imported = imported_files.len(),
@@ -563,23 +551,12 @@ async fn test_fallback_after_failed_attempt() -> Result<()> {
     let import_path = result.unwrap();
 
     // Verify the imported checkpoint is from the OLDER (successful) checkpoint
-    // by checking the marker file contains the older checkpoint's metadata
-    let marker_files: Vec<_> = std::fs::read_dir(&import_path)
-        .expect("Should be able to read import path")
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_name().to_string_lossy().starts_with(".imported_"))
-        .collect();
-    assert_eq!(marker_files.len(), 1, "Should have exactly one marker file");
-
-    let marker_content = std::fs::read_to_string(marker_files[0].path())
-        .expect("Should be able to read marker file");
-    let marker_metadata: serde_json::Value =
-        serde_json::from_str(&marker_content).expect("Marker should contain valid JSON");
-
-    // The marker should contain the OLDER checkpoint's ID, not the newer (failed) one
+    // by checking metadata.json contains the older checkpoint's ID
+    let loaded_metadata = CheckpointMetadata::load_from_dir(&import_path)
+        .await
+        .expect("metadata.json should exist and deserialize");
     assert_eq!(
-        marker_metadata["id"].as_str().unwrap(),
-        older_metadata.id,
+        loaded_metadata.id, older_metadata.id,
         "Imported checkpoint should be from older checkpoint (fallback)"
     );
 
