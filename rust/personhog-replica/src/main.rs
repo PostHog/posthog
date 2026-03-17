@@ -14,8 +14,8 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
+use personhog_common::GrpcMetricsLayer;
 use personhog_replica::config::Config;
-use personhog_replica::middleware::GrpcMetricsLayer;
 use personhog_replica::pool_monitor::spawn_pool_monitor;
 use personhog_replica::service::PersonHogReplicaService;
 use personhog_replica::storage::postgres::PostgresStorage;
@@ -156,7 +156,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         let _guard = grpc_handle.process_scope();
         if let Err(e) = Server::builder()
-            .layer(GrpcMetricsLayer)
+            .layer(GrpcMetricsLayer::new("replica"))
             .add_service(PersonHogReplicaServer::new(service))
             .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
             .await

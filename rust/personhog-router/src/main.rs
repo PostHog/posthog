@@ -5,10 +5,10 @@ use axum::{routing::get, Router};
 use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
+use personhog_common::GrpcMetricsLayer;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_router::backend::ReplicaBackend;
 use personhog_router::config::Config;
-use personhog_router::middleware::GrpcMetricsLayer;
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
 use tonic::transport::Server;
@@ -114,7 +114,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         let _guard = grpc_handle.process_scope();
         if let Err(e) = Server::builder()
-            .layer(GrpcMetricsLayer)
+            .layer(GrpcMetricsLayer::new("router"))
             .add_service(PersonHogServiceServer::new(service))
             .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
             .await
