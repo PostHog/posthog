@@ -37,7 +37,7 @@ from products.data_warehouse.backend.types import IncrementalFieldType, Partitio
 def _safe_convert_date(obj: Any) -> datetime.date | None:
     """Convert MySQL date, returning None for invalid dates like '0000-00-00'."""
     if isinstance(obj, (bytes, bytearray)):
-        obj = obj.decode("ascii")
+        obj = obj.decode("utf-8")
     try:
         parts = obj.split("-", 2)
         return datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
@@ -48,7 +48,7 @@ def _safe_convert_date(obj: Any) -> datetime.date | None:
 def _safe_convert_datetime(obj: Any) -> datetime.datetime | None:
     """Convert MySQL datetime/timestamp, returning None for invalid values like '0000-00-00 00:00:00'."""
     if isinstance(obj, (bytes, bytearray)):
-        obj = obj.decode("ascii")
+        obj = obj.decode("utf-8")
     try:
         date_part, time_part = obj.split(" ", 1)
         date_values = [int(x) for x in date_part.split("-", 2)]

@@ -53,7 +53,6 @@ class TestSafeConvertDate:
         [
             "0000-00-00",
             b"0000-00-00",
-            "0000-00-00",
             "invalid",
             "",
         ],
