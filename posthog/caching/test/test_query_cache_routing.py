@@ -21,15 +21,6 @@ class TestQueryCacheRouting(BaseTest):
             QUERY_CACHE_ALIAS: {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
         }
     )
-    def test_returns_cluster_cache_when_alias_configured(self):
-        result = get_query_cache()
-        self.assertIsNot(result, cache)
-
-    @override_settings(
-        CACHES={
-            "default": {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
-            QUERY_CACHE_ALIAS: {"BACKEND": "django.core.cache.backends.locmem.LocMemCache"},
-        }
-    )
-    def test_uses_cluster_cache_when_alias_configured(self):
+    def test_routes_to_cluster_cache_when_alias_configured(self):
         self.assertTrue(use_cluster_cache())
+        self.assertIsNot(get_query_cache(), cache)
