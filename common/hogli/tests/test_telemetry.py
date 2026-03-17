@@ -14,33 +14,25 @@ from hogli import telemetry
 from hogli.core.cli import cli
 
 
-class TestIsEnabled:
-    def test_default_enabled(self, tmp_path):
-        with patch.object(telemetry, "get_config_path", return_value=tmp_path / "config.json"):
-            assert telemetry.is_enabled() is True
-
-    def test_opt_out_via_posthog_env(self, tmp_path):
-        with (
-            patch.object(telemetry, "get_config_path", return_value=tmp_path / "config.json"),
-            patch.dict(os.environ, {"POSTHOG_TELEMETRY_OPT_OUT": "1"}),
-        ):
-            assert telemetry.is_enabled() is False
-
-    def test_opt_out_via_do_not_track_env(self, tmp_path):
-        with (
-            patch.object(telemetry, "get_config_path", return_value=tmp_path / "config.json"),
-            patch.dict(os.environ, {"DO_NOT_TRACK": "1"}),
-        ):
-            assert telemetry.is_enabled() is False
-
-    def test_env_takes_precedence_over_config(self, tmp_path):
-        config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"enabled": True}))
-        with (
-            patch.object(telemetry, "get_config_path", return_value=config_path),
-            patch.dict(os.environ, {"POSTHOG_TELEMETRY_OPT_OUT": "1"}),
-        ):
-            assert telemetry.is_enabled() is False
+@pytest.mark.parametrize(
+    "env_vars, config, expected",
+    [
+        ({}, {}, True),
+        ({"POSTHOG_TELEMETRY_OPT_OUT": "1"}, {}, False),
+        ({"DO_NOT_TRACK": "1"}, {}, False),
+        ({"CI": "true"}, {}, False),
+        ({"POSTHOG_TELEMETRY_OPT_OUT": "1"}, {"enabled": True}, False),
+    ],
+)
+def test_is_enabled(tmp_path, env_vars, config, expected):
+    config_path = tmp_path / "config.json"
+    if config:
+        config_path.write_text(json.dumps(config))
+    with (
+        patch.object(telemetry, "get_config_path", return_value=config_path),
+        patch.dict(os.environ, env_vars),
+    ):
+        assert telemetry.is_enabled() is expected
 
 
 class TestAnonymousId:

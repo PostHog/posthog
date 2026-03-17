@@ -143,7 +143,7 @@ def cli(ctx: click.Context) -> None:
 
     # Fire early so long-running commands (e.g. hogli start) are always counted
     # even if the process is killed without a clean exit.
-    if ctx.invoked_subcommand:
+    if ctx.invoked_subcommand and ctx.invoked_subcommand != "telemetry:off":
         telemetry.track("command_started", {"command": ctx.invoked_subcommand})
 
 
