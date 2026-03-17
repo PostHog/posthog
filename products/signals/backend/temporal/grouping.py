@@ -27,6 +27,7 @@ from posthog.api.embedding_worker import async_generate_embedding, emit_embeddin
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
+from products.signals.backend.api import soft_delete_report_signals
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
 from products.signals.backend.temporal.llm import MAX_QUERY_TOKENS, call_llm, truncate_query_to_token_limit
@@ -896,8 +897,6 @@ async def assign_and_emit_signal_activity(input: AssignAndEmitSignalInput) -> As
         # This prevents data corruption where non-deleted signals for a deleted report
         # keep attracting new signals into the dead group.
         if matched_deleted:
-            from products.signals.backend.api import soft_delete_report_signals
-
             team = await Team.objects.aget(pk=input.team_id)
             await database_sync_to_async(soft_delete_report_signals, thread_sensitive=False)(
                 report_id=report_id,
