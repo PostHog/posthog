@@ -16,10 +16,7 @@ interface SceneContentContextValue {
 
 export const SceneContentContext = createContext<SceneContentContextValue>({ productKey: null })
 
-interface SceneContentProps extends React.HTMLAttributes<HTMLDivElement> {
-    children: React.ReactNode
-    className?: string
-}
+interface SceneContentProps extends React.HTMLAttributes<HTMLDivElement> {}
 
 export function SceneContent({ children, className, ...rest }: SceneContentProps): JSX.Element {
     useMountedLogic(globalSetupLogic)
