@@ -3,10 +3,10 @@
 {% block heading %}Your trial evaluations have been used up{% endblock %}
 {% block section %}
 <p>
-    Your team has used all <strong>{{ trial_eval_limit }}</strong> trial evaluations for LLM analytics. Any active evaluations using trial credits have been paused.
+    Your team has used all <strong>{{ trial_eval_limit }}</strong> trial evaluations for LLM analytics. Evaluations using trial credits have been disabled.
 </p>
 <p>
-    To resume running evaluations, add your own provider API key in the LLM analytics settings. Your existing evaluation configurations will be preserved and start running again once a key is added.
+    To continue running evaluations, add your own provider API key in the LLM analytics settings. Once added, you can re-enable your evaluations.
 </p>
 <div class="mb mt text-center">
     <a class="button" href="{% absolute_uri settings_url %}">Add your API key</a>
