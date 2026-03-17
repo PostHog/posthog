@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
+use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::GroupStorage;
 use crate::storage::types::{Group, GroupIdentifier, GroupKey, GroupTypeMapping};
@@ -14,10 +14,15 @@ impl GroupStorage for PostgresStorage {
         group_key: &str,
         consistency: ConsistencyLevel,
     ) -> StorageResult<Option<Group>> {
-        let labels = [("operation".to_string(), "get_group".to_string())];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            ("operation".to_string(), "get_group".to_string()),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let row = sqlx::query_as!(
             Group,
@@ -35,7 +40,7 @@ impl GroupStorage for PostgresStorage {
             group_type_index,
             group_key
         )
-        .fetch_optional(pool)
+        .fetch_optional(&mut *conn)
         .await?;
 
         Ok(row)
@@ -51,10 +56,15 @@ impl GroupStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [("operation".to_string(), "get_groups".to_string())];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            ("operation".to_string(), "get_groups".to_string()),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let group_type_indexes: Vec<i32> = identifiers.iter().map(|i| i.group_type_index).collect();
         let group_keys: Vec<String> = identifiers.iter().map(|i| i.group_key.clone()).collect();
@@ -77,8 +87,14 @@ impl GroupStorage for PostgresStorage {
             &group_type_indexes,
             &group_keys
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[("operation".to_string(), "get_groups".to_string())],
+            rows.len() as f64,
+        );
 
         Ok(rows)
     }
@@ -92,10 +108,15 @@ impl GroupStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [("operation".to_string(), "get_groups_batch".to_string())];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            ("operation".to_string(), "get_groups_batch".to_string()),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let team_ids: Vec<i32> = keys.iter().map(|k| k.team_id as i32).collect();
         let group_type_indexes: Vec<i32> = keys.iter().map(|k| k.group_type_index).collect();
@@ -118,8 +139,14 @@ impl GroupStorage for PostgresStorage {
             &group_type_indexes,
             &group_keys
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[("operation".to_string(), "get_groups_batch".to_string())],
+            groups.len() as f64,
+        );
 
         Ok(groups
             .into_iter()
@@ -139,13 +166,18 @@ impl GroupStorage for PostgresStorage {
         team_id: i64,
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<GroupTypeMapping>> {
-        let labels = [(
-            "operation".to_string(),
-            "get_group_type_mappings_by_team_id".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_group_type_mappings_by_team_id".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let rows = sqlx::query_as!(
             GroupTypeMapping,
@@ -160,8 +192,17 @@ impl GroupStorage for PostgresStorage {
             "#,
             team_id as i32
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_group_type_mappings_by_team_id".to_string(),
+            )],
+            rows.len() as f64,
+        );
 
         Ok(rows)
     }
@@ -175,13 +216,18 @@ impl GroupStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "get_group_type_mappings_by_team_ids".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_group_type_mappings_by_team_ids".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let team_ids_i32: Vec<i32> = team_ids.iter().map(|&id| id as i32).collect();
 
@@ -198,8 +244,17 @@ impl GroupStorage for PostgresStorage {
             "#,
             &team_ids_i32
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_group_type_mappings_by_team_ids".to_string(),
+            )],
+            rows.len() as f64,
+        );
 
         Ok(rows)
     }
@@ -209,13 +264,18 @@ impl GroupStorage for PostgresStorage {
         project_id: i64,
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<GroupTypeMapping>> {
-        let labels = [(
-            "operation".to_string(),
-            "get_group_type_mappings_by_project_id".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_group_type_mappings_by_project_id".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let rows = sqlx::query_as!(
             GroupTypeMapping,
@@ -230,8 +290,17 @@ impl GroupStorage for PostgresStorage {
             "#,
             project_id
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_group_type_mappings_by_project_id".to_string(),
+            )],
+            rows.len() as f64,
+        );
 
         Ok(rows)
     }
@@ -245,13 +314,18 @@ impl GroupStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "get_group_type_mappings_by_project_ids".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_group_type_mappings_by_project_ids".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let rows = sqlx::query_as!(
             GroupTypeMapping,
@@ -266,8 +340,17 @@ impl GroupStorage for PostgresStorage {
             "#,
             project_ids
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_group_type_mappings_by_project_ids".to_string(),
+            )],
+            rows.len() as f64,
+        );
 
         Ok(rows)
     }

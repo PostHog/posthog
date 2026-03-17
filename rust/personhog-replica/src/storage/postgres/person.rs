@@ -3,10 +3,12 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use uuid::Uuid;
 
-use super::{PostgresStorage, DB_QUERY_DURATION};
+use super::{PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::PersonLookup;
 use crate::storage::types::Person;
+
+const POOL_LABEL: &str = "replica";
 
 #[async_trait]
 impl PersonLookup for PostgresStorage {
@@ -15,8 +17,14 @@ impl PersonLookup for PostgresStorage {
         team_id: i64,
         person_id: i64,
     ) -> StorageResult<Option<Person>> {
-        let labels = [("operation".to_string(), "get_person_by_id".to_string())];
+        let labels = [
+            ("operation".to_string(), "get_person_by_id".to_string()),
+            ("pool".to_string(), POOL_LABEL.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.replica_pool, POOL_LABEL).await?;
 
         let row = sqlx::query_as!(
             Person,
@@ -32,15 +40,21 @@ impl PersonLookup for PostgresStorage {
             team_id as i32,
             person_id
         )
-        .fetch_optional(&self.replica_pool)
+        .fetch_optional(&mut *conn)
         .await?;
 
         Ok(row)
     }
 
     async fn get_person_by_uuid(&self, team_id: i64, uuid: Uuid) -> StorageResult<Option<Person>> {
-        let labels = [("operation".to_string(), "get_person_by_uuid".to_string())];
+        let labels = [
+            ("operation".to_string(), "get_person_by_uuid".to_string()),
+            ("pool".to_string(), POOL_LABEL.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.replica_pool, POOL_LABEL).await?;
 
         let row = sqlx::query_as!(
             Person,
@@ -56,7 +70,7 @@ impl PersonLookup for PostgresStorage {
             team_id as i32,
             uuid
         )
-        .fetch_optional(&self.replica_pool)
+        .fetch_optional(&mut *conn)
         .await?;
 
         Ok(row)
@@ -71,8 +85,14 @@ impl PersonLookup for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [("operation".to_string(), "get_persons_by_ids".to_string())];
+        let labels = [
+            ("operation".to_string(), "get_persons_by_ids".to_string()),
+            ("pool".to_string(), POOL_LABEL.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.replica_pool, POOL_LABEL).await?;
 
         let rows = sqlx::query_as!(
             Person,
@@ -88,8 +108,14 @@ impl PersonLookup for PostgresStorage {
             team_id as i32,
             person_ids
         )
-        .fetch_all(&self.replica_pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[("operation".to_string(), "get_persons_by_ids".to_string())],
+            rows.len() as f64,
+        );
 
         Ok(rows)
     }
@@ -103,8 +129,14 @@ impl PersonLookup for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [("operation".to_string(), "get_persons_by_uuids".to_string())];
+        let labels = [
+            ("operation".to_string(), "get_persons_by_uuids".to_string()),
+            ("pool".to_string(), POOL_LABEL.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.replica_pool, POOL_LABEL).await?;
 
         let rows = sqlx::query_as!(
             Person,
@@ -120,8 +152,14 @@ impl PersonLookup for PostgresStorage {
             team_id as i32,
             uuids
         )
-        .fetch_all(&self.replica_pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[("operation".to_string(), "get_persons_by_uuids".to_string())],
+            rows.len() as f64,
+        );
 
         Ok(rows)
     }
@@ -131,11 +169,17 @@ impl PersonLookup for PostgresStorage {
         team_id: i64,
         distinct_id: &str,
     ) -> StorageResult<Option<Person>> {
-        let labels = [(
-            "operation".to_string(),
-            "get_person_by_distinct_id".to_string(),
-        )];
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_person_by_distinct_id".to_string(),
+            ),
+            ("pool".to_string(), POOL_LABEL.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.replica_pool, POOL_LABEL).await?;
 
         let row = sqlx::query_as!(
             Person,
@@ -153,7 +197,7 @@ impl PersonLookup for PostgresStorage {
             team_id as i32,
             distinct_id
         )
-        .fetch_optional(&self.replica_pool)
+        .fetch_optional(&mut *conn)
         .await?;
 
         Ok(row)
@@ -168,11 +212,17 @@ impl PersonLookup for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "get_persons_by_distinct_ids_in_team".to_string(),
-        )];
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_persons_by_distinct_ids_in_team".to_string(),
+            ),
+            ("pool".to_string(), POOL_LABEL.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.replica_pool, POOL_LABEL).await?;
 
         // Use query!() since we need distinct_id alongside Person fields
         let rows = sqlx::query!(
@@ -191,8 +241,17 @@ impl PersonLookup for PostgresStorage {
             team_id as i32,
             distinct_ids
         )
-        .fetch_all(&self.replica_pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_persons_by_distinct_ids_in_team".to_string(),
+            )],
+            rows.len() as f64,
+        );
 
         let found: HashMap<String, Person> = rows
             .into_iter()
@@ -228,11 +287,17 @@ impl PersonLookup for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "get_persons_by_distinct_ids_cross_team".to_string(),
-        )];
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_persons_by_distinct_ids_cross_team".to_string(),
+            ),
+            ("pool".to_string(), POOL_LABEL.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn =
+            PostgresStorage::acquire_timed(&self.replica_pool, POOL_LABEL).await?;
 
         let team_ids: Vec<i32> = team_distinct_ids.iter().map(|(t, _)| *t as i32).collect();
         let distinct_ids: Vec<String> = team_distinct_ids.iter().map(|(_, d)| d.clone()).collect();
@@ -255,8 +320,17 @@ impl PersonLookup for PostgresStorage {
             &team_ids,
             &distinct_ids
         )
-        .fetch_all(&self.replica_pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_persons_by_distinct_ids_cross_team".to_string(),
+            )],
+            rows.len() as f64,
+        );
 
         let found: HashMap<(i64, String), Person> = rows
             .into_iter()

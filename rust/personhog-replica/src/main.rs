@@ -15,6 +15,8 @@ use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
 use personhog_replica::config::Config;
+use personhog_replica::middleware::GrpcMetricsLayer;
+use personhog_replica::pool_monitor::spawn_pool_monitor;
 use personhog_replica::service::PersonHogReplicaService;
 use personhog_replica::storage::postgres::PostgresStorage;
 
@@ -23,19 +25,24 @@ common_alloc::used!();
 async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
     match config.storage_backend.as_str() {
         "postgres" => {
-            let pool_config = PoolConfig {
+            let primary_pool_config = PoolConfig {
                 min_connections: config.min_pg_connections,
                 max_connections: config.max_pg_connections,
                 acquire_timeout: config.acquire_timeout(),
                 idle_timeout: config.idle_timeout(),
                 test_before_acquire: true,
                 statement_timeout_ms: config.statement_timeout(),
-                ..Default::default()
+                pool_name: Some("primary".to_string()),
+            };
+
+            let replica_pool_config = PoolConfig {
+                pool_name: Some("replica".to_string()),
+                ..primary_pool_config.clone()
             };
 
             // Create primary pool
             let primary_pool =
-                get_pool_with_config(&config.primary_database_url, pool_config.clone())
+                get_pool_with_config(&config.primary_database_url, primary_pool_config)
                     .expect("Failed to create primary database pool");
             tracing::info!("Created primary database pool");
 
@@ -45,7 +52,7 @@ async fn create_storage(config: &Config) -> Arc<PostgresStorage> {
                 tracing::info!("Replica URL not configured, using primary pool for both");
                 primary_pool.clone()
             } else {
-                let pool = get_pool_with_config(replica_url, pool_config)
+                let pool = get_pool_with_config(replica_url, replica_pool_config)
                     .expect("Failed to create replica database pool");
                 tracing::info!("Created separate replica database pool");
                 pool
@@ -129,6 +136,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // gRPC server
     let storage = create_storage(&config).await;
+
+    // Spawn background pool health monitor
+    spawn_pool_monitor(
+        storage.primary_pool.clone(),
+        storage.replica_pool.clone(),
+        config.max_pg_connections,
+        Duration::from_secs(config.pool_monitor_interval_secs),
+    );
+
     let service = PersonHogReplicaService::new(storage);
     let grpc_addr = config.grpc_address;
 
@@ -137,6 +153,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         let _guard = grpc_handle.process_scope();
         if let Err(e) = Server::builder()
+            .layer(GrpcMetricsLayer)
             .add_service(PersonHogReplicaServer::new(service))
             .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
             .await
