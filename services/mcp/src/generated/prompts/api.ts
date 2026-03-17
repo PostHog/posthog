@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const LlmPromptsListParams = zod.object({
+export const LlmPromptsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,13 +16,13 @@ export const LlmPromptsListParams = zod.object({
         ),
 })
 
-export const LlmPromptsListQueryParams = zod.object({
+export const LlmPromptsListQueryParams = /* @__PURE__ */ zod.object({
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     search: zod.string().optional().describe('Optional substring filter applied to prompt names and prompt content.'),
 })
 
-export const LlmPromptsCreateParams = zod.object({
+export const LlmPromptsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -32,7 +32,7 @@ export const LlmPromptsCreateParams = zod.object({
 
 export const llmPromptsCreateBodyNameMax = 255
 
-export const LlmPromptsCreateBody = zod.object({
+export const LlmPromptsCreateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
         .max(llmPromptsCreateBodyNameMax)
@@ -42,7 +42,7 @@ export const LlmPromptsCreateBody = zod.object({
 
 export const llmPromptsNameRetrievePathPromptNameRegExp = new RegExp('^[^/]+$')
 
-export const LlmPromptsNameRetrieveParams = zod.object({
+export const LlmPromptsNameRetrieveParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -51,7 +51,7 @@ export const LlmPromptsNameRetrieveParams = zod.object({
     prompt_name: zod.string().regex(llmPromptsNameRetrievePathPromptNameRegExp),
 })
 
-export const LlmPromptsNameRetrieveQueryParams = zod.object({
+export const LlmPromptsNameRetrieveQueryParams = /* @__PURE__ */ zod.object({
     version: zod
         .number()
         .min(1)
@@ -61,7 +61,7 @@ export const LlmPromptsNameRetrieveQueryParams = zod.object({
 
 export const llmPromptsNamePartialUpdatePathPromptNameRegExp = new RegExp('^[^/]+$')
 
-export const LlmPromptsNamePartialUpdateParams = zod.object({
+export const LlmPromptsNamePartialUpdateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -70,7 +70,7 @@ export const LlmPromptsNamePartialUpdateParams = zod.object({
     prompt_name: zod.string().regex(llmPromptsNamePartialUpdatePathPromptNameRegExp),
 })
 
-export const LlmPromptsNamePartialUpdateBody = zod.object({
+export const LlmPromptsNamePartialUpdateBody = /* @__PURE__ */ zod.object({
     prompt: zod.unknown().optional().describe('Prompt payload to publish as a new version.'),
     base_version: zod
         .number()

@@ -302,11 +302,12 @@ The Rust service only operates when `FLAGS_REDIS_URL` is configured. All cache u
 
 Cache freshness is maintained through scheduled Celery tasks.
 
-| Task                                       | Schedule         | Purpose                                              |
-| ------------------------------------------ | ---------------- | ---------------------------------------------------- |
-| `refresh_expiring_flags_cache_entries`     | Hourly at :15    | Refresh caches with TTL < 24h before they expire     |
-| `cleanup_stale_flags_expiry_tracking_task` | Daily at 3:15 AM | Remove expired team entries from tracking sorted set |
-| `verify_and_fix_flags_cache_task`          | Every 30 min     | Compare cache to database and fix mismatches         |
+| Task                                                         | Schedule         | Purpose                                                          |
+| ------------------------------------------------------------ | ---------------- | ---------------------------------------------------------------- |
+| `refresh_expiring_flags_cache_entries`                       | Hourly at :15    | Refresh caches with TTL < 24h before they expire                 |
+| `cleanup_stale_flags_expiry_tracking_task`                   | Daily at 3:15 AM | Remove expired team entries from tracking sorted set             |
+| `verify_and_fix_flag_definitions_cache_task`                 | Hourly at :50    | Verify flag definitions cache (with cohorts) against database    |
+| `verify_and_fix_flag_definitions_without_cohorts_cache_task` | Hourly at :10    | Verify flag definitions cache (without cohorts) against database |
 
 ### Refresh task
 
@@ -324,14 +325,17 @@ def refresh_expiring_flags_cache_entries():
 
 The task uses a Redis sorted set (`flags_cache_expiry`) to efficiently find expiring entries without scanning all keys.
 
-### Verification task
+### Verification tasks
 
-The verification task compares cached data against the database and fixes discrepancies:
+Two independent verification tasks compare cached flag definitions against the database and fix discrepancies — one for the with-cohorts variant (runs at :50) and one for the without-cohorts variant (runs at :10). Each task:
 
-1. Samples teams from the cache
-2. Compares cached flags to current database state
-3. Auto-fixes mismatches by refreshing the cache
-4. Reports metrics on match/mismatch/miss rates
+1. Acquires its own distributed lock (so one variant can't block the other)
+2. Samples teams from the cache
+3. Compares cached flags to current database state
+4. Auto-fixes mismatches by refreshing the cache
+5. Reports metrics on match/mismatch/miss rates
+
+Each task has a 25-minute soft / 30-minute hard time limit, since each only handles one variant.
 
 Configuration:
 
@@ -424,6 +428,8 @@ REMOTE_CONFIG_CDN_PURGE_DOMAINS=["cdn.example.com"]
 - `posthog/tasks/hypercache_verification.py` - Cache verification task
 - `posthog/tasks/remote_config.py` - Remote config sync tasks
 - `posthog/tasks/scheduled.py` - Task schedule definitions
+
+- `posthog/tasks/hypercache_verification.py` - Cache verification tasks
 
 ## See also
 

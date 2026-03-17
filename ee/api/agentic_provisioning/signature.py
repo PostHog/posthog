@@ -22,16 +22,14 @@ API_VERSION_HEADER = "API-Version"
 MAX_TIMESTAMP_DRIFT_SECONDS = 300
 
 
-def verify_stripe_signature(request: Request) -> Response | None:
-    """Verify the Stripe-Signature HMAC and API-Version header.
+def verify_api_version(request: Request) -> Response | None:
+    """Check the API-Version header matches a supported version.
 
-    Returns None if verification passes, or an error Response if it fails.
-    Called at the top of every view (Vercel-style, not middleware).
+    Returns None if valid, or an error Response if not.
     """
-    endpoint = request.path
-
     api_version = request.META.get("HTTP_API_VERSION", "")
     if api_version not in SUPPORTED_VERSIONS:
+        endpoint = request.path
         _log_and_capture_event("invalid_api_version", 400, endpoint, api_version=api_version)
         return Response(
             {
@@ -42,6 +40,16 @@ def verify_stripe_signature(request: Request) -> Response | None:
             },
             status=400,
         )
+    return None
+
+
+def verify_stripe_signature(request: Request) -> Response | None:
+    """Verify the Stripe-Signature HMAC.
+
+    Returns None if verification passes, or an error Response if it fails.
+    Called at the top of every view (Vercel-style, not middleware).
+    """
+    endpoint = request.path
 
     secret = settings.STRIPE_APP_SECRET_KEY
     if not secret:

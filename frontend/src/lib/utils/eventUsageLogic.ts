@@ -352,8 +352,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardModeToggled: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             mode: DashboardMode | null,
-            source: DashboardEventSource | null
-        ) => ({ dashboard, mode, source }),
+            source: DashboardEventSource | null,
+            layoutZoom: number | null
+        ) => ({ dashboard, mode, source, layoutZoom }),
+        reportDashboardLayoutZoomChanged: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            layoutZoom: number,
+            source: 'button' | 'shortcut'
+        ) => ({ dashboard, layoutZoom, source }),
         reportDashboardRefreshed: (
             dashboardId: number,
             dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -1127,11 +1133,20 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 total_properties: totalProperties,
             })
         },
-        reportDashboardModeToggled: async ({ dashboard, mode, source }) => {
+        reportDashboardModeToggled: async ({ dashboard, mode, source, layoutZoom }) => {
             posthog.capture('dashboard mode toggled', {
                 dashboard_id: dashboard?.id,
                 dashboard: sanitizeDashboard(dashboard),
                 mode,
+                source,
+                layout_zoom: layoutZoom ?? undefined,
+            })
+        },
+        reportDashboardLayoutZoomChanged: async ({ dashboard, layoutZoom, source }) => {
+            posthog.capture('dashboard layout zoom changed', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                layout_zoom: layoutZoom,
                 source,
             })
         },

@@ -88,6 +88,12 @@ capabilities:
         requires: [core_infra]
         docker_profiles: []
 
+    llm_analytics_sentiment:
+        description: 'Sentiment classification model for LLM Analytics (installs torch, optimum ~2GB)'
+        requires: [temporal_workflows]
+        docker_profiles: []
+        uv_groups: [sentiment]
+
     livestream:
         description: 'Real-time event streaming'
         requires: [event_ingestion]
@@ -207,7 +213,15 @@ intents:
 
     llm_analytics:
         description: 'LLM/AI observability and analytics'
-        capabilities: [event_ingestion, ai_capture, llm_gateway, property_definitions, temporal_workflows]
+        capabilities:
+            [
+                event_ingestion,
+                ai_capture,
+                llm_gateway,
+                property_definitions,
+                temporal_workflows,
+                llm_analytics_sentiment,
+            ]
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'
