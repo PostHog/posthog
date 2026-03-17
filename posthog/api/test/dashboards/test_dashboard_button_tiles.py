@@ -136,6 +136,34 @@ class TestDashboardButtonTiles(APIBaseTest):
                 tile_types.add("button_tile")
         assert tile_types == {"text", "button_tile"}
 
+    def test_can_create_button_tile_with_transparent_background(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+
+        _, dashboard_json = self.dashboard_api.create_button_tile(
+            dashboard_id,
+            url="https://example.com",
+            text="Click",
+            extra_data={"transparent_background": True},
+        )
+
+        tile = dashboard_json["tiles"][0]
+        assert tile["transparent_background"] is True
+
+    def test_transparent_background_preserved_on_dashboard_duplication(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})
+        self.dashboard_api.create_button_tile(
+            dashboard_id,
+            url="https://example.com",
+            text="Click",
+            extra_data={"transparent_background": True},
+        )
+
+        _, new_dashboard_json = self.dashboard_api.create_dashboard(
+            {"name": "duplicated", "use_dashboard": dashboard_id}
+        )
+
+        assert new_dashboard_json["tiles"][0]["transparent_background"] is True
+
     @override_settings(IN_UNIT_TESTING=True)
     def test_can_duplicate_button_tile_via_dashboard_duplication(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dashboard"})

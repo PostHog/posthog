@@ -1,3 +1,4 @@
+import re
 import json
 import uuid
 from collections.abc import AsyncGenerator
@@ -6,6 +7,7 @@ from typing import Any, Optional, cast
 
 from django.conf import settings
 from django.core.cache import cache
+from django.core.validators import URLValidator
 from django.db.models import CharField, Count, DateTimeField, F, FilteredRelation, Prefetch, Q, QuerySet, Value
 from django.db.models.functions import Cast
 from django.http import StreamingHttpResponse
@@ -209,13 +211,9 @@ class ButtonTileSerializer(serializers.ModelSerializer):
 
     def validate_url(self, value: str) -> str:
         if value.startswith("/"):
-            import re
-
             if not re.match(r"^/[a-zA-Z0-9._~:/?#\[\]@!$&'()*+,;=%-]*$", value):
                 raise serializers.ValidationError("Pathname must start with / and contain valid URL path characters")
         else:
-            from django.core.validators import URLValidator
-
             validator = URLValidator()
             try:
                 validator(value)
