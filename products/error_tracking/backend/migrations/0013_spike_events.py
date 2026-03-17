@@ -50,7 +50,7 @@ class Migration(migrations.Migration):
                     ),
                     models.Index(
                         fields=["-detected_at"],
-                        name="posthog_err_detecte_d1a2f3_idx",
+                        name="posthog_err_detecte_14b72d_idx",
                     ),
                 ],
             },
