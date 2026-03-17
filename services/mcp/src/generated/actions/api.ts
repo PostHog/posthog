@@ -408,8 +408,7 @@ export const ActionsCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.'
             ),
-        pinned_at: zod
-            .string()
+        pinned_at: zod.iso
             .datetime({})
             .nullish()
             .describe(
@@ -821,8 +820,7 @@ export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
             .describe(
                 'Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.'
             ),
-        pinned_at: zod
-            .string()
+        pinned_at: zod.iso
             .datetime({})
             .nullish()
             .describe(

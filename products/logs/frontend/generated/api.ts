@@ -72,17 +72,6 @@ export const domainsScimLogsRetrieve = async (
     })
 }
 
-export const getHogFunctionsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_functions/${id}/logs/`
-}
-
-export const hogFunctionsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFunctionsLogsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
 
