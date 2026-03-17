@@ -12,11 +12,15 @@ const DB_POOL_MAX: &str = "personhog_replica_db_pool_max";
 /// - `personhog_replica_db_pool_size` — current number of connections (active + idle)
 /// - `personhog_replica_db_pool_idle` — idle connections available for use
 /// - `personhog_replica_db_pool_max` — configured max_connections ceiling
+///
+/// When `separate_pools` is false (i.e. primary and replica are the same physical pool),
+/// only the "primary" label is reported to avoid double-counting.
 pub fn spawn_pool_monitor(
     primary_pool: PgPool,
     replica_pool: PgPool,
     max_connections: u32,
     interval: Duration,
+    separate_pools: bool,
 ) {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(interval);
@@ -24,7 +28,9 @@ pub fn spawn_pool_monitor(
         loop {
             tick.tick().await;
             report_pool_stats(&primary_pool, "primary", max_connections);
-            report_pool_stats(&replica_pool, "replica", max_connections);
+            if separate_pools {
+                report_pool_stats(&replica_pool, "replica", max_connections);
+            }
         }
     });
 }

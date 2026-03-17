@@ -79,7 +79,7 @@ impl PostgresStorage {
     ) -> Result<PoolConnection<Postgres>, StorageError> {
         let start = Instant::now();
         let conn = pool.acquire().await.map_err(StorageError::from)?;
-        let elapsed_ms = start.elapsed().as_millis() as f64;
+        let elapsed_ms = start.elapsed().as_secs_f64() * 1000.0;
         common_metrics::histogram(
             DB_POOL_ACQUIRE_DURATION,
             &[("pool".to_string(), pool_label.to_string())],

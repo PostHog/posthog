@@ -138,11 +138,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let storage = create_storage(&config).await;
 
     // Spawn background pool health monitor
+    let separate_pools = !config.replica_database_url.is_empty()
+        && config.replica_database_url != config.primary_database_url;
     spawn_pool_monitor(
         storage.primary_pool.clone(),
         storage.replica_pool.clone(),
         config.max_pg_connections,
         Duration::from_secs(config.pool_monitor_interval_secs),
+        separate_pools,
     );
 
     let service = PersonHogReplicaService::new(storage);
