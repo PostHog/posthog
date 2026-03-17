@@ -165,6 +165,10 @@ class MprocsGenerator(ConfigGenerator):
             if name == "backend":
                 proc_config = self._add_personhog_env(proc_config, resolved)
 
+            # Special handling for temporal-worker - install uv groups when capabilities require them
+            if name == "temporal-worker":
+                proc_config = self._add_uv_groups(proc_config, resolved)
+
             # Add logging wrapper if enabled
             if source_config and source_config.log_to_files:
                 proc_config = self._add_logging(proc_config, name)
@@ -305,6 +309,29 @@ printf '  {gray}Run {reset}{blue}hogli dev:setup{reset}{gray} to tailor this to 
             )
             proc_config["shell"] = f"{env_exports} && {original_shell}"
 
+        return proc_config
+
+    def _add_uv_groups(self, proc_config: dict[str, Any], resolved: ResolvedEnvironment) -> dict[str, Any]:
+        """Prepend uv sync --group and model download commands when uv_groups are resolved.
+
+        Currently handles the sentiment group (installs torch/optimum and downloads the ONNX model).
+        """
+        if not resolved.uv_groups:
+            return proc_config
+
+        original_shell = proc_config.get("shell", "")
+        if not original_shell:
+            return proc_config
+
+        # Build uv sync command with all resolved groups
+        group_flags = " ".join(f"--group {g}" for g in sorted(resolved.uv_groups))
+        prefix = f"uv sync {group_flags} --inexact"
+
+        # Add model download for sentiment group
+        if "sentiment" in resolved.uv_groups:
+            prefix += " && uv run --group sentiment bin/download-sentiment-model"
+
+        proc_config["shell"] = f"{prefix} && {original_shell}"
         return proc_config
 
     def _add_logging(self, proc_config: dict[str, Any], process_name: str) -> dict[str, Any]:

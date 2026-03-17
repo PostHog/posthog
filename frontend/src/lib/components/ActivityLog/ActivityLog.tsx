@@ -25,9 +25,9 @@ import { AccessControlLevel, AccessControlResourceType, AvailableFeature } from 
 
 import { AccessDenied } from '../AccessDenied'
 import { PayGateMini } from '../PayGateMini/PayGateMini'
+import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 
 const MonacoDiffEditor = lazy(() => import('../MonacoDiffEditor'))
-import { ProductIntroduction } from '../ProductIntroduction/ProductIntroduction'
 
 export type ActivityLogProps = ActivityLogLogicProps & {
     startingPage?: number
@@ -226,7 +226,7 @@ export const ActivityLog = ({ scope, id, caption, startingPage = 1 }: ActivityLo
     }
 
     return (
-        <div className="ActivityLog">
+        <div className="ActivityLog" data-attr="activity-log">
             {caption && <div className="page-caption">{caption}</div>}
             {(activityLoading && humanizedActivity.length === 0) || billingLoading ? (
                 <Loading />
