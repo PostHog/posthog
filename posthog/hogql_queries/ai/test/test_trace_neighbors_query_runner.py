@@ -4,6 +4,7 @@ from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person
+from unittest.mock import patch
 
 from posthog.schema import DateRange, EventPropertyFilter, PropertyOperator, TraceNeighborsQuery
 
@@ -37,6 +38,17 @@ def _create_ai_generation_event(
 
 
 class TestTraceNeighborsQueryRunner(ClickhouseTestMixin, BaseTest):
+    def setUp(self):
+        super().setUp()
+        self._flag_patcher = patch(
+            "posthog.hogql_queries.ai.trace_neighbors_query_runner.is_ai_events_enabled", return_value=True
+        )
+        self._flag_patcher.start()
+
+    def tearDown(self):
+        self._flag_patcher.stop()
+        super().tearDown()
+
     def test_finds_prev_and_next_traces(self):
         """Test that the query finds both previous and next traces correctly."""
         _create_person(distinct_ids=["person1"], team=self.team)

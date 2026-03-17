@@ -30,6 +30,8 @@ from posthog.api.monitoring import monitor
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.clickhouse.query_tagging import Product, tags_context
 from posthog.event_usage import report_user_action
+from posthog.hogql_queries.ai.ai_column_rewriter import rewrite_query_for_events_table
+from posthog.hogql_queries.ai.ai_table_resolver import is_ai_events_enabled
 from posthog.models import Team, User
 from posthog.permissions import AccessControlPermission
 from posthog.rate_limit import (
@@ -189,12 +191,14 @@ def _fetch_evaluation_runs(
             properties.$ai_evaluation_result as result,
             properties.$ai_evaluation_reasoning as reasoning,
             properties.$ai_evaluation_applicable as applicable
-        FROM events
+        FROM ai_events
         WHERE {where_clause}
         ORDER BY timestamp DESC
         LIMIT {limit}
         """
     )
+    if not is_ai_events_enabled(team):
+        query = rewrite_query_for_events_table(query)
 
     with tags_context(product=Product.LLM_ANALYTICS):
         query_result = execute_hogql_query(

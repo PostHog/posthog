@@ -2,6 +2,8 @@ import { actions, connect, kea, key, path, props, reducers, selectors } from 'ke
 
 import { escapeRegex } from 'lib/actionUtils'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { groupsModel } from '~/models/groupsModel'
 import {
@@ -14,7 +16,8 @@ import {
 } from '~/queries/schema/schema-general'
 import { AnyPropertyFilter, ChartDisplayType, PathType, PropertyFilterType, PropertyOperator } from '~/types'
 
-import toolsQueryTemplate from '../../backend/queries/tools.sql?raw'
+import aiEventsQueryTemplate from '../../backend/queries/tools.sql?raw'
+import eventsQueryTemplate from '../../backend/queries/tools_events.sql?raw'
 import { SortDirection, SortState, llmAnalyticsSharedLogic } from '../llmAnalyticsSharedLogic'
 import type { llmAnalyticsToolsLogicType } from './llmAnalyticsToolsLogicType'
 
@@ -32,6 +35,8 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
             ['dateFilter', 'shouldFilterTestAccounts', 'propertyFilters'],
             groupsModel,
             ['groupsTaxonomicTypes'],
+            featureFlagLogic,
+            ['featureFlags'],
         ],
     })),
 
@@ -50,15 +55,26 @@ export const llmAnalyticsToolsLogic = kea<llmAnalyticsToolsLogicType>([
 
     selectors({
         toolsQuery: [
-            (s) => [s.dateFilter, s.shouldFilterTestAccounts, s.propertyFilters, s.toolsSort, s.groupsTaxonomicTypes],
+            (s) => [
+                s.dateFilter,
+                s.shouldFilterTestAccounts,
+                s.propertyFilters,
+                s.toolsSort,
+                s.groupsTaxonomicTypes,
+                s.featureFlags,
+            ],
             (
                 dateFilter: { dateFrom: string | null; dateTo: string | null },
                 shouldFilterTestAccounts: boolean,
                 propertyFilters: AnyPropertyFilter[],
                 toolsSort: SortState,
-                groupsTaxonomicTypes: TaxonomicFilterGroupType[]
+                groupsTaxonomicTypes: TaxonomicFilterGroupType[],
+                featureFlags: FeatureFlagsSet
             ): DataTableNode => {
-                const query = toolsQueryTemplate
+                const useAiEvents = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_AI_EVENTS_TABLE_ROLLOUT]
+                const template = useAiEvents ? aiEventsQueryTemplate : eventsQueryTemplate
+
+                const query = template
                     .replace('__ORDER_BY__', toolsSort.column)
                     .replace('__ORDER_DIRECTION__', toolsSort.direction)
 

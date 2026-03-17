@@ -303,8 +303,13 @@ const getEventData = (record: unknown, query?: DataTableNode | DataVisualization
     if (Array.isArray(record) && isDataTableNode(query) && isEventsQuery(query.source)) {
         const select = query.source.select ?? []
         const uuidIdx = select.findIndex((c) => c === 'uuid')
-        const inputIdx = select.findIndex((c) => c === 'properties.$ai_input' || c === 'properties.$ai_input[-1]')
-        const outputIdx = select.findIndex((c) => c === 'properties.$ai_output_choices')
+        const inputIdx = select.findIndex(
+            (c) =>
+                c === 'properties.$ai_input' || c === 'properties.$ai_input[-1]' || c === 'properties.$ai_input_preview'
+        )
+        const outputIdx = select.findIndex(
+            (c) => c === 'properties.$ai_output_choices' || c === 'properties.$ai_output_choices_preview'
+        )
 
         const uuid = record[uuidIdx]
         if (typeof uuid !== 'string') {
@@ -367,6 +372,26 @@ export const llmAnalyticsColumnRenderers: Record<string, QueryContextColumn> = {
         },
     },
     'properties.$ai_output_choices': {
+        title: 'Output',
+        render: ({ record, query }) => {
+            const eventData = getEventData(record, query)
+            if (!eventData) {
+                return <>–</>
+            }
+            return <AIOutputCell eventData={eventData} />
+        },
+    },
+    'properties.$ai_input_preview': {
+        title: 'Input',
+        render: ({ record, query }) => {
+            const eventData = getEventData(record, query)
+            if (!eventData) {
+                return <>–</>
+            }
+            return <AIInputCell eventData={eventData} />
+        },
+    },
+    'properties.$ai_output_choices_preview': {
         title: 'Output',
         render: ({ record, query }) => {
             const eventData = getEventData(record, query)

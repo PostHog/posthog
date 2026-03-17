@@ -23,7 +23,7 @@ export function getDefaultGenerationsColumns(
     return [
         'uuid',
         'properties.$ai_trace_id',
-        ...(showInputOutput ? ['properties.$ai_input[-1]', 'properties.$ai_output_choices'] : []),
+        ...(showInputOutput ? ['properties.$ai_input_preview', 'properties.$ai_output_choices_preview'] : []),
         'person',
         ...(showSentiment ? ["'' -- Sentiment"] : []),
         "f'{properties.$ai_model}' -- Model",
@@ -216,7 +216,7 @@ export const llmAnalyticsGenerationsLogic = kea<llmAnalyticsGenerationsLogicType
             ): DataTableNode => ({
                 kind: NodeKind.DataTableNode,
                 source: {
-                    kind: NodeKind.EventsQuery,
+                    kind: NodeKind.AiEventsQuery,
                     limit: 100,
                     select:
                         effectiveGenerationsColumns ||

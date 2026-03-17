@@ -6,6 +6,7 @@ from uuid import UUID
 import pytest
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, _create_person, snapshot_clickhouse_queries
+from unittest.mock import patch
 
 from posthog.schema import (
     DateRange,
@@ -198,9 +199,14 @@ def _create_ai_embedding_event(
 class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
+        self._flag_patcher = patch(
+            "posthog.hogql_queries.ai.trace_query_runner.is_ai_events_enabled", return_value=True
+        )
+        self._flag_patcher.start()
         self._create_properties()
 
     def tearDown(self):
+        self._flag_patcher.stop()
         super().tearDown()
 
     def _create_properties(self):

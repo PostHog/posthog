@@ -655,38 +655,61 @@ export function normalizeMessage(rawMessage: unknown, defaultRole: string): Comp
             ? normalizeRole(rawMessage.role, defaultRole)
             : defaultRole
 
-    // Handle new array-based content format (unified format with structured objects)
-    // Only apply this if the array contains objects with 'type' field (not Anthropic-specific formats)
-    // Supported types include: text, output_text, input_text, function, image, input_image, document
+    // Handle array-based content format: { content: [...items], role?: "..." }
+    // Items are recognized by known non-Anthropic type values, or by structural markers ('text'/'function' fields).
+    // This covers both complete messages and truncated previews where 'role' or item 'type' may be missing.
+    // Skip Anthropic tool_use/tool_result/thinking messages — they have dedicated handlers below.
     if (
         rawMessage &&
         typeof rawMessage === 'object' &&
-        'role' in rawMessage &&
+        !isAnthropicToolCallMessage(rawMessage) &&
+        !isAnthropicToolResultMessage(rawMessage) &&
+        !isAnthropicThinkingMessage(rawMessage) &&
         'content' in rawMessage &&
-        typeof rawMessage.role === 'string' &&
         Array.isArray(rawMessage.content) &&
         rawMessage.content.length > 0 &&
-        rawMessage.content.every(
-            (item) =>
-                item &&
-                typeof item === 'object' &&
-                'type' in item &&
-                (item.type === 'text' ||
-                    item.type === 'output_text' ||
-                    item.type === 'input_text' ||
-                    item.type === 'function' ||
-                    item.type === 'image' ||
-                    item.type === 'input_image' ||
-                    item.type === 'image_url' ||
-                    item.type === 'file' ||
-                    item.type === 'audio' ||
-                    item.type === 'document')
-        )
+        rawMessage.content.every((item) => {
+            if (!item || typeof item !== 'object') {
+                return false
+            }
+            // Accept items with known non-Anthropic type values
+            if ('type' in item && typeof item.type === 'string') {
+                const KNOWN_CONTENT_TYPES = new Set([
+                    'text',
+                    'output_text',
+                    'input_text',
+                    'function',
+                    'image',
+                    'input_image',
+                    'image_url',
+                    'file',
+                    'audio',
+                    'document',
+                ])
+                return KNOWN_CONTENT_TYPES.has(item.type)
+            }
+            // Accept items without 'type' if they have recognizable structure (truncated previews)
+            return (
+                ('text' in item && typeof item.text === 'string') ||
+                ('function' in item && typeof item.function === 'object')
+            )
+        })
     ) {
         return [
             {
                 role: roleToUse,
-                content: rawMessage.content,
+                content: rawMessage.content.map((item) => {
+                    if ('type' in item) {
+                        return item
+                    }
+                    if ('text' in item) {
+                        return { ...item, type: 'text' as const }
+                    }
+                    if ('function' in item) {
+                        return { ...item, type: 'function' as const }
+                    }
+                    return item
+                }),
             },
         ]
     }
