@@ -2650,7 +2650,7 @@
                   "name": "id",
                   "schema_valid": true,
                   "table": null,
-                  "type": "integer"
+                  "type": "string"
               },
               "name": {
                   "chain": null,
@@ -6854,7 +6854,7 @@
                   "name": "id",
                   "schema_valid": true,
                   "table": null,
-                  "type": "integer"
+                  "type": "string"
               },
               "name": {
                   "chain": null,
