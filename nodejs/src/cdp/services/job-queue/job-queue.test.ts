@@ -6,7 +6,12 @@ import { PluginsServerConfig } from '~/types'
 import { HOG_EXAMPLES, HOG_FILTERS_EXAMPLES, HOG_INPUTS_EXAMPLES } from '../../_tests/examples'
 import { createHogExecutionGlobals, createHogFunction } from '../../_tests/fixtures'
 import { createInvocation } from '../../utils/invocation-utils'
-import { CyclotronJobQueue, JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS, getProducerMapping } from './job-queue'
+import {
+    CyclotronJobQueue,
+    JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS,
+    getProducerMapping,
+    getProducerTeamMapping,
+} from './job-queue'
 
 describe('CyclotronJobQueue', () => {
     let config: PluginsServerConfig
@@ -71,6 +76,85 @@ describe('CyclotronJobQueue', () => {
             await queue.startAsProducer()
             expect(queue['jobQueuePostgres'].startAsProducer).toHaveBeenCalled()
             expect(queue['jobQueueKafka'].startAsProducer).toHaveBeenCalled()
+        })
+
+        describe('team-specific percentage routing', () => {
+            let queue: CyclotronJobQueue
+
+            beforeEach(async () => {
+                queue = buildQueue('*:kafka', '79155:*:kafka,79155:hog:postgres-v2:0.001')
+                queue['jobQueuePostgresV2'] = {
+                    startAsProducer: jest.fn(),
+                    queueInvocations: jest.fn(),
+                } as any
+                await queue.startAsProducer()
+            })
+
+            afterEach(() => {
+                jest.restoreAllMocks()
+            })
+
+            const team79155HogFunction = createHogFunction({
+                ...HOG_EXAMPLES.simple_fetch,
+                ...HOG_INPUTS_EXAMPLES.simple_fetch,
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+                team_id: 79155,
+            })
+
+            it('should route hog jobs to postgres-v2 when roll is below percentage', async () => {
+                jest.spyOn(Math, 'random').mockReturnValue(0.0005)
+                const invocation = createInvocation(
+                    { ...createHogExecutionGlobals(), inputs: {} },
+                    team79155HogFunction
+                )
+                await queue.queueInvocations([invocation])
+
+                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([
+                    expect.objectContaining({ teamId: 79155, queue: 'hog' }),
+                ])
+                expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([])
+            })
+
+            it('should route hog jobs to kafka when roll exceeds percentage', async () => {
+                jest.spyOn(Math, 'random').mockReturnValue(0.5)
+                const invocation = createInvocation(
+                    { ...createHogExecutionGlobals(), inputs: {} },
+                    team79155HogFunction
+                )
+                await queue.queueInvocations([invocation])
+
+                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([])
+                expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([
+                    expect.objectContaining({ teamId: 79155, queue: 'hog' }),
+                ])
+            })
+
+            it('should route non-hog queues to the team default', async () => {
+                const invocation = {
+                    ...createInvocation({ ...createHogExecutionGlobals(), inputs: {} }, team79155HogFunction),
+                    queue: 'hogflow' as const,
+                }
+                await queue.queueInvocations([invocation])
+
+                expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([
+                    expect.objectContaining({ teamId: 79155, queue: 'hogflow' }),
+                ])
+                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([])
+            })
+
+            it('should not affect other teams', async () => {
+                jest.spyOn(Math, 'random').mockReturnValue(0.0005)
+                const invocation = createInvocation(
+                    { ...createHogExecutionGlobals(), inputs: {} },
+                    exampleHogFunction // team_id defaults to 1
+                )
+                await queue.queueInvocations([invocation])
+
+                expect(queue['jobQueueKafka'].queueInvocations).toHaveBeenCalledWith([
+                    expect.objectContaining({ teamId: 1, queue: 'hog' }),
+                ])
+                expect(queue['jobQueuePostgresV2']!.queueInvocations).toHaveBeenCalledWith([])
+            })
         })
 
         it.each([
@@ -192,5 +276,78 @@ describe('getProducerMapping', () => {
         ['*:kafka:0.5,*:postgres:0.3', 'Invalid mapping for queue *: percentages must sum to 1 (got 0.8)'],
     ])('should throw for bad values for %s', (mapping, error) => {
         expect(() => getProducerMapping(mapping)).toThrow(error)
+    })
+})
+
+describe('getProducerTeamMapping', () => {
+    it('should return empty object for empty string', () => {
+        expect(getProducerTeamMapping('')).toEqual({})
+    })
+
+    it('should parse a single team with a default queue', () => {
+        expect(getProducerTeamMapping('1:*:postgres')).toEqual({
+            '1': {
+                '*': [{ target: 'postgres', percentage: 1 }],
+            },
+        })
+    })
+
+    it('should parse multiple teams', () => {
+        expect(getProducerTeamMapping('1:*:kafka,2:*:postgres')).toEqual({
+            '1': {
+                '*': [{ target: 'kafka', percentage: 1 }],
+            },
+            '2': {
+                '*': [{ target: 'postgres', percentage: 1 }],
+            },
+        })
+    })
+
+    it('should fill remainder from team * default', () => {
+        const result = getProducerTeamMapping('79155:*:kafka,79155:hog:postgres-v2:0.001')
+        expect(result['79155']['hog']).toHaveLength(2)
+        expect(result['79155']['hog'][0]).toEqual({ target: 'postgres-v2', percentage: 0.001 })
+        expect(result['79155']['hog'][1].target).toBe('kafka')
+        expect(result['79155']['hog'][1].percentage).toBeCloseTo(0.999)
+    })
+
+    it('should fill remainder proportionally from multi-target * default', () => {
+        const result = getProducerTeamMapping('79155:*:kafka:0.7,79155:*:postgres:0.3,79155:hog:postgres-v2:0.1')
+        expect(result['79155']['hog']).toHaveLength(3)
+        expect(result['79155']['hog'][0]).toEqual({ target: 'postgres-v2', percentage: 0.1 })
+        expect(result['79155']['hog'][1].target).toBe('kafka')
+        expect(result['79155']['hog'][1].percentage).toBeCloseTo(0.63)
+        expect(result['79155']['hog'][2].target).toBe('postgres')
+        expect(result['79155']['hog'][2].percentage).toBeCloseTo(0.27)
+    })
+
+    it('should not fill remainder when percentages already sum to 1', () => {
+        const result = getProducerTeamMapping('79155:*:kafka,79155:hog:postgres-v2:0.5,79155:hog:kafka:0.5')
+        expect(result['79155']['hog']).toEqual([
+            { target: 'postgres-v2', percentage: 0.5 },
+            { target: 'kafka', percentage: 0.5 },
+        ])
+    })
+
+    it('should reject team mappings with percentages exceeding 1', () => {
+        expect(() => getProducerTeamMapping('79155:*:kafka,79155:hog:postgres-v2:0.6,79155:hog:kafka:0.6')).toThrow(
+            'percentages must sum to 1'
+        )
+    })
+
+    it('should handle multiple teams with multiple queues', () => {
+        const result = getProducerTeamMapping('1:*:kafka,1:hog:postgres:0.5,1:hog:kafka:0.5,2:*:postgres')
+        expect(result['1']['*']).toEqual([{ target: 'kafka', percentage: 1 }])
+        expect(result['1']['hog']).toEqual([
+            { target: 'postgres', percentage: 0.5 },
+            { target: 'kafka', percentage: 0.5 },
+        ])
+        expect(result['2']['*']).toEqual([{ target: 'postgres', percentage: 1 }])
+    })
+
+    it('should throw for malformed entries', () => {
+        expect(() => getProducerTeamMapping('79155')).toThrow(
+            'Invalid team mapping: 79155 - expected format TEAM:QUEUE:TARGET[:PERCENTAGE]'
+        )
     })
 })

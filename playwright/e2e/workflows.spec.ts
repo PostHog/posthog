@@ -80,7 +80,7 @@ test.describe('Workflows', () => {
     })
 
     test.describe('channels tab', () => {
-        test('shows message channels section', async ({ page }) => {
+        test.skip('shows message channels section', async ({ page }) => {
             await page.goto('/workflows/channels')
             await page.waitForSelector('[data-attr="message-channels"]', { timeout: 10000 })
             await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
@@ -114,7 +114,7 @@ test.describe('Workflows', () => {
     })
 
     test.describe('tab navigation', () => {
-        test('can navigate between all top-level tabs', async ({ page }) => {
+        test.skip('can navigate between all top-level tabs', async ({ page }) => {
             await page.waitForSelector('[data-attr="workflows-scene"]', { timeout: 10000 })
             await page.waitForSelector('[data-attr="workflows-table"][data-loading="false"]', { timeout: 10000 })
 

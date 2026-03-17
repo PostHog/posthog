@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use axum::async_trait;
+use async_trait::async_trait;
 use common_redis::MockRedisClient;
 use mockall::mock;
 use sqlx::PgPool;
