@@ -150,15 +150,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         label: "primary".to_string(),
         max_connections: config.max_pg_connections,
     }];
-    let has_separate_replica = !config.replica_database_url.is_empty()
-        && config.replica_database_url != config.primary_database_url;
-    if has_separate_replica {
-        pools.push(MonitoredPool {
-            pool: storage.replica_pool.clone(),
-            label: "replica".to_string(),
-            max_connections: config.max_pg_connections,
-        });
-    }
+    // Always monitor the replica pool so query metrics (pool="replica") can be
+    // correlated with pool health gauges. When no separate replica URL is
+    // configured, replica_pool is a clone of primary_pool — monitoring it under
+    // both labels ensures the metrics align.
+    pools.push(MonitoredPool {
+        pool: storage.replica_pool.clone(),
+        label: "replica".to_string(),
+        max_connections: config.max_pg_connections,
+    });
     spawn_pool_monitor(
         pools,
         Duration::from_secs(config.pool_monitor_interval_secs),
