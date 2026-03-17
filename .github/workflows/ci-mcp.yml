@@ -347,6 +347,7 @@ jobs:
                       user=user,
                       label='mcp_ci_api_key',
                       secure_value=hash_key_value('e2e_demo_api_key'),
+                      scopes=['*'],
                   )
                   # Ensure common event definitions exist for MCP integration tests
                   for event_name in ['\$pageview', '\$pageleave', '\$autocapture', '\$screen']:
