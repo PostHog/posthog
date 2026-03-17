@@ -12,6 +12,10 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
     def setUp(self):
         super().setUp()
+
+        if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+            self.skipTest("Dashboard collaborators tests require advanced permissions")
+
         self.test_dashboard = Dashboard.objects.create(team=self.team, name="Test Insights 9001", created_by=self.user)
 
     def test_list_collaborators_as_person_without_edit_access(self):

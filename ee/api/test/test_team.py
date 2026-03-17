@@ -41,10 +41,12 @@ def team_enterprise_api_test_factory():
         def test_delete_team_as_org_member_forbidden(self):
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
+
+            if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+                self.skipTest("Requires advanced permissions")
+
             response = self.client.delete(f"/api/environments/{self.team.id}")
-            has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-            expected_status = HTTP_204_NO_CONTENT if has_advanced_permissions else HTTP_403_FORBIDDEN
-            self.assertEqual(response.status_code, expected_status)
+            self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
         def test_delete_second_team_as_org_admin_allowed(self):
@@ -59,10 +61,12 @@ def team_enterprise_api_test_factory():
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
             team = Team.objects.create(organization=self.organization)
+
+            if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
+                self.skipTest("Requires advanced permissions")
+
             response = self.client.delete(f"/api/environments/{team.id}")
-            has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-            expected_status = HTTP_204_NO_CONTENT if has_advanced_permissions else HTTP_403_FORBIDDEN
-            self.assertEqual(response.status_code, expected_status)
+            self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
         def test_no_delete_team_not_belonging_to_organization(self):
