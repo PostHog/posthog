@@ -501,7 +501,11 @@ func (p *Process) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	if p.cmd != nil && p.cmd.Process != nil {
-		_ = syscall.Kill(-p.cmd.Process.Pid, syscall.SIGTERM)
+		pgid := p.cmd.Process.Pid
+		if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
+			// Fallback: kill the direct child if the process group is gone
+			_ = p.cmd.Process.Signal(syscall.SIGTERM)
+		}
 	}
 	if p.ptmx != nil {
 		_ = p.ptmx.Close()
