@@ -177,7 +177,7 @@ locals {
       name_prefix  = "SLO: Subscription deliveries"
       description  = "Rolling burn rate for subscription deliveries."
       error_budget = 0.01
-      regions      = ["us"]
+      regions      = ["us", "eu"]
       daily_sql    = <<-SQL
         SELECT
             toDate(timestamp) AS date,
