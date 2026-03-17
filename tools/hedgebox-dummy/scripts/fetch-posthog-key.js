@@ -54,7 +54,7 @@ async function fetchPostHogKey() {
             console.info(
                 `✓ PostHog API key already exists in .env.local for team created at ${teamCreatedAt.toISOString()}`
             )
-            console.info('  `rm hedgebox-dummy/.env.local` or `export FORCE_FETCH_KEY=1` to fetch anew\n')
+            console.info('  `rm tools/hedgebox-dummy/.env.local` or `export FORCE_FETCH_KEY=1` to fetch anew\n')
             return
         }
     }
