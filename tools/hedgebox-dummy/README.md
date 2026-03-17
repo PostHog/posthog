@@ -4,7 +4,7 @@ This app represents our Hedgebox product simulation for demo data purposes.
 
 ## Background
 
-We've had a [demo data generator](../posthog/demo/products/hedgebox/) simulating a product called Hedgebox (like Dropbox for hedgehogs) for a while now. It creates realistic event data with user profiles, behaviors, timezones, even includes features like a Marius Tech Tips sponsorship landing page and an A/B test on the signup flow.
+We've had a [demo data generator](../../posthog/demo/products/hedgebox/) simulating a product called Hedgebox (like Dropbox for hedgehogs) for a while now. It creates realistic event data with user profiles, behaviors, timezones, even includes features like a Marius Tech Tips sponsorship landing page and an A/B test on the signup flow.
 
 However, the generator hasn't been able to create session recording data, as that's a hard nut to ~~crack~~ store. Session recordings need an actual app with actual user interactions to capture. Hedgebox never had one - until now.
 
