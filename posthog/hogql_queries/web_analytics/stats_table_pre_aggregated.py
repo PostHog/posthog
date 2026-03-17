@@ -115,7 +115,12 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "bounce_table": ast.Field(chain=[self.bounces_table]),
                     "breakdown_value": ast.Call(
                         name="nullIf",
-                        args=[self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])), ast.Constant(value="")],
+                        args=[
+                            self._prepend_host(self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])))
+                            if self.runner.query.includeHost
+                            else self._apply_path_cleaning(ast.Field(chain=["entry_pathname"])),
+                            ast.Constant(value=""),
+                        ],
                     ),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state", "uniqMergeIf", current_period_filter, previous_period_filter
@@ -162,7 +167,12 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "stats_table": ast.Field(chain=[self.stats_table]),
                     "breakdown_value": ast.Call(
                         name="nullIf",
-                        args=[self._apply_path_cleaning(ast.Field(chain=["pathname"])), ast.Constant(value="")],
+                        args=[
+                            self._prepend_host(self._apply_path_cleaning(ast.Field(chain=["pathname"])))
+                            if self.runner.query.includeHost
+                            else self._apply_path_cleaning(ast.Field(chain=["pathname"])),
+                            ast.Constant(value=""),
+                        ],
                     ),
                     "visitors_tuple": self._period_comparison_tuple(
                         "persons_uniq_state",
@@ -181,13 +191,13 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                     "bounce_subquery": self._bounce_rate_query(),
                     "join_condition": ast.CompareOperation(
                         op=ast.CompareOperationOp.Eq,
-                        left=self._apply_path_cleaning(
-                            ast.Field(
-                                chain=[
-                                    self.stats_table,
-                                    "pathname",
-                                ]
+                        left=(
+                            self._prepend_host(
+                                self._apply_path_cleaning(ast.Field(chain=[self.stats_table, "pathname"])),
+                                table_prefix=self.stats_table,
                             )
+                            if self.runner.query.includeHost
+                            else self._apply_path_cleaning(ast.Field(chain=[self.stats_table, "pathname"]))
                         ),
                         right=ast.Field(chain=["bounces", "context.columns.breakdown_value"]),
                     ),
@@ -577,13 +587,37 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
             expr=parse_expr(""" "context.columns.visitors".1 / sum("context.columns.visitors".1) OVER ()"""),
         )
 
+    def _prepend_host(self, path_expr: ast.Expr, table_prefix: str | None = None) -> ast.Expr:
+        host_chain: list[str | int] = [table_prefix, "host"] if table_prefix else ["host"]
+        return ast.Call(
+            name="concat",
+            args=[ast.Field(chain=host_chain), path_expr],
+        )
+
     @_nullif_empty_decorator
     def _get_breakdown_field(self):
         match self.runner.query.breakdownBy:
             case WebStatsBreakdown.PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["pathname"]))
+                path = self._apply_path_cleaning(ast.Field(chain=["pathname"]))
+                if self.runner.query.includeHost:
+                    return self._prepend_host(path)
+                return path
             case WebStatsBreakdown.INITIAL_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["entry_pathname"]))
+                path = self._apply_path_cleaning(ast.Field(chain=["entry_pathname"]))
+                if self.runner.query.includeHost:
+                    # Known limitation: pre-aggregated schema only has a single `host` column (from the
+                    # event), not session-level `entry_hostname`/`end_hostname`. For sessions that traverse
+                    # multiple hosts, this may show the wrong host for entry/exit pages. The non-pre-aggregated
+                    # runner uses `session.$entry_hostname` which is accurate. Fixing this requires a schema
+                    # migration to add entry/exit host columns to the pre-aggregated table.
+                    return self._prepend_host(path)
+                return path
+            case WebStatsBreakdown.EXIT_PAGE:
+                path = self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
+                if self.runner.query.includeHost:
+                    # See INITIAL_PAGE comment above for the same limitation.
+                    return self._prepend_host(path)
+                return path
             case WebStatsBreakdown.DEVICE_TYPE:
                 return ast.Field(chain=["device_type"])
             case WebStatsBreakdown.BROWSER:
@@ -623,8 +657,6 @@ class StatsTablePreAggregatedQueryBuilder(WebAnalyticsPreAggregatedQueryBuilder)
                 return ast.Field(chain=["region_code"])
             case WebStatsBreakdown.CITY:
                 return ast.Field(chain=["city_name"])
-            case WebStatsBreakdown.EXIT_PAGE:
-                return self._apply_path_cleaning(ast.Field(chain=["end_pathname"]))
             case WebStatsBreakdown.INITIAL_CHANNEL_TYPE:
                 return self._get_channel_type_expr()
 

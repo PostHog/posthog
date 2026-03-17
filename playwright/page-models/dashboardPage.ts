@@ -217,14 +217,7 @@ export class DashboardPage {
             .getByRole(option === 'Edit' ? 'link' : 'button', { name: option })
         await editLink.click()
     }
-}
 
-/**
- * Extends DashboardPage with helpers for the compact card redesign.
- * Requires the 'dashboard-tile-redesign' feature flag — mock it via mockFeatureFlags before use.
- * Merge these into DashboardPage when the flag is fully rolled out.
- */
-export class CompactDashboardPage extends DashboardPage {
     async enterEditMode(): Promise<void> {
         await this.page.getByTestId('dashboard-edit-mode-button').click()
         await expect(this.page.getByTestId('dashboard-edit-mode-save')).toBeVisible()
