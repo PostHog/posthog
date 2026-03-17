@@ -94,7 +94,7 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
     """Resolve a Slack user ID to name, email, and avatar. Cached in Redis for 5 minutes."""
     if not slack_user_id:
         logger.warning("slack_support_user_resolve_empty_id")
-        return _UNKNOWN_USER
+        return dict(_UNKNOWN_USER)
 
     cached = get_cached_slack_user(slack_user_id)
     if cached is not None:
@@ -111,7 +111,7 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
                 slack_user_id=slack_user_id,
                 error=data.get("error"),
             )
-            return _UNKNOWN_USER
+            return dict(_UNKNOWN_USER)
 
         user_data = data.get("user") or {}
         profile = user_data.get("profile") or {}
@@ -125,7 +125,7 @@ def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
         return result
     except Exception as e:
         logger.warning("slack_support_user_resolve_failed", slack_user_id=slack_user_id, error=str(e))
-        return _UNKNOWN_USER
+        return dict(_UNKNOWN_USER)
 
 
 def get_bot_user_id(client: WebClient) -> str | None:
