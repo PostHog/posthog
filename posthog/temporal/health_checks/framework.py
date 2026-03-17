@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from posthog.clickhouse.query_tagging import Product
 from posthog.dags.common.owners import JobOwners
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY, HealthExecutionPolicy
 from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, HealthCheckResult
@@ -20,6 +21,7 @@ class HealthCheckRegistration:
     not_processed_threshold: float
     dry_run: bool
     active_since_days: int | None
+    product: Product | None
 
 
 def _register_health_check(cls: type[HealthCheck]) -> None:
@@ -38,6 +40,7 @@ def _register_health_check(cls: type[HealthCheck]) -> None:
         not_processed_threshold=cls.not_processed_threshold,
         dry_run=cls.dry_run,
         active_since_days=cls.active_since_days,
+        product=cls.product,
     )
 
     HEALTH_CHECKS[cls.kind] = registration
@@ -48,6 +51,7 @@ class HealthCheck:
     name: str
     kind: str
     owner: JobOwners
+    product: Product | None = None
     policy: HealthExecutionPolicy = DEFAULT_EXECUTION_POLICY
     schedule: str | None = None
     rollout_percentage: float = 1.0
