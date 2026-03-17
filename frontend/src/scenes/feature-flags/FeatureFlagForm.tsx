@@ -304,7 +304,7 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                 <div className="py-1">
                                                     <div className="font-semibold">Advanced options</div>
                                                     <div className="text-secondary text-sm font-normal">
-                                                        Tags, {hasEvaluationContexts ? ' evaluation contexts,' : ''}{' '}
+                                                        Tags,{hasEvaluationContexts ? ' evaluation contexts,' : ''}{' '}
                                                         runtime settings, and persistence.
                                                     </div>
                                                 </div>
