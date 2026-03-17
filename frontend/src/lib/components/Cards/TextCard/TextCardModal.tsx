@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
+import { useState } from 'react'
 
 import { isTextCardMarkdownRoundTripSafe } from 'lib/components/Cards/TextCard/textCardMarkdown'
 import { TextCardMarkdownEditor } from 'lib/components/Cards/TextCard/TextCardMarkdownEditor'
@@ -24,10 +25,11 @@ export function TextCardModal({
     const modalLogic = textCardModalLogic({ dashboard, textTileId: textTileId ?? 'new', onClose })
     const { isTextTileSubmitting, textTileValidationErrors, textTile } = useValues(modalLogic)
     const { resetTextTile } = useActions(modalLogic)
-    const initialBody =
+    const [initialBody] = useState(() =>
         textTileId && textTileId !== 'new'
             ? dashboard.tiles?.find((tile) => tile.id === textTileId)?.text?.body || ''
             : ''
+    )
     const shouldUseLegacyMarkdownEditor = !isTextCardMarkdownRoundTripSafe(initialBody)
     const hasUnsavedInput = (textTile?.body || '') !== initialBody
 

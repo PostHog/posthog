@@ -34,7 +34,7 @@ const TextCardImageExtension = Image.extend({
     },
 })
 
-const TEXT_CARD_MARKDOWN_BASE_EDITABLE_EXTENSIONS = [
+const TEXT_CARD_MARKDOWN_BASE_EXTENSIONS = [
     StarterKit.configure({
         heading: {
             levels: [1, 2, 3],
@@ -43,18 +43,15 @@ const TEXT_CARD_MARKDOWN_BASE_EDITABLE_EXTENSIONS = [
     }),
     TaskList,
     TaskItem.configure({ nested: true }),
+]
+
+const TEXT_CARD_MARKDOWN_BASE_EDITABLE_EXTENSIONS = [
+    ...TEXT_CARD_MARKDOWN_BASE_EXTENSIONS,
     Link.configure({ openOnClick: false }),
 ]
 
 const TEXT_CARD_MARKDOWN_BASE_READONLY_EXTENSIONS = [
-    StarterKit.configure({
-        heading: {
-            levels: [1, 2, 3],
-        },
-        link: false,
-    }),
-    TaskList,
-    TaskItem.configure({ nested: true }),
+    ...TEXT_CARD_MARKDOWN_BASE_EXTENSIONS,
     Link.configure({ openOnClick: true }),
 ]
 

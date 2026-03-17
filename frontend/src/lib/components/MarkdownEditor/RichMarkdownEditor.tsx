@@ -71,7 +71,7 @@ export function RichMarkdownEditor({
     const lastSyncedMarkdownRef = useRef(value || '')
 
     const syncMarkdownFromEditor = (nextMarkdown: string, options?: { force?: boolean }): void => {
-        // Centralize editor -> form sync from multiple triggers (onUpdate, transactions, tab switch, submit).
+        // Centralize editor -> form sync from multiple triggers (onUpdate, tab switch, submit).
         // We dedupe identical markdown to avoid noisy onChange loops, and force a synchronous flush on submit
         // so non-typing updates (e.g. image resize attrs) are committed before form submission continues.
         if (nextMarkdown === lastSyncedMarkdownRef.current) {
@@ -114,27 +114,6 @@ export function RichMarkdownEditor({
             editor.commands.setContent(markdownToDoc(incomingMarkdown), { emitUpdate: false })
         }
     }, [editor, value, docToMarkdown, markdownToDoc])
-
-    useEffect(() => {
-        if (!editor) {
-            return
-        }
-        if (typeof editor.on !== 'function' || typeof editor.off !== 'function') {
-            return
-        }
-
-        // Must be effect-scoped so we attach/detach with the current editor instance.
-        // This catches doc mutations that are not plain typing updates (e.g. image resize attrs),
-        // keeping form state in sync with the latest editor JSON.
-        const handleTransaction = (): void => {
-            syncMarkdownFromEditor(docToMarkdown(editor.getJSON()))
-        }
-
-        editor.on('transaction', handleTransaction)
-        return () => {
-            editor.off('transaction', handleTransaction)
-        }
-    }, [editor, docToMarkdown])
 
     useEffect(() => {
         if (!editor) {
