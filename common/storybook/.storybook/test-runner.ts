@@ -52,7 +52,7 @@ declare module '@storybook/types' {
              * @default ['chromium']
              */
             snapshotBrowsers?: SupportedBrowserName[]
-            /** If taking a component snapshot, you can narrow it down by specifying the selector. */
+            /** Narrow the snapshot to a specific element. Only works for component (non-fullscreen) snapshots — throws an error if used with `layout: 'fullscreen'`. */
             snapshotTargetSelector?: string
             /** specify an alternative viewport size */
             viewport?: { width: number; height: number }
@@ -402,6 +402,13 @@ async function doTakeSnapshotWithTheme(
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
+        if (snapshotTargetSelector) {
+            throw new Error(
+                `snapshotTargetSelector is not supported with layout: 'fullscreen'. ` +
+                    `Fullscreen stories always snapshot body/main. ` +
+                    `Remove snapshotTargetSelector from testOptions or change the layout.`
+            )
+        }
         if (includeNavigationInSnapshot) {
             check = expectStoryToMatchViewportSnapshot
         } else {

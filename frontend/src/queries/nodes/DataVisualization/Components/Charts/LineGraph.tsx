@@ -31,11 +31,9 @@ import { resolveVariableColor } from 'lib/charts/utils/color'
 import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getGraphColors, getSeriesColor } from 'lib/colors'
 import { InsightLabel } from 'lib/components/InsightLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { hexToRGBA, uuid } from 'lib/utils'
 import { useInsightTooltip } from 'scenes/insights/useInsightTooltip'
 import { teamLogic } from 'scenes/teamLogic'
@@ -137,7 +135,6 @@ export const LineGraph = ({
     const logicKey = useMemo(() => uuid(), [])
     const { hoveredDatasetIndex } = useValues(lineGraphLogic({ key: logicKey }))
     const { setHoveredDatasetIndex } = useActions(lineGraphLogic({ key: logicKey }))
-    const { featureFlags } = useValues(featureFlagLogic)
     const { timezone } = useValues(teamLogic)
     const isShiftPressed = useKeyHeld('Shift')
 
@@ -340,13 +337,12 @@ export const LineGraph = ({
             }
 
             const isDateAxis = xSeriesData.column.type.name === 'DATE' || xSeriesData.column.type.name === 'DATETIME'
-            const xAxisTickCallback =
-                featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN] && isDateAxis
-                    ? createXAxisTickCallback({
-                          allDays: xSeriesData.data,
-                          timezone,
-                      })
-                    : undefined
+            const xAxisTickCallback = isDateAxis
+                ? createXAxisTickCallback({
+                      allDays: xSeriesData.data,
+                      timezone,
+                  })
+                : undefined
 
             const options: ChartOptions = {
                 responsive: true,

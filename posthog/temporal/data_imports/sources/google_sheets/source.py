@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+from django.conf import settings
+
 import gspread
 
 from posthog.schema import (
@@ -111,6 +113,7 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",
+                        caption=f'Share the sheet with our service account by entering **{settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL}** into the "Add people" field. We only require "Viewer" permissions to sync the sheet.',
                     )
                 ],
             ),
