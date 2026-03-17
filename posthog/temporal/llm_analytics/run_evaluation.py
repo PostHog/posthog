@@ -272,11 +272,18 @@ async def record_eval_failure_activity(inputs: RecordEvalFailureInputs) -> dict:
 
         evaluation = Evaluation.objects.get(id=inputs.evaluation_id, team_id=inputs.team_id)
         if evaluation.consecutive_failures >= threshold and evaluation.status == Evaluation.Status.ACTIVE:
-            evaluation.status = Evaluation.Status.PAUSED
-            evaluation.paused_reason = inputs.error_message
-            evaluation.paused_at = datetime.now(tz=UTC)
-            evaluation.save(update_fields=["status", "paused_reason", "paused_at"])
-            return {"paused": True, "consecutive_failures": evaluation.consecutive_failures}
+            # Atomic conditional update — only the first concurrent caller wins,
+            # preventing duplicate pause emails.
+            rows_paused = Evaluation.objects.filter(
+                id=inputs.evaluation_id,
+                team_id=inputs.team_id,
+                status=Evaluation.Status.ACTIVE,
+            ).update(
+                status=Evaluation.Status.PAUSED,
+                paused_reason=inputs.error_message,
+                paused_at=datetime.now(tz=UTC),
+            )
+            return {"paused": bool(rows_paused), "consecutive_failures": evaluation.consecutive_failures}
 
         return {"paused": False, "consecutive_failures": evaluation.consecutive_failures}
 
