@@ -491,6 +491,10 @@ export const hogFlowEditorTestLogic = kea<hogFlowEditorTestLogicType>([
                 return errors
             },
             submit: async (testInvocation: HogflowTestInvocation) => {
+                if (!values.workflow.id) {
+                    lemonToast.error('Please save the workflow before testing')
+                    return
+                }
                 try {
                     const apiResponse = await api.hogFlows.createTestInvocation(values.workflow.id, {
                         configuration: values.workflowSanitized,
