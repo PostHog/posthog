@@ -127,6 +127,9 @@ COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/package.json /code
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/assets /code/nodejs/assets
 COPY --from=nodejs-build --chown=posthog:posthog /code/nodejs/bin /code/nodejs/bin
 
+# ClickHouse CA certificate for TLS connections
+COPY --chown=posthog:posthog ee/certs/ch.crt /code/ee/certs/ch.crt
+
 # Setup ENV
 ENV NODE_ENV=production \
     BUILD_LIBRDKAFKA=0

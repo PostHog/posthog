@@ -7,6 +7,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
+import { identifierToHuman } from 'lib/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -228,6 +229,26 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
+        saveEarlyAccessFeatureFailure: ({ errorObject }) => {
+            // kea-loaders calls the failure action with (error.message, error), so:
+            //   `error` = the message string
+            //   `errorObject` = the full ApiError instance
+            // The ApiError has .attr and .detail from exceptions_hog's response format.
+            if (errorObject) {
+                const attr = errorObject.attr
+                const detail = errorObject.detail
+                if (attr && detail) {
+                    const message = detail.replace(/^This field/, identifierToHuman(attr))
+                    lemonToast.error(`Could not save early access feature: ${message}`)
+                    return
+                }
+                if (detail) {
+                    lemonToast.error(`Could not save early access feature: ${detail}`)
+                    return
+                }
+            }
+            lemonToast.error('Could not save early access feature.')
+        },
         saveEarlyAccessFeatureSuccess: ({ earlyAccessFeature: _earlyAccessFeature }) => {
             lemonToast.success('Early access feature saved')
             earlyAccessFeaturesLogic.findMounted()?.actions.loadEarlyAccessFeatures()
