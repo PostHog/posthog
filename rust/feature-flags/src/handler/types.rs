@@ -6,11 +6,8 @@ use std::{collections::HashMap, fmt, net::IpAddr, sync::Arc};
 use uuid::Uuid;
 
 use crate::{
-    api::types::FlagsQueryParams,
-    cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
-    flags::flag_models::FeatureFlagList,
-    rayon_dispatcher::RayonDispatcher,
-    router,
+    api::types::FlagsQueryParams, cohorts::cohort_cache_manager::CohortCacheManager,
+    flags::flag_models::FeatureFlagList, rayon_dispatcher::RayonDispatcher, router,
     utils::user_agent::UserAgentInfo,
 };
 
@@ -70,8 +67,6 @@ pub struct FeatureFlagEvaluationContext {
     pub rayon_dispatcher: RayonDispatcher,
     /// When true, skip all writes to PostgreSQL and Redis.
     pub skip_writes: bool,
-    /// Provider for realtime/behavioral cohort membership lookups.
-    pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
 }
 
 /// SDK type classification based on user-agent parsing.
