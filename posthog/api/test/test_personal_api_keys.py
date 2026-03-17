@@ -128,6 +128,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label="Test",
             user=self.user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         assert PersonalAPIKey.objects.count() == 1
         response = self.client.delete(f"/api/personal_api_keys/{key.id}/")
@@ -174,12 +175,14 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label=my_label,
             user=self.user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         other_user = self._create_user("abc@def.xyz")
         PersonalAPIKey.objects.create(
             label="Other test",
             user=other_user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         assert PersonalAPIKey.objects.count() == 2
         response = self.client.get("/api/personal_api_keys")
@@ -207,6 +210,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label=my_label,
             user=self.user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         response = self.client.get(f"/api/personal_api_keys/{my_key.id}/")
         assert response.status_code == 200
@@ -218,6 +222,7 @@ class TestPersonalAPIKeysAPI(APIBaseTest):
             label="Other test",
             user=other_user,
             secure_value=hash_key_value(generate_random_token_personal()),
+            scopes=["*"],
         )
         response = self.client.get(f"/api/personal_api_keys/{other_key.id}/")
         assert response.status_code == 404
@@ -353,13 +358,17 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         super().setUp()
         self.value_390000 = generate_random_token_personal()
         self.key_390000 = PersonalAPIKey.objects.create(
-            label="Test", user=self.user, secure_value=hash_key_value(self.value_390000, "pbkdf2", iterations=390000)
+            label="Test",
+            user=self.user,
+            secure_value=hash_key_value(self.value_390000, "pbkdf2", iterations=390000),
+            scopes=["*"],
         )
         self.value_hardcoded = "phx_0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p"
         self.key_hardcoded = PersonalAPIKey.objects.create(
             label="Test",
             user=self.user,
             secure_value="pbkdf2_sha256$260000$posthog_personal_api_key$dUOOjl6bYdigHd+QfhYzN6P2vM01ZbFROS8dm9KRK7Y=",
+            scopes=["*"],
         )
 
     @parameterized.expand(
@@ -541,13 +550,13 @@ class TestPersonalAPIKeysWithScopeAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key.scopes = ["feature_flag:read"]
         self.key.save()
 
-    def test_allows_legacy_api_key_to_access_all(self):
+    def test_rejects_null_scopes_as_no_access(self):
         self.key.scopes = None
         self.key.save()
-        response = self._do_request("/api/users/@me/")
-        assert response.status_code == status.HTTP_200_OK
+        response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
-    def test_rejects_empty_scopes_list_as_not_legacy(self):
+    def test_rejects_empty_scopes_list_as_no_access(self):
         self.key.scopes = []
         self.key.save()
         response = self._do_request(f"/api/projects/{self.team.id}/feature_flags/")
