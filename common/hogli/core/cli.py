@@ -11,7 +11,6 @@ import sys
 import time as _time
 import shutil
 import platform
-import dataclasses
 from collections import defaultdict
 from typing import Any
 
@@ -22,9 +21,35 @@ from hogli.core.manifest import REPO_ROOT, get_category_for_command, load_manife
 
 BIN_DIR = REPO_ROOT / "bin"
 
+_HOGLI_VERSION = "0.1.0"
+
 
 class CategorizedGroup(click.Group):
-    """Custom Click group that formats help output like git help with categories."""
+    """Custom Click group that formats help output like git help with categories.
+
+    Overrides ``invoke`` to wrap every subcommand execution with telemetry
+    tracking (timing, exit code) using ``ctx.meta`` for state instead of a
+    module-level singleton.
+    """
+
+    def invoke(self, ctx: click.Context) -> Any:
+        ctx.meta["hogli.start_time"] = _time.monotonic()
+        ctx.meta["hogli.has_extra_argv"] = len(sys.argv) > 2
+        exit_code = 0
+        try:
+            return super().invoke(ctx)
+        except SystemExit as e:
+            exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
+            raise
+        except KeyboardInterrupt:
+            exit_code = 130
+            raise
+        except Exception:
+            exit_code = 1
+            raise
+        finally:
+            _fire_telemetry(ctx, exit_code)
+            telemetry.flush()
 
     def format_commands(self, ctx: click.Context, formatter: click.HelpFormatter) -> None:
         """Format commands grouped by category, git-style with extends tree."""
@@ -102,15 +127,6 @@ def _auto_update_manifest() -> None:
         )
 
 
-@dataclasses.dataclass
-class _TelemetryState:
-    command: str | None = None
-    has_extra_argv: bool = False
-
-
-_telemetry_state = _TelemetryState()
-
-
 @click.group(
     cls=CategorizedGroup,
     help="Unified developer experience for the PostHog monorepo.",
@@ -119,16 +135,13 @@ _telemetry_state = _TelemetryState()
 @click.pass_context
 def cli(ctx: click.Context) -> None:
     """hogli - Developer CLI for PostHog."""
-    _telemetry_state.command = ctx.invoked_subcommand
-    # >2 means argv beyond "hogli <subcommand>", e.g. flags or positional args
-    _telemetry_state.has_extra_argv = len(sys.argv) > 2
-
     # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
     # Skip during git hooks to prevent manifest modifications during lint-staged execution
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
     if ctx.invoked_subcommand not in {"meta:check", "help"} and not in_git_hook:
         _auto_update_manifest()
-        telemetry.show_first_run_notice_if_needed()
+        if ctx.invoked_subcommand != "telemetry:off":
+            telemetry.show_first_run_notice_if_needed()
 
 
 @cli.command(name="quickstart", help="Show getting started with PostHog development")
@@ -292,26 +305,27 @@ except ImportError:
     pass  # No developer commands yet
 
 
-def _fire_telemetry(duration_s: float, exit_code: int) -> None:
+def _fire_telemetry(ctx: click.Context, exit_code: int) -> None:
     """Send a command_invoked telemetry event. Never raises."""
+    command = ctx.invoked_subcommand
     # Skip when CLI itself errors before reaching a subcommand (e.g. bad flag)
-    if _telemetry_state.command is None and exit_code != 0:
+    if command is None and exit_code != 0:
         return
     try:
+        start_time: float = ctx.meta.get("hogli.start_time", 0.0)
+        duration_s = _time.monotonic() - start_time
         ci_env_vars = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
         props: dict[str, Any] = {
-            "command": _telemetry_state.command,
-            "command_category": get_category_for_command(_telemetry_state.command)
-            if _telemetry_state.command
-            else None,
+            "command": command,
+            "command_category": get_category_for_command(command) if command else None,
             "duration_s": round(duration_s, 3),
             "exit_code": exit_code,
-            "has_extra_argv": _telemetry_state.has_extra_argv,
+            "has_extra_argv": ctx.meta.get("hogli.has_extra_argv", False),
             "terminal_width": shutil.get_terminal_size().columns,
             "os": platform.system(),
             "arch": platform.machine(),
             "python_version": platform.python_version(),
-            "hogli_version": "0.1.0",
+            "hogli_version": _HOGLI_VERSION,
             "is_ci": any(os.environ.get(v) for v in ci_env_vars),
             "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
             "in_flox": os.environ.get("FLOX_ENV") is not None,
@@ -322,25 +336,5 @@ def _fire_telemetry(duration_s: float, exit_code: int) -> None:
         pass
 
 
-def main() -> None:
-    """Main entry point with telemetry wrapper."""
-    start = _time.monotonic()
-    exit_code = 0
-    try:
-        cli()
-    except SystemExit as e:
-        exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
-    except KeyboardInterrupt:
-        exit_code = 130
-    except Exception:
-        exit_code = 1
-        raise
-    finally:
-        _fire_telemetry(_time.monotonic() - start, exit_code)
-        telemetry.flush()
-    if exit_code != 0:
-        raise SystemExit(exit_code)
-
-
 if __name__ == "__main__":
-    main()
+    cli()

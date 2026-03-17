@@ -9,30 +9,27 @@ import time
 import pytest
 from unittest.mock import patch
 
+from click.testing import CliRunner
 from hogli import telemetry
-from hogli.core.cli import _telemetry_state
+from hogli.core.cli import cli
 
 
-@pytest.fixture(autouse=True)
-def _clear_telemetry_state():
-    telemetry._pending_threads.clear()
-    _telemetry_state.command = None
-    _telemetry_state.has_extra_argv = False
-    yield
-    telemetry._pending_threads.clear()
-    _telemetry_state.command = None
-    _telemetry_state.has_extra_argv = False
-
-
-class TestTelemetry:
+class TestIsEnabled:
     def test_default_enabled(self, tmp_path):
         with patch.object(telemetry, "get_config_path", return_value=tmp_path / "config.json"):
             assert telemetry.is_enabled() is True
 
-    def test_opt_out_via_env(self, tmp_path):
+    def test_opt_out_via_posthog_env(self, tmp_path):
         with (
             patch.object(telemetry, "get_config_path", return_value=tmp_path / "config.json"),
             patch.dict(os.environ, {"POSTHOG_TELEMETRY_OPT_OUT": "1"}),
+        ):
+            assert telemetry.is_enabled() is False
+
+    def test_opt_out_via_do_not_track_env(self, tmp_path):
+        with (
+            patch.object(telemetry, "get_config_path", return_value=tmp_path / "config.json"),
+            patch.dict(os.environ, {"DO_NOT_TRACK": "1"}),
         ):
             assert telemetry.is_enabled() is False
 
@@ -45,13 +42,17 @@ class TestTelemetry:
         ):
             assert telemetry.is_enabled() is False
 
-    def test_anonymous_id_stable_across_calls(self, tmp_path):
+
+class TestAnonymousId:
+    def test_stable_across_calls(self, tmp_path):
         with patch.object(telemetry, "get_config_path", return_value=tmp_path / "config.json"):
             first = telemetry.get_anonymous_id()
             second = telemetry.get_anonymous_id()
             assert first == second
 
-    def test_track_fires_post_when_enabled(self, tmp_path):
+
+class TestTrack:
+    def test_fires_post_when_enabled(self, tmp_path):
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True}))
         with (
@@ -70,7 +71,7 @@ class TestTelemetry:
             assert host == "http://localhost"
             assert payload["api_key"] == "test-key"
 
-    def test_track_noops_when_disabled(self, tmp_path):
+    def test_noops_when_disabled(self, tmp_path):
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"enabled": False}))
         with (
@@ -80,7 +81,7 @@ class TestTelemetry:
             telemetry.track("command_invoked")
             mock_post.assert_not_called()
 
-    def test_track_noops_when_notice_not_shown(self, tmp_path):
+    def test_noops_when_notice_not_shown(self, tmp_path):
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id"}))
         with (
@@ -90,7 +91,9 @@ class TestTelemetry:
             telemetry.track("command_invoked")
             mock_post.assert_not_called()
 
-    def test_flush_respects_timeout(self, tmp_path):
+
+class TestFlush:
+    def test_respects_timeout(self, tmp_path):
         config_path = tmp_path / "config.json"
         config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True}))
 
@@ -107,7 +110,9 @@ class TestTelemetry:
             elapsed = time.monotonic() - start
             assert elapsed < 1.0
 
-    def test_first_run_creates_config(self, tmp_path):
+
+class TestFirstRunNotice:
+    def test_creates_config(self, tmp_path):
         config_path = tmp_path / "config.json"
         with patch.object(telemetry, "get_config_path", return_value=config_path):
             telemetry.show_first_run_notice_if_needed()
@@ -117,7 +122,7 @@ class TestTelemetry:
             assert config["first_run_notice_shown"] is True
             assert "anonymous_id" in config
 
-    def test_first_run_notice_shown_once(self, tmp_path):
+    def test_shown_once(self, tmp_path):
         config_path = tmp_path / "config.json"
         with patch.object(telemetry, "get_config_path", return_value=config_path):
             telemetry.show_first_run_notice_if_needed()
@@ -127,3 +132,63 @@ class TestTelemetry:
             with patch.object(click, "echo") as mock_echo:
                 telemetry.show_first_run_notice_if_needed()
                 mock_echo.assert_not_called()
+
+
+class TestTelemetryCommands:
+    @pytest.fixture
+    def runner(self):
+        return CliRunner()
+
+    def test_telemetry_off(self, runner, tmp_path):
+        config_path = tmp_path / "config.json"
+        with patch.object(telemetry, "get_config_path", return_value=config_path):
+            result = runner.invoke(cli, ["telemetry:off"])
+            assert result.exit_code == 0
+            assert "disabled" in result.output.lower()
+            config = json.loads(config_path.read_text())
+            assert config["enabled"] is False
+
+    def test_telemetry_on(self, runner, tmp_path):
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"enabled": False}))
+        with patch.object(telemetry, "get_config_path", return_value=config_path):
+            result = runner.invoke(cli, ["telemetry:on"])
+            assert result.exit_code == 0
+            config = json.loads(config_path.read_text())
+            assert config["enabled"] is True
+
+    def test_telemetry_status_when_disabled_no_id_creation(self, runner, tmp_path):
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"enabled": False, "first_run_notice_shown": True}))
+        with patch.object(telemetry, "get_config_path", return_value=config_path):
+            result = runner.invoke(cli, ["telemetry:status"])
+            assert result.exit_code == 0
+            assert "disabled" in result.output.lower()
+            config = json.loads(config_path.read_text())
+            assert "anonymous_id" not in config
+
+
+class TestInvokeTelemetry:
+    def test_invoke_fires_telemetry_for_command(self, tmp_path):
+        config_path = tmp_path / "config.json"
+        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True}))
+        with (
+            patch.object(telemetry, "get_config_path", return_value=config_path),
+            patch.dict(
+                os.environ,
+                {"POSTHOG_TELEMETRY_HOST": "http://localhost", "POSTHOG_TELEMETRY_API_KEY": "test-key"},
+                clear=False,
+            ),
+            patch.object(telemetry, "_post_event") as mock_post,
+        ):
+            runner = CliRunner()
+            result = runner.invoke(cli, ["quickstart"])
+            telemetry.flush(timeout=1.0)
+            assert result.exit_code == 0
+            mock_post.assert_called_once()
+            _, payload = mock_post.call_args[0]
+            assert payload["event"] == "command_invoked"
+            props = payload["properties"]
+            assert props["command"] == "quickstart"
+            assert props["exit_code"] == 0
+            assert "duration_s" in props

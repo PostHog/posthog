@@ -18,6 +18,7 @@ import json
 import time as _time
 import uuid
 import threading
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -106,6 +107,7 @@ def show_first_run_notice_if_needed() -> None:
         "You can opt out at any time:\n"
         "  hogli telemetry:off          (persistent)\n"
         "  POSTHOG_TELEMETRY_OPT_OUT=1  (per-session / CI)\n"
+        "  DO_NOT_TRACK=1               (cross-tool convention)\n"
         "\n"
         "Run `hogli telemetry:status` for details.\n",
         err=True,
@@ -123,9 +125,13 @@ def track(event: str, properties: dict[str, Any] | None = None) -> None:
 
     Silently no-ops if telemetry is disabled or on any error.
     """
-    if not is_enabled():
+    if os.environ.get("POSTHOG_TELEMETRY_OPT_OUT") == "1":
+        return
+    if os.environ.get("DO_NOT_TRACK") == "1":
         return
     config = _load_config()
+    if not config.get("enabled", True):
+        return
     if not config.get("first_run_notice_shown"):
         return
 
@@ -154,7 +160,7 @@ def track(event: str, properties: dict[str, Any] | None = None) -> None:
     _pending_threads.append(thread)
 
 
-_pending_threads: list[threading.Thread] = []
+_pending_threads: deque[threading.Thread] = deque()
 
 
 def flush(timeout: float = 0.5) -> None:
@@ -166,7 +172,7 @@ def flush(timeout: float = 0.5) -> None:
     """
     deadline = _time.monotonic() + timeout
     while _pending_threads:
-        thread = _pending_threads.pop(0)
+        thread = _pending_threads.popleft()
         remaining = deadline - _time.monotonic()
         if remaining <= 0:
             break

@@ -37,5 +37,8 @@ def telemetry_status() -> None:
     else:
         click.echo("Controlled by: config file")
 
-    click.echo(f"Anonymous ID: {telemetry.get_anonymous_id()}")
+    if enabled:
+        click.echo(f"Anonymous ID: {telemetry.get_anonymous_id()}")
+    else:
+        click.echo("Anonymous ID: (not generated -- telemetry disabled)")
     click.echo(f"Config path: {config_path}")
