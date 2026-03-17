@@ -127,7 +127,7 @@ function findOperationsByTag(spec: OpenApiSpec, product: string): DiscoveredOper
 function findOperationsByUrl(spec: OpenApiSpec, product: string): DiscoveredOperation[] {
     const ops: DiscoveredOperation[] = []
     const httpMethods = new Set(['get', 'post', 'put', 'patch', 'delete'])
-    const needle = `/${product.replace(/-/g, '_')}/`
+    const needle = `/${product.replace(/-/g, '_').toLowerCase()}/`
 
     for (const [urlPath, methods] of Object.entries(spec.paths)) {
         if (!urlPath.toLowerCase().replace(/-/g, '_').includes(needle)) {
@@ -411,11 +411,12 @@ function syncAll(spec: OpenApiSpec): void {
         const ops = deduplicateOperations(rawOps)
         if (ops.length === 0) {
             const label = path.relative(REPO_ROOT, filePath)
+            const normalized = product.replace(/-/g, '_').toLowerCase()
             process.stderr.write(
                 `⚠ ${label}: no operations found in OpenAPI for "${product}"\n` +
-                    `  → ensure the ViewSet has @extend_schema(tags=["${product}"]) or the URL contains /${product}/\n`
+                    `  → ensure the ViewSet has @extend_schema(tags=["${normalized}"]) or the URL contains /${normalized}/\n`
             )
-            noOpsProducts.push(product)
+            noOpsProducts.push(label)
             continue
         }
         const label = path.relative(REPO_ROOT, filePath)
@@ -463,7 +464,7 @@ function syncAll(spec: OpenApiSpec): void {
 
     if (noOpsProducts.length > 0) {
         process.stderr.write(
-            `\n${noOpsProducts.length} product(s) had no matching OpenAPI operations — see warnings above\n`
+            `\n${noOpsProducts.length} file(s) had no matching OpenAPI operations — see warnings above\n`
         )
         process.exitCode = 1
     }
