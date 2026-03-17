@@ -185,6 +185,7 @@ locals {
             countIf(event = 'subscription_delivery_exhausted') AS failures
         FROM events
         WHERE event IN ('subscription_delivery_started', 'subscription_delivery_exhausted')
+            AND properties.$set.region = '{{REGION}}'
             AND timestamp >= now() - INTERVAL 30 DAY
         GROUP BY date
       SQL
@@ -239,9 +240,11 @@ locals {
         description  = slo.description
         error_budget = slo.error_budget
         daily_sql = replace(
-          replace(slo.daily_sql,
-            "{{EXPORTS_TABLE}}", local.region_tables[region].exports_table),
-          "{{HISTORY_TABLE}}", local.region_tables[region].history_table)
+          replace(
+            replace(slo.daily_sql,
+              "{{EXPORTS_TABLE}}", local.region_tables[region].exports_table),
+            "{{HISTORY_TABLE}}", local.region_tables[region].history_table),
+          "{{REGION}}", upper(region))
       }
     }
   ]...)
