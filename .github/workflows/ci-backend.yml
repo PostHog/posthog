@@ -583,6 +583,10 @@ jobs:
             - name: Checkout this PR
               uses: actions/checkout@v6
               with:
+                  # For same-repo PRs, checkout the actual branch (not the merge commit)
+                  # so OpenAPI type generation can be committed directly. Fork PRs fall
+                  # back to the default merge commit (auto-commit bails out for forks).
+                  ref: ${{ (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == 'PostHog/posthog') && github.event.pull_request.head.ref || github.ref }}
                   clean: false
                   # Use app token so the git extraheader is set correctly for the OpenAPI
                   # type commit push later — GITHUB_TOKEN pushes don't trigger CI.
@@ -863,23 +867,12 @@ jobs:
                   # Disable auto-merge before pushing to prevent unreviewed code from merging
                   gh pr merge --disable-auto "$PR_NUMBER" || echo "Auto-merge was not enabled"
 
-                  # Belt-and-suspenders: unset any lingering extraheader so the app token
-                  # in the remote URL is definitely used for the push.
+                  # Unset any lingering extraheader so the app token in the remote URL
+                  # is definitely used for the push.
                   git config --unset-all http.https://github.com/.extraheader || true
                   git remote set-url origin "https://x-access-token:${APP_TOKEN}@github.com/${REPOSITORY}.git"
                   git config user.name "github-actions[bot]"
                   git config user.email "github-actions[bot]@users.noreply.github.com"
-
-                  # Switch to PR branch and regenerate types and YAML there
-                  git fetch origin "$BRANCH"
-                  git checkout -f -B "$BRANCH" "origin/$BRANCH"
-                  ./bin/hogli build:openapi
-                  pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
-
-                  if git diff --exit-code; then
-                      echo "Types already up to date on PR branch"
-                      exit 0
-                  fi
 
                   git add frontend/src/generated/
                   git add products/*/frontend/generated/ 2>/dev/null || true

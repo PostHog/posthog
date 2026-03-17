@@ -45,6 +45,7 @@ export type RecordingApiConfig = Pick<
     | 'CLICKHOUSE_USER'
     | 'CLICKHOUSE_PASSWORD'
     | 'CLICKHOUSE_SECURE'
+    | 'CLICKHOUSE_CA'
 >
 
 export interface RecordingBlock {

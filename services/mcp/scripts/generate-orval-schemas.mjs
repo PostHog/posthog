@@ -11,16 +11,17 @@
  * Invoked by `hogli build:openapi` as a separate step from frontend types.
  */
 /* eslint-disable no-console */
-import { execSync, spawnSync } from 'node:child_process'
+import { spawnSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parse as parseYaml } from 'yaml'
 
-import { applyNestedExclusions, filterSchemaByOperationIds } from '@posthog/openapi-codegen'
+import { applyNestedExclusions, filterSchemaByOperationIds, runOrvalParallel } from '@posthog/openapi-codegen'
 
 import { discoverDefinitions, resolveSchemaPath } from './lib/definitions.mjs'
+import { stripEnumMinLength } from './lib/schema-transforms.mjs'
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const mcpRoot = path.resolve(__dirname, '..')
@@ -148,7 +149,7 @@ function stripUuidFormat(obj) {
 // Orval runner
 // ------------------------------------------------------------------
 
-function runOrval(moduleName, filteredSchema, tmpDir) {
+function prepareOrval(moduleName, filteredSchema, tmpDir) {
     const moduleOutputDir = path.join(generatedRoot, moduleName)
     const tempFile = path.join(tmpDir, `${moduleName}.json`)
     const configFile = path.join(tmpDir, `orval-${moduleName}.config.mjs`)
@@ -186,15 +187,15 @@ export default defineConfig({
 `
 
     fs.writeFileSync(configFile, config)
-    execSync(`pnpm exec orval --config "${configFile}"`, { stdio: 'pipe', cwd: repoRoot })
+    return { configFile, outputFile, moduleOutputDir }
+}
 
+function postprocessOrvalOutput(outputFile) {
     // Annotate top-level exported Zod expressions with @__PURE__ so esbuild
     // can tree-shake unused schemas out of the bundle.
     const generated = fs.readFileSync(outputFile, 'utf-8')
     const annotated = generated.replace(/^(export const \w+ =) (zod\.)/gm, '$1 /* @__PURE__ */ $2')
     fs.writeFileSync(outputFile, annotated)
-
-    return moduleOutputDir
 }
 
 // ------------------------------------------------------------------
@@ -210,7 +211,9 @@ if (definitions.length === 0) {
 
 const fullSchema = JSON.parse(fs.readFileSync(schemaPath, 'utf-8'))
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-orval-'))
-const outputDirs = []
+
+// Phase 1: Prepare all modules (filter schemas, write temp files) — synchronous, fast
+const tasks = []
 let totalEnabledOps = 0
 
 for (const def of definitions) {
@@ -229,22 +232,41 @@ for (const def of definitions) {
     stripUuidFormat(filtered)
     stripReadOnlyFromRequired(filtered)
     applyNestedExclusions(filtered, schemaExclusions)
+    stripEnumMinLength(filtered)
     const pathCount = Object.keys(filtered.paths).length
     const schemaCount = Object.keys(filtered.components.schemas).length
 
-    try {
-        const outDir = runOrval(def.moduleName, filtered, tmpDir)
+    const { configFile, outputFile, moduleOutputDir } = prepareOrval(def.moduleName, filtered, tmpDir)
+    tasks.push({ def, configFile, outputFile, moduleOutputDir, pathCount, schemaCount, operationIds })
+}
+
+// Phase 2: Run all Orval processes in parallel (max 4 concurrent)
+const orvalJobs = tasks.map((t) => ({ configFile: t.configFile, label: t.def.moduleName }))
+const results = await runOrvalParallel(orvalJobs, { cwd: repoRoot })
+
+const outputDirs = []
+let failed = false
+for (let i = 0; i < results.length; i++) {
+    const result = results[i]
+    const task = tasks[i]
+    if (result.status === 'fulfilled') {
+        postprocessOrvalOutput(task.outputFile)
         console.log(
-            `   ✓ ${def.moduleName}: ${pathCount} paths, ${schemaCount} schemas (${operationIds.size} enabled ops)`
+            `   ✓ ${task.def.moduleName}: ${task.pathCount} paths, ${task.schemaCount} schemas (${task.operationIds.size} enabled ops)`
         )
-        outputDirs.push(outDir)
-    } catch (err) {
-        console.error(`   ✗ ${def.moduleName}: Orval failed — ${err.message}`)
-        process.exit(1)
+        outputDirs.push(task.moduleOutputDir)
+    } else {
+        console.error(`   ✗ ${task.def.moduleName}: Orval failed — ${result.reason.message}`)
+        failed = true
     }
 }
 
 fs.rmSync(tmpDir, { recursive: true, force: true })
+
+if (failed) {
+    process.exit(1)
+}
+
 console.log(`MCP Orval: ${outputDirs.length} module(s), ${totalEnabledOps} enabled operations total`)
 
 if (outputDirs.length > 0) {
