@@ -73,7 +73,6 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
             "REQUEST_METHOD": "POST",
             "CONTENT_TYPE": "application/json",
             "CONTENT_LENGTH": str(len(body)),
-            "HTTP_API_VERSION": "0.1d",
         }
         django_request._stream = io.BytesIO(body)
         django_request._read_started = False  # type: ignore[attr-defined]
@@ -108,7 +107,6 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
             "REQUEST_METHOD": "POST",
             "CONTENT_TYPE": "application/json",
             "CONTENT_LENGTH": str(len(body)),
-            "HTTP_API_VERSION": "0.1d",
             "HTTP_STRIPE_SIGNATURE": f"t={ts},v1={sig}",
         }
         django_request._stream = io.BytesIO(body)
@@ -130,7 +128,6 @@ class TestVerifySignatureAfterDRFParsing(TestCase):
             "REQUEST_METHOD": "POST",
             "CONTENT_TYPE": "application/json",
             "CONTENT_LENGTH": str(len(body)),
-            "HTTP_API_VERSION": "0.1d",
             "HTTP_STRIPE_SIGNATURE": f"t={ts},v1={sig}",
         }
         django_request._body = body

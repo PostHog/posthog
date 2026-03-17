@@ -1,6 +1,7 @@
 from typing import ClassVar as _ClassVar
 
 from google.protobuf import descriptor as _descriptor
+from personhog.leader.v1 import leader_pb2 as _leader_pb2
 from personhog.types.v1 import (
     cohort_pb2 as _cohort_pb2,
     feature_flag_pb2 as _feature_flag_pb2,

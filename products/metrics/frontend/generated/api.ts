@@ -154,33 +154,3 @@ export const groupsTypesMetricsDestroy = async (
         method: 'DELETE',
     })
 }
-
-export const getHogFunctionsMetricsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_functions/${id}/metrics/`
-}
-
-export const hogFunctionsMetricsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getHogFunctionsMetricsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getHogFunctionsMetricsTotalsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_functions/${id}/metrics/totals/`
-}
-
-export const hogFunctionsMetricsTotalsRetrieve = async (
-    projectId: string,
-    id: string,
-    options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getHogFunctionsMetricsTotalsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
