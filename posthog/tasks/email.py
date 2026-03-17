@@ -1460,8 +1460,6 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
     if not team_ids_with_exceptions:
         return
 
-    excluded_project_count = len(all_org_teams) - len(team_ids_with_exceptions)
-
     # Pre-compute per-team digest data only for teams that have exceptions
     team_digest_data: dict[int, dict] = {}
     for team_id in team_ids_with_exceptions:
@@ -1487,6 +1485,8 @@ def send_error_tracking_weekly_digest_for_org(org_id: str) -> None:
             "error_tracking_url": f"{settings.SITE_URL}/project/{team_id}/error_tracking?utm_source=error_tracking_weekly_digest",
             "ingestion_failures_url": build_ingestion_failures_url(team_id),
         }
+
+    excluded_project_count = len(all_org_teams) - len(team_digest_data)
 
     all_memberships = OrganizationMembership.objects.prefetch_related("user").filter(organization_id=org.id)
 
