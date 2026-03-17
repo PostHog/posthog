@@ -1772,9 +1772,15 @@ async fn test_realtime_cohort_evaluation_env_var_behavior() {
 
     // Both should succeed (not panic), but they would behave differently internally
     // when processing realtime cohorts (disabled skips them, enabled processes them)
-    assert!(result_disabled.is_ok() || result_disabled.is_err(), "Disabled matcher should complete preparation");
-    assert!(result_enabled.is_ok() || result_enabled.is_err(), "Enabled matcher should complete preparation");
-    
+    assert!(
+        result_disabled.is_ok() || result_disabled.is_err(),
+        "Disabled matcher should complete preparation"
+    );
+    assert!(
+        result_enabled.is_ok() || result_enabled.is_err(),
+        "Enabled matcher should complete preparation"
+    );
+
     // Verify the matchers have the correct basic configuration
     assert_eq!(matcher_disabled.distinct_id, "test-user");
     assert_eq!(matcher_enabled.distinct_id, "test-user");
