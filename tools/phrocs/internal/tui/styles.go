@@ -37,7 +37,7 @@ const containerSidebarWidth = 24
 const headerHeight = 1
 const footerHeightShort = 3
 const footerHeightFull = 5
-const horizontalBorderCount = 3
+const horizontalBorderCount = 4
 
 var (
 	// Header

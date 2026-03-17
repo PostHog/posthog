@@ -1,4 +1,4 @@
-package tui
+package docker
 
 import (
 	"bufio"
@@ -24,26 +24,26 @@ type DockerContainer struct {
 	Health  string
 }
 
-type containerListMsg struct {
+type ContainerListMsg struct {
 	Containers []DockerContainer
 }
 
-type containerPollTickMsg struct{}
+type ContainerPollTickMsg struct{}
 
-type containerLogLineMsg struct {
+type ContainerLogLineMsg struct {
 	Service string
 	Line    string
 }
 
 // containerLogStream manages a log-following subprocess for a single container.
 // Pointer-based so it survives Bubble Tea's value-copy Model updates.
-type containerLogStream struct {
+type ContainerLogStream struct {
 	mu      sync.Mutex
 	cmd     *exec.Cmd
 	stopped bool
 }
 
-func (s *containerLogStream) Stop() {
+func (s *ContainerLogStream) Stop() {
 	if s == nil {
 		return
 	}
@@ -55,11 +55,11 @@ func (s *containerLogStream) Stop() {
 	}
 }
 
-func isDockerComposeShell(shell string) bool {
+func IsDockerComposeShell(shell string) bool {
 	return strings.Contains(shell, "docker compose") || strings.Contains(shell, "docker-compose")
 }
 
-func parseComposeFile(shell string) string {
+func ParseComposeFile(shell string) string {
 	parts := strings.Fields(shell)
 	for i, p := range parts {
 		if p == "-f" && i+1 < len(parts) {
@@ -76,14 +76,14 @@ func composeBaseArgs(composeFile string) []string {
 	return []string{"compose"}
 }
 
-func fetchContainerList(composeFile string) tea.Cmd {
+func FetchContainerList(composeFile string) tea.Cmd {
 	return func() tea.Msg {
 		base := composeBaseArgs(composeFile)
 		args := append(base, "ps", "--format", "json", "-a")
 		cmd := exec.Command("docker", args...)
 		out, err := cmd.Output()
 		if err != nil {
-			return containerListMsg{}
+			return ContainerListMsg{}
 		}
 		var containers []DockerContainer
 		for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
@@ -108,20 +108,20 @@ func fetchContainerList(composeFile string) tea.Cmd {
 		sort.Slice(containers, func(i, j int) bool {
 			return containers[i].Service < containers[j].Service
 		})
-		return containerListMsg{Containers: containers}
+		return ContainerListMsg{Containers: containers}
 	}
 }
 
-func pollContainersTick() tea.Cmd {
+func PollContainersTick() tea.Cmd {
 	return tea.Tick(5*time.Second, func(time.Time) tea.Msg {
-		return containerPollTickMsg{}
+		return ContainerPollTickMsg{}
 	})
 }
 
-const maxContainerLogLines = 5000
+const MaxContainerLogLines = 5000
 
-func startContainerLogStream(composeFile, service string, send func(tea.Msg)) *containerLogStream {
-	stream := &containerLogStream{}
+func StartContainerLogStream(composeFile, service string, send func(tea.Msg)) *ContainerLogStream {
+	stream := &ContainerLogStream{}
 	base := composeBaseArgs(composeFile)
 	args := append(base, "logs", "-f", "--tail=200", "--no-log-prefix", service)
 	cmd := exec.Command("docker", args...)
@@ -155,7 +155,7 @@ func startContainerLogStream(composeFile, service string, send func(tea.Msg)) *c
 			if stopped {
 				break
 			}
-			send(containerLogLineMsg{
+			send(ContainerLogLineMsg{
 				Service: service,
 				Line:    scanner.Text(),
 			})
@@ -167,7 +167,7 @@ func startContainerLogStream(composeFile, service string, send func(tea.Msg)) *c
 	return stream
 }
 
-func renderContainerStatusTable(containers []DockerContainer, width int) string {
+func RenderContainerStatusTable(containers []DockerContainer, width int) string {
 	if len(containers) == 0 {
 		return "  Waiting for containers..."
 	}
@@ -238,7 +238,7 @@ func renderContainerStatusTable(containers []DockerContainer, width int) string 
 	return sb.String()
 }
 
-func containerStateIcon(state string) string {
+func ContainerStateIcon(state string) string {
 	switch state {
 	case "running":
 		return iconCharRunning
@@ -251,7 +251,7 @@ func containerStateIcon(state string) string {
 	}
 }
 
-func containerStateColor(state string) color.Color {
+func ContainerStateColor(state string) color.Color {
 	switch state {
 	case "running":
 		return colorGreen
@@ -263,3 +263,19 @@ func containerStateColor(state string) color.Color {
 		return colorGrey
 	}
 }
+
+var (
+	colorYellow   = lipgloss.Color("#F7A501")
+	colorGrey     = lipgloss.Color("#9BA1B2")
+	colorDarkGrey = lipgloss.Color("#3D3F43")
+	colorGreen    = lipgloss.Color("#2DCC5D")
+	colorRed      = lipgloss.Color("#F04438")
+	colorWhite    = lipgloss.Color("#FFFFFF")
+)
+
+const (
+	iconCharRunning = "●"
+	iconCharPending = "◌"
+	iconCharStopped = "○"
+	iconCharCrashed = "✗"
+)

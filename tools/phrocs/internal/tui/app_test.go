@@ -52,13 +52,13 @@ func TestNew_initialState(t *testing.T) {
 	if m.ready {
 		t.Error("model should not be ready before WindowSizeMsg")
 	}
-	if m.cursor != 0 {
-		t.Errorf("cursor: got %d, want 0", m.cursor)
+	if m.servicesCursor != 0 {
+		t.Errorf("cursor: got %d, want 0", m.servicesCursor)
 	}
-	if m.focusedPane != focusSidebar {
+	if m.focusedPane != focusServices {
 		t.Error("initial focus should be sidebar")
 	}
-	if !m.atBottom {
+	if !m.viewportAtBottom {
 		t.Error("atBottom should be true initially")
 	}
 	if m.copyMode {
@@ -87,52 +87,52 @@ func TestNavigation_nextProc(t *testing.T) {
 	m := readyModel(t, "backend", "celery", "frontend")
 	// k = next proc
 	m = update(m, keypress('k'))
-	if m.cursor != 1 {
-		t.Errorf("cursor after k: got %d, want 1", m.cursor)
+	if m.servicesCursor != 1 {
+		t.Errorf("cursor after k: got %d, want 1", m.servicesCursor)
 	}
 	m = update(m, keypress('k'))
-	if m.cursor != 2 {
-		t.Errorf("cursor after k k: got %d, want 2", m.cursor)
+	if m.servicesCursor != 2 {
+		t.Errorf("cursor after k k: got %d, want 2", m.servicesCursor)
 	}
 }
 
 func TestNavigation_prevProc(t *testing.T) {
 	m := readyModel(t, "backend", "celery", "frontend")
-	m.cursor = 2
+	m.servicesCursor = 2
 	// j = prev proc
 	m = update(m, keypress('j'))
-	if m.cursor != 1 {
-		t.Errorf("cursor after j: got %d, want 1", m.cursor)
+	if m.servicesCursor != 1 {
+		t.Errorf("cursor after j: got %d, want 1", m.servicesCursor)
 	}
 }
 
 func TestNavigation_clampsAtBottom(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
-	m.cursor = 1
+	m.servicesCursor = 1
 	m = update(m, keypress('k'))
-	if m.cursor != 1 {
-		t.Errorf("cursor should clamp at %d, got %d", 1, m.cursor)
+	if m.servicesCursor != 1 {
+		t.Errorf("cursor should clamp at %d, got %d", 1, m.servicesCursor)
 	}
 }
 
 func TestNavigation_clampsAtTop(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
-	m.cursor = 0
+	m.servicesCursor = 0
 	m = update(m, keypress('j'))
-	if m.cursor != 0 {
-		t.Errorf("cursor should clamp at 0, got %d", m.cursor)
+	if m.servicesCursor != 0 {
+		t.Errorf("cursor should clamp at 0, got %d", m.servicesCursor)
 	}
 }
 
 func TestNavigation_arrowKeys(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
 	m = update(m, specialKey(tea.KeyDown))
-	if m.cursor != 1 {
-		t.Errorf("cursor after down: got %d, want 1", m.cursor)
+	if m.servicesCursor != 1 {
+		t.Errorf("cursor after down: got %d, want 1", m.servicesCursor)
 	}
 	m = update(m, specialKey(tea.KeyUp))
-	if m.cursor != 0 {
-		t.Errorf("cursor after up: got %d, want 0", m.cursor)
+	if m.servicesCursor != 0 {
+		t.Errorf("cursor after up: got %d, want 0", m.servicesCursor)
 	}
 }
 
@@ -140,7 +140,7 @@ func TestNavigation_arrowKeys(t *testing.T) {
 
 func TestFocus_swapWithTab(t *testing.T) {
 	m := readyModel(t, "backend")
-	if m.focusedPane != focusSidebar {
+	if m.focusedPane != focusServices {
 		t.Fatal("expected sidebar focus initially")
 	}
 	m = update(m, specialKey(tea.KeyTab))
@@ -148,7 +148,7 @@ func TestFocus_swapWithTab(t *testing.T) {
 		t.Error("tab should switch to output focus")
 	}
 	m = update(m, specialKey(tea.KeyTab))
-	if m.focusedPane != focusSidebar {
+	if m.focusedPane != focusServices {
 		t.Error("second tab should return to sidebar focus")
 	}
 }
@@ -157,11 +157,11 @@ func TestFocus_mouseClickSidebar(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
 	// Click second row in sidebar: header (1) + top border (1) + first row (1) = Y=3
 	m = update(m, tea.MouseClickMsg{Button: tea.MouseLeft, X: 5, Y: headerHeight + 2})
-	if m.focusedPane != focusSidebar {
+	if m.focusedPane != focusServices {
 		t.Error("click in sidebar should focus sidebar")
 	}
-	if m.cursor != 1 {
-		t.Errorf("click on row 1: cursor should be 1, got %d", m.cursor)
+	if m.servicesCursor != 1 {
+		t.Errorf("click on row 1: cursor should be 1, got %d", m.servicesCursor)
 	}
 }
 
@@ -490,14 +490,14 @@ func TestOutputMsg_inactiveProc(t *testing.T) {
 
 func TestStatusMsg_updatesCursor(t *testing.T) {
 	m := readyModel(t, "backend", "frontend")
-	m.cursor = 1
+	m.servicesCursor = 1
 	// Simulate enough removals to make cursor out of bounds — a StatusMsg
 	// should clamp cursor safely.  We can't actually remove procs without
 	// Manager internals, so just verify that a StatusMsg for a known proc
 	// doesn't panic and doesn't move the cursor unnecessarily.
 	m = update(m, process.StatusMsg{Name: "backend", Status: process.StatusRunning})
-	if m.cursor > len(m.procs)-1 {
-		t.Errorf("cursor %d out of bounds after StatusMsg", m.cursor)
+	if m.servicesCursor > len(m.services)-1 {
+		t.Errorf("cursor %d out of bounds after StatusMsg", m.servicesCursor)
 	}
 }
 
@@ -505,9 +505,9 @@ func TestStatusMsg_updatesCursor(t *testing.T) {
 
 func TestGotoBottom_setsAtBottom(t *testing.T) {
 	m := readyModel(t, "backend")
-	m.atBottom = false
+	m.viewportAtBottom = false
 	m = update(m, specialKey(tea.KeyEnd))
-	if !m.atBottom {
+	if !m.viewportAtBottom {
 		t.Error("end key should set atBottom=true")
 	}
 }
@@ -515,7 +515,7 @@ func TestGotoBottom_setsAtBottom(t *testing.T) {
 func TestGotoTop_clearsAtBottom(t *testing.T) {
 	m := readyModel(t, "backend")
 	m = update(m, specialKey(tea.KeyHome))
-	if m.atBottom {
+	if m.viewportAtBottom {
 		t.Error("home key should set atBottom=false")
 	}
 }
