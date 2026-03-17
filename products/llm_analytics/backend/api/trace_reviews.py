@@ -296,9 +296,11 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
 
         definition_lookup = {
             str(definition.id): definition
-            for definition in ScoreDefinition.objects.filter(team=team, id__in=definition_ids)
+            for definition in ScoreDefinition.objects.filter(team=team)
+            .filter(Q(id__in=definition_ids) | Q(versions__id__in=requested_version_ids))
             .select_related("current_version")
             .prefetch_related("versions")
+            .distinct()
         }
         version_lookup = {
             str(version.id): version
