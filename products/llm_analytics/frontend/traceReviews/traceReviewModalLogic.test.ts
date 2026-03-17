@@ -6,8 +6,6 @@ jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({
     lemonToast: { success: jest.fn(), error: jest.fn(), info: jest.fn() },
 }))
 
-import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-
 import { initKeaTests } from '~/test/init'
 
 import { llmAnalyticsScoreDefinitionsList } from '../generated/api'
