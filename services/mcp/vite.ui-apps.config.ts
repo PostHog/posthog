@@ -78,7 +78,7 @@ export default defineConfig({
                       entryFileNames: `${appName}/main.js`,
                       assetFileNames: `${appName}/styles[extname]`,
                   }
-                : {},
+                : {}, // Multi-app fallback — uses hashed filenames, not compatible with buildAppStubHtml. Always use the build script (which sets UI_APP per app).
         },
     },
     logLevel: 'warn', // Reduce Vite output noise

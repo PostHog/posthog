@@ -184,7 +184,7 @@ async function main(): Promise<void> {
     }
 
     if (isWatch) {
-        watchApps(apps)
+        await watchApps(apps)
     } else {
         await buildAllAppsParallel(apps)
 

@@ -72,6 +72,10 @@ jobs:
                       echo "::error::Missing main.js for $app"
                       missing=1
                     fi
+                    if [ ! -f "$app_dir/styles.css" ]; then
+                      echo "::error::Missing styles.css for $app"
+                      missing=1
+                    fi
                   done
                   if [ "$missing" -eq 1 ]; then
                     exit 1
