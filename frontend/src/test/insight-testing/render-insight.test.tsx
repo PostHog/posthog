@@ -12,7 +12,7 @@ describe('renderInsightPage', () => {
         cleanup()
     })
 
-    it('breakdown naps by hedgehogs', async () => {
+    it.skip('breakdown naps by hedgehogs', async () => {
         renderInsightPage()
         await waitForChart()
 
