@@ -11,6 +11,7 @@ import { mswDecorator } from '~/mocks/browser'
 type Story = StoryObj<typeof App>
 const meta: Meta = {
     title: 'Scenes-App/Insights/User Paths',
+    tags: ['paths-visual'],
     parameters: {
         layout: 'fullscreen',
         testOptions: {
@@ -48,6 +49,7 @@ export const UserPaths: Story = createInsightStory(
 UserPaths.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
+        waitForPathsCanvasStability: true,
     },
 }
 // The Paths component uses useResizeObserver to measure canvasWidth, then destroys
@@ -76,6 +78,7 @@ export const UserPathsEdit: Story = createInsightStory(
 UserPathsEdit.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
+        waitForPathsCanvasStability: true,
     },
 }
 UserPathsEdit.play = waitForPathsCanvasToStabilize
@@ -87,6 +90,7 @@ export const UserPathsEditViewports: Story = createInsightStory(
 UserPathsEditViewports.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
+        waitForPathsCanvasStability: true,
         viewportWidths: ['medium', 'wide', 'superwide'],
     },
 }

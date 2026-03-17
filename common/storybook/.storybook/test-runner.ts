@@ -68,6 +68,12 @@ declare module '@storybook/types' {
              * Skip taking a dark mode snapshot. Useful for stories that don't support dark mode or have known issues in dark mode that would cause snapshot failures.
              */
             skipDarkMode?: boolean
+            /**
+             * Wait for .Paths__canvas SVG to have stable dimensions before each snapshot.
+             * Use for Paths/Sankey stories: theme switch triggers SVG recreation; the play function
+             * only runs on load, so dark snapshots can be taken mid-render without this.
+             */
+            waitForPathsCanvasStability?: boolean
         }
         msw?: {
             mocks?: Mocks
@@ -278,8 +284,13 @@ async function takeSnapshotWithTheme(
     // Set the right theme
     await page.evaluate((theme: SnapshotTheme) => document.body.setAttribute('theme', theme), theme)
 
+    const { skipIframeWait = false, waitForPathsCanvasStability = false } = storyContext.parameters?.testOptions ?? {}
+    if (waitForPathsCanvasStability) {
+        await page.waitForTimeout(200)
+        await waitForPathsCanvasToStabilize(page)
+    }
+
     // Wait until we're sure we've finished loading everything
-    const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
@@ -502,6 +513,39 @@ async function expectLocatorToMatchStorySnapshot(
         failureThreshold: 0.01,
         failureThresholdType: 'percent',
     })
+}
+
+/**
+ * Wait for .Paths__canvas SVG to have stable dimensions. Paths destroys and recreates the SVG when
+ * theme/canvas size changes; snapshots taken mid-render cause flaky visual diffs.
+ */
+async function waitForPathsCanvasToStabilize(page: Page): Promise<void> {
+    await page
+        .waitForFunction(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    let lastWidth = 0
+                    let stableCount = 0
+                    const check = (): void => {
+                        const svg = document.querySelector('.Paths__canvas')
+                        const w = svg ? (svg as Element).getBoundingClientRect().width : 0
+                        if (w > 0 && w === lastWidth) {
+                            stableCount++
+                            if (stableCount >= 3) {
+                                resolve(true)
+                                return
+                            }
+                        } else {
+                            stableCount = 0
+                            lastWidth = w
+                        }
+                        setTimeout(check, 200)
+                    }
+                    check()
+                }),
+            { timeout: 5000 }
+        )
+        .catch(() => undefined) // No Paths canvas or didn't stabilize - proceed
 }
 
 /**
