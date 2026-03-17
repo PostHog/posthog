@@ -148,6 +148,17 @@ impl GroupType {
             GroupType::Resolved(name, _) => GroupType::Resolved(name, index),
         }
     }
+
+    /// Returns the Unresolved form of this group type. The shared dedup cache
+    /// always stores entries as Unresolved (inserted by the producer before
+    /// resolution), so cache removal after a failed batch write must use this
+    /// form to match the original key.
+    pub fn as_unresolved(&self) -> Self {
+        match self {
+            GroupType::Unresolved(_) => self.clone(),
+            GroupType::Resolved(name, _) => GroupType::Unresolved(name.clone()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
