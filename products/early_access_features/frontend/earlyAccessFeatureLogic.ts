@@ -131,20 +131,22 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
     forms(({ actions, props }) => ({
         earlyAccessFeature: {
             defaults: { ...NEW_EARLY_ACCESS_FEATURE } as NewEarlyAccessFeatureType | EarlyAccessFeatureType,
-            errors: (payload) => {
-                let payloadError: string | undefined
-                if (payload.payload && typeof payload.payload === 'string') {
-                    try {
-                        JSON.parse(payload.payload)
-                    } catch {
-                        payloadError = 'Payload must be valid JSON'
-                    }
-                }
-                return {
-                    name: !payload.name ? 'Feature name must be set' : undefined,
-                    payload: payloadError,
-                }
-            },
+            errors: ({ name, payload }) =>
+                ({
+                    name: !name ? 'Feature name must be set' : undefined,
+                    // payload is edited as a JSON string in the form, but typed as Record<string, any>
+                    payload:
+                        payload && typeof payload === 'string'
+                            ? (() => {
+                                  try {
+                                      JSON.parse(payload)
+                                      return undefined
+                                  } catch {
+                                      return 'Payload must be valid JSON'
+                                  }
+                              })()
+                            : undefined,
+                }) as any,
             submit: async (payload) => {
                 const parsedPayload = {
                     ...payload,
