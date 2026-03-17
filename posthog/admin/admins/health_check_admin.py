@@ -93,7 +93,7 @@ def health_check_trigger_view(request, kind: str):
                         "health-check-workflow",
                         dataclasses.asdict(workflow_inputs),
                         id=workflow_id,
-                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                        task_queue=settings.HEALTH_CHECK_TASK_QUEUE,
                     )
                 )
                 logger.info(

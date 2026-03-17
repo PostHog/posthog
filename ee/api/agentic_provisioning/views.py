@@ -15,6 +15,7 @@ from django.http import HttpResponseRedirect
 from django.http.response import HttpResponseBase
 from django.utils import timezone
 
+import requests
 import structlog
 import posthoganalytics
 from rest_framework.decorators import api_view, authentication_classes, permission_classes
@@ -28,14 +29,13 @@ from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken, find_oauth
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import generate_random_oauth_access_token, generate_random_oauth_refresh_token
-from posthog.security.outbound_proxy import external_requests
 from posthog.utils import get_instance_region
 
 from ee.settings import BILLING_SERVICE_URL
 
 from . import AUTH_CODE_CACHE_PREFIX, PENDING_AUTH_CACHE_PREFIX, RESOURCE_SERVICE_CACHE_PREFIX
 from .region_proxy import stripe_region_proxy
-from .signature import SUPPORTED_VERSIONS, verify_stripe_signature
+from .signature import SUPPORTED_VERSIONS, verify_api_version, verify_stripe_signature
 
 logger = structlog.get_logger(__name__)
 
@@ -95,7 +95,7 @@ POSTHOG_PARENT_SERVICE: dict[str, Any] = {
 def _fetch_services_from_billing() -> list[dict[str, Any]] | None:
     """Fetch product catalog from billing. Returns None on failure."""
     try:
-        res = external_requests.get(
+        res = requests.get(
             f"{BILLING_SERVICE_URL}/api/products-v2",
             params={"plan": "standard"},
         )
@@ -189,6 +189,8 @@ def provisioning_health(request: Request) -> Response:
     error = verify_stripe_signature(request)
     if error:
         return error
+    if error := verify_api_version(request):
+        return error
 
     return Response({"supported_versions": SUPPORTED_VERSIONS, "status": "ok"})
 
@@ -205,6 +207,8 @@ def provisioning_services(request: Request) -> Response:
     error = verify_stripe_signature(request)
     if error:
         return error
+    if error := verify_api_version(request):
+        return error
 
     return Response({"data": _get_services(), "next_cursor": ""})
 
@@ -220,6 +224,9 @@ def provisioning_services(request: Request) -> Response:
 @permission_classes([])
 @stripe_region_proxy(strategy="body_region")
 def account_requests(request: Request) -> Response:
+    if error := verify_api_version(request):
+        return error
+
     data = request.data
     request_id = data.get("id", "")
     email = data.get("email")
@@ -558,6 +565,8 @@ def provisioning_resources_create(request: Request) -> Response:
     error = verify_stripe_signature(request)
     if error:
         return error
+    if error := verify_api_version(request):
+        return error
 
     service_id = request.data.get("service_id", "")
     if service_id and service_id not in VALID_SERVICE_IDS:
@@ -623,6 +632,8 @@ def provisioning_rotate_credentials(request: Request, resource_id: str) -> Respo
     error = verify_stripe_signature(request)
     if error:
         return error
+    if error := verify_api_version(request):
+        return error
 
     scoped_teams = access_token.scoped_teams or []
 
@@ -675,6 +686,8 @@ def _resolve_resource_response(request: Request, resource_id: str) -> Response:
 
     error = verify_stripe_signature(request)
     if error:
+        return error
+    if error := verify_api_version(request):
         return error
 
     scoped_teams = access_token.scoped_teams or []
@@ -743,6 +756,8 @@ def deep_links(request: Request) -> Response:
 
     error = verify_stripe_signature(request)
     if error:
+        return error
+    if error := verify_api_version(request):
         return error
 
     purpose = request.data.get("purpose", "dashboard")

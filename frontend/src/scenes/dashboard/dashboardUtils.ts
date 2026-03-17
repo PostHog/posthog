@@ -41,6 +41,7 @@ export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
+export const QUICK_FILTER_DEBOUNCE_MS = 1500
 
 // Helper function for exponential backoff
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))

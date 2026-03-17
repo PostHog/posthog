@@ -367,7 +367,8 @@
                 "onboarding",
                 "research",
                 "flags",
-                "llm_analytics"
+                "llm_analytics",
+                "sandbox"
             ],
             "type": "string"
         },
@@ -979,7 +980,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation", "notebook", "update", "approval"],
+            "enum": ["status", "message", "conversation", "notebook", "update", "approval", "sandbox"],
             "type": "string"
         },
         "AssistantForm": {
@@ -13181,6 +13182,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "useQueryV2": {
+                    "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -15907,6 +15912,7 @@
                 "live_debugger",
                 "logs",
                 "tracing",
+                "metrics",
                 "workflows",
                 "notebook",
                 "action",
@@ -15966,6 +15972,10 @@
                 },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
+                    "type": "string"
+                },
+                "displayLabel": {
+                    "description": "Display label override — when set, shown in the nav instead of the last segment of `path`",
                     "type": "string"
                 },
                 "flag": {
@@ -18854,7 +18864,7 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
-                "slack-twig",
+                "slack-posthog-code",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
@@ -19916,6 +19926,10 @@
                     "$ref": "#/definitions/ConversionGoalFilter",
                     "description": "Draft conversion goal that can be set in the UI without saving"
                 },
+                "drillDownLevel": {
+                    "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel",
+                    "description": "Drill-down hierarchy level: channel, source, or campaign (default)"
+                },
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
@@ -20105,6 +20119,26 @@
             "enum": ["Goal", "Cost per", "const:"],
             "type": "string"
         },
+        "MarketingAnalyticsDrillDownConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "columnAlias": {
+                    "type": "string"
+                },
+                "excludedBaseColumns": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsBaseColumns"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["columnAlias", "excludedBaseColumns"],
+            "type": "object"
+        },
+        "MarketingAnalyticsDrillDownLevel": {
+            "enum": ["channel", "source", "campaign"],
+            "type": "string"
+        },
         "MarketingAnalyticsItem": {
             "additionalProperties": false,
             "properties": {
@@ -20218,6 +20252,10 @@
                         }
                     ],
                     "description": "Draft conversion goal that can be set in the UI without saving"
+                },
+                "drillDownLevel": {
+                    "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel",
+                    "description": "Drill-down hierarchy level: channel, source, or campaign (default)"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -23543,6 +23581,7 @@
                 "teams",
                 "toolbar",
                 "tracing",
+                "metrics",
                 "user_interviews",
                 "visual_review",
                 "web_analytics",

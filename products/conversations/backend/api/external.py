@@ -3,10 +3,12 @@ External API endpoints for the Conversations product.
 
 These endpoints are used by the CDP worker for workflow actions and can be opened
 to third-party developers in the future.
-Authenticated via team API token passed as a Bearer token in the Authorization header.
+Authenticated via team secret API token passed as a Bearer token in the Authorization header.
 """
 
 import hashlib
+
+from django.db.models import Q
 
 import structlog
 from rest_framework import serializers, status
@@ -30,7 +32,7 @@ logger = structlog.get_logger(__name__)
 
 
 class _ExternalTicketThrottle(SimpleRateThrottle):
-    """Rate limit by Bearer token (team api_token)."""
+    """Rate limit by Bearer token (team secret_api_token)."""
 
     def get_cache_key(self, request, view):
         auth_header = request.headers.get("Authorization", "")
@@ -59,9 +61,14 @@ def _authenticate_team(request: Request) -> tuple[Team, None] | tuple[None, Resp
     if not api_key:
         return None, Response({"error": "Empty API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
+    # Authenticate against secret_api_token (not api_token) because api_token
+    # is the public project key embedded in client-side JS and visible to anyone.
     try:
-        team = Team.objects.get(api_token=api_key, conversations_enabled=True)
-    except Team.DoesNotExist:
+        team = Team.objects.get(
+            Q(secret_api_token=api_key) | Q(secret_api_token_backup=api_key),
+            conversations_enabled=True,
+        )
+    except (Team.DoesNotExist, Team.MultipleObjectsReturned):
         return None, Response({"error": "Invalid API key"}, status=status.HTTP_401_UNAUTHORIZED)
 
     return team, None
@@ -80,7 +87,7 @@ class ExternalTicketView(APIView):
     GET /api/conversations/external/ticket/<ticket_id>  — Fetch ticket data
     PATCH /api/conversations/external/ticket/<ticket_id> — Update ticket fields
 
-    Authenticated via Bearer token (team api_token) in Authorization header.
+    Authenticated via Bearer token (team secret_api_token) in Authorization header.
     """
 
     authentication_classes = []
@@ -121,10 +128,11 @@ class ExternalTicketView(APIView):
         return Response(
             {
                 "id": str(ticket.id),
-                "ticket_number": ticket.ticket_number,
+                "number": ticket.ticket_number,
                 "status": ticket.status,
                 "priority": ticket.priority,
                 "channel_source": ticket.channel_source,
+                "channel_detail": ticket.channel_detail,
                 "distinct_id": ticket.distinct_id,
                 "created_at": ticket.created_at.isoformat(),
                 "updated_at": ticket.updated_at.isoformat(),
@@ -133,9 +141,9 @@ class ExternalTicketView(APIView):
                 "last_message_text": ticket.last_message_text,
                 "unread_team_count": ticket.unread_team_count,
                 "unread_customer_count": ticket.unread_customer_count,
-                "sla_due_at": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
+                "sla": ticket.sla_due_at.isoformat() if ticket.sla_due_at else None,
                 "assignee": assignee,
-                "current_url": session_context.get("current_url"),
+                "url": session_context.get("current_url"),
                 "tags": tags,
             }
         )

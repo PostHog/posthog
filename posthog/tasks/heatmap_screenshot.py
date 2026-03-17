@@ -1,4 +1,4 @@
-from django.conf import settings
+import os
 
 import structlog
 import posthoganalytics
@@ -257,9 +257,8 @@ def _generate_screenshots(screenshot: SavedHeatmap) -> None:
             "--no-sandbox",
             "--disable-gpu",
         ]
-        proxy_config: ProxySettings | None = None
-        if settings.OUTBOUND_PROXY_ENABLED and settings.OUTBOUND_PROXY_URL:
-            proxy_config = ProxySettings(server=settings.OUTBOUND_PROXY_URL)
+        proxy_url = os.environ.get("HTTPS_PROXY") or os.environ.get("HTTP_PROXY")
+        proxy_config = ProxySettings(server=proxy_url) if proxy_url else None
 
         browser = p.chromium.launch(
             headless=True,  # TIP: for debugging, set to False

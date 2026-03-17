@@ -40,22 +40,18 @@ class DagMismatchTest(BaseTest):
                 team=cls.team,
                 query=_basic_saved_query_with_label("a3"),
             )
-            a1_node = Node.objects.create(
-                team=cls.team, dag_fk=cls.dag_a, dag_id_text=A_DAG_ID, saved_query=a1_query, name="a1"
-            )
-            a2_node = Node.objects.create(
-                team=cls.team, dag_fk=cls.dag_a, dag_id_text=A_DAG_ID, saved_query=a2_query, name="a2"
-            )
+            a1_node = Node.objects.create(team=cls.team, dag=cls.dag_a, saved_query=a1_query, name="a1")
+            a2_node = Node.objects.create(team=cls.team, dag=cls.dag_a, saved_query=a2_query, name="a2")
             # a3 intentionally left disconnected to test connecting two nodes with same dag id with an edge
             # that has a different dag
-            Node.objects.create(team=cls.team, dag_fk=cls.dag_a, dag_id_text=A_DAG_ID, saved_query=a3_query, name="a3")
-            Edge.objects.create(team=cls.team, dag_fk=cls.dag_a, dag_id_text=A_DAG_ID, source=a1_node, target=a2_node)
+            Node.objects.create(team=cls.team, dag=cls.dag_a, saved_query=a3_query, name="a3")
+            Edge.objects.create(team=cls.team, dag=cls.dag_a, source=a1_node, target=a2_node)
             b_query = DataWarehouseSavedQuery.objects.create(
                 name="b",
                 team=cls.team,
                 query=_basic_saved_query_with_label("b"),
             )
-            Node.objects.create(team=cls.team, dag_fk=cls.dag_b, dag_id_text=B_DAG_ID, saved_query=b_query, name="b")
+            Node.objects.create(team=cls.team, dag=cls.dag_b, saved_query=b_query, name="b")
 
     @parameterized.expand(
         [
@@ -75,4 +71,4 @@ class DagMismatchTest(BaseTest):
         target = Node.objects.get(name=target_label)
         dag = DAG.objects.get(team=source.team, name=dag_id)
         with self.assertRaises(DAGMismatchError):
-            Edge.objects.create(team=source.team, dag_fk=dag, dag_id_text=dag_id, source=source, target=target)
+            Edge.objects.create(team=source.team, dag=dag, source=source, target=target)

@@ -210,12 +210,20 @@ pub struct FlagsCanonicalLogLine {
     pub group_queries: usize,
     /// Number of static cohort membership queries made to the database.
     pub static_cohort_queries: usize,
+    /// Number of realtime cohort membership queries made to the behavioral cohorts database.
+    pub realtime_cohort_queries: usize,
+    /// Count of realtime cohort IDs encountered during evaluation.
+    /// Incremented even for anonymous users (no person UUID), where no DB query is made.
+    /// Use `realtime_cohort_queries` to distinguish how many queries actually reached the DB.
+    pub realtime_cohorts_evaluated: usize,
     /// Time spent on person property queries in milliseconds.
     pub person_query_time_ms: u64,
     /// Time spent on group property queries in milliseconds.
     pub group_query_time_ms: u64,
     /// Time spent on static cohort membership queries in milliseconds.
     pub cohort_query_time_ms: u64,
+    /// Time spent on realtime cohort membership queries in milliseconds.
+    pub realtime_cohort_query_time_ms: u64,
     /// Number of flags whose evaluation returned an error. Not in `EvalCounters` because it is
     /// incremented in `process_flag_result`, which runs on the tokio task after rayon returns.
     pub flags_errored: usize,
@@ -239,6 +247,8 @@ pub struct FlagsCanonicalLogLine {
 
     // Rate limiting
     pub rate_limited: bool,
+    /// True when a rate limit warn threshold was exceeded but the request was still allowed.
+    pub rate_limit_warned: bool,
 
     // Cache sources (populated during data fetching)
     /// Where team metadata was fetched from: "redis", "s3", "fallback", or None if not fetched
@@ -274,14 +284,18 @@ impl Default for FlagsCanonicalLogLine {
             person_queries: 0,
             group_queries: 0,
             static_cohort_queries: 0,
+            realtime_cohort_queries: 0,
+            realtime_cohorts_evaluated: 0,
             person_query_time_ms: 0,
             group_query_time_ms: 0,
             cohort_query_time_ms: 0,
+            realtime_cohort_query_time_ms: 0,
             flags_errored: 0,
             dependency_graph_errors: 0,
             hash_key_override_status: None,
             evaluation_type: None,
             rate_limited: false,
+            rate_limit_warned: false,
             team_cache_source: None,
             http_status: 200,
             error_code: None,
@@ -329,9 +343,12 @@ impl FlagsCanonicalLogLine {
             person_queries = self.person_queries,
             group_queries = self.group_queries,
             static_cohort_queries = self.static_cohort_queries,
+            realtime_cohort_queries = self.realtime_cohort_queries,
+            realtime_cohorts_evaluated = self.realtime_cohorts_evaluated,
             person_query_time_ms = self.person_query_time_ms,
             group_query_time_ms = self.group_query_time_ms,
             cohort_query_time_ms = self.cohort_query_time_ms,
+            realtime_cohort_query_time_ms = self.realtime_cohort_query_time_ms,
             property_cache_hits = self.eval.property_cache_hits,
             property_cache_misses = self.eval.property_cache_misses,
             person_properties_not_cached = self.eval.person_properties_not_cached,
@@ -342,6 +359,7 @@ impl FlagsCanonicalLogLine {
             hash_key_override_status = self.hash_key_override_status,
             evaluation_type = self.evaluation_type.map(|t| t.as_str()),
             rate_limited = self.rate_limited,
+            rate_limit_warned = self.rate_limit_warned,
             team_cache_source = self.team_cache_source,
             error_code = self.error_code,
             "canonical_log_line"
@@ -390,6 +408,21 @@ impl FlagsCanonicalLogLine {
                     ("operation_type".to_string(), "cohort_query".to_string()),
                 ],
                 self.static_cohort_queries as f64,
+            );
+        }
+
+        // Emit realtime cohort query count
+        if self.realtime_cohort_queries > 0 {
+            common_metrics::histogram(
+                FLAG_DB_OPERATIONS_PER_REQUEST,
+                &[
+                    ("team_id".to_string(), team_id.clone()),
+                    (
+                        "operation_type".to_string(),
+                        "realtime_cohort_query".to_string(),
+                    ),
+                ],
+                self.realtime_cohort_queries as f64,
             );
         }
     }
@@ -450,6 +483,9 @@ mod tests {
         assert_eq!(log.person_queries, 0);
         assert_eq!(log.group_queries, 0);
         assert_eq!(log.static_cohort_queries, 0);
+        assert_eq!(log.realtime_cohort_queries, 0);
+        assert_eq!(log.realtime_cohorts_evaluated, 0);
+        assert_eq!(log.realtime_cohort_query_time_ms, 0);
         assert_eq!(log.eval.property_cache_hits, 0);
         assert_eq!(log.eval.property_cache_misses, 0);
         assert!(!log.eval.person_properties_not_cached);
@@ -459,6 +495,7 @@ mod tests {
         assert_eq!(log.dependency_graph_errors, 0);
         assert!(log.hash_key_override_status.is_none());
         assert!(!log.rate_limited);
+        assert!(!log.rate_limit_warned);
         assert!(log.team_cache_source.is_none());
         assert_eq!(log.http_status, 200);
         assert!(log.error_code.is_none());
@@ -718,7 +755,7 @@ mod tests {
         #[case(FlagError::MissingDistinctId, 400, "missing_distinct_id")]
         #[case(FlagError::NoTokenError, 401, "missing_token")]
         #[case(FlagError::TokenValidationError, 401, "invalid_token")]
-        #[case(FlagError::PersonalApiKeyInvalid("test".into()), 401, "personal_api_key_invalid")]
+        #[case(FlagError::PersonalApiKeyInvalid, 401, "personal_api_key_invalid")]
         #[case(FlagError::SecretApiTokenInvalid, 401, "secret_api_token_invalid")]
         #[case(FlagError::NoAuthenticationProvided, 401, "no_authentication")]
         #[case(FlagError::RowNotFound, 500, "row_not_found")]
