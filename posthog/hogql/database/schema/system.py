@@ -4,6 +4,7 @@ from posthog.hogql.database.models import (
     DateTimeDatabaseField,
     ExpressionField,
     FieldOrTable,
+    FloatDatabaseField,
     IntegerDatabaseField,
     StringDatabaseField,
     StringJSONDatabaseField,
@@ -146,6 +147,29 @@ data_warehouse_sources: PostgresTable = PostgresTable(
     },
 )
 
+data_modeling_views: PostgresTable = PostgresTable(
+    name="data_modeling_views",
+    postgres_table_name="posthog_datawarehousesavedquery",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "status": StringDatabaseField(name="status"),
+        "columns": StringJSONDatabaseField(name="columns"),
+        "query": StringJSONDatabaseField(name="query"),
+        "last_run_at": DateTimeDatabaseField(name="last_run_at"),
+        "_is_materialized": BooleanDatabaseField(name="is_materialized", hidden=True),
+        "is_materialized": ExpressionField(
+            name="is_materialized", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_is_materialized"])])
+        ),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 data_warehouse_tables: PostgresTable = PostgresTable(
     name="data_warehouse_tables",
     postgres_table_name="posthog_datawarehousetable",
@@ -161,6 +185,48 @@ data_warehouse_tables: PostgresTable = PostgresTable(
         "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
         "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
         "deleted_at": DateTimeDatabaseField(name="deleted_at"),
+    },
+)
+
+source_schemas: PostgresTable = PostgresTable(
+    name="source_schemas",
+    postgres_table_name="posthog_externaldataschema",
+    access_scope="external_data_source",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "source_id": StringDatabaseField(name="source_id"),
+        "table_id": StringDatabaseField(name="table_id"),
+        "should_sync": BooleanDatabaseField(name="should_sync"),
+        "status": StringDatabaseField(name="status"),
+        "sync_type": StringDatabaseField(name="sync_type"),
+        "last_synced_at": DateTimeDatabaseField(name="last_synced_at"),
+        "latest_error": StringDatabaseField(name="latest_error"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+        "_deleted": BooleanDatabaseField(name="deleted", hidden=True),
+        "deleted": ExpressionField(name="deleted", expr=ast.Call(name="toInt", args=[ast.Field(chain=["_deleted"])])),
+        "deleted_at": DateTimeDatabaseField(name="deleted_at"),
+    },
+)
+
+source_sync_jobs: PostgresTable = PostgresTable(
+    name="source_sync_jobs",
+    postgres_table_name="posthog_externaldatajob",
+    access_scope="external_data_source",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "pipeline_id": StringDatabaseField(name="pipeline_id"),
+        "schema_id": StringDatabaseField(name="schema_id"),
+        "status": StringDatabaseField(name="status"),
+        "rows_synced": IntegerDatabaseField(name="rows_synced"),
+        "billable": BooleanDatabaseField(name="billable"),
+        "latest_error": StringDatabaseField(name="latest_error"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "finished_at": DateTimeDatabaseField(name="finished_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
     },
 )
 
@@ -365,6 +431,24 @@ notebooks: PostgresTable = PostgresTable(
     },
 )
 
+data_modeling_jobs: PostgresTable = PostgresTable(
+    name="data_modeling_jobs",
+    postgres_table_name="posthog_datamodelingjob",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "data_modeling_view_id": StringDatabaseField(name="saved_query_id"),
+        "status": StringDatabaseField(name="status"),
+        "rows_materialized": IntegerDatabaseField(name="rows_materialized"),
+        "rows_expected": IntegerDatabaseField(name="rows_expected"),
+        "error": StringDatabaseField(name="error"),
+        "storage_delta_mib": FloatDatabaseField(name="storage_delta_mib"),
+        "last_run_at": DateTimeDatabaseField(name="last_run_at"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "updated_at": DateTimeDatabaseField(name="updated_at"),
+    },
+)
+
 error_tracking_issues: PostgresTable = PostgresTable(
     name="error_tracking_issues",
     postgres_table_name="posthog_errortrackingissue",
@@ -414,6 +498,8 @@ class SystemTables(TableNode):
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),
         "dashboards": TableNode(name="dashboards", table=dashboards),
+        "data_modeling_jobs": TableNode(name="data_modeling_jobs", table=data_modeling_jobs),
+        "data_modeling_views": TableNode(name="data_modeling_views", table=data_modeling_views),
         "data_warehouse_sources": TableNode(name="data_warehouse_sources", table=data_warehouse_sources),
         "data_warehouse_tables": TableNode(name="data_warehouse_tables", table=data_warehouse_tables),
         "error_tracking_issue_assignments": TableNode(
@@ -434,6 +520,8 @@ class SystemTables(TableNode):
         "insight_variables": TableNode(name="insight_variables", table=insight_variables),
         "insights": TableNode(name="insights", table=insights),
         "notebooks": TableNode(name="notebooks", table=notebooks),
+        "source_schemas": TableNode(name="source_schemas", table=source_schemas),
+        "source_sync_jobs": TableNode(name="source_sync_jobs", table=source_sync_jobs),
         "surveys": TableNode(name="surveys", table=surveys),
         "teams": TableNode(name="teams", table=teams),
     }

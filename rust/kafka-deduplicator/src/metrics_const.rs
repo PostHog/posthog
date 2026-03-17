@@ -163,6 +163,11 @@ pub const PARTITION_STORE_SETUP_SKIPPED: &str = "partition_store_setup_skipped_t
 /// This is an important metric for alerting - indicates degraded deduplication quality
 pub const PARTITION_STORE_FALLBACK_EMPTY: &str = "partition_store_fallback_empty_total";
 
+/// Counter for local store restore attempts during rebalance.
+/// Labels: result (fresh | stale | missing | corrupt)
+/// `fresh` means local metadata was valid and S3 import was skipped.
+pub const LOCAL_STORE_RESTORE_COUNTER: &str = "local_store_restore_total";
+
 /// Counter for messages dropped because no store was registered for the partition
 /// Labels: topic, partition
 /// This is expected during rebalances due to rdkafka message buffering

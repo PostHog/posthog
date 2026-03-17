@@ -251,8 +251,10 @@ const handleRequest = async (
 
     let server: Promise<Response> | null = null
     if (url.pathname.startsWith('/mcp')) {
+        Object.assign(ctx.props, { transport: 'streamable-http' })
         server = MCP.serve('/mcp').fetch(request, env, ctx)
     } else if (url.pathname.startsWith('/sse')) {
+        Object.assign(ctx.props, { transport: 'sse' })
         server = MCP.serveSSE('/sse').fetch(request, env, ctx)
     }
 

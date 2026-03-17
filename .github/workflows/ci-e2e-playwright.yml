@@ -72,7 +72,7 @@ jobs:
         name: Determine need to run E2E checks
         # Set job outputs to values from filter step
         outputs:
-            shouldRun: ${{ steps.bot-snapshot.outputs.skip == 'true' && 'false' || steps.changes.outputs.shouldRun || 'true' }}
+            shouldRun: ${{ steps.changes.outputs.shouldRun || 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
@@ -103,31 +103,6 @@ jobs:
                         - docker-compose.dev.yml
                         - Dockerfile
                         - playwright/**
-
-            # Skip CI when a bot commit contains only image files (e.g. snapshot updates).
-            # Snapshot-only commits can never produce new diffs, so re-running is pure waste.
-            - name: Check for bot snapshot-only commit
-              id: bot-snapshot
-              if: github.event_name == 'pull_request' && (steps.changes.outputs.shouldRun || 'true') == 'true'
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  ACTOR="${{ github.actor }}"
-                  if [[ "$ACTOR" != "tests-posthog[bot]" ]] && [[ "$ACTOR" != "posthog-bot" ]]; then
-                    exit 0
-                  fi
-                  FILES=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha }}" --jq '.files[].filename')
-                  if [ -z "$FILES" ]; then
-                    exit 0
-                  fi
-                  shopt -s nocasematch
-                  while IFS= read -r file; do
-                    if [[ ! "$file" =~ \.(png|jpg|jpeg|gif|svg)$ ]]; then
-                      exit 0
-                    fi
-                  done <<< "$FILES"
-                  echo "skip=true" >> "$GITHUB_OUTPUT"
-                  echo "::notice::Skipping CI - bot commit with only image files"
 
     get_clickhouse_versions:
         name: Get ClickHouse versions
@@ -216,7 +191,6 @@ jobs:
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ needs.get_clickhouse_versions.outputs.oldest_supported }}
-                  export DOCKER_REGISTRY_PREFIX="us-east1-docker.pkg.dev/posthog-301601/mirror/"
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
 
                   (
@@ -352,14 +326,16 @@ jobs:
                   bin/turbo --filter=@posthog/frontend prepare
 
             - name: Start Docker services
-              run: docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d
               env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: capture
+              run: bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker capture
               env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: capture
+              run: bin/ci-wait-for-docker wait capture
 
             - name: Build frontend
               run: |
@@ -414,7 +390,7 @@ jobs:
                   # WARNING: Worker count is tuned to avoid CPU scheduling contention. Talk to #team-devex before changing.
                   python -m granian --interface asgi posthog.asgi:application --host 0.0.0.0 --port 8000 --log-level debug --workers 2 &> /tmp/server.log &
                   # Start the Node.js ingestion container now that the database exists and migrations have run.
-                  docker compose -f docker-compose.dev.yml --profile capture --profile ingestion up -d plugins
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=capture,ingestion bin/ci-wait-for-docker launch plugins
 
             # Install Playwright browsers while we wait for PostHog to be ready
             - name: Install Playwright browsers
@@ -429,9 +405,10 @@ jobs:
                   verbose: true
 
             - name: Wait for ingestion service to be ready
-              run: bin/wait-for-docker plugins
               env:
+                  COMPOSE_FILE: docker-compose.dev.yml
                   COMPOSE_PROFILES: capture,ingestion
+              run: bin/ci-wait-for-docker wait plugins
 
             - name: Run Playwright tests
               id: playwright-tests
