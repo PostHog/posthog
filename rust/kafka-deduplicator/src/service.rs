@@ -189,6 +189,7 @@ impl KafkaDeduplicatorService {
                 .max_concurrent_checkpoint_file_downloads,
             max_concurrent_checkpoint_file_uploads: config.max_concurrent_checkpoint_file_uploads,
             checkpoint_partition_import_timeout: config.checkpoint_partition_import_timeout(),
+            local_checkpoint_max_staleness: config.local_checkpoint_max_staleness(),
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
@@ -317,7 +318,8 @@ impl KafkaDeduplicatorService {
             self.config.rebalance_cleanup_parallelism,
             self.config.fail_open,
         )
-        .with_checkpoint_importer(self.checkpoint_importer.clone());
+        .with_checkpoint_importer(self.checkpoint_importer.clone())
+        .with_local_checkpoint_staleness(self.config.local_checkpoint_max_staleness());
 
         // Configure pipeline-specific options for ingestion events
         if self.config.pipeline_type == PipelineType::IngestionEvents {
