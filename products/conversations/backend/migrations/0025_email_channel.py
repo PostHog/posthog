@@ -39,7 +39,7 @@ class Migration(migrations.Migration):
             name="EmailMessageMapping",
             fields=[
                 ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
-                ("message_id", models.CharField(max_length=255, unique=True, db_index=True)),
+                ("message_id", models.CharField(max_length=255, db_index=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (
                     "team",
@@ -65,6 +65,9 @@ class Migration(migrations.Migration):
             ],
             options={
                 "db_table": "posthog_conversations_email_message_mapping",
+                "constraints": [
+                    models.UniqueConstraint(fields=["message_id", "team"], name="unique_message_per_team"),
+                ],
             },
         ),
         # Ticket email fields
