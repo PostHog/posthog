@@ -69,6 +69,7 @@ export type IngestionConsumerConfig = {
     INGESTION_AI_EVENT_SPLITTING_ENABLED: boolean
     /** '*' for all teams, or comma-separated team IDs */
     INGESTION_AI_EVENT_SPLITTING_TEAMS: string
+    INGESTION_AI_EVENT_SPLITTING_STRIP_HEAVY: boolean
 
     // Clickhouse topics
     CLICKHOUSE_JSON_EVENTS_KAFKA_TOPIC: string
