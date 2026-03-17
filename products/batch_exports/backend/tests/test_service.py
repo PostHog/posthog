@@ -11,7 +11,7 @@ from products.batch_exports.backend.service import (
     PostgresBatchExportInputs,
     RedshiftBatchExportInputs,
     S3BatchExportInputs,
-    acreate_batch_export_backfill,
+    aget_or_create_batch_export_backfill,
 )
 
 DESTINATION_INPUTS = {
@@ -155,7 +155,7 @@ async def batch_export(ateam):
 
 
 async def test_creates_new_backfill(ateam, batch_export):
-    backfill = await acreate_batch_export_backfill(
+    backfill = await aget_or_create_batch_export_backfill(
         batch_export_id=batch_export.id,
         team_id=ateam.id,
         start_at="2024-01-01T00:00:00+00:00",
@@ -170,7 +170,7 @@ async def test_creates_new_backfill(ateam, batch_export):
 
 async def test_creates_new_backfill_with_preset_id(ateam, batch_export):
     backfill_id = str(uuid.uuid4())
-    backfill = await acreate_batch_export_backfill(
+    backfill = await aget_or_create_batch_export_backfill(
         batch_export_id=batch_export.id,
         team_id=ateam.id,
         start_at="2024-01-01T00:00:00+00:00",
@@ -191,8 +191,8 @@ async def test_returns_existing_backfill_on_retry_with_same_id(ateam, batch_expo
         "backfill_id": backfill_id,
     }
 
-    first = await acreate_batch_export_backfill(**kwargs)
-    second = await acreate_batch_export_backfill(**kwargs)
+    first = await aget_or_create_batch_export_backfill(**kwargs)
+    second = await aget_or_create_batch_export_backfill(**kwargs)
 
     assert str(first.id) == str(second.id)
     assert await BatchExportBackfill.objects.filter(id=backfill_id).acount() == 1
@@ -206,7 +206,7 @@ async def test_creates_backfill_without_id_does_not_deduplicate(ateam, batch_exp
         "end_at": "2024-01-02T00:00:00+00:00",
     }
 
-    first = await acreate_batch_export_backfill(**kwargs)
-    second = await acreate_batch_export_backfill(**kwargs)
+    first = await aget_or_create_batch_export_backfill(**kwargs)
+    second = await aget_or_create_batch_export_backfill(**kwargs)
 
     assert first.id != second.id

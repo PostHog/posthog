@@ -954,7 +954,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     return batch_export
 
 
-async def acreate_batch_export_backfill(
+async def aget_or_create_batch_export_backfill(
     batch_export_id: UUID,
     team_id: int,
     start_at: str | None,
