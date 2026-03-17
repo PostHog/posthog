@@ -1,7 +1,6 @@
 name: Storybook
 on:
     pull_request:
-        types: [opened, synchronize, reopened, labeled, unlabeled]
     merge_group:
     push:
         branches:
@@ -439,9 +438,9 @@ jobs:
                       const body = `${marker}
                       ### Storybook visual regression tests failed
 
-                      **If your changes intentionally update UI snapshots:** add the \`update-snapshots\` label to this PR and re-run CI. Snapshots will be auto-committed.
+                      **If your changes intentionally update UI snapshots:** add the \`update-snapshots\` label, then push an empty commit or merge master to trigger a new run. Snapshots will be auto-committed.
 
-                      **If you didn't change any UI:** this is likely a flaky snapshot. No action needed on your part — wait for fixes to land on master.`.replace(/^                      /gm, '');
+                      **If you didn't change any UI:** this is likely a flaky snapshot — wait for a fix to land on master.`.replace(/^                      /gm, '');
 
                       if (existing) {
                           await github.rest.issues.updateComment({
