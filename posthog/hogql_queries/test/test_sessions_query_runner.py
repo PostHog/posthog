@@ -994,6 +994,58 @@ class TestSessionsQueryRunner(ClickhouseTestMixin, APIBaseTest):
                     f"Expected 0 results for operator '{operator}' but got {len(response.results)}"
                 )
 
+    @parameterized.expand(
+        [
+            ("gt_match", "gt", 20, True),
+            ("gt_no_match", "gt", 30, False),
+            ("lt_match", "lt", 30, True),
+            ("lt_no_match", "lt", 20, False),
+            ("gte_match_greater", "gte", 20, True),
+            ("gte_match_equal", "gte", 25, True),
+            ("gte_no_match", "gte", 30, False),
+            ("lte_match_less", "lte", 30, True),
+            ("lte_match_equal", "lte", 25, True),
+            ("lte_no_match", "lte", 20, False),
+        ],
+    )
+    def test_person_property_filter_numeric_operators(self, _name, operator, value, expected_match):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["numeric_user"],
+            properties={"age": 25},
+        )
+
+        with freeze_time("2024-01-01T12:00:00Z"):
+            _create_event(
+                team=self.team,
+                event="$pageview",
+                distinct_id="numeric_user",
+                timestamp="2024-01-01T12:00:00Z",
+                properties={"$session_id": str(uuid7("2024-01-01T12:00:00Z"))},
+            )
+        flush_persons_and_events()
+
+        with freeze_time("2024-01-01T14:00:00Z"):
+            query = SessionsQuery(
+                after="2024-01-01",
+                kind="SessionsQuery",
+                select=["session_id"],
+                properties=[PersonPropertyFilter(key="age", value=value, operator=operator, type="person")],
+            )
+
+            runner = SessionsQueryRunner(query=query, team=self.team)
+            response = runner.run()
+
+            assert isinstance(response, CachedSessionsQueryResponse)
+            if expected_match:
+                assert len(response.results) == 1, (
+                    f"Expected 1 result for operator '{operator}' with value {value} but got {len(response.results)}"
+                )
+            else:
+                assert len(response.results) == 0, (
+                    f"Expected 0 results for operator '{operator}' with value {value} but got {len(response.results)}"
+                )
+
     def test_supported_operators_constant_is_complete(self):
         """Verify that the SUPPORTED_PERSON_PROPERTY_OPERATORS constant contains expected operators."""
         expected_operators = {
