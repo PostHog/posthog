@@ -8,6 +8,17 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
+ * * `active` - Active
+ * `paused` - Paused
+ */
+export type EvaluationStatusEnumApi = (typeof EvaluationStatusEnumApi)[keyof typeof EvaluationStatusEnumApi]
+
+export const EvaluationStatusEnumApi = {
+    Active: 'active',
+    Paused: 'paused',
+} as const
+
+/**
  * * `llm_judge` - LLM as a judge
  * `hog` - Hog
  */
@@ -122,6 +133,12 @@ export interface EvaluationApi {
     name: string
     description?: string
     enabled?: boolean
+    readonly status: EvaluationStatusEnumApi
+    readonly consecutive_failures: number
+    /** @nullable */
+    readonly paused_reason: string | null
+    /** @nullable */
+    readonly paused_at: string | null
     evaluation_type: EvaluationTypeEnumApi
     evaluation_config?: unknown
     output_type: OutputTypeEnumApi
@@ -1010,7 +1027,21 @@ export type EvaluationsListParams = {
      * Search in name or description
      */
     search?: string
+    /**
+ * Filter by system status
+
+* `active` - Active
+* `paused` - Paused
+ */
+    status?: EvaluationsListStatus
 }
+
+export type EvaluationsListStatus = (typeof EvaluationsListStatus)[keyof typeof EvaluationsListStatus]
+
+export const EvaluationsListStatus = {
+    Active: 'active',
+    Paused: 'paused',
+} as const
 
 export type LlmAnalyticsClusteringJobsListParams = {
     /**

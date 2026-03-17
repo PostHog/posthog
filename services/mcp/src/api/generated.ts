@@ -12216,6 +12216,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `active` - Active
+    * `paused` - Paused
+     */
+    export type EvaluationStatusEnum = typeof EvaluationStatusEnum[keyof typeof EvaluationStatusEnum];
+
+
+    export const EvaluationStatusEnum = {
+      Active: 'active',
+      Paused: 'paused',
+    } as const;
+
+    /**
      * * `llm_judge` - LLM as a judge
     * `hog` - Hog
      */
@@ -12274,6 +12286,12 @@ export namespace Schemas {
       name: string;
       description?: string;
       enabled?: boolean;
+      readonly status: EvaluationStatusEnum;
+      readonly consecutive_failures: number;
+      /** @nullable */
+      readonly paused_reason: string | null;
+      /** @nullable */
+      readonly paused_at: string | null;
       evaluation_type: EvaluationTypeEnum;
       evaluation_config?: unknown;
       output_type: OutputTypeEnum;
@@ -20638,6 +20656,12 @@ export namespace Schemas {
       name?: string;
       description?: string;
       enabled?: boolean;
+      readonly status?: EvaluationStatusEnum;
+      readonly consecutive_failures?: number;
+      /** @nullable */
+      readonly paused_reason?: string | null;
+      /** @nullable */
+      readonly paused_at?: string | null;
       evaluation_type?: EvaluationTypeEnum;
       evaluation_config?: unknown;
       output_type?: OutputTypeEnum;
@@ -28624,7 +28648,22 @@ export namespace Schemas {
      * Search in name or description
      */
     search?: string;
+    /**
+     * Filter by system status
+
+    * `active` - Active
+    * `paused` - Paused
+     */
+    status?: EvaluationsListStatus;
     };
+
+    export type EvaluationsListStatus = typeof EvaluationsListStatus[keyof typeof EvaluationsListStatus];
+
+
+    export const EvaluationsListStatus = {
+      Active: 'active',
+      Paused: 'paused',
+    } as const;
 
     export type HealthIssuesListParams = {
     /**
