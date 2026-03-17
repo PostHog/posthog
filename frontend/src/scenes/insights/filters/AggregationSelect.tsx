@@ -38,14 +38,12 @@ type AggregationSelectProps = {
     className?: string
     hogqlAvailable?: boolean
     value?: string
-    disabledReason?: string
 }
 
 export function AggregationSelect({
     insightProps,
     className,
     hogqlAvailable,
-    disabledReason,
 }: AggregationSelectProps): JSX.Element | null {
     const { querySource, isLifecycle, hasOnlyDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
@@ -166,7 +164,6 @@ export function AggregationSelect({
                     onChange(newValue)
                 }
             }}
-            disabledReason={disabledReason}
             data-attr="retention-aggregation-selector"
             dropdownMatchSelectWidth={false}
             options={optionSections}
