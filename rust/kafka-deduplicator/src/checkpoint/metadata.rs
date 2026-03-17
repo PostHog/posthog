@@ -112,9 +112,14 @@ impl CheckpointMetadata {
         let json = self.to_json().context("In write_to_dir")?;
         let path = dir.join(METADATA_FILENAME);
         let tmp_path = dir.join(".metadata.json.tmp");
-        tokio::fs::write(&tmp_path, json)
-            .await
-            .with_context(|| format!("Failed to write temp metadata to: {tmp_path:?}"))?;
+        if let Err(e) = tokio::fs::write(&tmp_path, json).await {
+            // Clean up partial tmp file on write failure
+            let _ = tokio::fs::remove_file(&tmp_path).await;
+            return Err(e)
+                .with_context(|| format!("Failed to write temp metadata to: {tmp_path:?}"));
+        }
+        // rename(2) atomically replaces the destination on Unix, so concurrent
+        // readers see either the old or new file, never a partial write.
         tokio::fs::rename(&tmp_path, &path)
             .await
             .with_context(|| format!("Failed to rename temp metadata to: {path:?}"))?;
@@ -621,6 +626,7 @@ mod tests {
 
         let base_path = Path::new("/data/stores");
         let store_path = metadata.get_store_path(base_path);
-        assert_eq!(store_path, PathBuf::from("/data/stores/org/team/events/0"));
+        // Slashes are replaced with underscores to keep a two-level directory structure
+        assert_eq!(store_path, PathBuf::from("/data/stores/org_team_events/0"));
     }
 }

@@ -594,6 +594,7 @@ impl StoreManager {
             };
 
             let mut topic_has_owned = false;
+            let mut unowned_partition_paths: Vec<PathBuf> = Vec::new();
             while let Ok(Some(partition_entry)) = partition_dirs.next_entry().await {
                 let is_dir = partition_entry
                     .file_type()
@@ -608,13 +609,16 @@ impl StoreManager {
                 if owned_paths.contains(&partition_path) {
                     topic_has_owned = true;
                 } else {
-                    unowned_paths.push(partition_path);
+                    unowned_partition_paths.push(partition_path);
                 }
             }
 
-            // If no owned partitions remain under this topic dir, clean up the topic dir itself
             if !topic_has_owned {
+                // No owned partitions remain — delete the whole topic dir in one shot
                 unowned_paths.push(topic_path);
+            } else {
+                // Only delete unowned partitions; keep topic dir for owned children
+                unowned_paths.extend(unowned_partition_paths);
             }
         }
 
@@ -2291,6 +2295,7 @@ mod tests {
 
     mod try_restore_local_store_tests {
         use super::*;
+        use crate::checkpoint::config::DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS;
         use crate::checkpoint::metadata::CheckpointMetadata;
         use crate::test_utils::create_test_store_manager;
         use crate::utils::format_store_path;
@@ -2308,7 +2313,11 @@ mod tests {
             metadata.write_to_dir(&store_path).await.unwrap();
 
             let result = manager
-                .try_restore_local_store("test-topic", 0, Duration::from_secs(7200))
+                .try_restore_local_store(
+                    "test-topic",
+                    0,
+                    Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
+                )
                 .await;
 
             assert!(result.is_some(), "Should return metadata for fresh store");
@@ -2324,7 +2333,11 @@ mod tests {
 
             // No metadata.json written — directory doesn't even exist
             let result = manager
-                .try_restore_local_store("test-topic", 0, Duration::from_secs(7200))
+                .try_restore_local_store(
+                    "test-topic",
+                    0,
+                    Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
+                )
                 .await;
 
             assert!(
@@ -2361,7 +2374,11 @@ mod tests {
 
             // 2h max staleness — 3h old timestamp should be stale
             let result = manager
-                .try_restore_local_store("test-topic", 0, Duration::from_secs(7200))
+                .try_restore_local_store(
+                    "test-topic",
+                    0,
+                    Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
+                )
                 .await;
 
             assert!(result.is_none(), "Should return None for stale metadata");
@@ -2381,7 +2398,11 @@ mod tests {
                 .unwrap();
 
             let result = manager
-                .try_restore_local_store("test-topic", 0, Duration::from_secs(7200))
+                .try_restore_local_store(
+                    "test-topic",
+                    0,
+                    Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
+                )
                 .await;
 
             assert!(result.is_none(), "Should return None for corrupt metadata");
