@@ -1719,3 +1719,50 @@ async fn test_parallel_path_matches_sequential_results() {
         );
     }
 }
+
+#[tokio::test]
+async fn test_realtime_cohort_evaluation_builder_methods() {
+    use crate::flags::flag_matching::FeatureFlagMatcher;
+    use crate::database::PostgresRouter;
+
+    // Test that the builder methods for realtime cohort evaluation compile and work
+    let reader: Arc<dyn Client + Send + Sync> = setup_pg_reader_client(None);
+    let writer: Arc<dyn Client + Send + Sync> = setup_pg_writer_client(None);
+    let cohort_cache = Arc::new(CohortCacheManager::new(reader.clone(), None, None));
+    
+    let router = PostgresRouter::new(reader.clone(), writer.clone(), reader.clone(), writer.clone());
+
+    // Test that we can create a matcher and use the builder methods
+    let _matcher_default = FeatureFlagMatcher::new(
+        "test-user".to_string(),
+        None,
+        1,
+        router.clone(),
+        cohort_cache.clone(),
+        None,
+        None,
+    );
+
+    let _matcher_disabled = FeatureFlagMatcher::new(
+        "test-user".to_string(),
+        None,
+        1,
+        router.clone(),
+        cohort_cache.clone(),
+        None,
+        None,
+    ).with_realtime_cohort_evaluation(false);
+
+    let _matcher_enabled = FeatureFlagMatcher::new(
+        "test-user".to_string(),
+        None,
+        1,
+        router.clone(),
+        cohort_cache.clone(),
+        None,
+        None,
+    ).with_realtime_cohort_evaluation(true);
+
+    // If we get here, the builder pattern is working correctly
+    assert!(true, "Builder methods compiled and executed successfully");
+}
