@@ -12,6 +12,7 @@ from posthog.session_recordings.session_recording_api import (
     SNAPSHOT_RATES,
     SNAPSHOTS_TIER_CACHE_TTL_SECONDS,
     SnapshotsBurstRateThrottle,
+    SnapshotsSustainedRateThrottle,
     _org_tier_from_features,
     _snapshot_rates,
     get_cached_org_tier,
@@ -150,6 +151,7 @@ class TestSnapshotRatesConfig(BaseTest):
 
         expected_rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_burst"]
         assert throttle.rate == expected_rate
+        assert throttle.scope == "snapshots_burst_free"
 
 
 class TestTierAwareSnapshotThrottle(BaseTest):
@@ -162,6 +164,7 @@ class TestTierAwareSnapshotThrottle(BaseTest):
 
         expected_rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_burst"]
         assert throttle.rate == expected_rate
+        assert throttle.scope == "snapshots_burst_free"
 
     @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier")
     def test_skips_tier_lookup_for_non_personal_api_key_requests(self, mock_tier) -> None:
@@ -173,6 +176,7 @@ class TestTierAwareSnapshotThrottle(BaseTest):
 
         mock_tier.assert_not_called()
         assert throttle.rate == original_rate
+        assert throttle.scope == "snapshots_burst"
 
     @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier", return_value="paid")
     def test_applies_tier_rates_for_personal_api_key_requests(self, _mock_tier) -> None:
@@ -182,6 +186,7 @@ class TestTierAwareSnapshotThrottle(BaseTest):
         throttle.allow_request(request=_fake_personal_api_key_request(), view=view)
 
         assert throttle.rate == SNAPSHOT_RATES["paid"]["snapshots_burst"]
+        assert throttle.scope == "snapshots_burst_paid"
 
     def test_missing_team_id_applies_free_tier_rates(self) -> None:
         throttle = SnapshotsBurstRateThrottle()
@@ -191,6 +196,7 @@ class TestTierAwareSnapshotThrottle(BaseTest):
 
         expected_rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_burst"]
         assert throttle.rate == expected_rate
+        assert throttle.scope == "snapshots_burst_free"
 
     @override_settings(SNAPSHOT_RATE_PAID_BURST="200/minute")
     @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier", return_value="paid")
@@ -201,6 +207,25 @@ class TestTierAwareSnapshotThrottle(BaseTest):
         throttle.allow_request(request=_fake_personal_api_key_request(), view=view)
 
         assert throttle.rate == "200/minute"
+
+
+class TestApplyTierRatesSetsScope(BaseTest):
+    @parameterized.expand(
+        [
+            ("burst_free", SnapshotsBurstRateThrottle, "free", "snapshots_burst_free"),
+            ("burst_paid", SnapshotsBurstRateThrottle, "paid", "snapshots_burst_paid"),
+            ("burst_enterprise", SnapshotsBurstRateThrottle, "enterprise", "snapshots_burst_enterprise"),
+            ("sustained_free", SnapshotsSustainedRateThrottle, "free", "snapshots_sustained_free"),
+            ("sustained_paid", SnapshotsSustainedRateThrottle, "paid", "snapshots_sustained_paid"),
+            ("sustained_enterprise", SnapshotsSustainedRateThrottle, "enterprise", "snapshots_sustained_enterprise"),
+        ]
+    )
+    def test_scope_includes_tier(self, _name: str, throttle_class: type, tier: str, expected_scope: str) -> None:
+        throttle = throttle_class()
+
+        throttle._apply_tier_rates(tier)
+
+        assert throttle.scope == expected_scope
 
 
 class TestSnapshotRatesFromSettings(BaseTest):
