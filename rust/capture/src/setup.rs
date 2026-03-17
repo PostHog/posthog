@@ -45,10 +45,7 @@ pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) ->
         .with_stall_threshold(4);
 
     let (sink, advisory) = if config.s3_fallback_enabled {
-        let kafka = manager.register(
-            "kafka-sink",
-            sink_opts.clone().is_advisory(true),
-        );
+        let kafka = manager.register("kafka-sink", sink_opts.clone().is_advisory(true));
         let s3 = manager.register("s3-sink", sink_opts);
         (s3, Some(kafka))
     } else {
