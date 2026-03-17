@@ -46,6 +46,12 @@ export const ToolConfigSchema = z
          * correct operation.
          */
         soft_delete: z.boolean().optional(),
+        /**
+         * When true, the tool is only available when the organization has approved
+         * AI data processing (`is_ai_data_processing_approved`). Tools that invoke
+         * LLMs internally should set this to true.
+         */
+        requires_ai_consent: z.boolean().optional(),
     })
     .strict()
     .refine(

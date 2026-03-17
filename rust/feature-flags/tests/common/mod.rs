@@ -13,7 +13,6 @@ use reqwest::header::CONTENT_TYPE;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
-use feature_flags::cohorts::membership::NoOpCohortMembershipProvider;
 use feature_flags::config::Config;
 use feature_flags::rayon_dispatcher::RayonDispatcher;
 use feature_flags::server::serve;
@@ -332,7 +331,6 @@ impl ServerHandle {
                 config_hypercache_reader,
                 RayonDispatcher::new(2, None),
                 NegativeCache::new(10_000, 300),
-                Arc::new(NoOpCohortMembershipProvider),
                 config,
             );
 

@@ -33,6 +33,7 @@ class Product(StrEnum):
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
     WAREHOUSE = "warehouse"
+    WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
 
@@ -44,6 +45,7 @@ class Feature(StrEnum):
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
+    HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
 
 
