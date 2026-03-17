@@ -2359,7 +2359,7 @@
       version UInt64,
       last_seen_at Nullable(DateTime64)
       
-      , 
+      
   , _timestamp DateTime
   , _offset UInt64
   
@@ -5368,7 +5368,7 @@
       is_deleted Int8,
       version UInt64,
       last_seen_at Nullable(DateTime64)
-      , 
+      
   , _timestamp DateTime
   , _offset UInt64
   
@@ -6276,7 +6276,7 @@
       version UInt64,
       last_seen_at Nullable(DateTime64)
       
-      , 
+      
   , _timestamp DateTime
   , _offset UInt64
   

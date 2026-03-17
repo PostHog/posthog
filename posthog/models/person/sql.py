@@ -53,7 +53,7 @@ def PERSONS_TABLE_SQL(on_cluster=True):
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         engine=PERSONS_TABLE_ENGINE(),
         extra_fields=f"""
-    , {KAFKA_COLUMNS}
+    {KAFKA_COLUMNS}
     , {index_by_kafka_timestamp(PERSONS_TABLE)}
     """,
         storage_policy=STORAGE_POLICY(),
@@ -99,7 +99,7 @@ def PERSONS_WRITABLE_TABLE_SQL():
         table_name=PERSONS_WRITABLE_TABLE,
         on_cluster_clause=ON_CLUSTER_CLAUSE(False),
         engine=Distributed(data_table=PERSONS_TABLE, cluster=settings.CLICKHOUSE_SINGLE_SHARD_CLUSTER),
-        extra_fields=f", {KAFKA_COLUMNS}",
+        extra_fields=KAFKA_COLUMNS,
     )
 
 
