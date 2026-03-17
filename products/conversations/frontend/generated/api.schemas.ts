@@ -374,6 +374,10 @@ export interface TicketApi {
     readonly slack_thread_ts: string | null
     /** @nullable */
     readonly slack_team_id: string | null
+    /** @nullable */
+    readonly email_subject: string | null
+    /** @nullable */
+    readonly email_from: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -423,6 +427,10 @@ export interface PatchedTicketApi {
     readonly slack_thread_ts?: string | null
     /** @nullable */
     readonly slack_team_id?: string | null
+    /** @nullable */
+    readonly email_subject?: string | null
+    /** @nullable */
+    readonly email_from?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }
