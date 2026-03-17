@@ -8,11 +8,16 @@ import { generate } from 'orval'
  *
  * @param {Array<{config: object, label: string}>} jobs
  *   Each `config` is an Orval config object: `{ input, output }`.
- * @param {object} opts
+ * @param {object} [opts]
  * @param {number} [opts.concurrency=10] - max parallel Orval generations
  * @returns {Promise<Array<{status: 'fulfilled', label: string} | {status: 'rejected', label: string, reason: Error}>>}
  */
 export async function runOrvalParallel(jobs, { concurrency = 10 } = {}) {
+    if (jobs.length === 0) {
+        return []
+    }
+    concurrency = Math.max(1, concurrency)
+
     const results = []
     let index = 0
 
