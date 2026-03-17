@@ -471,11 +471,15 @@ export function getProducerTeamMapping(stringMapping: string): CyclotronJobQueue
             }
             const sum = entries.reduce((acc, e) => acc + e.percentage, 0)
             if (sum < 1 - PERCENTAGE_TOLERANCE) {
-                const fallbackTarget = teamRouting['*'][0].target
-                entries.push({
-                    target: fallbackTarget,
-                    percentage: 1 - sum,
-                })
+                const fallbackEntries = teamRouting['*']
+                const remainder = 1 - sum
+                const fallbackSum = fallbackEntries.reduce((acc, e) => acc + e.percentage, 0)
+                for (const fallback of fallbackEntries) {
+                    entries.push({
+                        target: fallback.target,
+                        percentage: (fallback.percentage / fallbackSum) * remainder,
+                    })
+                }
             }
         }
 

@@ -311,6 +311,16 @@ describe('getProducerTeamMapping', () => {
         expect(result['79155']['hog'][1].percentage).toBeCloseTo(0.999)
     })
 
+    it('should fill remainder proportionally from multi-target * default', () => {
+        const result = getProducerTeamMapping('79155:*:kafka:0.7,79155:*:postgres:0.3,79155:hog:postgres-v2:0.1')
+        expect(result['79155']['hog']).toHaveLength(3)
+        expect(result['79155']['hog'][0]).toEqual({ target: 'postgres-v2', percentage: 0.1 })
+        expect(result['79155']['hog'][1].target).toBe('kafka')
+        expect(result['79155']['hog'][1].percentage).toBeCloseTo(0.63)
+        expect(result['79155']['hog'][2].target).toBe('postgres')
+        expect(result['79155']['hog'][2].percentage).toBeCloseTo(0.27)
+    })
+
     it('should not fill remainder when percentages already sum to 1', () => {
         const result = getProducerTeamMapping('79155:*:kafka,79155:hog:postgres-v2:0.5,79155:hog:kafka:0.5')
         expect(result['79155']['hog']).toEqual([
