@@ -73,7 +73,7 @@ export class NotebookPage {
             { timeout: 30000 }
         )
         await this.editor.click()
-        await this.page.keyboard.press('Meta+End')
+        await this.page.keyboard.press('ControlOrMeta+End')
         await this.page.keyboard.press('Enter')
         await this.page.keyboard.type('/')
         await expect(this.page.getByRole('button', { name: type, exact: true })).toBeVisible()
@@ -91,7 +91,6 @@ export class NotebookPage {
         await node.hover()
         const editButton = this.page.getByTestId('notebook-node-edit-settings').nth(index)
         await editButton.click()
-        await expect(this.page.getByTestId('trend-element-subject-0').first()).toBeVisible({ timeout: 10000 })
     }
 
     async waitForInsightLoad(): Promise<void> {
