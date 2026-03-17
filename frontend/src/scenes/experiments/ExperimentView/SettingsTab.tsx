@@ -27,6 +27,9 @@ export function SettingsTab(): JSX.Element {
 
     const returnTo = `${urls.experiment(experiment.id)}`
 
+    const shouldShowSignificanceAlerts =
+        featureFlags[FEATURE_FLAGS.EXPERIMENT_SIGNIFICANCE_ALERTS] && typeof experiment.id === 'number'
+
     return (
         <div className="flex flex-col gap-8">
             <div>
@@ -39,7 +42,7 @@ export function SettingsTab(): JSX.Element {
                 </div>
                 <StatsMethodModal />
             </div>
-            {featureFlags[FEATURE_FLAGS.EXPERIMENT_SIGNIFICANCE_ALERTS] && (
+            {shouldShowSignificanceAlerts && (
                 <div>
                     <h2 className="font-semibold text-lg">Notifications</h2>
                     <p>Get notified when a metric reaches significance.</p>
