@@ -102,6 +102,9 @@ class TestActivityTypes:
             "emit_internal_telemetry_activity",
             "increment_trial_eval_count_activity",
             "send_trial_usage_email_activity",
+            "record_eval_failure_activity",
+            "record_eval_success_activity",
+            "send_eval_paused_email_activity",
             "update_key_state_activity",
             "emit_eval_signal_activity",
         }

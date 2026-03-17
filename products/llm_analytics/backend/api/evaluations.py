@@ -64,6 +64,10 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "name",
             "description",
             "enabled",
+            "status",
+            "consecutive_failures",
+            "paused_reason",
+            "paused_at",
             "evaluation_type",
             "evaluation_config",
             "output_type",
@@ -75,7 +79,16 @@ class EvaluationSerializer(serializers.ModelSerializer):
             "created_by",
             "deleted",
         ]
-        read_only_fields = ["id", "created_at", "updated_at", "created_by"]
+        read_only_fields = [
+            "id",
+            "status",
+            "consecutive_failures",
+            "paused_reason",
+            "paused_at",
+            "created_at",
+            "updated_at",
+            "created_by",
+        ]
 
     def validate(self, data):
         if "evaluation_config" in data and "output_config" in data:
@@ -145,12 +158,20 @@ class EvaluationSerializer(serializers.ModelSerializer):
                 model_config_data, instance.team_id
             )
 
+        # When a user re-enables a paused evaluation, reset the failure tracking state
+        if validated_data.get("enabled") is True and instance.status == Evaluation.Status.PAUSED:
+            validated_data["status"] = Evaluation.Status.ACTIVE
+            validated_data["consecutive_failures"] = 0
+            validated_data["paused_reason"] = None
+            validated_data["paused_at"] = None
+
         return super().update(instance, validated_data)
 
 
 class EvaluationFilter(django_filters.FilterSet):
     search = django_filters.CharFilter(method="filter_search", help_text="Search in name or description")
     enabled = django_filters.BooleanFilter(help_text="Filter by enabled status")
+    status = django_filters.ChoiceFilter(choices=Evaluation.Status.choices, help_text="Filter by system status")
     order_by = django_filters.OrderingFilter(
         fields=(
             ("created_at", "created_at"),
@@ -169,6 +190,7 @@ class EvaluationFilter(django_filters.FilterSet):
         fields = {
             "id": ["in"],
             "enabled": ["exact"],
+            "status": ["exact"],
         }
 
     def filter_search(self, queryset, name, value):

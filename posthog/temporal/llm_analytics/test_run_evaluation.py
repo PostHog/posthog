@@ -19,12 +19,16 @@ from products.llm_analytics.backend.models.evaluations import Evaluation
 from products.llm_analytics.backend.models.provider_keys import LLMProviderKey
 
 from .run_evaluation import (
+    AUTO_PAUSE_THRESHOLDS,
+    DEFAULT_AUTO_PAUSE_THRESHOLD,
     BooleanEvalResult,
     BooleanWithNAEvalResult,
     EmitEvaluationEventInputs,
     ExecuteLLMJudgeInputs,
+    RecordEvalFailureInputs,
     RunEvaluationInputs,
     RunEvaluationWorkflow,
+    SendEvalPausedEmailInputs,
     SendTrialUsageEmailInputs,
     disable_evaluation_activity,
     emit_evaluation_event_activity,
@@ -32,7 +36,10 @@ from .run_evaluation import (
     execute_llm_judge_activity,
     fetch_evaluation_activity,
     increment_trial_eval_count_activity,
+    record_eval_failure_activity,
+    record_eval_success_activity,
     run_hog_eval,
+    send_eval_paused_email_activity,
     send_trial_usage_email_activity,
 )
 
@@ -1064,3 +1071,197 @@ class TestSendTrialUsageEmailActivity:
             call_kwargs = mock_email_class.call_args[1]
             org_id = str(setup_data["organization"].id)
             assert call_kwargs["campaign_key"] == f"llm_analytics_trial_{threshold_pct}pct_{org_id}"
+
+
+@pytest.mark.django_db(transaction=True)
+class TestRecordEvalFailureActivity:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "error_type,threshold",
+        list(AUTO_PAUSE_THRESHOLDS.items()),
+        ids=list(AUTO_PAUSE_THRESHOLDS.keys()),
+    )
+    async def test_pauses_at_threshold(self, setup_data, error_type, threshold):
+        evaluation = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        # Set failures to one below threshold
+        await sync_to_async(Evaluation.objects.filter(id=evaluation.id).update)(consecutive_failures=threshold - 1)
+
+        result = await record_eval_failure_activity(
+            RecordEvalFailureInputs(
+                evaluation_id=str(evaluation.id),
+                team_id=team.id,
+                error_type=error_type,
+                error_message="test error",
+            )
+        )
+
+        assert result["paused"] is True
+        assert result["consecutive_failures"] == threshold
+
+        updated = await sync_to_async(Evaluation.objects.get)(id=evaluation.id)
+        assert updated.status == Evaluation.Status.PAUSED
+        assert updated.paused_reason == "test error"
+        assert updated.paused_at is not None
+
+    @pytest.mark.asyncio
+    async def test_does_not_pause_below_threshold(self, setup_data):
+        evaluation = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        result = await record_eval_failure_activity(
+            RecordEvalFailureInputs(
+                evaluation_id=str(evaluation.id),
+                team_id=team.id,
+                error_type="unknown_error",
+                error_message="transient failure",
+            )
+        )
+
+        assert result["paused"] is False
+        assert result["consecutive_failures"] == 1
+
+        updated = await sync_to_async(Evaluation.objects.get)(id=evaluation.id)
+        assert updated.status == Evaluation.Status.ACTIVE
+
+    @pytest.mark.asyncio
+    async def test_unknown_error_type_uses_default_threshold(self, setup_data):
+        evaluation = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        await sync_to_async(Evaluation.objects.filter(id=evaluation.id).update)(
+            consecutive_failures=DEFAULT_AUTO_PAUSE_THRESHOLD - 1
+        )
+
+        result = await record_eval_failure_activity(
+            RecordEvalFailureInputs(
+                evaluation_id=str(evaluation.id),
+                team_id=team.id,
+                error_type="some_new_error_type",
+                error_message="unknown error",
+            )
+        )
+
+        assert result["paused"] is True
+
+    @pytest.mark.asyncio
+    async def test_does_not_re_pause_already_paused(self, setup_data):
+        evaluation = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        frozen_time = datetime(2026, 1, 1, tzinfo=UTC)
+        await sync_to_async(Evaluation.objects.filter(id=evaluation.id).update)(
+            consecutive_failures=10,
+            status=Evaluation.Status.PAUSED,
+            paused_reason="original reason",
+            paused_at=frozen_time,
+        )
+
+        result = await record_eval_failure_activity(
+            RecordEvalFailureInputs(
+                evaluation_id=str(evaluation.id),
+                team_id=team.id,
+                error_type="auth_error",
+                error_message="new error",
+            )
+        )
+
+        # Counter increments but status doesn't change
+        assert result["paused"] is False
+        assert result["consecutive_failures"] == 11
+
+        updated = await sync_to_async(Evaluation.objects.get)(id=evaluation.id)
+        assert updated.paused_reason == "original reason"
+        assert updated.paused_at == frozen_time
+
+
+@pytest.mark.django_db(transaction=True)
+class TestRecordEvalSuccessActivity:
+    @pytest.mark.asyncio
+    async def test_resets_failure_counter(self, setup_data):
+        evaluation = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        await sync_to_async(Evaluation.objects.filter(id=evaluation.id).update)(consecutive_failures=3)
+
+        await record_eval_success_activity(str(evaluation.id), team.id)
+
+        updated = await sync_to_async(Evaluation.objects.get)(id=evaluation.id)
+        assert updated.consecutive_failures == 0
+
+    @pytest.mark.asyncio
+    async def test_skips_write_when_already_zero(self, setup_data):
+        evaluation = setup_data["evaluation"]
+        team = setup_data["team"]
+
+        with patch("posthog.temporal.llm_analytics.run_evaluation.Evaluation.objects.filter") as mock_filter:
+            mock_qs = MagicMock()
+            mock_filter.return_value = mock_qs
+            mock_qs.filter.return_value = mock_qs
+            mock_qs.update.return_value = 0  # no rows updated
+
+            await record_eval_success_activity(str(evaluation.id), team.id)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestSendEvalPausedEmailActivity:
+    @pytest.mark.asyncio
+    async def test_sends_email_to_org_members(self, setup_data):
+        team = setup_data["team"]
+        evaluation = setup_data["evaluation"]
+        org = setup_data["organization"]
+
+        from posthog.models import User
+
+        user = await sync_to_async(User.objects.create)(
+            email="test@example.com",
+            distinct_id="test-user-1",
+        )
+        await sync_to_async(org.members.add)(user)
+
+        with (
+            patch("posthog.email.is_email_available", return_value=True),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            mock_message = MagicMock()
+            mock_email_class.return_value = mock_message
+
+            await send_eval_paused_email_activity(
+                SendEvalPausedEmailInputs(
+                    team_id=team.id,
+                    evaluation_id=str(evaluation.id),
+                    evaluation_name="Test Eval",
+                    error_type="auth_error",
+                    error_message="Invalid API key",
+                )
+            )
+
+            mock_email_class.assert_called_once()
+            call_kwargs = mock_email_class.call_args[1]
+            assert call_kwargs["template_name"] == "llm_analytics_eval_auto_paused"
+            assert call_kwargs["campaign_key"] == f"llm_analytics_eval_paused_{evaluation.id}"
+            assert call_kwargs["template_context"]["evaluation_name"] == "Test Eval"
+            assert call_kwargs["template_context"]["error_message"] == "Invalid API key"
+            mock_message.send.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_skips_when_email_unavailable(self, setup_data):
+        team = setup_data["team"]
+        evaluation = setup_data["evaluation"]
+
+        with (
+            patch("posthog.email.is_email_available", return_value=False),
+            patch("posthog.email.EmailMessage") as mock_email_class,
+        ):
+            await send_eval_paused_email_activity(
+                SendEvalPausedEmailInputs(
+                    team_id=team.id,
+                    evaluation_id=str(evaluation.id),
+                    evaluation_name="Test Eval",
+                    error_type="auth_error",
+                    error_message="Invalid API key",
+                )
+            )
+
+            mock_email_class.assert_not_called()

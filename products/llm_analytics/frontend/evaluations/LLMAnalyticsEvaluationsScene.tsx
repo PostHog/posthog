@@ -12,6 +12,7 @@ import {
     LemonTabs,
     LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -127,9 +128,15 @@ function LLMAnalyticsEvaluationsContent({ tabId }: { tabId?: string }): JSX.Elem
                             data-attr="toggle-evaluation-enabled"
                         />
                     </AccessControlAction>
-                    <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
-                        {evaluation.enabled ? 'Enabled' : 'Disabled'}
-                    </span>
+                    {evaluation.status === 'paused' ? (
+                        <Tooltip title={evaluation.paused_reason || 'Paused due to repeated failures'}>
+                            <LemonTag type="warning">Paused</LemonTag>
+                        </Tooltip>
+                    ) : (
+                        <span className={evaluation.enabled ? 'text-success' : 'text-muted'}>
+                            {evaluation.enabled ? 'Enabled' : 'Disabled'}
+                        </span>
+                    )}
                 </div>
             ),
             sorter: (a, b) => Number(b.enabled) - Number(a.enabled),

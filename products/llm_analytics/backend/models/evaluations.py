@@ -13,6 +13,10 @@ logger = structlog.get_logger(__name__)
 
 
 class Evaluation(UUIDTModel):
+    class Status(models.TextChoices):
+        ACTIVE = "active"
+        PAUSED = "paused"
+
     class Meta:
         ordering = ["-created_at", "id"]
         indexes = [
@@ -26,6 +30,13 @@ class Evaluation(UUIDTModel):
     name = models.CharField(max_length=400)
     description = models.TextField(blank=True, default="")
     enabled = models.BooleanField(default=False)
+
+    # System status — an evaluation runs when enabled=True AND status='active'.
+    # 'enabled' is user intent; 'status' is system state (auto-paused on repeated failures).
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
+    consecutive_failures = models.IntegerField(default=0)
+    paused_reason = models.TextField(null=True, blank=True)
+    paused_at = models.DateTimeField(null=True, blank=True)
 
     evaluation_type = models.CharField(max_length=50, choices=EvaluationType.choices)
     evaluation_config = models.JSONField(default=dict)

@@ -231,6 +231,142 @@ async def disable_evaluation_activity(evaluation_id: str, team_id: int) -> None:
     await database_sync_to_async(_disable)()
 
 
+# Thresholds for auto-pausing evaluations after consecutive failures.
+# Lower thresholds for permanent errors that require user action,
+# higher thresholds for transient errors that may self-resolve.
+AUTO_PAUSE_THRESHOLDS: dict[str, int] = {
+    "auth_error": 1,
+    "key_invalid": 1,
+    "permission_error": 1,
+    "quota_error": 3,
+    "rate_limit": 10,
+    "parse_error": 5,
+    "unknown_error": 5,
+}
+
+DEFAULT_AUTO_PAUSE_THRESHOLD = 5
+
+
+@dataclass
+class RecordEvalFailureInputs:
+    evaluation_id: str
+    team_id: int
+    error_type: str
+    error_message: str
+
+
+@temporalio.activity.defn
+async def record_eval_failure_activity(inputs: RecordEvalFailureInputs) -> dict:
+    """Increment consecutive failure count and auto-pause if threshold is reached.
+
+    Returns a dict with 'paused' (bool) and 'consecutive_failures' (int).
+    """
+    from django.db.models import F
+
+    def _record() -> dict:
+        threshold = AUTO_PAUSE_THRESHOLDS.get(inputs.error_type, DEFAULT_AUTO_PAUSE_THRESHOLD)
+        Evaluation.objects.filter(
+            id=inputs.evaluation_id,
+            team_id=inputs.team_id,
+        ).update(consecutive_failures=F("consecutive_failures") + 1)
+
+        evaluation = Evaluation.objects.get(id=inputs.evaluation_id, team_id=inputs.team_id)
+        if evaluation.consecutive_failures >= threshold and evaluation.status == Evaluation.Status.ACTIVE:
+            evaluation.status = Evaluation.Status.PAUSED
+            evaluation.paused_reason = inputs.error_message
+            evaluation.paused_at = datetime.now(tz=UTC)
+            evaluation.save(update_fields=["status", "paused_reason", "paused_at"])
+            return {"paused": True, "consecutive_failures": evaluation.consecutive_failures}
+
+        return {"paused": False, "consecutive_failures": evaluation.consecutive_failures}
+
+    return await database_sync_to_async(_record)()
+
+
+@temporalio.activity.defn
+async def record_eval_success_activity(evaluation_id: str, team_id: int) -> None:
+    """Reset consecutive failure count on a successful evaluation run.
+
+    Only writes to the database when the counter is non-zero to avoid
+    unnecessary writes on the common happy path.
+    """
+
+    def _record():
+        updated = Evaluation.objects.filter(
+            id=evaluation_id,
+            team_id=team_id,
+            consecutive_failures__gt=0,
+        ).update(consecutive_failures=0)
+        if updated:
+            logger.info(
+                "Reset consecutive failure counter",
+                evaluation_id=evaluation_id,
+                team_id=team_id,
+            )
+
+    await database_sync_to_async(_record)()
+
+
+@dataclass
+class SendEvalPausedEmailInputs:
+    team_id: int
+    evaluation_id: str
+    evaluation_name: str
+    error_type: str
+    error_message: str
+
+
+@temporalio.activity.defn
+async def send_eval_paused_email_activity(inputs: SendEvalPausedEmailInputs) -> None:
+    """Send an email to org members when an evaluation is auto-paused due to repeated failures."""
+
+    def _send():
+        from posthog.email import EmailMessage, is_email_available
+
+        if not is_email_available(with_absolute_urls=True):
+            logger.info(
+                "Email not available, skipping eval paused notification",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+            )
+            return
+
+        try:
+            team = Team.objects.select_related("organization").get(id=inputs.team_id)
+        except Team.DoesNotExist:
+            logger.warning("Team not found for eval paused email", team_id=inputs.team_id)
+            return
+
+        evaluations_url = f"/project/{team.pk}/llm-analytics/evaluations"
+        campaign_key = f"llm_analytics_eval_paused_{inputs.evaluation_id}"
+
+        message = EmailMessage(
+            campaign_key=campaign_key,
+            subject=f'Your evaluation "{inputs.evaluation_name}" has been paused',
+            template_name="llm_analytics_eval_auto_paused",
+            template_context={
+                "evaluation_name": inputs.evaluation_name,
+                "error_type": inputs.error_type,
+                "error_message": inputs.error_message,
+                "evaluations_url": evaluations_url,
+            },
+        )
+
+        for user in team.organization.members.all():
+            message.add_user_recipient(user)
+
+        if message.to:
+            message.send()
+            logger.info(
+                "Sent eval paused email",
+                team_id=inputs.team_id,
+                evaluation_id=inputs.evaluation_id,
+                recipient_count=len(message.to),
+            )
+
+    await database_sync_to_async(_send)()
+
+
 @dataclass
 class SendTrialUsageEmailInputs:
     team_id: int
@@ -867,6 +1003,49 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             event_data=json.loads(inputs[1]),
         )
 
+    async def _record_failure_and_maybe_pause(self, evaluation: dict, error_type: str, error_message: str) -> None:
+        """Record a failure and send a pause notification email if the evaluation was auto-paused."""
+        try:
+            failure_result = await temporalio.workflow.execute_activity(
+                record_eval_failure_activity,
+                RecordEvalFailureInputs(
+                    evaluation_id=evaluation["id"],
+                    team_id=evaluation["team_id"],
+                    error_type=error_type,
+                    error_message=error_message,
+                ),
+                activity_id=f"record-eval-failure-{evaluation['id']}",
+                schedule_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+            if failure_result.get("paused"):
+                try:
+                    await temporalio.workflow.execute_activity(
+                        send_eval_paused_email_activity,
+                        SendEvalPausedEmailInputs(
+                            team_id=evaluation["team_id"],
+                            evaluation_id=evaluation["id"],
+                            evaluation_name=evaluation.get("name", "Unknown evaluation"),
+                            error_type=error_type,
+                            error_message=error_message,
+                        ),
+                        activity_id=f"send-eval-paused-email-{evaluation['id']}",
+                        schedule_to_close_timeout=timedelta(seconds=30),
+                        retry_policy=RetryPolicy(maximum_attempts=2),
+                    )
+                except Exception:
+                    temporalio.workflow.logger.exception(
+                        "Failed to send eval paused email",
+                        evaluation_id=evaluation["id"],
+                        team_id=evaluation["team_id"],
+                    )
+        except Exception:
+            temporalio.workflow.logger.exception(
+                "Failed to record eval failure",
+                evaluation_id=evaluation["id"],
+                team_id=evaluation["team_id"],
+            )
+
     @temporalio.workflow.run
     async def run(self, inputs: RunEvaluationInputs) -> dict[str, Any]:
         start_time = temporalio.workflow.now()
@@ -925,6 +1104,10 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                                         "Failed to send trial exhausted email",
                                         team_id=evaluation["team_id"],
                                     )
+
+                        if temporalio.workflow.patched("eval-auto-pause") and error_type != "trial_limit_reached":
+                            await self._record_failure_and_maybe_pause(evaluation, error_type, e.cause.message)
+
                         return {
                             "verdict": None,
                             "skipped": True,
@@ -946,6 +1129,14 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                             schedule_to_close_timeout=timedelta(seconds=10),
                             retry_policy=RetryPolicy(maximum_attempts=2),
                         )
+
+                    if temporalio.workflow.patched("eval-auto-pause") and error_type:
+                        await self._record_failure_and_maybe_pause(evaluation, error_type, e.cause.message)
+                else:
+                    # Unstructured error — record as unknown
+                    if temporalio.workflow.patched("eval-auto-pause"):
+                        await self._record_failure_and_maybe_pause(evaluation, "unknown_error", str(e))
+
                 raise
 
             # Increment trial eval counter if using PostHog key (LLM judge only — no cost for hog evals)
@@ -991,6 +1182,23 @@ class RunEvaluationWorkflow(PostHogWorkflow):
         except Exception:
             increment_errors("emit_evaluation_event_failed")
             raise
+
+        # Reset consecutive failure counter on success (LLM judge only)
+        if evaluation_type != "hog" and temporalio.workflow.patched("eval-auto-pause"):
+            try:
+                await temporalio.workflow.execute_activity(
+                    record_eval_success_activity,
+                    args=[evaluation["id"], evaluation["team_id"]],
+                    activity_id=f"record-eval-success-{evaluation['id']}",
+                    schedule_to_close_timeout=timedelta(seconds=10),
+                    retry_policy=RetryPolicy(maximum_attempts=2),
+                )
+            except Exception:
+                temporalio.workflow.logger.exception(
+                    "Failed to record eval success",
+                    evaluation_id=evaluation["id"],
+                    team_id=evaluation["team_id"],
+                )
 
         # Activity 5: Emit internal telemetry (fire-and-forget)
         await temporalio.workflow.execute_activity(
