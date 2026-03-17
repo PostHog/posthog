@@ -32,6 +32,8 @@ from posthog.models.project import Project
 
 from products.data_warehouse.backend.models.data_modeling_job import DataModelingJob
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable as DataWarehouseTableModel
 from products.error_tracking.backend.models import ErrorTrackingIssue
@@ -131,6 +133,39 @@ def _create_data_warehouse_table(team: Team, label: str) -> DataWarehouseTableMo
     )
 
 
+def _create_source_sync_job(team: Team, label: str) -> ExternalDataJob:
+    source = ExternalDataSource.objects.create(
+        team=team,
+        source_id=f"source_for_job_{label}",
+        connection_id=f"conn_for_job_{label}",
+        status="Running",
+        source_type="Stripe",
+    )
+    return ExternalDataJob.objects.create(
+        team=team,
+        pipeline=source,
+        status="Completed",
+        rows_synced=100,
+    )
+
+
+def _create_source_schema(team: Team, label: str) -> ExternalDataSchema:
+    source = ExternalDataSource.objects.create(
+        team=team,
+        source_id=f"source_for_schema_{label}",
+        connection_id=f"conn_for_schema_{label}",
+        status="Running",
+        source_type="Stripe",
+    )
+    return ExternalDataSchema.objects.create(
+        team=team,
+        source=source,
+        name=f"schema_{label}",
+        should_sync=True,
+        status="Completed",
+    )
+
+
 def _create_error_tracking_issue(team: Team, label: str) -> ErrorTrackingIssue:
     return ErrorTrackingIssue.objects.create(team=team, name=f"issue_{label}", status="active")
 
@@ -218,6 +253,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("data_warehouse_tables", _create_data_warehouse_table),
     ("error_tracking_issue_assignments", _create_error_tracking_issue_assignment),
     ("error_tracking_issue_fingerprints", _create_error_tracking_issue_fingerprint),
+    ("source_sync_jobs", _create_source_sync_job),
     ("error_tracking_issues", _create_error_tracking_issue),
     ("experiments", _create_experiment),
     ("exports", _create_export),
@@ -229,6 +265,7 @@ SYSTEM_TABLE_FACTORIES = [
     ("insights", _create_insight),
     ("insight_variables", _create_insight_variable),
     ("notebooks", _create_notebook),
+    ("source_schemas", _create_source_schema),
     ("surveys", _create_survey),
     ("teams", _create_team),
 ]

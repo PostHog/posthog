@@ -3,13 +3,12 @@ import './DashboardItems.scss'
 import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect, useRef, useState } from 'react'
-import { Layout, Responsive as ReactGridLayout } from 'react-grid-layout'
+import { RefObject, useEffect, useRef, useState } from 'react'
+import { Layout, Responsive as ReactGridLayout, useContainerWidth } from 'react-grid-layout'
 import { GridBackground } from 'react-grid-layout/extras'
 
 import { InsightCard } from 'lib/components/Cards/InsightCard'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { DashboardEventSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
@@ -75,6 +74,7 @@ export function DashboardItems(): JSX.Element {
         : getBestSurveyOpportunityFunnel(tiles || [], surveyLinkedInsights)
 
     const [resizingItem, setResizingItem] = useState<any>(null)
+    const [containerHeight, setContainerHeight] = useState<number | undefined>(undefined)
 
     // cannot click links when dragging and 250ms after
     const isDragging = useRef(false)
@@ -95,8 +95,31 @@ export function DashboardItems(): JSX.Element {
         'dashboard-edit-mode': dashboardMode === DashboardMode.Edit,
     })
 
-    const { width: gridWrapperWidth, ref: gridWrapperRef } = useResizeObserver()
-    const isMobileView = gridWrapperWidth && gridWrapperWidth <= BREAKPOINTS['sm']
+    const { width, containerRef, mounted } = useContainerWidth()
+
+    useEffect(() => {
+        if (!mounted || !containerRef.current) {
+            return
+        }
+
+        const element = containerRef.current
+        const observer = new ResizeObserver((entries) => {
+            for (const entry of entries) {
+                if (entry.target === element) {
+                    setContainerHeight(entry.contentRect.height)
+                }
+            }
+        })
+
+        // Set initial height
+        setContainerHeight(element.clientHeight)
+        observer.observe(element)
+
+        return () => {
+            observer.disconnect()
+        }
+    }, [mounted, containerRef])
+    const isMobileView = width && width <= BREAKPOINTS['sm']
     const isEditablePlacement = [
         DashboardPlacement.Dashboard,
         DashboardPlacement.ProjectHomepage,
@@ -116,30 +139,30 @@ export function DashboardItems(): JSX.Element {
     const margin = BASE_MARGIN.map((m) => m * spacingFactor) as [number, number]
 
     return (
-        <div className="dashboard-items-wrapper" ref={gridWrapperRef}>
+        <div className="dashboard-items-wrapper" ref={containerRef as RefObject<HTMLDivElement>}>
             {dashboardMode === DashboardMode.Edit && isMobileView && (
                 <LemonBanner type="warning" className="mb-4">
                     Layout editing is disabled on smaller screens. Please zoom out or use a larger screen to move or
                     resize tiles.
                 </LemonBanner>
             )}
-            {gridWrapperWidth && (
+            {mounted && (
                 <div className="relative">
                     {dashboardMode === DashboardMode.Edit && !isMobileView && showDashboardGrid && (
                         <GridBackground
-                            width={gridWrapperWidth}
+                            width={width}
                             cols={BREAKPOINT_COLUMN_COUNTS.sm}
                             rowHeight={rowHeight}
                             margin={margin}
                             containerPadding={[0, 0]}
                             rows="auto"
-                            height={gridWrapperWidth} // rough heuristic; RGL will grow as needed
+                            height={containerHeight} // kept in sync via ResizeObserver
                             color="var(--color-bg-surface-secondary)"
                         />
                     )}
 
                     <ReactGridLayout
-                        width={gridWrapperWidth}
+                        width={width}
                         className={className}
                         dragConfig={{
                             enabled: dashboardMode === DashboardMode.Edit && !isMobileView,

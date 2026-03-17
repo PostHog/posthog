@@ -130,7 +130,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
-        from products.error_tracking.backend.api.suppression_rules import get_client_safe_suppression_rules
+        from products.error_tracking.backend.remote_config import build_error_tracking_config
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -164,10 +164,7 @@ class RemoteConfig(UUIDTModel):
             config["elementsChainAsString"] = True
 
         # MARK: Error tracking
-        config["errorTracking"] = {
-            "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
-            "suppressionRules": get_client_safe_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
-        }
+        config["errorTracking"] = build_error_tracking_config(team)
 
         # MARK: Logs
         logs_settings = team.logs_settings or {}

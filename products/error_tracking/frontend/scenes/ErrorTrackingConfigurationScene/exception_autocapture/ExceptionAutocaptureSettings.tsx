@@ -10,7 +10,6 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { DisableSurvey } from './DisableSurvey'
 import { disableSurveyLogic } from './disableSurveyLogic'
-import { ErrorTrackingClientSuppression } from './SuppressionRules'
 
 export function ExceptionAutocaptureToggle(): JSX.Element {
     const { userLoading } = useValues(userLogic)
@@ -48,10 +47,4 @@ export function ExceptionAutocaptureToggle(): JSX.Element {
             <DisableSurvey />
         </>
     )
-}
-
-export function ExceptionSuppressionRules(): JSX.Element {
-    const { currentTeam } = useValues(teamLogic)
-
-    return <ErrorTrackingClientSuppression disabled={!currentTeam?.autocapture_exceptions_opt_in} />
 }
