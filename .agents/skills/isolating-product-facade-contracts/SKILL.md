@@ -8,6 +8,8 @@ description: Plan and execute incremental product isolation migrations to a faca
 Use this skill to migrate an existing product to the isolated architecture used by Visual review.
 Keep migrations incremental, with narrow PRs that avoid broad breakage.
 
+**Prerequisite:** the product must already live under `products/<name>/`. This skill does not cover moving code out of `posthog/`, `ee/`, or other shared directories — do that first.
+
 ## Core docs to load first
 
 Read these before changing code:

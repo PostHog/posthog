@@ -5,15 +5,13 @@ into the facade+contracts pattern used by Visual review.
 
 ## Phase 0 — Baseline and scoping
 
+**Prerequisite:** the product must already live under `products/<name>/`. This workflow does not cover moving code out of `posthog/`, `ee/`, or other shared directories — that is a separate step. If the product still lives in legacy/common code, stop here and do the move first.
+
 - Read architecture docs:
   - [products/architecture.md](products/architecture.md)
   - [products/README.md](products/README.md)
   - [docs/internal/monorepo-layout.md](docs/internal/monorepo-layout.md)
-- Identify the target product's current boundaries:
-  - `backend/models.py`
-  - `backend/logic.py`
-  - `backend/presentation/views.py`
-  - `backend/presentation/serializers.py`
+- Locate the product's current code under `products/<name>/backend/` and identify what's already there vs. what's still missing (models, logic, presentation, facade).
 - Inventory existing tests and gaps in `backend/tests/`.
 
 Suggested commands:
