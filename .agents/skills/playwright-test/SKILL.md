@@ -32,7 +32,9 @@ After your exploration, present the plan to me for confirmation or any changes.
 
 ### Step 3: Ensure no flaky tests
 
-After all tests pass in the file, run with --repeat-each 10 added to the command. This will ensure no tests are flaky.
+After all tests pass in the file, run with `--repeat-each 10` added to the command. This will surface any flaky tests.
+
+If any test fails across the 10 runs, treat it as a real failure: go back to Step 2, debug, fix, and re-run Step 3. Do not proceed to Step 4 until every run of every test passes.
 
 ### Step 4: Report
 
