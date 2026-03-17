@@ -191,6 +191,7 @@ jobs:
               id: build
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
+                  context: . # use local checkout (includes downloaded artifact)
                   file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
@@ -202,6 +203,7 @@ jobs:
               id: build-notebook
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
+                  context: . # use local checkout (includes downloaded artifact)
                   file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
