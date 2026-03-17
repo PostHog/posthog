@@ -532,6 +532,11 @@ func (p *Process) killProcessGroup() {
 	if p.cmd == nil || p.cmd.Process == nil {
 		return
 	}
+	// If the tracked command has already exited, avoid signaling based on a
+	// potentially reused PID.
+	if p.cmd.ProcessState != nil && p.cmd.ProcessState.Exited() {
+		return
+	}
 	pid := p.cmd.Process.Pid
 	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
 		_ = p.cmd.Process.Signal(syscall.SIGTERM)
