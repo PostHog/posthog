@@ -7,7 +7,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { LinkedHogFunctions } from 'scenes/hog-functions/list/LinkedHogFunctions'
 
-import { ExperimentStatsMethod } from '~/types'
+import { ExperimentStatsMethod, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -40,7 +40,23 @@ export function SettingsTab(): JSX.Element {
                 <div>
                     <h2 className="font-semibold text-lg">Notifications</h2>
                     <p>Get notified when a metric reaches significance.</p>
-                    <LinkedHogFunctions type="internal_destination" subTemplateIds={['experiment-significant']} />
+                    <LinkedHogFunctions
+                        type="internal_destination"
+                        subTemplateIds={['experiment-significant']}
+                        forceFilterGroups={[
+                            {
+                                events: [{ id: '$experiment_metric_significant', type: 'events' }],
+                                properties: [
+                                    {
+                                        key: 'experiment_id',
+                                        type: PropertyFilterType.Event,
+                                        value: experiment.id,
+                                        operator: PropertyOperator.Exact,
+                                    },
+                                ],
+                            },
+                        ]}
+                    />
                 </div>
             )}
         </div>
