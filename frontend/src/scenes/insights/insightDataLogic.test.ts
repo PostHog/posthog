@@ -113,6 +113,93 @@ describe('insightDataLogic', () => {
         })
     })
 
+    describe('cached insight query sync', () => {
+        it('does not reset local query when cachedInsight query is unchanged', async () => {
+            const baseQuery = examples.InsightTrends as InsightVizNode
+            const localUpdatedQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    trendsFilter: {
+                        ...baseQuery.source.trendsFilter,
+                        resultCustomizations: {
+                            series_0: {
+                                assignmentBy: 'value',
+                                hidden: true,
+                            },
+                        },
+                    },
+                },
+            }
+
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                cachedInsight: { short_id: Insight123, query: baseQuery } as any,
+            })
+            logic.mount()
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(localUpdatedQuery)
+            }).toMatchValues({ query: localUpdatedQuery })
+
+            await expectLogic(logic, () => {
+                insightDataLogic({
+                    dashboardItemId: Insight123,
+                    cachedInsight: { short_id: Insight123, query: { ...baseQuery } } as any,
+                    loadPriority: 1,
+                }).mount()
+            }).toMatchValues({ query: localUpdatedQuery })
+        })
+
+        it('syncs local query when cachedInsight query changes', async () => {
+            const baseQuery = examples.InsightTrends as InsightVizNode
+            const updatedCachedQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    dateRange: {
+                        ...baseQuery.source.dateRange,
+                        date_from: '-14d',
+                    },
+                },
+            }
+
+            const logic = insightDataLogic({
+                dashboardItemId: Insight123,
+                cachedInsight: { short_id: Insight123, query: baseQuery } as any,
+            })
+            logic.mount()
+
+            const localUpdatedQuery: InsightVizNode = {
+                ...baseQuery,
+                source: {
+                    ...baseQuery.source,
+                    trendsFilter: {
+                        ...baseQuery.source.trendsFilter,
+                        resultCustomizations: {
+                            series_0: {
+                                assignmentBy: 'value',
+                                hidden: true,
+                            },
+                        },
+                    },
+                },
+            }
+
+            await expectLogic(logic, () => {
+                logic.actions.setQuery(localUpdatedQuery)
+            }).toMatchValues({ query: localUpdatedQuery })
+
+            await expectLogic(logic, () => {
+                insightDataLogic({
+                    dashboardItemId: Insight123,
+                    cachedInsight: { short_id: Insight123, query: updatedCachedQuery } as any,
+                    loadPriority: 1,
+                }).mount()
+            }).toMatchValues({ query: updatedCachedQuery })
+        })
+    })
+
     describe('reacts when the insight changes', () => {
         const q = examples.InsightTrends
 
