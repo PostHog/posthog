@@ -29,7 +29,6 @@ use tracing::{info, warn, Level};
 use capture::config::{CaptureMode, Config, KafkaConfig};
 use capture::server::serve;
 use common_continuous_profiling::ContinuousProfilingConfig;
-use health::HealthStrategy;
 use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
 pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
@@ -109,7 +108,6 @@ pub static DEFAULT_CONFIG: Lazy<Config> = Lazy::new(|| Config {
     s3_fallback_bucket: None,
     s3_fallback_endpoint: None,
     s3_fallback_prefix: String::new(),
-    healthcheck_strategy: HealthStrategy::All,
     ai_max_sum_of_parts_bytes: 26_214_400, // 25MB default
     ai_s3_bucket: None,
     ai_s3_prefix: "llma/".to_string(),
@@ -164,9 +162,22 @@ impl ServerHandle {
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
+        let shutdown_token = tokio_util::sync::CancellationToken::new();
+        let shutdown_token_clone = shutdown_token.clone();
+
+        // Wire the Notify into the lifecycle shutdown token
         tokio::spawn(async move {
-            serve(config, listener, async move { notify.notified().await }).await
+            notify.notified().await;
+            shutdown_token_clone.cancel();
         });
+
+        let manager = lifecycle::Manager::builder("capture-test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(shutdown_token)
+            .build();
+
+        tokio::spawn(async move { serve(config, listener, manager).await });
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(3000))

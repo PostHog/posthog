@@ -4,7 +4,7 @@ use crate::sinks::producer::{KafkaProducer, ProduceRecord};
 use crate::sinks::Event;
 use crate::v0_request::{DataType, ProcessedEvent};
 use async_trait::async_trait;
-use health::HealthHandle;
+use common_liveness::SyncLivenessReporter;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
@@ -21,15 +21,17 @@ use tracing::{info_span, instrument, Instrument};
 use super::producer::RdKafkaProducer;
 
 pub struct KafkaContext {
-    liveness: HealthHandle,
+    liveness: Vec<Box<dyn SyncLivenessReporter>>,
 }
 
 impl rdkafka::ClientContext for KafkaContext {
     fn stats(&self, stats: rdkafka::Statistics) {
-        // Signal liveness, as the main rdkafka loop is running and calling us
+        // Signal liveness on all handles (standard + advisory) when brokers are up
         let brokers_up = stats.brokers.values().any(|broker| broker.state == "UP");
         if brokers_up {
-            self.liveness.report_healthy_blocking();
+            for handle in &self.liveness {
+                handle.report_healthy();
+            }
         }
 
         let total_brokers = stats.brokers.len();
@@ -183,7 +185,8 @@ pub type KafkaSink = KafkaSinkBase<RdKafkaProducer<KafkaContext>>;
 impl KafkaSink {
     pub async fn new(
         config: KafkaConfig,
-        liveness: HealthHandle,
+        liveness: lifecycle::Handle,
+        advisory: Option<lifecycle::Handle>,
         partition: Option<OverflowLimiter>,
         replay_overflow_limiter: Option<RedisLimiter>,
     ) -> anyhow::Result<KafkaSink> {
@@ -256,9 +259,16 @@ impl KafkaSink {
         };
 
         debug!("rdkafka configuration: {client_config:?}");
+
+        let mut liveness_reporters: Vec<Box<dyn SyncLivenessReporter>> =
+            vec![Box::new(liveness.clone())];
+        if let Some(ref adv) = advisory {
+            liveness_reporters.push(Box::new(adv.clone()));
+        }
+
         let producer: FutureProducer<KafkaContext> =
             client_config.create_with_context(KafkaContext {
-                liveness: liveness.clone(),
+                liveness: liveness_reporters,
             })?;
 
         // Ping the cluster to make sure we can reach brokers, fail after 10 seconds
@@ -271,7 +281,10 @@ impl KafkaSink {
             )
             .is_ok()
         {
-            liveness.report_healthy().await;
+            liveness.report_healthy();
+            if let Some(ref adv) = advisory {
+                adv.report_healthy();
+            }
             info!("connected to Kafka brokers");
         };
 
@@ -286,8 +299,7 @@ impl KafkaSink {
         })
     }
 
-    pub fn flush(&self) -> Result<(), KafkaError> {
-        // TODO: hook it up on shutdown
+    pub fn flush_producer(&self) -> Result<(), KafkaError> {
         self.producer.flush()
     }
 }
@@ -520,6 +532,10 @@ impl<P: KafkaProducer + 'static> Event for KafkaSinkBase<P> {
         histogram!("capture_event_batch_size").record(batch_size as f64);
         Ok(())
     }
+
+    fn flush(&self) -> Result<(), anyhow::Error> {
+        self.producer.flush().map_err(|e| anyhow::anyhow!(e))
+    }
 }
 
 #[cfg(test)]
@@ -531,7 +547,6 @@ mod tests {
     use crate::utils::uuid_v7;
     use crate::v0_request::{DataType, ProcessedEvent, ProcessedEventMetadata};
     use common_types::CapturedEvent;
-    use health::HealthRegistry;
     use limiters::overflow::OverflowLimiter;
     use rand::distributions::Alphanumeric;
     use rand::Rng;
@@ -539,15 +554,23 @@ mod tests {
     use rdkafka::producer::DefaultProducerContext;
     use rdkafka::types::{RDKafkaApiKey, RDKafkaRespErr};
     use std::num::NonZeroU32;
-    use time::Duration;
+    use tokio_util::sync::CancellationToken;
 
     async fn start_on_mocked_sink(
         message_max_bytes: Option<u32>,
     ) -> (MockCluster<'static, DefaultProducerContext>, KafkaSink) {
-        let registry = HealthRegistry::new("liveness");
-        let handle = registry
-            .register("one".to_string(), Duration::seconds(30))
-            .await;
+        let shutdown_token = CancellationToken::new();
+        let mut manager = lifecycle::Manager::builder("test")
+            .with_trap_signals(false)
+            .with_prestop_check(false)
+            .with_shutdown_token(shutdown_token)
+            .build();
+        let handle = manager.register(
+            "sink",
+            lifecycle::ComponentOptions::new()
+                .with_liveness_deadline(std::time::Duration::from_secs(30)),
+        );
+        std::mem::forget(manager.monitor_background());
         let limiter = Some(OverflowLimiter::new(
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),
@@ -585,7 +608,7 @@ mod tests {
             kafka_producer_sticky_partitioning_linger_ms: 10,
             kafka_producer_enable_idempotence: false,
         };
-        let sink = KafkaSink::new(config, handle, limiter, None)
+        let sink = KafkaSink::new(config, handle, None, limiter, None)
             .await
             .expect("failed to create sink");
         (cluster, sink)

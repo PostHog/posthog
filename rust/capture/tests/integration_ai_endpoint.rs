@@ -16,7 +16,6 @@ use capture::v0_request::ProcessedEvent;
 use chrono::{DateTime, TimeZone, Utc};
 use common_redis::MockRedisClient;
 use futures::StreamExt;
-use health::HealthRegistry;
 use integration_utils::{DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::token_dropper::TokenDropper;
 use reqwest::multipart::{Form, Part};
@@ -150,7 +149,14 @@ fn create_ai_event_form(event_name: &str, distinct_id: &str, properties: Value) 
 
 // Helper to setup test router
 fn setup_ai_test_router() -> Router {
-    let liveness = HealthRegistry::new("ai_endpoint_tests");
+    let manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .build();
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+    std::mem::forget(manager.monitor_background());
+
     let sink = TestSink;
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
@@ -167,8 +173,9 @@ fn setup_ai_test_router() -> Router {
 
     router(
         timesource,
+        readiness,
         liveness,
-        sink,
+        Arc::new(sink),
         redis,
         None,
         None,
@@ -1605,7 +1612,14 @@ async fn test_gzip_compressed_request() {
 
 // Helper to setup test router with CapturingSink
 fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
-    let liveness = HealthRegistry::new("ai_endpoint_tests");
+    let manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .build();
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+    std::mem::forget(manager.monitor_background());
+
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
     let timesource = FixedTime {
@@ -1623,8 +1637,9 @@ fn setup_ai_test_router_with_capturing_sink() -> (Router, CapturingSink) {
 
     let router = router(
         timesource,
+        readiness,
         liveness,
-        sink,
+        Arc::new(sink),
         redis,
         None,
         None,
@@ -2513,7 +2528,14 @@ async fn test_ai_event_with_valid_sent_at_applies_clock_skew_correction() {
 
 // Helper to setup test router with custom TokenDropper and CapturingSink
 fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Router, CapturingSink) {
-    let liveness = HealthRegistry::new("ai_endpoint_tests");
+    let manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .build();
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+    std::mem::forget(manager.monitor_background());
+
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
     let timesource = FixedTime {
@@ -2531,8 +2553,9 @@ fn setup_ai_test_router_with_token_dropper(token_dropper: TokenDropper) -> (Rout
 
     let router = router(
         timesource,
+        readiness,
         liveness,
-        sink,
+        Arc::new(sink),
         redis,
         None,
         None,
@@ -2708,7 +2731,14 @@ use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 
 // Helper to setup test router with quota limiter configured to limit AI events
 fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, CapturingSink) {
-    let liveness = HealthRegistry::new("ai_endpoint_tests");
+    let manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .build();
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+    std::mem::forget(manager.monitor_background());
+
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
     let timesource = FixedTime {
@@ -2734,8 +2764,9 @@ fn setup_ai_test_router_with_llm_quota_limited(token: &str) -> (Router, Capturin
 
     let router = router(
         timesource,
+        readiness,
         liveness,
-        sink,
+        Arc::new(sink),
         redis,
         None,
         None,

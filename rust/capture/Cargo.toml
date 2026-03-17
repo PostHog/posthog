@@ -17,7 +17,8 @@ bytes = { workspace = true }
 envconfig = { workspace = true }
 flate2 = { workspace = true }
 hex = "0.4"
-health = { path = "../common/health" }
+common-liveness = { path = "../common/liveness" }
+lifecycle = { path = "../common/lifecycle" }
 hyper = { workspace = true }
 hyper-util = { workspace = true }
 common-alloc = { path = "../common/alloc" }

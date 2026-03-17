@@ -17,7 +17,6 @@ use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
-use health::HealthRegistry;
 use integration_utils::DEFAULT_TEST_TIME;
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
@@ -111,7 +110,14 @@ fn make_test_client(sink: &CapturingSink) -> TestClient {
 }
 
 fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOptions) -> TestClient {
-    let liveness = HealthRegistry::new("otel_test");
+    let manager = lifecycle::Manager::builder("test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .build();
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+    std::mem::forget(manager.monitor_background());
+
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)
             .expect("Invalid fixed time format")
@@ -131,8 +137,9 @@ fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOption
 
     let app = router(
         timesource,
+        readiness,
         liveness,
-        sink.clone(),
+        Arc::new(sink.clone()),
         redis,
         None, // global_rate_limiter_token_distinctid
         None, // global_rate_limiter_token

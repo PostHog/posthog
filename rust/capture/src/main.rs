@@ -5,7 +5,6 @@ use opentelemetry::{KeyValue, Value};
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::trace::{BatchConfig, RandomIdGenerator, Sampler, Tracer};
 use opentelemetry_sdk::{runtime, Resource};
-use tokio::signal;
 use tracing::level_filters::LevelFilter;
 use tracing_opentelemetry::OpenTelemetryLayer;
 use tracing_subscriber::fmt::format::FmtSpan;
@@ -18,24 +17,6 @@ use capture::error_tracking_sampler;
 use capture::server::serve;
 
 common_alloc::used!();
-
-async fn shutdown() {
-    let mut term = signal::unix::signal(signal::unix::SignalKind::terminate())
-        .expect("failed to register SIGTERM handler");
-
-    let mut interrupt = signal::unix::signal(signal::unix::SignalKind::interrupt())
-        .expect("failed to register SIGINT handler");
-
-    tokio::select! {
-        _ = term.recv() => {},
-        _ = interrupt.recv() => {},
-    };
-
-    capture::metrics_middleware::set_shutdown_status(
-        capture::metrics_middleware::ShutdownStatus::Terminating,
-    );
-    tracing::info!("Shutdown status change: TERMINATING");
-}
 
 fn init_tracer(sink_url: &str, sampling_rate: f64, service_name: &str) -> Tracer {
     opentelemetry_otlp::new_pipeline()
@@ -142,14 +123,16 @@ async fn main() {
         );
     }
 
+    let manager = lifecycle::Manager::builder("capture")
+        .with_trap_signals(true)
+        .with_prestop_check(true)
+        .build();
+
     // Open the TCP port and start the server
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, shutdown()).await;
+    serve(config, listener, manager).await;
 
-    capture::metrics_middleware::set_shutdown_status(
-        capture::metrics_middleware::ShutdownStatus::Completed,
-    );
-    tracing::info!("Shutdown status change: COMPLETED");
+    tracing::info!("Shutdown complete");
 }

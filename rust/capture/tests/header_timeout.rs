@@ -23,9 +23,21 @@ async fn start_server_with_header_timeout(
     let notify = Arc::new(Notify::new());
     let shutdown = notify.clone();
 
-    tokio::spawn(
-        async move { serve(config, listener, async move { notify.notified().await }).await },
-    );
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+    let shutdown_token_clone = shutdown_token.clone();
+
+    tokio::spawn(async move {
+        notify.notified().await;
+        shutdown_token_clone.cancel();
+    });
+
+    let manager = lifecycle::Manager::builder("capture-test")
+        .with_trap_signals(false)
+        .with_prestop_check(false)
+        .with_shutdown_token(shutdown_token)
+        .build();
+
+    tokio::spawn(async move { serve(config, listener, manager).await });
 
     // Give server time to start
     tokio::time::sleep(Duration::from_millis(50)).await;
