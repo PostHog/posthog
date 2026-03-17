@@ -5785,37 +5785,79 @@ async fn test_api_cohort_flag_integration() -> Result<()> {
     assert_eq!(flag_result["key"], "api-cohort-flag");
     assert_eq!(flag_result["reason"]["code"], "condition_match");
 
-    // Step 4: Test reverse case - user who doesn't match should get flag=false
-    let non_matching_payload = json!({
+    Ok(())
+}
+
+#[tokio::test]
+async fn test_api_cohort_flag_integration_no_match() -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    let token = team.api_token.clone();
+    let distinct_id = "test_user_no_match";
+
+    // Step 1: Create flag with API-like serialization that targets specific email
+    let flag_json = json!([{
+        "id": 1,
+        "key": "api-cohort-flag-no-match",
+        "name": "API Cohort Flag No Match",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [
+                {
+                    "properties": [
+                        {
+                            "key": "email",
+                            "type": "person",
+                            "value": ["test@api.example.com"],
+                            "operator": "exact"
+                        }
+                    ],
+                    "rollout_percentage": 100,
+                    "variant": null
+                }
+            ],
+            "multivariate": null,
+            "aggregation_group_type_index": null,
+            "payloads": {},
+            "super_groups": []
+        }
+    }]);
+
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    // Step 2: Hit /flags with user who doesn't match the criteria
+    let server = ServerHandle::for_config(config).await;
+
+    let payload = json!({
         "token": token,
-        "distinct_id": "test_user_no_match",
+        "distinct_id": distinct_id,
         "person_properties": {
             "email": "nomatch@different.com"
         }
     });
 
-    let non_matching_response = server
-        .send_flags_request(non_matching_payload.to_string(), Some("2"), None)
+    let response = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
         .await;
 
-    assert_eq!(StatusCode::OK, non_matching_response.status());
+    assert_eq!(StatusCode::OK, response.status());
 
-    let non_matching_json_response = non_matching_response.json::<Value>().await?;
-    assert!(non_matching_json_response.get("flags").is_some());
+    let json_response = response.json::<Value>().await?;
+    assert!(json_response.get("flags").is_some());
 
     // Verify the flag evaluated correctly - user should NOT match the person property criteria
-    let non_matching_flags = non_matching_json_response["flags"].as_object().unwrap();
-    let non_matching_flag_result = non_matching_flags.get("api-cohort-flag").unwrap();
+    let flags = json_response["flags"].as_object().unwrap();
+    let flag_result = flags.get("api-cohort-flag-no-match").unwrap();
     assert_eq!(
-        non_matching_flag_result["enabled"],
+        flag_result["enabled"],
         Value::Bool(false),
         "Flag should evaluate to enabled=false for user NOT matching property criteria"
     );
-    assert_eq!(non_matching_flag_result["key"], "api-cohort-flag");
-    assert_eq!(
-        non_matching_flag_result["reason"]["code"],
-        "no_condition_match"
-    );
+    assert_eq!(flag_result["key"], "api-cohort-flag-no-match");
+    assert_eq!(flag_result["reason"]["code"], "no_condition_match");
 
     Ok(())
 }
