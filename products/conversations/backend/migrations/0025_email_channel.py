@@ -1,6 +1,8 @@
 import django.db.models.deletion
 from django.db import migrations, models
 
+import posthog.models.utils
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -38,7 +40,12 @@ class Migration(migrations.Migration):
         migrations.CreateModel(
             name="EmailMessageMapping",
             fields=[
-                ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                (
+                    "id",
+                    models.UUIDField(
+                        default=posthog.models.utils.uuid7, editable=False, primary_key=True, serialize=False
+                    ),
+                ),
                 ("message_id", models.CharField(max_length=255, db_index=True)),
                 ("created_at", models.DateTimeField(auto_now_add=True)),
                 (

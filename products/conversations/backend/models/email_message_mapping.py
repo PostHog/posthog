@@ -1,9 +1,11 @@
 from django.db import models
 
+from posthog.models.utils import UUIDModel
+
 from .ticket import Ticket
 
 
-class EmailMessageMapping(models.Model):
+class EmailMessageMapping(UUIDModel):
     message_id = models.CharField(max_length=255, db_index=True)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE)
