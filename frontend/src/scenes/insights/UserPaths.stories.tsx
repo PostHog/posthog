@@ -52,19 +52,26 @@ UserPaths.parameters = {
 }
 // The Paths component uses useResizeObserver to measure canvasWidth, then destroys
 // and recreates the SVG when it changes. This causes a race condition where the SVG
-// width may not have stabilized before the snapshot is taken. Wait for it to settle.
+// width may not have stabilized before the snapshot is taken. Wait for it to settle
+// by requiring the width to be stable for 2 consecutive checks (400ms apart).
 const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
     let lastWidth = 0
+    let stableCount = 0
     await waitFor(
         () => {
             const svg = canvasElement.querySelector('.Paths__canvas')
             const currentWidth = svg ? svg.getBoundingClientRect().width : 0
             if (currentWidth === 0 || currentWidth !== lastWidth) {
                 lastWidth = currentWidth
+                stableCount = 0
                 throw new Error('SVG width not yet stable')
             }
+            stableCount++
+            if (stableCount < 2) {
+                throw new Error('SVG width not yet confirmed stable')
+            }
         },
-        { timeout: 3000, interval: 200 }
+        { timeout: 5000, interval: 200 }
     )
 }
 UserPaths.play = waitForPathsCanvasToStabilize
