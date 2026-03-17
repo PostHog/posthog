@@ -11,6 +11,9 @@ into the facade+contracts pattern used by Visual review.
   - [products/architecture.md](products/architecture.md)
   - [products/README.md](products/README.md)
   - [docs/internal/monorepo-layout.md](docs/internal/monorepo-layout.md)
+- Run `hogli product:lint <name>` — the isolation progress section shows exactly which layers exist,
+  what's structurally wrong with each, and what to do next. Use this as the starting point before
+  reading code.
 - Locate the product's current code under `products/<name>/backend/` and identify what's already there vs. what's still missing (models, logic, presentation, facade).
 - Inventory existing tests and gaps in `backend/tests/`.
 
