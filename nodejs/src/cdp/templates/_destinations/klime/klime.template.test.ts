@@ -176,7 +176,8 @@ describe('klime template', () => {
 
         expect(response.error).toBeUndefined()
         const batchEvent = parseBatchEvent(response)
-        expect(batchEvent.traits).toBeUndefined()
+        expect(batchEvent.traits).toEqual({ name: 'Acme Inc' })
+        expect(batchEvent.traits).not.toHaveProperty('email')
     })
 
     it('falls back to properties for identify when userTraits is missing (backwards compat)', async () => {
