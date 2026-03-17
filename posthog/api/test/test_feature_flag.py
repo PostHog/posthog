@@ -583,21 +583,53 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         self.assertIn("rollout_percentage", response.json()["detail"])
 
-    def test_numeric_group_rollout_percentage_preserved(self):
+    @parameterized.expand(
+        [
+            ("negative_one", -1),
+            ("negative_fraction", -0.1),
+            ("over_hundred", 101),
+            ("two_hundred", 200),
+            ("just_over", 100.1),
+        ]
+    )
+    def test_out_of_range_group_rollout_percentage_rejected(self, _name, bad_value):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             data={
-                "name": "Numeric rollout",
-                "key": "numeric-rollout-preserved",
+                "name": "Out of range rollout flag",
+                "key": f"oor-rollout-{_name}",
                 "filters": {
-                    "groups": [{"rollout_percentage": 75}],
+                    "groups": [{"rollout_percentage": bad_value}],
+                },
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn("between 0 and 100", response.json()["detail"])
+
+    @parameterized.expand(
+        [
+            ("zero", 0, 0),
+            ("hundred", 100, 100),
+            ("seventy_five", 75, 75),
+            ("fifty_point_five", 50.5, 50.5),
+        ]
+    )
+    def test_valid_group_rollout_percentage_preserved(self, _name, value, expected):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/",
+            data={
+                "name": "Valid rollout",
+                "key": f"valid-rollout-{_name}",
+                "filters": {
+                    "groups": [{"rollout_percentage": value}],
                 },
             },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        flag = FeatureFlag.objects.get(key="numeric-rollout-preserved", team=self.team)
-        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], 75)
+        flag = FeatureFlag.objects.get(key=f"valid-rollout-{_name}", team=self.team)
+        self.assertEqual(flag.filters["groups"][0]["rollout_percentage"], expected)
 
     # Same _validate_rollout_percentage function as group tests; smoke-testing the call site
     @parameterized.expand(

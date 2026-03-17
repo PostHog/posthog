@@ -808,6 +808,8 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError(f"{path} must be {expected}, got {type(value).__name__}")
             if not math.isfinite(value):
                 raise serializers.ValidationError(f"{path} must be finite, got {value}")
+            if value < 0 or value > 100:
+                raise serializers.ValidationError(f"{path} must be between 0 and 100, got {value}")
 
         def _validate_integer(value: Any, path: str) -> None:
             if value is not None and type(value) is not int:
