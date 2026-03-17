@@ -50,6 +50,7 @@ export const experimentSceneLogic = kea<experimentSceneLogicType>([
             'metrics' as string,
             {
                 setActiveTabKey: (_, { activeTabKey }) => activeTabKey,
+                setSceneState: () => 'metrics',
             },
         ],
         experimentId: [

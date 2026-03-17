@@ -1,3 +1,4 @@
+import { chunkMutationSnapshot, MUTATION_CHUNK_SIZE } from '@posthog/replay-shared'
 import { EventType, IncrementalSource, NodeType, mutationData } from '@posthog/rrweb-types'
 
 import { RecordingDeletedError } from 'lib/api'
@@ -7,8 +8,6 @@ import { parseEncodedSnapshots } from 'scenes/session-recordings/player/snapshot
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'
-import { chunkMutationSnapshot } from './snapshot-processing/chunk-large-mutations'
-import { MUTATION_CHUNK_SIZE } from './snapshot-processing/chunk-large-mutations'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 const BLOB_SOURCE: SessionRecordingSnapshotSource = {

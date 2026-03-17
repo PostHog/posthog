@@ -29,6 +29,7 @@ type RedisConfig struct {
 	Port            string `mapstructure:"port"`
 	TLS             bool   `mapstructure:"tls"`
 	FlushIntervalMs int    `mapstructure:"flush_interval_ms"`
+	UsePubSub       bool   `mapstructure:"use_pub_sub"`
 }
 
 type Config struct {
@@ -77,10 +78,10 @@ func InitConfigs(filename, configPath string) {
 	viper.SetEnvPrefix("livestream") // will be uppercased automatically
 	replacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(replacer)
-	
+
 	// Core settings
-	_ = viper.BindEnv("debug")       // LIVESTREAM_DEBUG
-	_ = viper.BindEnv("parallelism") // LIVESTREAM_PARALLELISM
+	_ = viper.BindEnv("debug")              // LIVESTREAM_DEBUG
+	_ = viper.BindEnv("parallelism")        // LIVESTREAM_PARALLELISM
 	_ = viper.BindEnv("cors_allow_origins") // LIVESTREAM_CORS_ALLOW_ORIGINS
 
 	// GEO settings
@@ -109,10 +110,11 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("session_recording.max_lru_entries") // LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES
 
 	// Redis settings
-	_ = viper.BindEnv("redis.address")            // LIVESTREAM_REDIS_ADDRESS
-	_ = viper.BindEnv("redis.port")               // LIVESTREAM_REDIS_PORT
-	_ = viper.BindEnv("redis.tls")                // LIVESTREAM_REDIS_TLS
-	_ = viper.BindEnv("redis.flush_interval_ms")  // LIVESTREAM_REDIS_FLUSH_INTERVAL_MS
+	_ = viper.BindEnv("redis.address")           // LIVESTREAM_REDIS_ADDRESS
+	_ = viper.BindEnv("redis.port")              // LIVESTREAM_REDIS_PORT
+	_ = viper.BindEnv("redis.tls")               // LIVESTREAM_REDIS_TLS
+	_ = viper.BindEnv("redis.flush_interval_ms") // LIVESTREAM_REDIS_FLUSH_INTERVAL_MS
+	_ = viper.BindEnv("redis.use_pub_sub")       // LIVESTREAM_REDIS_USE_PUB_SUB
 }
 
 func LoadConfig() (*Config, error) {

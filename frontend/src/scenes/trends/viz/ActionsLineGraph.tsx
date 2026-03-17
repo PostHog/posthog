@@ -6,7 +6,7 @@ import { insightAlertsLogic } from 'lib/components/Alerts/insightAlertsLogic'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
 import { ciRanges, movingAverage } from 'lib/statistics'
-import { capitalizeFirstLetter, hexToRGBA, isMultiSeriesFormula } from 'lib/utils'
+import { capitalizeFirstLetter, hexToRGBA } from 'lib/utils'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { datasetToActorsQuery } from 'scenes/trends/viz/datasetToActorsQuery'
@@ -39,7 +39,7 @@ export function ActionsLineGraph({
         lifecycleFilter,
         isLifecycle,
         isStickiness,
-        hasDataWarehouseSeries,
+        hasPersonsModal,
         showLegend,
         querySource,
         yAxisScaleType,
@@ -210,9 +210,9 @@ export function ActionsLineGraph({
             legend={legend}
             hideAnnotations={inSharedMode}
             goalLines={[...alertThresholdLines, ...(goalLines || [])]}
+            onDateRangeZoom={context?.onDateRangeZoom}
             onClick={
-                context?.onDataPointClick ||
-                (showPersonsModal && !isMultiSeriesFormula(formula) && !hasDataWarehouseSeries)
+                context?.onDataPointClick || (showPersonsModal && hasPersonsModal)
                     ? (payload) => {
                           const { index, points } = payload
 

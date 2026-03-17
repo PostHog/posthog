@@ -57,38 +57,16 @@ export const logsExplainLogWithAICreate = async (
     })
 }
 
-export const getHogFlowTemplatesLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flow_templates/${id}/logs/`
+export const getDomainsScimLogsRetrieveUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/domains/${id}/scim/logs/`
 }
 
-export const hogFlowTemplatesLogsRetrieve = async (
-    projectId: string,
+export const domainsScimLogsRetrieve = async (
+    organizationId: string,
     id: string,
     options?: RequestInit
 ): Promise<void> => {
-    return apiMutator<void>(getHogFlowTemplatesLogsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getHogFlowsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_flows/${id}/logs/`
-}
-
-export const hogFlowsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFlowsLogsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getHogFunctionsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_functions/${id}/logs/`
-}
-
-export const hogFunctionsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFunctionsLogsRetrieveUrl(projectId, id), {
+    return apiMutator<void>(getDomainsScimLogsRetrieveUrl(organizationId, id), {
         ...options,
         method: 'GET',
     })

@@ -437,6 +437,165 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+/**
+ * * `categorical` - categorical
+ * `numeric` - numeric
+ * `boolean` - boolean
+ */
+export type Kind01eEnumApi = (typeof Kind01eEnumApi)[keyof typeof Kind01eEnumApi]
+
+export const Kind01eEnumApi = {
+    Categorical: 'categorical',
+    Numeric: 'numeric',
+    Boolean: 'boolean',
+} as const
+
+export interface CategoricalScoreOptionApi {
+    /**
+     * Stable option key. Use lowercase letters, numbers, underscores, or hyphens.
+     * @maxLength 128
+     */
+    key: string
+    /**
+     * Human-readable option label.
+     * @maxLength 256
+     */
+    label: string
+}
+
+/**
+ * * `single` - single
+ * `multiple` - multiple
+ */
+export type SelectionModeEnumApi = (typeof SelectionModeEnumApi)[keyof typeof SelectionModeEnumApi]
+
+export const SelectionModeEnumApi = {
+    Single: 'single',
+    Multiple: 'multiple',
+} as const
+
+export interface CategoricalScoreDefinitionConfigApi {
+    /** Ordered categorical options available to the scorer. */
+    options: CategoricalScoreOptionApi[]
+    /** Whether reviewers can select one option or multiple options. Defaults to `single`.
+
+* `single` - single
+* `multiple` - multiple */
+    selection_mode?: SelectionModeEnumApi
+    /**
+     * Optional minimum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    min_selections?: number | null
+    /**
+     * Optional maximum number of options that can be selected when `selection_mode` is `multiple`.
+     * @minimum 1
+     * @nullable
+     */
+    max_selections?: number | null
+}
+
+export interface NumericScoreDefinitionConfigApi {
+    /**
+     * Optional inclusive minimum score.
+     * @nullable
+     */
+    min?: number | null
+    /**
+     * Optional inclusive maximum score.
+     * @nullable
+     */
+    max?: number | null
+    /**
+     * Optional increment step for numeric input, for example 1 or 0.5.
+     * @nullable
+     */
+    step?: number | null
+}
+
+export interface BooleanScoreDefinitionConfigApi {
+    /** Optional label for a true value. */
+    true_label?: string
+    /** Optional label for a false value. */
+    false_label?: string
+}
+
+export type ScoreDefinitionConfigApi =
+    | CategoricalScoreDefinitionConfigApi
+    | NumericScoreDefinitionConfigApi
+    | BooleanScoreDefinitionConfigApi
+
+export interface ScoreDefinitionApi {
+    readonly id: string
+    readonly name: string
+    readonly description: string
+    readonly kind: Kind01eEnumApi
+    readonly archived: boolean
+    /** Current immutable configuration version number. */
+    readonly current_version: number
+    /** Current immutable scorer configuration. */
+    readonly config: ScoreDefinitionConfigApi
+    /** User who created the scorer. */
+    readonly created_by: UserBasicApi | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly team: number
+}
+
+export interface PaginatedScoreDefinitionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ScoreDefinitionApi[]
+}
+
+export interface ScoreDefinitionCreateApi {
+    /**
+     * Human-readable scorer name.
+     * @maxLength 255
+     */
+    name: string
+    /**
+     * Optional human-readable description.
+     * @nullable
+     */
+    description?: string | null
+    /** Scorer kind. This cannot be changed after creation.
+
+* `categorical` - categorical
+* `numeric` - numeric
+* `boolean` - boolean */
+    kind: Kind01eEnumApi
+    /** New scorers are always created as active. */
+    archived?: boolean
+    /** Initial immutable scorer configuration. */
+    config: ScoreDefinitionConfigApi
+}
+
+export interface PatchedScoreDefinitionMetadataApi {
+    /**
+     * Updated scorer name.
+     * @maxLength 255
+     */
+    name?: string
+    /**
+     * Updated scorer description.
+     * @nullable
+     */
+    description?: string | null
+    /** Whether the scorer is archived. */
+    archived?: boolean
+}
+
+export interface ScoreDefinitionNewVersionApi {
+    /** Next immutable scorer configuration. */
+    config: ScoreDefinitionConfigApi
+}
+
 export interface SentimentRequestApi {
     /**
      * @minItems 1
@@ -648,6 +807,73 @@ export interface TextReprResponseApi {
     metadata: TextReprMetadataApi
 }
 
+export interface LLMPromptApi {
+    readonly id: string
+    /**
+     * Unique prompt name using letters, numbers, hyphens, and underscores only.
+     * @maxLength 255
+     */
+    name: string
+    /** Prompt payload as JSON or string data. */
+    prompt: unknown
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly updated_at: string
+    readonly deleted: boolean
+    readonly is_latest: boolean
+    readonly latest_version: number
+    readonly version_count: number
+    readonly first_version_created_at: string
+}
+
+export interface PaginatedLLMPromptListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LLMPromptApi[]
+}
+
+export interface LLMPromptPublicApi {
+    id: string
+    name: string
+    prompt: unknown
+    version: number
+    created_at: string
+    updated_at: string
+    deleted: boolean
+    is_latest: boolean
+    latest_version: number
+    version_count: number
+    first_version_created_at: string
+}
+
+export interface PatchedLLMPromptPublishApi {
+    /** Prompt payload to publish as a new version. */
+    prompt?: unknown
+    /**
+     * Latest version you are editing from. Used for optimistic concurrency checks.
+     * @minimum 1
+     */
+    base_version?: number
+}
+
+export interface LLMPromptVersionSummaryApi {
+    readonly id: string
+    readonly version: number
+    readonly created_by: UserBasicApi
+    readonly created_at: string
+    readonly is_latest: boolean
+}
+
+export interface LLMPromptResolveResponseApi {
+    prompt: LLMPromptApi
+    versions: LLMPromptVersionSummaryApi[]
+    has_more: boolean
+}
+
 export interface DatasetItemApi {
     readonly id: string
     dataset: string
@@ -816,6 +1042,33 @@ export type LlmAnalyticsProviderKeysListParams = {
     offset?: number
 }
 
+export type LlmAnalyticsScoreDefinitionsListParams = {
+    /**
+     * Filter by archived state.
+     */
+    archived?: boolean
+    /**
+     * Filter by scorer kind.
+     */
+    kind?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Sort by name, kind, created_at, updated_at, or current_version.
+     */
+    order_by?: string
+    /**
+     * Search scorers by name or description.
+     */
+    search?: string
+}
+
 export type LlmAnalyticsSentimentCreate400 = { [key: string]: unknown }
 
 export type LlmAnalyticsSentimentCreate500 = { [key: string]: unknown }
@@ -835,6 +1088,57 @@ export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown }
 export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
+
+export type LlmPromptsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Optional substring filter applied to prompt names and prompt content.
+     */
+    search?: string
+}
+
+export type LlmPromptsNameRetrieveParams = {
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+}
+
+export type LlmPromptsResolveNameRetrieveParams = {
+    /**
+     * Return versions older than this version number. Mutually exclusive with offset.
+     * @minimum 1
+     */
+    before_version?: number
+    /**
+     * Maximum number of versions to return per page (1-100).
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * Zero-based offset into version history for pagination. Mutually exclusive with before_version.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Specific prompt version to fetch. If omitted, the latest version is returned.
+     * @minimum 1
+     */
+    version?: number
+    /**
+     * Exact prompt version UUID to resolve. Can be used together with version for extra safety.
+     */
+    version_id?: string
+}
 
 export type DatasetItemsListParams = {
     /**

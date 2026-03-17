@@ -10,14 +10,19 @@ from posthog.approvals.models import ApprovalPolicy, ChangeRequest
 from posthog.approvals.policies import PolicyEngine
 from posthog.models import FeatureFlag
 
+SINGLE_DICT_PATHS = {"holdout"}
+
 
 def _build_filters_for_path(path_spec: tuple, rollout_percentage: int) -> dict[str, Any]:
     """Build a filters dict with the rollout_percentage at the specified path."""
     array_path, field_name = path_spec[:-1], path_spec[-1]
     item = {"properties": [], field_name: rollout_percentage}
 
-    # Build nested structure from inside out
-    current: Any = [item]
+    # holdout is a single dict, not a list of dicts
+    if array_path and array_path[0] in SINGLE_DICT_PATHS:
+        current: Any = item
+    else:
+        current = [item]
     for key in reversed(array_path):
         current = {key: current}
 
@@ -120,6 +125,7 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
             "groups": [{"properties": [], "rollout_percentage": 50}],
             "super_groups": [{"properties": [], "rollout_percentage": 100}],
             "holdout_groups": [{"properties": [], "rollout_percentage": 70}],
+            "holdout": {"id": 1, "exclusion_percentage": 70},
             "multivariate": {"variants": [{"key": "control", "rollout_percentage": 50}]},
         }
         flag = self._create_flag(old_filters)
@@ -128,6 +134,7 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
             "groups": [{"properties": [], "rollout_percentage": 80}],
             "super_groups": [{"properties": [], "rollout_percentage": 100}],
             "holdout_groups": [{"properties": [], "rollout_percentage": 70}],
+            "holdout": {"id": 1, "exclusion_percentage": 70},
             "multivariate": {"variants": [{"key": "control", "rollout_percentage": 60}]},
         }
         request = self._mock_request("PATCH", {"filters": new_filters})
@@ -140,7 +147,9 @@ class TestUpdateFeatureFlagActionExtractIntent(APIBaseTest):
         assert "triggered_paths" in intent
         assert "full_request_data" in intent
         assert "preconditions" in intent
-        assert intent["current_state"]["rollout_percentage"] is not None
+        current_rollouts = intent["current_state"]["rollout_percentage"]
+        assert current_rollouts is not None
+        assert any(r["path"] == "holdout.exclusion_percentage" for r in current_rollouts)
         assert intent["gated_changes"]["rollout_percentage"] is not None
 
     def test_extract_intent_includes_triggered_paths(self):

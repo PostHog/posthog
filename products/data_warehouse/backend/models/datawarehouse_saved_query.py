@@ -20,7 +20,7 @@ from posthog.hogql.database.models import FieldOrTable, SavedQuery
 from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UUIDTModel
+from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.sync import database_sync_to_async
 
 from products.data_warehouse.backend.models.util import (
@@ -52,7 +52,7 @@ def validate_saved_query_name(value):
         )
 
 
-class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
+class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, UpdatedMetaFields, DeletedMetaFields):
     class Status(models.TextChoices):
         """Possible states of this SavedQuery."""
 
@@ -202,6 +202,11 @@ class DataWarehouseSavedQuery(CreatedMetaFields, UUIDTModel, DeletedMetaFields):
         query = self.query or {}
         if not isinstance(query, dict):
             raise Exception("Saved query is missing a query definition")
+
+        # Saved queries store {"query": "SELECT ..."} without a kind discriminator.
+        # process_query_dict requires a valid QuerySchemaRoot, so wrap as HogQLQuery.
+        if "kind" not in query and "query" in query:
+            query = {"kind": "HogQLQuery", **query}
 
         response = process_query_dict(self.team, query, execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
         result = getattr(response, "types", [])

@@ -76,7 +76,14 @@ def filter_postgres_incremental_fields(
 
 
 def get_postgres_row_count(
-    host: str, port: int, database: str, user: str, password: str, schema: str, require_ssl: bool = False
+    host: str,
+    port: int,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    require_ssl: bool = False,
+    names: list[str] | None = None,
 ) -> dict[str, int]:
     sslmode = _get_sslmode(require_ssl)
     try:
@@ -108,13 +115,21 @@ def get_postgres_row_count(
                 )
             )
 
+            params: dict = {"schema": schema}
+            names_filter_tables = ""
+            names_filter_matviews = ""
+            if names:
+                params["names"] = names
+                names_filter_tables = "AND tablename = ANY(%(names)s)"
+                names_filter_matviews = "AND matviewname = ANY(%(names)s)"
+
             cursor.execute(
-                """
-                SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s
+                f"""
+                SELECT tablename as table_name FROM pg_tables WHERE schemaname = %(schema)s {names_filter_tables}
                 UNION ALL
-                SELECT matviewname as table_name FROM pg_matviews WHERE schemaname = %(schema)s
+                SELECT matviewname as table_name FROM pg_matviews WHERE schemaname = %(schema)s {names_filter_matviews}
                 """,
-                {"schema": schema},
+                params,
             )
             tables = cursor.fetchall()
 
@@ -140,7 +155,14 @@ def get_postgres_row_count(
 
 
 def get_schemas(
-    host: str, database: str, user: str, password: str, schema: str, port: int, require_ssl: bool = False
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    port: int,
+    require_ssl: bool = False,
+    names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from PostgreSQL source schemas to sync."""
 
@@ -167,11 +189,19 @@ def get_schemas(
         raise
 
     with connection.cursor() as cursor:
+        params: dict = {"schema": schema}
+        names_filter = ""
+        names_filter_pg = ""
+        if names:
+            params["names"] = names
+            names_filter = "AND table_name = ANY(%(names)s)"
+            names_filter_pg = "AND c.relname = ANY(%(names)s)"
+
         cursor.execute(
-            """
+            f"""
             SELECT * FROM (
                 SELECT table_name, column_name, data_type, is_nullable FROM information_schema.columns
-                WHERE table_schema = %(schema)s
+                WHERE table_schema = %(schema)s {names_filter}
                 UNION ALL
                 SELECT
                     c.relname AS table_name,
@@ -185,9 +215,10 @@ def get_schemas(
                 AND n.nspname = %(schema)s
                 AND a.attnum > 0
                 AND NOT a.attisdropped
+                {names_filter_pg}
             ) t
             ORDER BY table_name ASC""",
-            {"schema": schema},
+            params,
         )
         result = cursor.fetchall()
 
@@ -201,7 +232,14 @@ def get_schemas(
 
 
 def get_foreign_keys(
-    host: str, database: str, user: str, password: str, schema: str, port: int, require_ssl: bool = False
+    host: str,
+    database: str,
+    user: str,
+    password: str,
+    schema: str,
+    port: int,
+    require_ssl: bool = False,
+    names: list[str] | None = None,
 ) -> dict[str, list[tuple[str, str, str]]]:
     """Get foreign keys for tables in the selected PostgreSQL schema."""
 
@@ -228,8 +266,14 @@ def get_foreign_keys(
         raise
 
     with connection.cursor() as cursor:
+        params: dict = {"schema": schema}
+        names_filter = ""
+        if names:
+            params["names"] = names
+            names_filter = "AND tc.table_name = ANY(%(names)s)"
+
         cursor.execute(
-            """
+            f"""
             SELECT
                 tc.table_name AS table_name,
                 kcu.column_name AS column_name,
@@ -245,9 +289,10 @@ def get_foreign_keys(
             WHERE tc.constraint_type = 'FOREIGN KEY'
               AND tc.table_schema = %(schema)s
               AND ccu.table_schema = %(schema)s
+              {names_filter}
             ORDER BY tc.table_name, kcu.ordinal_position
             """,
-            {"schema": schema},
+            params,
         )
         result = cursor.fetchall()
 
@@ -480,7 +525,7 @@ def _get_table_chunk_size(cursor: psycopg.Cursor, inner_query: sql.Composed, log
     try:
         query = sql.SQL("""
             SELECT percentile_cont(0.95) within group (order by subquery.row_size) FROM (
-                SELECT pg_column_size(t) as row_size FROM ({}) as t
+                SELECT octet_length(t::text) as row_size FROM ({}) as t
             ) as subquery
         """).format(inner_query)
 
@@ -1022,8 +1067,10 @@ def postgres_source(
                             if not rows:
                                 break
 
-                            yield table_from_iterator((dict(zip(column_names, row)) for row in rows), arrow_schema)
-                            offset += len(rows)
+                            dicts = [dict(zip(column_names, row)) for row in rows]
+                            del rows
+                            yield table_from_iterator(iter(dicts), arrow_schema)
+                            offset += len(dicts)
             except psycopg.errors.SerializationFailure as e:
                 # If we hit a SerializationFailure and we're reading from a read replica, we fallback to offset chunking
                 if using_read_replica and "conflict with recovery" in "".join(e.args):

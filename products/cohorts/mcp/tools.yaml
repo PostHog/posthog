@@ -8,9 +8,6 @@ category: Cohorts
 feature: cohorts
 url_prefix: /cohorts
 tools:
-    environments-persons-cohorts-retrieve:
-        operation: environments_persons_cohorts_retrieve
-        enabled: false
     cohorts-list:
         operation: cohorts_list
         enabled: true

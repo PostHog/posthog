@@ -194,7 +194,7 @@ class TestVercelIntegration(TestCase):
         result = VercelIntegration.delete_installation(self.installation_id)
 
         assert result["finalized"]
-        mock_billing_manager.assert_called_once_with(mock_license.return_value)
+        mock_billing_manager.assert_called_once_with(mock_license.return_value, user=self.user)
         mock_manager_instance.deauthorize.assert_called_once_with(
             self.organization, billing_provider=BillingProvider.VERCEL
         )

@@ -33,8 +33,10 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.VITALLY
 
-    def get_schemas(self, config: VitallySourceConfig, team_id: int, with_counts: bool = False) -> list[SourceSchema]:
-        return [
+    def get_schemas(
+        self, config: VitallySourceConfig, team_id: int, with_counts: bool = False, names: list[str] | None = None
+    ) -> list[SourceSchema]:
+        schemas = [
             SourceSchema(
                 name=endpoint,
                 supports_incremental=VITALLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
@@ -43,6 +45,10 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
             )
             for endpoint in VITALLY_ENDPOINTS
         ]
+        if names is not None:
+            names_set = set(names)
+            schemas = [s for s in schemas if s.name in names_set]
+        return schemas
 
     def validate_credentials(
         self, config: VitallySourceConfig, team_id: int, schema_name: Optional[str] = None

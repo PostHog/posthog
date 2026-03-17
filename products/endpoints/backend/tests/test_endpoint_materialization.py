@@ -642,7 +642,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         # Should fail with 400 since filters_override is not allowed for HogQL endpoints
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn("filters_override is not allowed for HogQL endpoints", response.json()["detail"])
+        self.assertIn("Not allowed for HogQL endpoints. Use variables instead.", response.json()["detail"])
 
     def test_stale_materialized_data_uses_inline_execution(self):
         """Test that stale materialized data triggers inline execution instead of using cached table."""

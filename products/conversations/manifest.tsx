@@ -1,7 +1,7 @@
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
-import { FileSystemIconType, ProductKey } from '~/queries/schema/schema-general'
+import { ProductKey } from '~/queries/schema/schema-general'
 
 import { FileSystemIconColor, ProductManifest } from '../../frontend/src/types'
 
@@ -57,16 +57,5 @@ export const manifest: ProductManifest = {
             sceneKey: 'SupportTickets',
         },
     ],
-    treeItemsMetadata: [
-        {
-            path: 'Support',
-            category: 'Behavior',
-            iconType: 'conversations' as FileSystemIconType,
-            iconColor: ['var(--color-product-support-light)'] as FileSystemIconColor,
-            href: urls.supportTickets(),
-            sceneKey: 'SupportTickets',
-            flag: FEATURE_FLAGS.PRODUCT_SUPPORT,
-            tags: ['alpha'],
-        },
-    ],
+    treeItemsMetadata: [],
 }

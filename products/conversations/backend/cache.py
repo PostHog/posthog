@@ -9,12 +9,17 @@ from django.core.cache import cache
 
 import structlog
 
+from products.conversations.backend.models.constants import Status
+
 logger = structlog.get_logger(__name__)
 
 # Cache TTLs (seconds)
 MESSAGES_CACHE_TTL = 15  # Short TTL - messages need to appear quickly
 TICKETS_CACHE_TTL = 30  # Slightly longer - ticket list changes less frequently
 UNREAD_COUNT_CACHE_TTL = 30  # For dashboard polling - invalidated on changes
+
+# All possible status filter values for tickets cache invalidation
+_TICKETS_STATUS_VARIANTS: list[str | None] = [None, *[s.value for s in Status]]
 
 
 def _make_cache_key(prefix: str, *args: str) -> str:
@@ -128,9 +133,36 @@ def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
 
 
 def invalidate_tickets_cache(team_id: int, widget_session_id: str) -> None:
-    """Invalidate tickets list cache for a widget session (no status filter)."""
-    key = get_tickets_cache_key(team_id, widget_session_id, None)
+    """Delete all status-filtered ticket cache variants for a widget session."""
+    keys = [get_tickets_cache_key(team_id, widget_session_id, s) for s in _TICKETS_STATUS_VARIANTS]
     try:
-        cache.delete(key)
+        cache.delete_many(keys)
     except Exception:
-        logger.warning("conversations_cache_delete_error", key=key)
+        logger.warning("conversations_cache_invalidate_error", keys=keys)
+
+
+# Slack User Cache
+# Caches Slack user profile lookups (name, email, avatar) to reduce
+# Slack API calls. Keyed by slack_user_id — IDs are functionally unique
+# across workspaces. Short TTL keeps profiles reasonably fresh.
+
+SLACK_USER_CACHE_TTL = 5 * 60  # 5 minutes
+
+
+def get_cached_slack_user(slack_user_id: str) -> dict | None:
+    """Get cached Slack user profile."""
+    key = _make_cache_key("slack_user", slack_user_id)
+    try:
+        return cache.get(key)
+    except Exception:
+        logger.warning("conversations_cache_get_error", key=key)
+        return None
+
+
+def set_cached_slack_user(slack_user_id: str, user_info: dict) -> None:
+    """Cache a Slack user profile."""
+    key = _make_cache_key("slack_user", slack_user_id)
+    try:
+        cache.set(key, user_info, timeout=SLACK_USER_CACHE_TTL)
+    except Exception:
+        logger.warning("conversations_cache_set_error", key=key)

@@ -7,7 +7,7 @@ import requests
 
 from products.tasks.backend.services.agent_command import (
     CommandResult,
-    _build_headers,
+    _build_request_args,
     send_agent_command,
     send_cancel,
     send_user_message,
@@ -100,9 +100,9 @@ class TestValidateSandboxUrl:
         assert "Scheme 'http' not allowed" in result
 
 
-class TestBuildHeaders:
+class TestBuildRequestArgs:
     @pytest.mark.parametrize(
-        "connect_token,auth_token,expected_auth,expected_modal",
+        "connect_token,auth_token,expected_auth,expected_query_param",
         [
             ("modal-tok", "jwt-tok", "Bearer jwt-tok", "modal-tok"),
             ("modal-tok", None, "Bearer modal-tok", None),
@@ -110,16 +110,16 @@ class TestBuildHeaders:
             (None, None, None, None),
         ],
         ids=[
-            "dual_header_api_caller",
+            "jwt_with_modal_tunnel",
             "single_header_internal_caller",
             "jwt_only_no_modal",
             "no_tokens",
         ],
     )
-    def test_header_scheme(self, connect_token, auth_token, expected_auth, expected_modal):
-        headers = _build_headers(connect_token, auth_token)
+    def test_auth_scheme(self, connect_token, auth_token, expected_auth, expected_query_param):
+        headers, query_params = _build_request_args(connect_token, auth_token)
         assert headers.get("Authorization") == expected_auth
-        assert headers.get("modal-token") == expected_modal
+        assert query_params.get("_modal_connect_token") == expected_query_param
         assert headers["Content-Type"] == "application/json"
 
 
@@ -187,7 +187,7 @@ class TestSendAgentCommand:
 
     @patch("products.tasks.backend.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.services.agent_command.requests.post")
-    def test_dual_header_auth_with_auth_token(self, mock_post, mock_validate):
+    def test_tunnel_auth_with_auth_token(self, mock_post, mock_validate):
         mock_resp = MagicMock()
         mock_resp.status_code = 200
         mock_resp.json.return_value = {"jsonrpc": "2.0", "result": "ok"}
@@ -199,7 +199,7 @@ class TestSendAgentCommand:
         assert result.success
         call_kwargs = mock_post.call_args
         assert call_kwargs.kwargs["headers"]["Authorization"] == "Bearer jwt-tok"
-        assert call_kwargs.kwargs["headers"]["modal-token"] == "modal-tok"
+        assert call_kwargs.kwargs["params"] == {"_modal_connect_token": "modal-tok"}
 
     @patch("products.tasks.backend.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.services.agent_command.requests.post")

@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPencil, IconPlusSmall, IconShare } from '@posthog/icons'
+import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -25,26 +24,38 @@ export function EditModeActions(): JSX.Element {
 
     return (
         <>
-            <LemonButton
-                data-attr="dashboard-edit-mode-discard"
-                type="secondary"
-                onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
-                size="small"
+            <AppShortcut
+                name="CancelDashboardEdit"
+                keybind={[keyBinds.escape]}
+                intent="Cancel edit mode"
+                interaction="click"
+                scope={Scene.Dashboard}
             >
-                Cancel
-            </LemonButton>
+                <LemonButton
+                    data-attr="dashboard-edit-mode-discard"
+                    type="secondary"
+                    onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderDiscardChanges)}
+                    size="small"
+                    tooltip="Discard changes and exit edit mode"
+                >
+                    Cancel
+                </LemonButton>
+            </AppShortcut>
             <AppShortcut
                 name="SaveDashboard"
-                keybind={[keyBinds.save]}
+                keybind={[keyBinds.edit, keyBinds.save]}
                 intent="Save dashboard"
                 interaction="click"
                 scope={Scene.Dashboard}
+                disabled={!canEditDashboard}
             >
                 <LemonButton
                     data-attr="dashboard-edit-mode-save"
                     type="primary"
                     onClick={() => setDashboardMode(null, DashboardEventSource.DashboardHeaderSaveDashboard)}
                     size="small"
+                    tooltip="Save dashboard"
+                    tooltipPlacement="bottom"
                     disabledReason={
                         dashboardLoading
                             ? 'Wait for dashboard to finish loading'
@@ -82,8 +93,6 @@ export function ViewModeActions(): JSX.Element {
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { push } = useActions(router)
-    const hasTileRedesign = useFeatureFlag('DASHBOARD_TILE_REDESIGN')
-
     if (!dashboard) {
         return <></>
     }
@@ -96,9 +105,9 @@ export function ViewModeActions(): JSX.Element {
                 onClick={() => push(urls.dashboardSharing(dashboard.id))}
                 size="small"
                 icon={<IconShare fontSize="16" />}
-                tooltip="Share"
-                tooltipPlacement="top"
-            />
+            >
+                Share
+            </LemonButton>
             <AccessControlAction
                 resourceType={AccessControlResourceType.Dashboard}
                 minAccessLevel={AccessControlLevel.Editor}
@@ -126,7 +135,7 @@ export function ViewModeActions(): JSX.Element {
                     </LemonButton>
                 </AppShortcut>
             </AccessControlAction>
-            {canEditDashboard && hasTileRedesign && (
+            {canEditDashboard && (
                 <AppShortcut
                     name="EnterEditMode"
                     scope={Scene.Dashboard}
@@ -139,7 +148,7 @@ export function ViewModeActions(): JSX.Element {
                         data-attr="dashboard-edit-mode-button"
                         onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)}
                         size="small"
-                        icon={<IconPencil fontSize="16" />}
+                        icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Edit layout"
                         tooltipPlacement="top"
                     >

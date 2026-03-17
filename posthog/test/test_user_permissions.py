@@ -324,6 +324,72 @@ class TestUserTeamPermissions(BaseTest, WithPermissionsBase):
 
         assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
 
+    def test_team_effective_membership_level_default_access_level_admin(self):
+        """Test that org members get admin level when the project default access level is set to admin"""
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Set the project's default access level to admin (no specific member or role)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="admin",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
+    def test_team_effective_membership_level_default_access_level_member(self):
+        """Test that org members get member level when the project default access level is set to member"""
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Set the project's default access level to member
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.MEMBER
+
+    def test_team_effective_membership_level_direct_access_overrides_default(self):
+        """Test that direct user access overrides the project default access level"""
+        from ee.models.rbac.access_control import AccessControl
+
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        # Set the project's default access level to member
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
+
+        # Give the user direct admin access, which should override the default
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=self.organization_membership,
+            access_level="admin",
+        )
+
+        assert self.permissions().current_team.effective_membership_level == OrganizationMembership.Level.ADMIN
+
     def test_role_admin_access_overrides_direct_member_access(self):
         """
         BUG TEST: When a user has both:
