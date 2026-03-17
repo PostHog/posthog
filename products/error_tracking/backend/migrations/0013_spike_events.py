@@ -8,7 +8,6 @@ from django.db import migrations, models
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1050_rename_slack_twig_to_posthog_code"),
         ("error_tracking", "0012_suppression_rule_bytecode_and_sampling_rate"),
     ]
 
