@@ -54,6 +54,8 @@ export class MCP extends McpAgent<Env> {
         region: undefined,
         apiKey: undefined,
         clientName: undefined,
+        aiConsentGiven: undefined,
+        aiConsentFetchedAt: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined

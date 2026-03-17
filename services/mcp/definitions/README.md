@@ -110,6 +110,7 @@ tools:
     enrich_url: '{id}' # appended to url_prefix for result URLs
     exclude_params: [field] # hide params from tool input
     include_params: [field] # whitelist params (excludes all others)
+    requires_ai_consent: true # gate behind org AI data processing consent
     param_overrides: # override individual param descriptions or schemas
       name:
         description: Custom description

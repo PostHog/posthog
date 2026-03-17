@@ -14,7 +14,7 @@ use crate::kafka::rebalance_handler::RebalanceHandler;
 use crate::kafka::types::Partition;
 
 use anyhow::{Context, Result};
-use axum::async_trait;
+use async_trait::async_trait;
 use futures_util::StreamExt;
 use rdkafka::config::ClientConfig;
 use rdkafka::consumer::{CommitMode, Consumer, MessageStream, StreamConsumer};
