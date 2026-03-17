@@ -17,7 +17,7 @@ use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
-use integration_utils::{DEFAULT_CONFIG, DEFAULT_TEST_TIME};
+use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG, DEFAULT_TEST_TIME};
 use limiters::token_dropper::TokenDropper;
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -68,13 +68,7 @@ async fn setup_recordings_router_with_restriction(
     restriction_type: RestrictionType,
     token: &str,
 ) -> (Router, CapturingSink) {
-    let manager = lifecycle::Manager::builder("test")
-        .with_trap_signals(false)
-        .with_prestop_check(false)
-        .build();
-    let readiness = manager.readiness_handler();
-    let liveness = manager.liveness_handler();
-    std::mem::forget(manager.monitor_background());
+    let (readiness, liveness) = test_lifecycle_handlers();
 
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();
@@ -437,13 +431,7 @@ async fn setup_recordings_router_with_redirect_to_topic(
     token: &str,
     topic: &str,
 ) -> (Router, CapturingSink) {
-    let manager = lifecycle::Manager::builder("test")
-        .with_trap_signals(false)
-        .with_prestop_check(false)
-        .build();
-    let readiness = manager.readiness_handler();
-    let liveness = manager.liveness_handler();
-    std::mem::forget(manager.monitor_background());
+    let (readiness, liveness) = test_lifecycle_handlers();
 
     let sink = CapturingSink::new();
     let sink_clone = sink.clone();

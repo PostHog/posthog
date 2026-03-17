@@ -1,5 +1,4 @@
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use axum::{
@@ -12,42 +11,8 @@ use axum::{
 };
 use metrics::gauge;
 
-/// Shared flag set by the server when shutdown begins, used as a metric label.
-/// Replaces the old health crate's global `ShutdownStatus`.
-#[derive(Clone, Default)]
-pub struct ShutdownFlag(pub Arc<AtomicBool>);
-
-impl ShutdownFlag {
-    pub fn new() -> Self {
-        Self(Arc::new(AtomicBool::new(false)))
-    }
-
-    pub fn set_shutting_down(&self) {
-        self.0.store(true, Ordering::Relaxed);
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        if self.0.load(Ordering::Relaxed) {
-            "shutting_down"
-        } else {
-            "running"
-        }
-    }
-}
-
 // Global atomic counter for active connections
 static ACTIVE_CONNECTIONS: AtomicUsize = AtomicUsize::new(0);
-
-// Shutdown flag stored in request extensions by the router layer
-static SHUTDOWN_FLAG: std::sync::OnceLock<ShutdownFlag> = std::sync::OnceLock::new();
-
-pub fn set_global_shutdown_flag(flag: ShutdownFlag) {
-    drop(SHUTDOWN_FLAG.set(flag));
-}
-
-fn shutdown_status_str() -> &'static str {
-    SHUTDOWN_FLAG.get().map(|f| f.as_str()).unwrap_or("running")
-}
 
 // Guard to ensure connection count is decremented even on panic
 struct ConnectionGuard;
@@ -57,11 +22,7 @@ impl Drop for ConnectionGuard {
         let connections = ACTIVE_CONNECTIONS
             .fetch_sub(1, Ordering::Relaxed)
             .saturating_sub(1);
-        gauge!(
-            METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-            "shutdown_status" => shutdown_status_str()
-        )
-        .set(connections as f64);
+        gauge!(METRIC_CAPTURE_ACTIVE_CONNECTIONS).set(connections as f64);
     }
 }
 const METRIC_CAPTURE_ACTIVE_CONNECTIONS: &str = "capture_active_connections";
@@ -84,13 +45,8 @@ pub async fn track_metrics(req: Request<Body>, next: Next) -> impl IntoResponse 
 
     let method = req.method().clone();
 
-    // Track active connections with shutdown status label
     let connections = ACTIVE_CONNECTIONS.fetch_add(1, Ordering::Relaxed) + 1;
-    gauge!(
-        METRIC_CAPTURE_ACTIVE_CONNECTIONS,
-        "shutdown_status" => shutdown_status_str()
-    )
-    .set(connections as f64);
+    gauge!(METRIC_CAPTURE_ACTIVE_CONNECTIONS).set(connections as f64);
     let _guard = ConnectionGuard;
 
     // Run the rest of the request handling first, so we can measure it and get response

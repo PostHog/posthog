@@ -17,7 +17,7 @@ use capture::time::TimeSource;
 use capture::v0_request::{DataType, ProcessedEvent};
 use chrono::{DateTime, Utc};
 use common_redis::MockRedisClient;
-use integration_utils::DEFAULT_TEST_TIME;
+use integration_utils::{test_lifecycle_handlers, DEFAULT_TEST_TIME};
 use limiters::redis::{QuotaResource, QUOTA_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 use opentelemetry_proto::tonic::collector::trace::v1::ExportTraceServiceRequest;
@@ -110,13 +110,7 @@ fn make_test_client(sink: &CapturingSink) -> TestClient {
 }
 
 fn make_test_client_with_options(sink: &CapturingSink, options: TestClientOptions) -> TestClient {
-    let manager = lifecycle::Manager::builder("test")
-        .with_trap_signals(false)
-        .with_prestop_check(false)
-        .build();
-    let readiness = manager.readiness_handler();
-    let liveness = manager.liveness_handler();
-    std::mem::forget(manager.monitor_background());
+    let (readiness, liveness) = test_lifecycle_handlers();
 
     let timesource = FixedTime {
         time: DateTime::parse_from_rfc3339(DEFAULT_TEST_TIME)

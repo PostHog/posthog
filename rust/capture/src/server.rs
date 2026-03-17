@@ -19,7 +19,6 @@ use crate::config::CaptureMode;
 use crate::config::Config;
 use crate::event_restrictions::{EventRestrictionService, RedisRestrictionsRepository};
 use crate::global_rate_limiter::GlobalRateLimiter;
-use crate::metrics_middleware::{set_global_shutdown_flag, ShutdownFlag};
 use crate::quota_limiters::{is_exception_event, is_llm_event, is_survey_event};
 use crate::s3_client::{S3Client, S3Config};
 
@@ -320,9 +319,6 @@ pub async fn serve(config: Config, listener: TcpListener, mut manager: lifecycle
     let guard = manager.monitor_background();
 
     // --- Setup phase ---
-    let shutdown_flag = ShutdownFlag::new();
-    set_global_shutdown_flag(shutdown_flag.clone());
-
     let redis_client = Arc::new(
         RedisClient::with_config(
             config.redis_url.clone(),
@@ -532,7 +528,6 @@ pub async fn serve(config: Config, listener: TcpListener, mut manager: lifecycle
                 }
                 _ = server_handle.shutdown_recv() => {
                     info!("Hyper accept loop: shutdown signal received");
-                    shutdown_flag.set_shutting_down();
                     break;
                 }
             }

@@ -6,7 +6,7 @@ use std::num::NonZeroU32;
 use std::ops::Add;
 use std::str::FromStr;
 use std::string::ToString;
-use std::sync::{Arc, Once};
+use std::sync::Once;
 use std::time::Duration;
 
 use anyhow::bail;
@@ -22,7 +22,6 @@ use rdkafka::{Message, TopicPartitionList};
 use redis::{Client, Commands};
 use time::OffsetDateTime;
 use tokio::net::TcpListener;
-use tokio::sync::Notify;
 use tokio::time::timeout;
 use tracing::{info, warn, Level};
 
@@ -139,7 +138,7 @@ pub fn setup_tracing() {
 }
 pub struct ServerHandle {
     pub addr: SocketAddr,
-    shutdown: Arc<Notify>,
+    shutdown: tokio_util::sync::CancellationToken,
     client: reqwest::Client,
 }
 
@@ -159,22 +158,13 @@ impl ServerHandle {
     pub async fn for_config(config: Config) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
-        let notify = Arc::new(Notify::new());
-        let shutdown = notify.clone();
 
         let shutdown_token = tokio_util::sync::CancellationToken::new();
-        let shutdown_token_clone = shutdown_token.clone();
-
-        // Wire the Notify into the lifecycle shutdown token
-        tokio::spawn(async move {
-            notify.notified().await;
-            shutdown_token_clone.cancel();
-        });
 
         let manager = lifecycle::Manager::builder("capture-test")
             .with_trap_signals(false)
             .with_prestop_check(false)
-            .with_shutdown_token(shutdown_token)
+            .with_shutdown_token(shutdown_token.clone())
             .build();
 
         tokio::spawn(async move { serve(config, listener, manager).await });
@@ -186,7 +176,7 @@ impl ServerHandle {
 
         Self {
             addr,
-            shutdown,
+            shutdown: shutdown_token,
             client,
         }
     }
@@ -226,7 +216,7 @@ impl ServerHandle {
 
 impl Drop for ServerHandle {
     fn drop(&mut self) {
-        self.shutdown.notify_one()
+        self.shutdown.cancel()
     }
 }
 

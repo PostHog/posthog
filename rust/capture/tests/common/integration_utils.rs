@@ -953,7 +953,7 @@ impl Event for MemorySink {
     }
 }
 
-fn test_lifecycle_handlers() -> (lifecycle::ReadinessHandler, lifecycle::LivenessHandler) {
+pub fn test_lifecycle_handlers() -> (lifecycle::ReadinessHandler, lifecycle::LivenessHandler) {
     let manager = lifecycle::Manager::builder("test")
         .with_trap_signals(false)
         .with_prestop_check(false)

@@ -8,7 +8,6 @@ use common_liveness::SyncLivenessReporter;
 use limiters::overflow::{OverflowLimiter, OverflowLimiterResult};
 use limiters::redis::RedisLimiter;
 use metrics::{counter, gauge, histogram};
-use rdkafka::error::KafkaError;
 use rdkafka::producer::{FutureProducer, Producer};
 use rdkafka::util::Timeout;
 use rdkafka::ClientConfig;
@@ -282,7 +281,7 @@ impl KafkaSink {
             .is_ok()
         {
             liveness.report_healthy();
-            if let Some(ref adv) = advisory {
+            if let Some(adv) = advisory {
                 adv.report_healthy();
             }
             info!("connected to Kafka brokers");
@@ -297,10 +296,6 @@ impl KafkaSink {
             topics,
             replay_overflow_limiter,
         })
-    }
-
-    pub fn flush_producer(&self) -> Result<(), KafkaError> {
-        self.producer.flush()
     }
 }
 

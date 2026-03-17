@@ -1,6 +1,6 @@
 #[path = "common/integration_utils.rs"]
 mod integration_utils;
-use integration_utils::DEFAULT_CONFIG;
+use integration_utils::{test_lifecycle_handlers, DEFAULT_CONFIG};
 
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -69,13 +69,7 @@ async fn setup_router_with_limits(
     // resources that will be set limited for the given token for scoped limiters to detect
     resources_to_limit: Vec<QuotaResource>,
 ) -> (Router, MemorySink) {
-    let manager = lifecycle::Manager::builder("test")
-        .with_trap_signals(false)
-        .with_prestop_check(false)
-        .build();
-    let readiness = manager.readiness_handler();
-    let liveness = manager.liveness_handler();
-    std::mem::forget(manager.monitor_background());
+    let (readiness, liveness) = test_lifecycle_handlers();
 
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
@@ -1153,13 +1147,7 @@ async fn test_survey_quota_allows_events_when_not_limited() {
 #[tokio::test]
 async fn test_survey_quota_cross_batch_first_submission_allowed() {
     let token = "test_token_cross_batch_first";
-    let manager = lifecycle::Manager::builder("test")
-        .with_trap_signals(false)
-        .with_prestop_check(false)
-        .build();
-    let readiness = manager.readiness_handler();
-    let liveness = manager.liveness_handler();
-    std::mem::forget(manager.monitor_background());
+    let (readiness, liveness) = test_lifecycle_handlers();
 
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
@@ -1242,13 +1230,7 @@ async fn test_survey_quota_cross_batch_first_submission_allowed() {
 #[tokio::test]
 async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
     let token = "test_token_cross_batch_dup";
-    let manager = lifecycle::Manager::builder("test")
-        .with_trap_signals(false)
-        .with_prestop_check(false)
-        .build();
-    let readiness = manager.readiness_handler();
-    let liveness = manager.liveness_handler();
-    std::mem::forget(manager.monitor_background());
+    let (readiness, liveness) = test_lifecycle_handlers();
 
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
@@ -1333,13 +1315,7 @@ async fn test_survey_quota_cross_batch_duplicate_submission_dropped() {
 #[tokio::test]
 async fn test_survey_quota_cross_batch_redis_error_fail_open() {
     let token = "test_token_redis_error";
-    let manager = lifecycle::Manager::builder("test")
-        .with_trap_signals(false)
-        .with_prestop_check(false)
-        .build();
-    let readiness = manager.readiness_handler();
-    let liveness = manager.liveness_handler();
-    std::mem::forget(manager.monitor_background());
+    let (readiness, liveness) = test_lifecycle_handlers();
 
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
@@ -1767,13 +1743,7 @@ async fn test_ai_quota_with_empty_batch_returns_bad_request() {
 #[tokio::test]
 async fn test_ai_quota_cross_batch_redis_error_fail_open() {
     let token = "test_token_redis_error_ai";
-    let manager = lifecycle::Manager::builder("test")
-        .with_trap_signals(false)
-        .with_prestop_check(false)
-        .build();
-    let readiness = manager.readiness_handler();
-    let liveness = manager.liveness_handler();
-    std::mem::forget(manager.monitor_background());
+    let (readiness, liveness) = test_lifecycle_handlers();
 
     let sink = MemorySink::default();
     let timesource = FixedTimeSource {
