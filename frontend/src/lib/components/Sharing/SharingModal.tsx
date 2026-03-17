@@ -5,7 +5,15 @@ import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonModal,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+} from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TEMPLATE_LINK_HEADING, TEMPLATE_LINK_PII_WARNING } from 'lib/components/Sharing/templateLinkMessages'
@@ -365,6 +373,21 @@ export function SharingModalContent({
 
                                             {dashboardId && (
                                                 <>
+                                                    <LemonField name="theme">
+                                                        {({ value, onChange }) => (
+                                                            <LemonSelect
+                                                                value={value ?? 'system'}
+                                                                onSelect={(theme) => onChange(theme)}
+                                                                options={[
+                                                                    { value: 'system', label: 'Theme: System' },
+                                                                    { value: 'light', label: 'Theme: Light' },
+                                                                    { value: 'dark', label: 'Theme: Dark' },
+                                                                ]}
+                                                                fullWidth
+                                                            />
+                                                        )}
+                                                    </LemonField>
+
                                                     <LemonField name="hideExtraDetails">
                                                         {({ value, onChange }) => (
                                                             <LemonSwitch
@@ -373,7 +396,7 @@ export function SharingModalContent({
                                                                 label={
                                                                     <div className="flex items-center">
                                                                         <span>Show insight details</span>
-                                                                        <Tooltip title="When disabled, viewers won't see the extra insights details like who created the insight and the applied filters.">
+                                                                        <Tooltip title="When disabled, viewers won't see the extra insights details like the who created the insight and the applied filters.">
                                                                             <IconInfo className="ml-1.5 text-secondary text-lg" />
                                                                         </Tooltip>
                                                                     </div>

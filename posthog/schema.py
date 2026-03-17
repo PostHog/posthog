@@ -3882,6 +3882,7 @@ class SharingConfigurationSettings(BaseModel):
     legend: bool | None = None
     noHeader: bool | None = None
     showInspector: bool | None = None
+    theme: Literal["light", "dark", "system"] | None = None
     whitelabel: bool | None = None
 
 

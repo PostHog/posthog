@@ -78,6 +78,7 @@ export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
     const { type, dashboard, insight, recording, themes, accessToken, exportToken, ...exportOptions } = props
     const { whitelabel, showInspector = false } = exportOptions
+    const forcedTheme = exportOptions.theme === 'light' || exportOptions.theme === 'dark' ? exportOptions.theme : null
 
     const { currentTeam } = useValues(teamLogic)
     const { ref: elementRef, height, width } = useResizeObserver()
@@ -100,7 +101,7 @@ export function Exporter(props: ExportedData): JSX.Element {
         }
     }, [dashboard, insight, type, whitelabel])
 
-    useThemedHtml(false)
+    useThemedHtml(false, forcedTheme)
 
     if (type === ExportType.Unlock) {
         return <ExporterLogin whitelabel={whitelabel} />
