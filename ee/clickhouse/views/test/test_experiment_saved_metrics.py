@@ -11,13 +11,13 @@ from ee.api.test.base import APILicensedTest
 
 class TestExperimentSavedMetricsCRUD(APILicensedTest):
     def test_http_saved_metric_validation_runs_once(self) -> None:
-        original_validate_query = ExperimentSavedMetricService.validate_query.__func__
+        original_validate_query = ExperimentSavedMetricService.validate_query
         validate_query_call_count = 0
 
         def counting_validate_query(cls, query: dict | None) -> None:
             nonlocal validate_query_call_count
             validate_query_call_count += 1
-            original_validate_query(cls, query)
+            original_validate_query(query)
 
         with patch.object(ExperimentSavedMetricService, "validate_query", classmethod(counting_validate_query)):
             create_response = self.client.post(
