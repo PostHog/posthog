@@ -408,6 +408,23 @@ export function SharingModalContent({
                                                     </LemonField>
                                                 </>
                                             )}
+
+                                            {dashboardId && (
+                                                <LemonField name="theme">
+                                                    {({ value, onChange }) => (
+                                                        <LemonSelect
+                                                            value={value ?? 'system'}
+                                                            onSelect={(theme) => onChange(theme)}
+                                                            options={[
+                                                                { value: 'system', label: 'Theme: System' },
+                                                                { value: 'light', label: 'Theme: Light' },
+                                                                { value: 'dark', label: 'Theme: Dark' },
+                                                            ]}
+                                                            fullWidth
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                            )}
                                         </div>
 
                                         {previewIframe && (
