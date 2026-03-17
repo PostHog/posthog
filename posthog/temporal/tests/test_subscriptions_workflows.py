@@ -299,7 +299,7 @@ async def test_deliver_subscription_report_slack(
         target_value="C12345|#test-channel",
     )
 
-    async def mock_generate_assets_async():
+    async def mock_generate_assets_async(subscription):
         return [insight], [asset]
 
     mock_gen_assets.side_effect = mock_generate_assets_async
