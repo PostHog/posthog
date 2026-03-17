@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { Field, Form } from 'kea-forms'
 
+import { isTextCardMarkdownRoundTripSafe } from 'lib/components/Cards/TextCard/textCardMarkdown'
+import { TextCardMarkdownEditor } from 'lib/components/Cards/TextCard/TextCardMarkdownEditor'
 import { textCardModalLogic } from 'lib/components/Cards/TextCard/textCardModalLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
@@ -20,8 +22,14 @@ export function TextCardModal({
     textTileId: number | 'new' | null
 }): JSX.Element {
     const modalLogic = textCardModalLogic({ dashboard, textTileId: textTileId ?? 'new', onClose })
-    const { isTextTileSubmitting, textTileValidationErrors } = useValues(modalLogic)
-    const { submitTextTile, resetTextTile } = useActions(modalLogic)
+    const { isTextTileSubmitting, textTileValidationErrors, textTile } = useValues(modalLogic)
+    const { resetTextTile } = useActions(modalLogic)
+    const initialBody =
+        textTileId && textTileId !== 'new'
+            ? dashboard.tiles?.find((tile) => tile.id === textTileId)?.text?.body || ''
+            : ''
+    const shouldUseLegacyMarkdownEditor = !isTextCardMarkdownRoundTripSafe(initialBody)
+    const hasUnsavedInput = (textTile?.body || '') !== initialBody
 
     const handleClose = (): void => {
         resetTextTile()
@@ -34,7 +42,8 @@ export function TextCardModal({
             isOpen={isOpen}
             title=""
             onClose={handleClose}
-            className="min-w-full lg:min-w-2xl"
+            hasUnsavedInput={hasUnsavedInput}
+            className="min-w-full lg:min-w-4xl"
             footer={
                 <>
                     <LemonButton
@@ -50,7 +59,6 @@ export function TextCardModal({
                         form="text-tile-form"
                         htmlType="submit"
                         type="primary"
-                        onClick={submitTextTile}
                         data-attr={textTileId === 'new' ? 'save-new-text-tile' : 'edit-text-tile-text'}
                     >
                         Save
@@ -66,7 +74,26 @@ export function TextCardModal({
                 enableFormOnSubmit
             >
                 <Field name="body" label="">
-                    <LemonTextAreaMarkdown maxLength={4000} minRows={8} maxRows={20} data-attr="text-card-edit-area" />
+                    {({ value, onChange }) =>
+                        shouldUseLegacyMarkdownEditor ? (
+                            <>
+                                <LemonTextAreaMarkdown
+                                    value={value}
+                                    onChange={onChange}
+                                    maxLength={4000}
+                                    minRows={8}
+                                    maxRows={20}
+                                    data-attr="text-card-edit-area"
+                                />
+                                <p className="text-xs text-muted mt-2">
+                                    This card uses markdown that is not fully supported by the rich editor yet, so it is
+                                    using the legacy markdown editor to prevent content loss.
+                                </p>
+                            </>
+                        ) : (
+                            <TextCardMarkdownEditor value={value} onChange={onChange} minRows={8} maxRows={20} />
+                        )
+                    }
                 </Field>
             </Form>
         </LemonModal>
