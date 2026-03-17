@@ -25,7 +25,7 @@ export function SettingsTab(): JSX.Element {
         ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
         : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`
 
-    const returnTo = `${urls.experiment(experiment.id)}`
+    const returnTo = urls.experiment(experiment.id)
 
     // Only show alerts section for saved experiments, as the alert relies on experiment.id for filtering
     const shouldShowSignificanceAlerts =
