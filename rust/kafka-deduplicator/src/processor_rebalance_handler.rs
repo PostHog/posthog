@@ -11,7 +11,6 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
-use crate::checkpoint::config::DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS;
 use crate::checkpoint::import::CheckpointImporter;
 use crate::checkpoint::metadata::CheckpointMetadata;
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
