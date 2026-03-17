@@ -10,6 +10,7 @@ All three converge to create_or_update_slack_ticket().
 """
 
 from io import BytesIO
+from types import MappingProxyType
 from typing import Any
 from urllib.parse import urljoin, urlparse
 from urllib.request import HTTPRedirectHandler, Request, build_opener
@@ -86,7 +87,7 @@ def get_slack_client(team: Team) -> WebClient:
     raise ValueError("Support Slack bot token is not configured")
 
 
-_UNKNOWN_USER: dict = {"name": "Unknown", "email": None, "avatar": None}
+_UNKNOWN_USER = MappingProxyType({"name": "Unknown", "email": None, "avatar": None})
 
 
 def resolve_slack_user(client: WebClient, slack_user_id: str) -> dict:
@@ -682,6 +683,8 @@ def _backfill_thread_replies(
         )
 
     if comments_to_create:
+        # bulk_create intentionally skips post_save signals — backfilled historical
+        # messages should not trigger activity log entries or Slack reply notifications.
         created_comments = Comment.objects.bulk_create(comments_to_create)
         last_comment = created_comments[-1]
         Ticket.objects.filter(id=ticket.id, team=team).update(
