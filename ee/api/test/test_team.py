@@ -6,6 +6,7 @@ from posthog.test.base import FuzzyInt
 
 from rest_framework.status import HTTP_200_OK, HTTP_204_NO_CONTENT, HTTP_403_FORBIDDEN, HTTP_404_NOT_FOUND
 
+from posthog.constants import AvailableFeature
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.project import Project
 from posthog.models.team import Team
@@ -41,7 +42,9 @@ def team_enterprise_api_test_factory():
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
             response = self.client.delete(f"/api/environments/{self.team.id}")
-            self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
+            has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+            expected_status = HTTP_204_NO_CONTENT if has_advanced_permissions else HTTP_403_FORBIDDEN
+            self.assertEqual(response.status_code, expected_status)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 1)
 
         def test_delete_second_team_as_org_admin_allowed(self):
@@ -57,7 +60,9 @@ def team_enterprise_api_test_factory():
             self.organization_membership.save()
             team = Team.objects.create(organization=self.organization)
             response = self.client.delete(f"/api/environments/{team.id}")
-            self.assertEqual(response.status_code, HTTP_403_FORBIDDEN)
+            has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+            expected_status = HTTP_204_NO_CONTENT if has_advanced_permissions else HTTP_403_FORBIDDEN
+            self.assertEqual(response.status_code, expected_status)
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
 
         def test_no_delete_team_not_belonging_to_organization(self):
@@ -116,12 +121,18 @@ def team_enterprise_api_test_factory():
             response = self.client.get(f"/api/environments/@current/")
             response_data = response.json()
 
+            expected_effective_level = (
+                OrganizationMembership.Level.ADMIN
+                if self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+                else OrganizationMembership.Level.MEMBER
+            )
+
             self.assertEqual(response.status_code, HTTP_200_OK)
             self.assertLessEqual(
                 {
                     "name": "Default project",
                     "access_control": False,
-                    "effective_membership_level": OrganizationMembership.Level.MEMBER,
+                    "effective_membership_level": expected_effective_level,
                 }.items(),
                 response_data.items(),
             )
@@ -266,7 +277,7 @@ class TestTeamEnterpriseAPI(team_enterprise_api_test_factory()):
         projects_response = self.client.get(f"/api/environments/")
 
         # 9 (above):
-        with self.assertNumQueries(FuzzyInt(16, 18)):
+        with self.assertNumQueries(FuzzyInt(14, 18)):
             current_org_response = self.client.get(f"/api/organizations/{self.organization.id}/")
 
         self.assertEqual(projects_response.status_code, HTTP_200_OK)

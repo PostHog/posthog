@@ -1,5 +1,6 @@
 from rest_framework import status
 
+from posthog.constants import AvailableFeature
 from posthog.models import Dashboard, OrganizationMembership, User
 
 from ee.api.test.base import APILicensedTest
@@ -82,12 +83,16 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
                 "level": Dashboard.PrivilegeLevel.CAN_EDIT,
             },
         )
-        response_data = response.json()
+        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response_data["dashboard_id"], self.test_dashboard.id)
-        self.assertEqual(response_data["user"]["email"], other_user.email)
-        self.assertEqual(response_data["level"], Dashboard.PrivilegeLevel.CAN_EDIT)
+        expected_status = status.HTTP_201_CREATED if has_advanced_permissions else status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, expected_status)
+
+        if has_advanced_permissions:
+            response_data = response.json()
+            self.assertEqual(response_data["dashboard_id"], self.test_dashboard.id)
+            self.assertEqual(response_data["user"]["email"], other_user.email)
+            self.assertEqual(response_data["level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
     def test_cannot_add_yourself_to_restricted_dashboard_as_creator(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -105,11 +110,16 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        expected_detail = (
+            "Cannot add collaborators that already have inherent access (the dashboard owner or a project admins)."
+            if has_advanced_permissions
+            else "Cannot add collaborators to a dashboard on the lowest restriction level."
+        )
         self.assertEqual(
             response_data,
-            self.validation_error_response(
-                "Cannot add collaborators that already have inherent access (the dashboard owner or a project admins)."
-            ),
+            self.validation_error_response(expected_detail),
         )
 
     def test_cannot_add_collaborator_to_edit_restricted_dashboard_as_other_user(self):
@@ -127,13 +137,17 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
                 "level": Dashboard.PrivilegeLevel.CAN_EDIT,
             },
         )
-        response_data = response.json()
+        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response_data,
-            self.permission_denied_response("You don't have edit permissions for this dashboard."),
-        )
+        expected_status = status.HTTP_403_FORBIDDEN if has_advanced_permissions else status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, expected_status)
+
+        if has_advanced_permissions:
+            response_data = response.json()
+            self.assertEqual(
+                response_data,
+                self.permission_denied_response("You don't have edit permissions for this dashboard."),
+            )
 
     def test_cannot_add_collaborator_from_other_org_to_edit_restricted_dashboard_as_creator(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -152,9 +166,16 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         response_data = response.json()
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        expected_detail = (
+            "Cannot add collaborators that have no access to the project."
+            if has_advanced_permissions
+            else "Cannot add collaborators to a dashboard on the lowest restriction level."
+        )
         self.assertEqual(
             response_data,
-            self.validation_error_response("Cannot add collaborators that have no access to the project."),
+            self.validation_error_response(expected_detail),
         )
 
     def test_cannot_add_collaborator_to_other_org_to_edit_restricted_dashboard_as_creator(self):
@@ -241,7 +262,9 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/{other_user.uuid}"
         )
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        expected_status = status.HTTP_204_NO_CONTENT if has_advanced_permissions else status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, expected_status)
 
     def test_cannot_remove_collaborator_from_restricted_dashboard_as_other_user(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -259,10 +282,14 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         response = self.client.delete(
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/{other_user.uuid}"
         )
-        response_data = response.json()
+        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
 
-        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(
-            response_data,
-            self.permission_denied_response("You don't have edit permissions for this dashboard."),
-        )
+        expected_status = status.HTTP_403_FORBIDDEN if has_advanced_permissions else status.HTTP_400_BAD_REQUEST
+        self.assertEqual(response.status_code, expected_status)
+
+        if has_advanced_permissions:
+            response_data = response.json()
+            self.assertEqual(
+                response_data,
+                self.permission_denied_response("You don't have edit permissions for this dashboard."),
+            )
