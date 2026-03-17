@@ -3555,6 +3555,8 @@ export namespace Schemas {
       /** @nullable */
       includeBounceRate?: boolean | null;
       /** @nullable */
+      includeHost?: boolean | null;
+      /** @nullable */
       includeRevenue?: boolean | null;
       /** @nullable */
       includeScrollDepth?: boolean | null;
