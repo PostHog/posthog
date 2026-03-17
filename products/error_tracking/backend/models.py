@@ -1,3 +1,4 @@
+import uuid as uuid_mod
 from decimal import Decimal
 from uuid import UUID
 
@@ -518,3 +519,19 @@ class ErrorTrackingSpikeDetectionConfig(models.Model):
 
     class Meta:
         db_table = "posthog_errortrackingspikedetectionconfig"
+
+
+class ErrorTrackingSpikeEvent(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid_mod.uuid4)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
+    issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="spike_events")
+    detected_at = models.DateTimeField()
+    computed_baseline = models.FloatField()
+    current_bucket_value = models.IntegerField()
+
+    class Meta:
+        db_table = "posthog_errortrackingspikeevent"
+        indexes = [
+            models.Index(fields=["team", "-detected_at"]),
+            models.Index(fields=["issue", "-detected_at"]),
+        ]
