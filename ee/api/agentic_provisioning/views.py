@@ -376,7 +376,6 @@ def _build_authorize_url(confirmation_secret: str, scopes: list[str]) -> str:
 @login_required
 def agentic_authorize(request: Any) -> HttpResponseBase:
     state = request.GET.get("state", "")
-    scope = request.GET.get("scope", "")
     if not state or not _SAFE_STATE_RE.match(state):
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=missing_state")
 
@@ -387,6 +386,8 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
 
     if request.user.email != pending["email"]:
         return HttpResponseRedirect(f"{settings.SITE_URL}?error=email_mismatch")
+
+    scope = " ".join(pending.get("scopes", []))
 
     user = request.user
     memberships = list(user.organization_memberships.select_related("organization").all())
@@ -420,11 +421,13 @@ def agentic_authorize(request: Any) -> HttpResponseBase:
         )
 
         callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
-        params = urlencode({"code": code, "state": state})
+        sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
+        params = urlencode({"code": code, "state": sanitized_state})
         return HttpResponseRedirect(f"{callback_url}?{params}")
 
     base = settings.SITE_URL.rstrip("/")
-    params = urlencode({"state": state, "scope": scope})
+    sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
+    params = urlencode({"state": sanitized_state, "scope": scope})
     return HttpResponseRedirect(f"{base}/agentic/authorize?{params}")
 
 
@@ -472,7 +475,8 @@ def agentic_authorize_confirm(request: Request) -> Response:
     )
 
     callback_url = settings.STRIPE_ORCHESTRATOR_CALLBACK_URL
-    params = urlencode({"code": code, "state": state})
+    sanitized_state = re.sub(r"[^A-Za-z0-9_\-]", "", state)
+    params = urlencode({"code": code, "state": sanitized_state})
     redirect_url = f"{callback_url}?{params}"
 
     return Response({"redirect_url": redirect_url})
