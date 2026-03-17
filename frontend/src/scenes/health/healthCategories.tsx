@@ -1,6 +1,6 @@
 import { IconCode, IconDatabase, IconPulse, IconWarning } from '@posthog/icons'
 
-export type HealthIssueCategory = 'ingestion' | 'sdk' | 'pipelines' | 'other'
+export type HealthIssueCategory = 'ingestion' | 'sdk' | 'pipelines' | 'data_modeling' | 'other'
 
 interface CategoryConfig {
     label: string
@@ -32,6 +32,13 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
         icon: <IconDatabase className="size-5" />,
         showInSummary: true,
     },
+    data_modeling: {
+        label: 'Data modeling',
+        description: 'Materialized views and data models',
+        healthyDescription: 'All healthy',
+        icon: <IconDatabase className="size-5" />,
+        showInSummary: true,
+    },
     other: {
         label: 'Other',
         description: 'Other health issues',
@@ -46,8 +53,8 @@ const KIND_TO_CATEGORY: Record<string, HealthIssueCategory> = {
     no_pageleave_events: 'ingestion',
     ingestion_lag: 'ingestion',
 
-    // Pipelines
-    materialized_view_failure: 'pipelines',
+    // Data modeling
+    materialized_view_failure: 'data_modeling',
 
     // SDKs
     sdk_outdated: 'sdk',
@@ -65,4 +72,4 @@ export const categoryForKind = (kind: string): HealthIssueCategory => {
     return KIND_TO_CATEGORY[kind] ?? 'other'
 }
 
-export const CATEGORY_ORDER: HealthIssueCategory[] = ['ingestion', 'sdk', 'pipelines', 'other']
+export const CATEGORY_ORDER: HealthIssueCategory[] = ['ingestion', 'sdk', 'pipelines', 'data_modeling', 'other']

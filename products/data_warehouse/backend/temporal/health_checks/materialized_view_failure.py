@@ -12,14 +12,21 @@ from products.data_warehouse.backend.models.datawarehouse_saved_query import Dat
 class MaterializedViewFailureCheck(HealthCheck):
     name = "materialized_view_failure"
     kind = "materialized_view_failure"
-    owner = JobOwners.TEAM_DATA_STACK
+    owner = JobOwners.TEAM_DATA_MODELING
     policy = DEFAULT_EXECUTION_POLICY
 
     def detect(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        queryset = DataWarehouseSavedQuery.objects.filter(
-            team_id__in=team_ids,
-            deleted=False,
-        ).filter(Q(status=DataWarehouseSavedQuery.Status.FAILED) | Q(is_materialized=False, latest_error__isnull=False))
+        queryset = (
+            DataWarehouseSavedQuery.objects.filter(
+                team_id__in=team_ids,
+                deleted=False,
+            )
+            .filter(
+                Q(status=DataWarehouseSavedQuery.Status.FAILED)
+                | (~Q(is_materialized=True) & Q(latest_error__isnull=False))
+            )
+            .exclude(status=DataWarehouseSavedQuery.Status.RUNNING)
+        )
 
         issues: dict[int, list[HealthCheckResult]] = {}
         for row in queryset.values("team_id", "id", "name", "latest_error"):
