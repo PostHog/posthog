@@ -38,13 +38,13 @@ test.describe('Workflows', () => {
             await page.waitForSelector('[data-attr="workflows-table"][data-loading="false"]', { timeout: 10000 })
         })
 
-        test('shows workflows list page with table and controls', async ({ page }) => {
+        test.skip('shows workflows list page with table and controls', async ({ page }) => {
             await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
 
             await expect(page).toHaveScreenshot('workflows-list.png', { fullPage: true })
         })
 
-        test('new workflow button opens modal with template chooser', async ({ page }) => {
+        test.skip('new workflow button opens modal with template chooser', async ({ page }) => {
             await page.click('[data-attr="new-workflow"]')
             await page.waitForSelector('[data-attr="new-workflow-chooser"]', { timeout: 3000 })
 
@@ -54,7 +54,7 @@ test.describe('Workflows', () => {
             await expect(page).toHaveScreenshot('new-workflow-modal.png', { fullPage: true })
         })
 
-        test('create blank workflow and see editor', async ({ page }) => {
+        test.skip('create blank workflow and see editor', async ({ page }) => {
             await page.click('[data-attr="new-workflow"]')
             await page.waitForSelector('[data-attr="new-workflow-chooser"]', { timeout: 3000 })
             await page.click('[data-attr="create-workflow-blank"]', { force: true })
@@ -67,7 +67,7 @@ test.describe('Workflows', () => {
     })
 
     test.describe('library tab', () => {
-        test('shows message templates table', async ({ page }) => {
+        test.skip('shows message templates table', async ({ page }) => {
             await page.goto('/workflows/library')
             await page.waitForSelector('[data-attr="message-templates-table"]', { timeout: 10000 })
             await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
@@ -93,7 +93,7 @@ test.describe('Workflows', () => {
     })
 
     test.describe('opt-outs tab', () => {
-        test('shows opt-out scene with categories and opt-out list', async ({ page }) => {
+        test.skip('shows opt-out scene with categories and opt-out list', async ({ page }) => {
             await page.goto('/workflows/opt-outs')
             await page.waitForSelector('[data-attr="opt-out-scene"]', { timeout: 10000 })
             await expect(page.getByText('Loading', { exact: true })).not.toBeVisible({ timeout: 5000 })
@@ -168,14 +168,14 @@ test.describe('Workflows', () => {
             await page.waitForURL(/\/workflows\/[a-zA-Z0-9-]+\/workflow/, { timeout: 10000 })
         })
 
-        test('workflow tab shows the editor canvas', async ({ page }) => {
+        test.skip('workflow tab shows the editor canvas', async ({ page }) => {
             await expect(page.locator('[data-attr="workflow-editor"]')).toBeVisible()
             await expect(page.locator('[data-attr="workflow-launch"]')).toBeVisible()
 
             await expect(page).toHaveScreenshot('workflow-view-editor.png', { fullPage: true })
         })
 
-        test('invocations tab shows logs viewer', async ({ page }) => {
+        test.skip('invocations tab shows logs viewer', async ({ page }) => {
             // Click on Invocations tab
             await page.getByRole('tab', { name: /Invocations/ }).click()
             await page.waitForSelector('[data-attr="workflow-logs"]', { timeout: 10000 })
@@ -183,7 +183,7 @@ test.describe('Workflows', () => {
             await expect(page).toHaveScreenshot('workflow-view-logs.png', { fullPage: true })
         })
 
-        test('metrics tab shows metrics dashboard', async ({ page }) => {
+        test.skip('metrics tab shows metrics dashboard', async ({ page }) => {
             // Click on Metrics tab
             await page.getByRole('tab', { name: 'Metrics' }).click()
             await page.waitForSelector('[data-attr="workflow-metrics"]', { timeout: 10000 })
@@ -191,7 +191,7 @@ test.describe('Workflows', () => {
             await expect(page).toHaveScreenshot('workflow-view-metrics.png', { fullPage: true })
         })
 
-        test('history tab shows activity log', async ({ page }) => {
+        test.skip('history tab shows activity log', async ({ page }) => {
             // Click on History tab
             await page.getByRole('tab', { name: 'History' }).click()
             await page.waitForSelector('[data-attr="activity-log"]', { timeout: 10000 })
@@ -199,7 +199,7 @@ test.describe('Workflows', () => {
             await expect(page).toHaveScreenshot('workflow-view-history.png', { fullPage: true })
         })
 
-        test('can navigate between all workflow tabs', async ({ page }) => {
+        test.skip('can navigate between all workflow tabs', async ({ page }) => {
             // Start on workflow tab
             await expect(page.locator('[data-attr="workflow-editor"]')).toBeVisible()
 

@@ -27,7 +27,7 @@ describe('CyclotronJobQueue', () => {
     })
 
     it('should initialise', () => {
-        const queue = new CyclotronJobQueue(config)
+        const queue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
         expect(queue).toBeDefined()
     })
 
@@ -35,7 +35,7 @@ describe('CyclotronJobQueue', () => {
         const buildQueue = (mapping: string, teamMapping?: string) => {
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING = mapping
             config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING = teamMapping || ''
-            const queue = new CyclotronJobQueue(config)
+            const queue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
             queue['jobQueuePostgres'].startAsProducer = jest.fn()
             queue['jobQueueKafka'].startAsProducer = jest.fn()
             queue['jobQueuePostgres'].queueInvocations = jest.fn()
