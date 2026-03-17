@@ -314,6 +314,11 @@ func (p *Process) Start(send func(tea.Msg)) error {
 
 // Falls back to stdout/stderr pipes when PTY allocation fails
 func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
+	// pty.Start may have contaminated SysProcAttr with Setsid/Setctty
+	// before failing. For the pipe path we only need Setpgid so Stop() can
+	// kill the full process tree via Kill(-pid, SIGTERM).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return err
