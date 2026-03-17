@@ -1,5 +1,6 @@
 from datetime import timedelta
 from decimal import Decimal
+from typing import Any
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
@@ -1084,7 +1085,7 @@ class TestExperimentService(APIBaseTest):
         self,
         name: str = "Launchable",
         feature_flag_key: str = "launchable-flag",
-        **kwargs: object,
+        **kwargs: Any,
     ) -> Experiment:
         kwargs.setdefault("metrics", [self._DEFAULT_METRIC])
         kwargs.setdefault("primary_metrics_ordered_uuids", ["m1"])
@@ -1109,11 +1110,13 @@ class TestExperimentService(APIBaseTest):
         experiment = self._create_launchable_experiment(name="Fingerprint Launch", feature_flag_key="fp-launch")
 
         # Draft metrics have fingerprints computed with start_date=None
+        assert experiment.metrics is not None
         draft_fingerprint = experiment.metrics[0].get("fingerprint")
 
         launched = self._service().launch_experiment(experiment)
 
         # After launch, fingerprints should be recomputed with the new start_date
+        assert launched.metrics is not None
         launch_fingerprint = launched.metrics[0].get("fingerprint")
         assert launch_fingerprint is not None
         assert launch_fingerprint != draft_fingerprint
