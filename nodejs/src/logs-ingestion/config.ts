@@ -48,6 +48,8 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_LIMITER_TEAM_BUCKET_SIZE_KB: '',
         LOGS_LIMITER_TEAM_REFILL_RATE_KB_PER_SECOND: '',
         // Overlapping fields with CommonConfig, included for standalone usage
+        // ok to connect to localhost over plaintext
+        // nosemgrep: trailofbits.generic.redis-unencrypted-transport.redis-unencrypted-transport
         REDIS_URL: 'redis://127.0.0.1',
         REDIS_POOL_MIN_SIZE: 1,
         REDIS_POOL_MAX_SIZE: 3,
