@@ -11,6 +11,7 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
+use crate::checkpoint::config::DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS;
 use crate::checkpoint::import::CheckpointImporter;
 use crate::checkpoint::metadata::CheckpointMetadata;
 use crate::kafka::batch_consumer::BatchConsumerProcessor;
@@ -576,6 +577,11 @@ async fn try_restore_from_local(
         let metadata_path = store_path.join(crate::checkpoint::metadata::METADATA_FILENAME);
         let result_label = if !metadata_path.exists() {
             "missing"
+        } else if CheckpointMetadata::load_from_dir(&store_path)
+            .await
+            .is_err()
+        {
+            "corrupt"
         } else {
             "stale"
         };
@@ -1069,7 +1075,7 @@ mod tests {
                 offset_tracker.clone(),
                 None,
                 16, // rebalance_cleanup_parallelism
-                Duration::from_secs(7200),
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
         assert!(handler.router.is_none());
 
@@ -1087,7 +1093,7 @@ mod tests {
             offset_tracker,
             None,
             16, // rebalance_cleanup_parallelism
-            Duration::from_secs(7200),
+            Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
         );
         assert!(handler_with_router.router.is_some());
     }
@@ -1117,7 +1123,7 @@ mod tests {
             offset_tracker,
             None,
             16, // rebalance_cleanup_parallelism
-            Duration::from_secs(7200),
+            Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
         );
 
         // Initially no workers
@@ -1181,7 +1187,7 @@ mod tests {
             offset_tracker,
             None,
             16, // rebalance_cleanup_parallelism
-            Duration::from_secs(7200),
+            Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
         );
 
         // Assign partition and create a store
@@ -1289,7 +1295,7 @@ mod tests {
             offset_tracker,
             None,
             16, // rebalance_cleanup_parallelism
-            Duration::from_secs(7200),
+            Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
         );
 
         // Step 1: Initial assignment
@@ -1388,7 +1394,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
-                Duration::from_secs(7200),
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // First assignment
@@ -1436,7 +1442,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
-                Duration::from_secs(7200),
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // Create command channel
@@ -1500,7 +1506,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
-                Duration::from_secs(7200),
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // Create command channel
@@ -1591,7 +1597,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
-                Duration::from_secs(7200),
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // Create command channel
@@ -1707,7 +1713,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
-                Duration::from_secs(7200),
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // Create command channel
@@ -1755,7 +1761,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16,
-                Duration::from_secs(7200),
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         let mut partitions = rdkafka::TopicPartitionList::new();
@@ -1799,7 +1805,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
-                Duration::from_secs(7200),
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         // Create command channel
@@ -1878,7 +1884,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
-                Duration::from_secs(7200),
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
@@ -1990,7 +1996,7 @@ mod tests {
                 offset_tracker,
                 None,
                 16, // rebalance_cleanup_parallelism
-                Duration::from_secs(7200),
+                Duration::from_secs(DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS),
             );
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();

@@ -16,6 +16,7 @@ use rdkafka::ClientConfig;
 use tokio::sync::oneshot;
 use tracing::info;
 
+use crate::checkpoint::config::DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS;
 use crate::checkpoint::import::CheckpointImporter;
 use crate::config::PipelineType;
 use crate::kafka::assigner::AssignerConsumer;
@@ -104,7 +105,9 @@ impl PipelineBuilder {
             seek_timeout,
             checkpoint_importer: None,
             rebalance_cleanup_parallelism,
-            local_checkpoint_max_staleness: Duration::from_secs(7200),
+            local_checkpoint_max_staleness: Duration::from_secs(
+                DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,
+            ),
             fail_open,
             dedup_config: None,
             main_producer: None,
