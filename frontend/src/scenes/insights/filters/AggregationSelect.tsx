@@ -49,7 +49,9 @@ export function AggregationSelect({
     className,
     hogqlAvailable,
 }: AggregationSelectProps): JSX.Element | null {
-    const { querySource, isFunnels, isLifecycle, hasDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
+    const { querySource, isFunnels, isLifecycle, hasOnlyDataWarehouseSeries } = useValues(
+        insightVizDataLogic(insightProps)
+    )
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
@@ -146,9 +148,9 @@ export function AggregationSelect({
             label: 'Custom entities',
             tooltip:
                 'Custom entities from your data warehouse instead of persons or groups. This mainly affects how aggregation labels are shown and disables the persons modal.',
-            disabledReason: hasDataWarehouseSeries
+            disabledReason: hasOnlyDataWarehouseSeries
                 ? undefined
-                : 'This option is only available for insights with a data warehouse series.',
+                : 'This option is only available for insights with only data warehouse series.',
         })
     }
 
