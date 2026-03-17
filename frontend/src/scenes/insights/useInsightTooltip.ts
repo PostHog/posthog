@@ -7,6 +7,8 @@ type TooltipInstance = {
     root: Root
     element: HTMLElement
     isMouseOver: boolean
+    isPinned: boolean
+    onUnpin: (() => void) | null
     hideTimeout: NodeJS.Timeout | null
     interactiveTimeout: NodeJS.Timeout | null
     mouseEnterHandler: () => void
@@ -36,6 +38,45 @@ function initGlobalScrollEndListener(): void {
             hideTooltip()
         },
         { capture: true, passive: true }
+    )
+}
+
+let globalUnpinListenersActive = false
+
+function initGlobalUnpinListeners(): void {
+    if (globalUnpinListenersActive) {
+        return
+    }
+    globalUnpinListenersActive = true
+    document.addEventListener(
+        'click',
+        (e) => {
+            for (const [id, instance] of tooltipInstances.entries()) {
+                if (!instance.isPinned) {
+                    continue
+                }
+                if (e.target instanceof Node && instance.element.contains(e.target as Node)) {
+                    continue
+                }
+
+                unpinTooltip(id)
+            }
+        },
+        { passive: true }
+    )
+
+    document.addEventListener(
+        'keydown',
+        (e) => {
+            if (e.key === 'Escape') {
+                for (const [id, instance] of tooltipInstances.entries()) {
+                    if (instance.isPinned) {
+                        unpinTooltip(id)
+                    }
+                }
+            }
+        },
+        { passive: true }
     )
 }
 
@@ -88,9 +129,12 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
             const inst = tooltipInstances.get(id)
             if (inst) {
                 inst.isMouseOver = false
+                if (inst.isPinned) {
+                    return
+                }
                 disableInteractivity(inst)
                 inst.hideTimeout = setTimeout(() => {
-                    if (!inst.isMouseOver) {
+                    if (!inst.isMouseOver && !inst.isPinned) {
                         inst.element.style.opacity = '0'
                     }
                 }, 100)
@@ -101,6 +145,8 @@ export function ensureTooltip(id: string): [Root, HTMLElement] {
             root,
             element: tooltipEl,
             isMouseOver: false,
+            isPinned: false,
+            onUnpin: null,
             hideTimeout: null,
             interactiveTimeout: null,
             mouseEnterHandler,
@@ -163,6 +209,31 @@ export function hideTooltip(id?: string): void {
     }, 100)
 }
 
+export function unpinTooltip(id: string): void {
+    const instance = tooltipInstances.get(id)
+    if (!instance) {
+        return
+    }
+
+    instance.isPinned = false
+    instance.element.style.opacity = '0'
+    disableInteractivity(instance)
+
+    const onUnpincallback = instance.onUnpin
+    instance.onUnpin = null
+    onUnpincallback?.()
+}
+
+export function pinTooltip(id: string, onUnpin?: () => void): void {
+    const instance = tooltipInstances.get(id)
+    if (!instance) {
+        return
+    }
+    instance.isPinned = true
+    instance.onUnpin = onUnpin ?? null
+    instance.element.style.pointerEvents = 'auto'
+}
+
 export function cleanupTooltip(id: string): void {
     const instance = tooltipInstances.get(id)
     if (instance) {
@@ -223,6 +294,10 @@ export function positionTooltip(
     const id = tooltipEl.id.replace('InsightTooltipWrapper-', '')
     const instance = tooltipInstances.get(id)
     if (instance) {
+        // Don't reposition or reset interactivity while pinned
+        if (instance.isPinned) {
+            return
+        }
         disableInteractivity(instance)
         scheduleInteractivity(instance)
     }
@@ -238,18 +313,23 @@ export function positionTooltip(
     }
 }
 
-export function useInsightTooltip(): {
+export function useInsightTooltip(options?: { isPinnable?: boolean }): {
     tooltipId: string
     getTooltip: () => [Root, HTMLElement]
     showTooltip: () => void
     hideTooltip: () => void
     cleanupTooltip: () => void
     positionTooltip: typeof positionTooltip
+    pinTooltip: ((onUnpin?: () => void) => void) | null
 } {
+    const isPinnable = options?.isPinnable ?? false
     const tooltipId = useMemo(() => Math.random().toString(36).substring(2, 11), [])
 
     useOnMountEffect(() => {
         initGlobalScrollEndListener()
+        if (isPinnable) {
+            initGlobalUnpinListeners()
+        }
         return () => {
             cleanupTooltip(tooltipId)
         }
@@ -259,6 +339,15 @@ export function useInsightTooltip(): {
     const show = useCallback((): void => showTooltip(tooltipId), [tooltipId])
     const hide = useCallback((): void => hideTooltip(tooltipId), [tooltipId])
     const cleanup = useCallback((): void => cleanupTooltip(tooltipId), [tooltipId])
+    const pin = useCallback((onUnpin?: () => void): void => pinTooltip(tooltipId, onUnpin), [tooltipId])
 
-    return { tooltipId, getTooltip, showTooltip: show, hideTooltip: hide, cleanupTooltip: cleanup, positionTooltip }
+    return {
+        tooltipId,
+        getTooltip,
+        showTooltip: show,
+        hideTooltip: hide,
+        cleanupTooltip: cleanup,
+        positionTooltip,
+        pinTooltip: isPinnable ? pin : null,
+    }
 }
