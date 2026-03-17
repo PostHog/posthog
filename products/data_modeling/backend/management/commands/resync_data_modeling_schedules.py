@@ -1,3 +1,4 @@
+import time
 import logging
 from datetime import timedelta
 
@@ -12,9 +13,11 @@ from products.data_warehouse.backend.models.datawarehouse_saved_query import Dat
 
 logger = structlog.get_logger(__name__)
 
+BATCH_DELAY_SECONDS = 0.5
+
 
 class Command(BaseCommand):
-    help = "Updates Temporal schedules for data modeling saved queries to spread them around midnight UTC"
+    help = "Resyncs Temporal schedules for data modeling saved queries"
 
     def add_arguments(self, parser):
         parser.add_argument(
@@ -83,6 +86,7 @@ class Command(BaseCommand):
             try:
                 sync_saved_query_workflow(saved_query, create=False)
                 updated += 1
+                time.sleep(BATCH_DELAY_SECONDS)
             except temporalio.service.RPCError as e:
                 if e.status == temporalio.service.RPCStatusCode.NOT_FOUND:
                     not_found_ids.append(str(saved_query.id))
