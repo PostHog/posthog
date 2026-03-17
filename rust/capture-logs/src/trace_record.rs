@@ -155,7 +155,11 @@ impl KafkaTraceRow {
             .collect();
 
         let status_code = span.status.as_ref().map(|s| s.code).unwrap_or(0);
-        let status_message = span.status.as_ref().map(|s| s.message.clone()).unwrap_or_default();
+        let status_message = span
+            .status
+            .as_ref()
+            .map(|s| s.message.clone())
+            .unwrap_or_default();
 
         let row = Self {
             uuid: Uuid::now_v7().to_string(),
