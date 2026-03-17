@@ -7,7 +7,7 @@ Frequency tiers:
 - Short (15min, 30min, 1hr): ScheduleIntervalSpec with deterministic minute bucket + 1min jitter
 - Medium (6hr, 12hr, 24hr): ScheduleCalendarSpec with deterministic hour bucket + 1hr jitter
 - Weekly: ScheduleCalendarSpec with deterministic day (0-6) + hour (0-23) + 1hr jitter
-- Monthly: ScheduleCalendarSpec with deterministic day (1-28) + hour (0-23) + 6hr jitter
+- Monthly: ScheduleCalendarSpec with deterministic day (1-28) + hour (0-23) + 1hr jitter
 """
 
 import uuid
