@@ -536,6 +536,7 @@ class _TierAwareSnapshotThrottle(PersonalApiKeyRateThrottle):
         rates_for_tier = rates.get(tier) or rates[SNAPSHOT_DEFAULT_TIER]
         self.rate = rates_for_tier[self.scope]
         self.num_requests, self.duration = self.parse_rate(self.rate)
+        self.scope = f"{self.scope}_{tier}"
 
     def _is_personal_api_key_request(self, request) -> bool:
         return isinstance(getattr(request, "successful_authenticator", None), PersonalAPIKeyAuthentication)
