@@ -372,11 +372,13 @@ async def _get_backfill_info_for_persons(
     logger = LOGGER.bind()
     is_limited_export = str(team_id) in settings.BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS
 
+    lower_bound_condition = ""
     date_conditions = ""
     having_date_conditions = ""
     query_parameters: dict[str, typing.Any] = {"team_id": team_id, "log_comment": log_comment}
 
     if start_at is not None:
+        lower_bound_condition = "AND _timestamp >= %(start_at)s "
         date_conditions += "AND _timestamp >= %(start_at)s "
         having_date_conditions += "AND argMax(_timestamp, version) >= %(start_at)s "
         query_parameters["start_at"] = start_at.astimezone(dt.UTC)
@@ -441,6 +443,7 @@ async def _get_backfill_info_for_persons(
             SELECT id
             FROM person
             WHERE team_id = %(team_id)s
+            {lower_bound_condition}
             GROUP BY id
             HAVING argMax(_timestamp, version) > '2000-01-01'
                 {having_date_conditions}
@@ -451,6 +454,7 @@ async def _get_backfill_info_for_persons(
             SELECT distinct_id
             FROM person_distinct_id2
             WHERE team_id = %(team_id)s
+            {lower_bound_condition}
             GROUP BY distinct_id
             HAVING argMax(_timestamp, version) > '2000-01-01'
                 {having_date_conditions}
