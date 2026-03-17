@@ -3,7 +3,6 @@ use std::time::Duration;
 
 use axum::Router;
 use common_redis::RedisClient;
-use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 use crate::ai_s3::AiBlobStorage;
@@ -16,7 +15,6 @@ use crate::quota_limiters::{
 use crate::router;
 use crate::router::BATCH_BODY_SIZE;
 use crate::s3_client::{S3Client, S3Config};
-use crate::server::LifecycleHandles;
 use crate::sinks::fallback::FallbackSink;
 use crate::sinks::kafka::KafkaSink;
 use crate::sinks::noop::NoOpSink;
@@ -27,11 +25,60 @@ use limiters::overflow::OverflowLimiter;
 use limiters::redis::{QuotaResource, RedisLimiter, ServiceName, OVERFLOW_LIMITER_CACHE_KEY};
 use limiters::token_dropper::TokenDropper;
 
+pub struct LifecycleHandles {
+    pub server: lifecycle::Handle,
+    pub sink: lifecycle::Handle,
+    pub advisory: Option<lifecycle::Handle>,
+    pub event_restrictions: Option<lifecycle::Handle>,
+    pub readiness: lifecycle::ReadinessHandler,
+    pub liveness: lifecycle::LivenessHandler,
+}
+
+pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) -> LifecycleHandles {
+    let server = manager.register(
+        "server",
+        lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(60)),
+    );
+
+    let sink_opts = lifecycle::ComponentOptions::new()
+        .with_liveness_deadline(Duration::from_secs(45))
+        .with_stall_threshold(4);
+
+    let (sink, advisory) = if config.s3_fallback_enabled {
+        let kafka = manager.register(
+            "kafka-sink",
+            sink_opts.clone().is_advisory(true),
+        );
+        let s3 = manager.register("s3-sink", sink_opts);
+        (s3, Some(kafka))
+    } else {
+        (manager.register("kafka-sink", sink_opts), None)
+    };
+
+    let event_restrictions =
+        if config.event_restrictions_enabled && config.event_restrictions_redis_url.is_some() {
+            Some(manager.register("event-restrictions", lifecycle::ComponentOptions::new()))
+        } else {
+            None
+        };
+
+    let readiness = manager.readiness_handler();
+    let liveness = manager.liveness_handler();
+
+    LifecycleHandles {
+        server,
+        sink,
+        advisory,
+        event_restrictions,
+        readiness,
+        liveness,
+    }
+}
+
 pub struct CaptureComponents {
     pub app: Router,
     pub server_handle: lifecycle::Handle,
     pub sink: Arc<dyn Event + Send + Sync>,
-    pub event_restrictions_join_handle: Option<JoinHandle<()>>,
     pub http1_header_read_timeout_ms: Option<u64>,
 }
 
@@ -153,12 +200,11 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
             None
         };
 
-    let (event_restriction_service, event_restrictions_join_handle) =
-        if let Some(handle) = event_restrictions_handle {
-            create_event_restriction_service(&config, handle)
-        } else {
-            (None, None)
-        };
+    let event_restriction_service = if let Some(handle) = event_restrictions_handle {
+        create_event_restriction_service(&config, handle)
+    } else {
+        None
+    };
 
     let app = router::router(
         crate::time::SystemTime {},
@@ -187,7 +233,6 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         config.body_read_chunk_size_kb,
     );
 
-    info!("listening on configured address");
     info!(
         "config: is_mirror_deploy == {:?} ; log_level == {:?}",
         config.is_mirror_deploy, config.log_level
@@ -197,7 +242,6 @@ pub async fn build_components(config: Config, handles: LifecycleHandles) -> Capt
         app,
         server_handle: server,
         sink: sink_for_flush,
-        event_restrictions_join_handle,
         http1_header_read_timeout_ms: config.http1_header_read_timeout_ms,
     }
 }
@@ -299,17 +343,14 @@ async fn create_sink(
 fn create_event_restriction_service(
     config: &Config,
     handle: lifecycle::Handle,
-) -> (
-    Option<EventRestrictionService>,
-    Option<tokio::task::JoinHandle<()>>,
-) {
+) -> Option<EventRestrictionService> {
     if !config.event_restrictions_enabled {
-        return (None, None);
+        return None;
     }
 
     let Some(ref redis_url) = config.event_restrictions_redis_url else {
         warn!("Event restrictions enabled but EVENT_RESTRICTIONS_REDIS_URL not set");
-        return (None, None);
+        return None;
     };
 
     let service = EventRestrictionService::new(
@@ -332,7 +373,7 @@ fn create_event_restriction_service(
         Some(Duration::from_millis(config.redis_connection_timeout_ms))
     };
 
-    let task_handle = tokio::spawn(async move {
+    tokio::spawn(async move {
         service_clone
             .start_refresh_task(
                 || {
@@ -363,5 +404,5 @@ fn create_event_restriction_service(
         "Event restrictions enabled"
     );
 
-    (Some(service), Some(task_handle))
+    Some(service)
 }

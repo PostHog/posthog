@@ -565,7 +565,7 @@ mod tests {
             lifecycle::ComponentOptions::new()
                 .with_liveness_deadline(std::time::Duration::from_secs(30)),
         );
-        std::mem::forget(manager.monitor_background());
+        let _monitor = manager.monitor_background();
         let limiter = Some(OverflowLimiter::new(
             NonZeroU32::new(10).unwrap(),
             NonZeroU32::new(10).unwrap(),

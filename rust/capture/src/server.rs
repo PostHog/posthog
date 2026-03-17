@@ -11,7 +11,6 @@ use tokio::net::{TcpListener, TcpStream};
 use tower::Service;
 use tracing::{debug, error, info, warn};
 
-use crate::config::Config;
 use crate::setup::CaptureComponents;
 
 // failsafe to prevent infinite loop if k8s endpoint removal is not working in prod
@@ -31,65 +30,6 @@ fn is_connection_error(e: &io::Error) -> bool {
             | io::ErrorKind::ConnectionAborted
             | io::ErrorKind::ConnectionReset
     )
-}
-
-pub struct LifecycleHandles {
-    pub server: lifecycle::Handle,
-    pub sink: lifecycle::Handle,
-    pub advisory: Option<lifecycle::Handle>,
-    pub event_restrictions: Option<lifecycle::Handle>,
-    pub readiness: lifecycle::ReadinessHandler,
-    pub liveness: lifecycle::LivenessHandler,
-}
-
-pub fn register_components(manager: &mut lifecycle::Manager, config: &Config) -> LifecycleHandles {
-    let server = manager.register(
-        "server",
-        lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(60)),
-    );
-
-    let sink = manager.register(
-        "sink",
-        lifecycle::ComponentOptions::new()
-            .with_liveness_deadline(Duration::from_secs(45))
-            .with_stall_threshold(4),
-    );
-
-    let advisory = if config.s3_fallback_enabled {
-        Some(
-            manager.register(
-                "sink-advisory",
-                lifecycle::ComponentOptions::new()
-                    .is_advisory(true)
-                    .with_liveness_deadline(Duration::from_secs(45))
-                    .with_stall_threshold(4),
-            ),
-        )
-    } else {
-        None
-    };
-
-    let event_restrictions =
-        if config.event_restrictions_enabled && config.event_restrictions_redis_url.is_some() {
-            Some(manager.register(
-                "event-restrictions",
-                lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
-            ))
-        } else {
-            None
-        };
-
-    let readiness = manager.readiness_handler();
-    let liveness = manager.liveness_handler();
-
-    LifecycleHandles {
-        server,
-        sink,
-        advisory,
-        event_restrictions,
-        readiness,
-        liveness,
-    }
 }
 
 /// Configures and spawns a connection handler for an accepted TCP connection.
@@ -153,7 +93,6 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         app,
         server_handle,
         sink,
-        event_restrictions_join_handle,
         http1_header_read_timeout_ms,
     } = components;
 
@@ -295,14 +234,5 @@ pub async fn serve(listener: TcpListener, components: CaptureComponents) {
         info!("Sink flush complete");
 
         // _scope drops here -> ProcessScopeGuard signals WorkCompleted
-    }
-
-    // Wait for event restrictions task if running
-    if let Some(handle) = event_restrictions_join_handle {
-        info!("Waiting for event restrictions refresh task...");
-        if let Err(e) = handle.await {
-            warn!("Event restrictions refresh task failed: {e:#}");
-        }
-        info!("Event restrictions refresh task stopped");
     }
 }

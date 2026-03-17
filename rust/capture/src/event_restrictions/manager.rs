@@ -336,13 +336,8 @@ mod tests {
             .with_prestop_check(false)
             .with_shutdown_token(shutdown_token.clone())
             .build();
-        let handle = manager.register(
-            "event-restrictions",
-            lifecycle::ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(5)),
-        );
-        let _guard = manager.monitor_background();
-        // Leak the guard so the monitor stays alive for the test duration
-        std::mem::forget(_guard);
+        let handle = manager.register("event-restrictions", lifecycle::ComponentOptions::new());
+        let _monitor = manager.monitor_background();
         (shutdown_token, handle)
     }
 

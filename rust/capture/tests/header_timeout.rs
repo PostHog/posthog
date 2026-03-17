@@ -6,7 +6,7 @@ use tokio::net::TcpStream;
 mod test_utils;
 use test_utils::{setup_tracing, DEFAULT_CONFIG};
 
-use capture::server::{self, serve};
+use capture::server::serve;
 use capture::setup;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -28,8 +28,8 @@ async fn start_server_with_header_timeout(
         .with_shutdown_token(shutdown_token.clone())
         .build();
 
-    let handles = server::register_components(&mut manager, &config);
-    std::mem::forget(manager.monitor_background());
+    let handles = setup::register_components(&mut manager, &config);
+    let _monitor = manager.monitor_background();
     let components = setup::build_components(config, handles).await;
 
     tokio::spawn(async move { serve(listener, components).await });

@@ -315,7 +315,7 @@ mod tests {
             "s3",
             lifecycle::ComponentOptions::new().with_liveness_deadline(Duration::from_secs(30)),
         );
-        std::mem::forget(manager.monitor_background());
+        let _monitor = manager.monitor_background();
 
         // Use environment variables for test configuration
         env::set_var("AWS_ACCESS_KEY_ID", "object_storage_root_user");

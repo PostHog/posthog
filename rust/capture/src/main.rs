@@ -14,7 +14,7 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
 use capture::error_tracking_sampler;
-use capture::server::{self, serve};
+use capture::server::serve;
 use capture::setup;
 
 common_alloc::used!();
@@ -129,12 +129,14 @@ async fn main() {
         .with_prestop_check(true)
         .build();
 
-    let handles = server::register_components(&mut manager, &config);
+    let handles = setup::register_components(&mut manager, &config);
     let guard = manager.monitor_background();
 
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
+    tracing::info!("listening on {:?}", listener.local_addr().unwrap());
+
     let components = setup::build_components(config, handles).await;
 
     serve(listener, components).await;

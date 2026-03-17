@@ -960,8 +960,7 @@ pub fn test_lifecycle_handlers() -> (lifecycle::ReadinessHandler, lifecycle::Liv
         .build();
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
-    // Leak the manager so the monitor stays alive for the test
-    std::mem::forget(manager.monitor_background());
+    let _monitor = manager.monitor_background();
     (readiness, liveness)
 }
 
