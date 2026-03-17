@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from posthog.dags.common.owners import JobOwners
 from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY, HealthExecutionPolicy
-from posthog.temporal.health_checks.models import HealthCheckResult
+from posthog.temporal.health_checks.models import DEFAULT_ACTIVE_SINCE_DAYS, HealthCheckResult
 from posthog.temporal.health_checks.registry import _DETECT_FNS, HEALTH_CHECKS
 
 
@@ -19,6 +19,7 @@ class HealthCheckRegistration:
     rollout_percentage: float
     not_processed_threshold: float
     dry_run: bool
+    active_since_days: int | None
 
 
 def _register_health_check(cls: type[HealthCheck]) -> None:
@@ -36,6 +37,7 @@ def _register_health_check(cls: type[HealthCheck]) -> None:
         rollout_percentage=cls.rollout_percentage,
         not_processed_threshold=cls.not_processed_threshold,
         dry_run=cls.dry_run,
+        active_since_days=cls.active_since_days,
     )
 
     HEALTH_CHECKS[cls.kind] = registration
@@ -51,6 +53,7 @@ class HealthCheck:
     rollout_percentage: float = 1.0
     not_processed_threshold: float = 0.1
     dry_run: bool = False
+    active_since_days: int | None = DEFAULT_ACTIVE_SINCE_DAYS
 
     def __init_subclass__(cls, **kwargs: object) -> None:
         super().__init_subclass__(**kwargs)

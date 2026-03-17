@@ -25,6 +25,7 @@ class HealthCheckWorkflowInputs:
     rollout_percentage: float = 1.0
     not_processed_threshold: float = 0.1
     dry_run: bool = False
+    active_since_days: int | None = 90
     owner: str = ""
 
     @classmethod
@@ -37,6 +38,7 @@ class HealthCheckWorkflowInputs:
             rollout_percentage=config.rollout_percentage,
             not_processed_threshold=config.not_processed_threshold,
             dry_run=config.dry_run,
+            active_since_days=config.active_since_days,
             owner=config.owner.value,
         )
 
