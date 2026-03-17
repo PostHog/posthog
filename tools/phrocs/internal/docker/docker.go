@@ -14,6 +14,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	sharedpalette "github.com/posthog/posthog/phrocs/internal/palette"
 )
 
 // DockerContainer represents a container from docker compose ps
@@ -196,7 +197,7 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 	var sb strings.Builder
 	sb.WriteByte('\n')
 	header := fmt.Sprintf("  %-*s  %-*s  %s", svcW, "SERVICE", stateW, "STATE", "STATUS")
-	sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(colorWhite).Render(header))
+	sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(sharedpalette.ColorWhite).Render(header))
 	sb.WriteByte('\n')
 
 	sepLen := svcW + stateW + statusW + 8
@@ -206,7 +207,7 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 	if sepLen < 1 {
 		sepLen = 1
 	}
-	sb.WriteString(lipgloss.NewStyle().Foreground(colorDarkGrey).Render("  " + strings.Repeat("─", sepLen)))
+	sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorDarkGrey).Render("  " + strings.Repeat("─", sepLen)))
 	sb.WriteByte('\n')
 
 	for _, c := range containers {
@@ -219,18 +220,18 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 		var stateColor color.Color
 		switch c.State {
 		case "running":
-			stateColor = colorGreen
+			stateColor = sharedpalette.ColorGreen
 		case "exited":
-			stateColor = colorRed
+			stateColor = sharedpalette.ColorRed
 		default:
-			stateColor = colorYellow
+			stateColor = sharedpalette.ColorYellow
 		}
 
 		sb.WriteString(fmt.Sprintf("  %-*s  ", svcW, svc))
 		sb.WriteString(lipgloss.NewStyle().Foreground(stateColor).Render(fmt.Sprintf("%-*s", stateW, c.State)))
-		sb.WriteString(lipgloss.NewStyle().Foreground(colorGrey).Render(fmt.Sprintf("  %s", c.Status)))
+		sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorGrey).Render(fmt.Sprintf("  %s", c.Status)))
 		if c.Health != "" {
-			sb.WriteString(lipgloss.NewStyle().Foreground(colorGrey).Render(fmt.Sprintf("  (%s)", c.Health)))
+			sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorGrey).Render(fmt.Sprintf("  (%s)", c.Health)))
 		}
 		sb.WriteByte('\n')
 	}
@@ -241,41 +242,25 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 func ContainerStateIcon(state string) string {
 	switch state {
 	case "running":
-		return iconCharRunning
+		return sharedpalette.IconRunning
 	case "exited":
-		return iconCharCrashed
+		return sharedpalette.IconCrashed
 	case "paused":
-		return iconCharPending
+		return sharedpalette.IconPending
 	default:
-		return iconCharStopped
+		return sharedpalette.IconStopped
 	}
 }
 
 func ContainerStateColor(state string) color.Color {
 	switch state {
 	case "running":
-		return colorGreen
+		return sharedpalette.ColorGreen
 	case "exited":
-		return colorRed
+		return sharedpalette.ColorRed
 	case "paused":
-		return colorYellow
+		return sharedpalette.ColorYellow
 	default:
-		return colorGrey
+		return sharedpalette.ColorGrey
 	}
 }
-
-var (
-	colorYellow   = lipgloss.Color("#F7A501")
-	colorGrey     = lipgloss.Color("#9BA1B2")
-	colorDarkGrey = lipgloss.Color("#3D3F43")
-	colorGreen    = lipgloss.Color("#2DCC5D")
-	colorRed      = lipgloss.Color("#F04438")
-	colorWhite    = lipgloss.Color("#FFFFFF")
-)
-
-const (
-	iconCharRunning = "●"
-	iconCharPending = "◌"
-	iconCharStopped = "○"
-	iconCharCrashed = "✗"
-)

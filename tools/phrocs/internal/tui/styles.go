@@ -4,28 +4,29 @@ import (
 	"image/color"
 
 	"charm.land/lipgloss/v2"
+	sharedpalette "github.com/posthog/posthog/phrocs/internal/palette"
 	"github.com/posthog/posthog/phrocs/internal/process"
 )
 
 // Plain Unicode, no embedded ANSI so they can be safely composed
 // without resetting the enclosing background or foreground colour
 const (
-	iconCharRunning = "●"
-	iconCharPending = "◌"
-	iconCharStopped = "○"
-	iconCharDone    = "✓"
-	iconCharCrashed = "✗"
+	iconCharRunning = sharedpalette.IconRunning
+	iconCharPending = sharedpalette.IconPending
+	iconCharStopped = sharedpalette.IconStopped
+	iconCharDone    = sharedpalette.IconDone
+	iconCharCrashed = sharedpalette.IconCrashed
 )
 
 var (
-	colorYellow   = lipgloss.Color("#F7A501")
-	colorBlue     = lipgloss.Color("#1D4AFF")
-	colorGrey     = lipgloss.Color("#9BA1B2")
-	colorDarkGrey = lipgloss.Color("#3D3F43")
-	colorGreen    = lipgloss.Color("#2DCC5D")
-	colorRed      = lipgloss.Color("#F04438")
-	colorWhite    = lipgloss.Color("#FFFFFF")
-	colorBlack    = lipgloss.Color("#151515")
+	colorYellow   = sharedpalette.ColorYellow
+	colorBlue     = sharedpalette.ColorBlue
+	colorGrey     = sharedpalette.ColorGrey
+	colorDarkGrey = sharedpalette.ColorDarkGrey
+	colorGreen    = sharedpalette.ColorGreen
+	colorRed      = sharedpalette.ColorRed
+	colorWhite    = sharedpalette.ColorWhite
+	colorBlack    = sharedpalette.ColorBlack
 )
 
 // Outer width of the process list column (including border)

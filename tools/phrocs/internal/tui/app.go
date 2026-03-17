@@ -658,11 +658,12 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 
 	var cmds []tea.Cmd
 
+	m.containerCursor = 0
+	m.containerOffset = 0
+	m.containerLines = nil
+
 	if m.isDockerMode() {
 		m.composeFile = docker.ParseComposeFile(m.activeProc().Cfg.Shell)
-		m.containerCursor = 0
-		m.containerOffset = 0
-		m.containerLines = nil
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchCursor = 0
@@ -671,9 +672,6 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 	} else {
 		m.focusedPane = focusServices
 		m.containers = nil
-		m.containerCursor = 0
-		m.containerOffset = 0
-		m.containerLines = nil
 		m.viewport.SetContent(m.buildContent())
 	}
 
