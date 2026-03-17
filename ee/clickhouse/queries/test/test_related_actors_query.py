@@ -58,7 +58,7 @@ class TestRelatedActorsQuery(ClickhouseTestMixin, APIBaseTest):
         return {r["id"] for r in results if r["type"] == "person"}
 
     @snapshot_clickhouse_queries
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=False)
+    @patch(f"{PATH}.posthoganalytics.get_feature_flag", return_value="control")
     def test_query_related_people_control(self, _):
         results = self._query()
 
@@ -68,7 +68,7 @@ class TestRelatedActorsQuery(ClickhouseTestMixin, APIBaseTest):
         assert str(self.another_person.uuid) in ids
 
     @snapshot_clickhouse_queries
-    @patch(f"{PATH}.posthoganalytics.feature_enabled", return_value=True)
+    @patch(f"{PATH}.posthoganalytics.get_feature_flag", return_value="test")
     def test_query_related_people_optimized(self, _):
         results = self._query()
 
@@ -77,10 +77,10 @@ class TestRelatedActorsQuery(ClickhouseTestMixin, APIBaseTest):
         assert str(self.person.uuid) in ids
         assert str(self.another_person.uuid) in ids
 
-    @parameterized.expand([("control", False), ("optimized", True)])
-    @patch(f"{PATH}.posthoganalytics.feature_enabled")
-    def test_returns_related_people(self, _name, flag_value, mock_flag):
-        mock_flag.return_value = flag_value
+    @parameterized.expand(["control", "test"])
+    @patch(f"{PATH}.posthoganalytics.get_feature_flag")
+    def test_returns_related_people(self, variant, mock_flag):
+        mock_flag.return_value = variant
 
         results = self._query()
 
@@ -91,10 +91,10 @@ class TestRelatedActorsQuery(ClickhouseTestMixin, APIBaseTest):
         assert str(self.unrelated_person.uuid) not in ids
         assert str(self.old_related_person.uuid) not in ids
 
-    @parameterized.expand([("control", False), ("optimized", True)])
-    @patch(f"{PATH}.posthoganalytics.feature_enabled")
-    def test_excludes_deleted_person_mapping(self, _name, flag_value, mock_flag):
-        mock_flag.return_value = flag_value
+    @parameterized.expand(["control", "test"])
+    @patch(f"{PATH}.posthoganalytics.get_feature_flag")
+    def test_excludes_deleted_person_mapping(self, variant, mock_flag):
+        mock_flag.return_value = variant
         self._insert_pdi2_row("user2", str(self.another_person.uuid), version=100, is_deleted=1)
 
         results = self._query()
@@ -102,10 +102,10 @@ class TestRelatedActorsQuery(ClickhouseTestMixin, APIBaseTest):
         ids = self._get_person_ids(results)
         assert str(self.another_person.uuid) not in ids
 
-    @parameterized.expand([("control", False), ("optimized", True)])
-    @patch(f"{PATH}.posthoganalytics.feature_enabled")
-    def test_reassigned_distinct_id_resolves_to_new_person(self, _name, flag_value, mock_flag):
-        mock_flag.return_value = flag_value
+    @parameterized.expand(["control", "test"])
+    @patch(f"{PATH}.posthoganalytics.get_feature_flag")
+    def test_reassigned_distinct_id_resolves_to_new_person(self, variant, mock_flag):
+        mock_flag.return_value = variant
         new_person = _create_person(distinct_ids=["new_user"], team=self.team, uuid=uuid4())
         flush_persons_and_events()
         self._insert_pdi2_row("user1", str(new_person.uuid), version=100)
@@ -116,10 +116,10 @@ class TestRelatedActorsQuery(ClickhouseTestMixin, APIBaseTest):
         assert str(new_person.uuid) in ids
         assert str(self.person.uuid) not in ids
 
-    @parameterized.expand([("control", False), ("optimized", True)])
-    @patch(f"{PATH}.posthoganalytics.feature_enabled")
-    def test_multiple_distinct_ids_same_person_deduped(self, _name, flag_value, mock_flag):
-        mock_flag.return_value = flag_value
+    @parameterized.expand(["control", "test"])
+    @patch(f"{PATH}.posthoganalytics.get_feature_flag")
+    def test_multiple_distinct_ids_same_person_deduped(self, variant, mock_flag):
+        mock_flag.return_value = variant
         self._insert_pdi2_row("user2", str(self.person.uuid), version=100)
 
         results = self._query()
