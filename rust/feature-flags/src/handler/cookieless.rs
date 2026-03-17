@@ -32,12 +32,12 @@ pub async fn handle_distinct_id(
         distinct_id: &distinct_id,
     };
 
+    // NOTE: cookieless_server_hash_mode team setting has been deprecated.
+    // All cookieless events are now processed as STATEFUL when the SDK sends them.
     let team_data = TeamData {
         team_id: team.id,
         timezone: team.timezone.clone(),
-        cookieless_server_hash_mode: CookielessServerHashMode::from(
-            team.cookieless_server_hash_mode.unwrap_or(0),
-        ),
+        cookieless_server_hash_mode: CookielessServerHashMode::Stateful,
     };
 
     context

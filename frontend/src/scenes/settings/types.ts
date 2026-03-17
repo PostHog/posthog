@@ -108,7 +108,6 @@ export type SettingId =
     | 'conversations-channels'
     | 'conversations-general'
     | 'conversations-notifications'
-    | 'cookieless-server-hash-mode'
     | 'core-memory'
     | 'correlation-analysis'
     | 'csp-reporting'

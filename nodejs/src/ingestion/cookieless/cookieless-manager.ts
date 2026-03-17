@@ -14,7 +14,7 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 
 import { cookielessRedisErrorCounter } from '../../common/metrics'
-import { CookielessServerHashMode, EventHeaders, IncomingEventWithTeam, PipelineEvent, Team } from '../../types'
+import { EventHeaders, IncomingEventWithTeam, PipelineEvent, Team } from '../../types'
 import { ConcurrencyController } from '../../utils/concurrencyController'
 import { RedisOperationError } from '../../utils/db/error'
 import { logger } from '../../utils/logger'
@@ -350,23 +350,11 @@ export class CookielessManager {
                 results[i] = drop('cookieless_unsupported_event')
                 continue
             }
-            if (
-                event.event === '$identify' &&
-                team.cookieless_server_hash_mode === CookielessServerHashMode.Stateless
-            ) {
-                // $identify events are not supported in stateless cookieless mode, drop them
-                results[i] = drop('cookieless_stateless_no_identify')
-                continue
-            }
 
-            if (
-                team.cookieless_server_hash_mode == null ||
-                team.cookieless_server_hash_mode === CookielessServerHashMode.Disabled
-            ) {
-                // if the specific team doesn't have cookieless enabled, drop the event
-                results[i] = drop('cookieless_team_disabled')
-                continue
-            }
+            // NOTE: cookieless_server_hash_mode team setting has been deprecated.
+            // All cookieless events are now processed as STATEFUL when the SDK sends them.
+            // The setting is kept in the database for rollback safety but is no longer read.
+
             const timestamp = event.timestamp ?? event.sent_at ?? event.now
 
             if (!timestamp) {
@@ -485,8 +473,8 @@ export class CookielessManager {
             return results
         }
 
-        // Do a second pass to see what `identifiesRedisKey`s we need to load from redis for stateful events.
-        // Fully process stateless events.
+        // Do a second pass to see what `identifiesRedisKey`s we need to load from redis.
+        // All events are processed as stateful.
         const identifiesKeys = new Set<string>()
         for (const eventWithProcessing of eventsWithStatus) {
             const { team, firstPass } = eventWithProcessing
@@ -494,28 +482,9 @@ export class CookielessManager {
                 continue
             }
 
-            if (team.cookieless_server_hash_mode === CookielessServerHashMode.Stateful) {
-                const identifiesRedisKey = getRedisIdentifiesKey(firstPass.baseHash, team.id)
-                identifiesKeys.add(identifiesRedisKey)
-                firstPass.secondPass = { identifiesRedisKey }
-            } else {
-                const { baseHash, timestampMs, eventTimeZone } = firstPass
-                const distinctId = hashToDistinctId(baseHash)
-                const deviceId = baseHashToDeviceId(baseHash)
-                const sessionId = createStatelessSessionId(timestampMs, eventTimeZone, team.timezone, baseHash)
-                const newProperties: Properties = {
-                    ...eventWithProcessing.event.properties,
-                    $distinct_id: distinctId,
-                    $device_id: deviceId,
-                    $session_id: sessionId,
-                }
-                eventWithProcessing.event = stripPIIProperties({
-                    ...eventWithProcessing.event,
-                    distinct_id: distinctId,
-                    properties: newProperties,
-                })
-                // the event is fully processed, no need to add create secondPass object
-            }
+            const identifiesRedisKey = getRedisIdentifiesKey(firstPass.baseHash, team.id)
+            identifiesKeys.add(identifiesRedisKey)
+            firstPass.secondPass = { identifiesRedisKey }
         }
 
         // Fetch the identifies from redis and populate our in-memory cache

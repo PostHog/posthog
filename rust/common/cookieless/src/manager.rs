@@ -183,10 +183,11 @@ impl CookielessManager {
         event_data: EventData<'_>,
         team_data: TeamData,
     ) -> Result<String, CookielessManagerError> {
-        // If cookieless mode is disabled or team's hash mode is Disabled, return the original distinct id
-        if self.config.disabled
-            || team_data.cookieless_server_hash_mode == CookielessServerHashMode::Disabled
-        {
+        // If cookieless mode is globally disabled, return the original distinct id
+        // NOTE: cookieless_server_hash_mode team setting has been deprecated.
+        // All cookieless events are now processed as STATEFUL when the SDK sends them.
+        // The setting is kept in the database for rollback safety but is no longer read.
+        if self.config.disabled {
             return Ok(event_data.distinct_id.to_string());
         }
 
@@ -737,6 +738,53 @@ mod tests {
 
         // Check that we got back the original distinct ID
         assert_eq!(result, "non_sentinel_id");
+    }
+
+    #[tokio::test]
+    async fn test_team_setting_disabled_is_ignored() {
+        // NOTE: cookieless_server_hash_mode team setting has been deprecated.
+        // Events should be processed regardless of the team setting.
+        // Only the global config.disabled flag should prevent processing.
+
+        // Create a mock Redis client
+        let mut mock_redis = MockRedisClient::new();
+        let salt_base64 = "AAAAAAAAAAAAAAAAAAAAAA=="; // 16 bytes of zeros
+        let today = Utc::now().format("%Y-%m-%d").to_string();
+        let redis_key = format!("cookieless_salt:{today}");
+        mock_redis = mock_redis.get_ret(&redis_key, Ok(salt_base64.to_string()));
+        let redis_client = Arc::new(mock_redis);
+
+        // Create a CookielessManager with default (non-disabled) config
+        let config = CookielessConfig::default();
+        let manager = CookielessManager::new(config, redis_client);
+
+        // Test with sentinel distinct ID and team setting DISABLED
+        let event_data = EventData {
+            ip: "127.0.0.1",
+            timestamp_ms: Utc::now().timestamp_millis() as u64,
+            host: "example.com",
+            user_agent: "Mozilla/5.0",
+            event_time_zone: None,
+            hash_extra: None,
+            distinct_id: COOKIELESS_SENTINEL_VALUE,
+        };
+
+        // Process the event with team setting set to Disabled
+        let result = manager
+            .compute_cookieless_distinct_id(
+                event_data,
+                TeamData {
+                    team_id: 1,
+                    timezone: "UTC".to_string(),
+                    cookieless_server_hash_mode: CookielessServerHashMode::Disabled, // This should be ignored
+                },
+            )
+            .await
+            .unwrap();
+
+        // Should still get a cookieless distinct ID, not the sentinel value
+        assert!(result.starts_with(COOKIELESS_DISTINCT_ID_PREFIX));
+        assert_ne!(result, COOKIELESS_SENTINEL_VALUE);
     }
 
     #[tokio::test]

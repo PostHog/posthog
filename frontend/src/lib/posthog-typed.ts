@@ -601,7 +601,6 @@ interface EventSchemas {
     'contact: contact form submitted': Record<string, any>
     'contact: contact form submitted successfully': Record<string, any>
     'contact: failure submitting contact form': Record<string, any>
-    'cookieless_server_hash_mode team setting updated': Record<string, any>
     'correlation analysis detailed feedback': Record<string, any>
     'correlation analysis feedback': Record<string, any>
     'correlation analyzed': Record<string, any>

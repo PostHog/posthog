@@ -565,6 +565,8 @@ class Team(UUIDTClassicModel):
     human_friendly_comparison_periods = field_access_control(
         models.BooleanField(default=False, null=True, blank=True), "project", "admin"
     )
+    # DEPRECATED: This field is no longer read. All cookieless events are processed as stateful.
+    # Keeping for rollback safety. Will be removed in a future migration.
     cookieless_server_hash_mode = field_access_control(
         models.SmallIntegerField(
             default=CookielessServerHashMode.DISABLED,
