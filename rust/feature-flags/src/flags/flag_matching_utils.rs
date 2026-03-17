@@ -1431,6 +1431,7 @@ mod tests {
                 payloads: None,
                 super_groups: None,
                 holdout_groups: None,
+                holdout: None,
             }),
             Some(false), // not deleted
             Some(true),  // active

@@ -35,9 +35,17 @@ export class DashboardPage {
         await this.dismissQuickStartIfVisible()
 
         if (dashboardName) {
-            const textarea = this.page.locator('.scene-title-section textarea')
-            await textarea.or(this.page.locator('.scene-title-section')).first().click()
+            const nameButton = this.page.locator('[data-attr="scene-name"] button').first()
+            const textarea = this.page.locator('[data-attr="scene-title-textarea"]')
+            // Click the title button to enter edit mode, retrying if loading resets the state
+            await expect(async () => {
+                if (!(await textarea.isVisible().catch(() => false))) {
+                    await nameButton.click()
+                }
+                await expect(textarea).toBeVisible({ timeout: 3000 })
+            }).toPass({ timeout: 30000 })
             await textarea.fill(dashboardName)
+            await textarea.blur()
         }
 
         return this
@@ -228,8 +236,8 @@ export class CompactDashboardPage extends DashboardPage {
     }
 
     async hoverFirstCard(): Promise<void> {
-        const title = this.insightCards.first().locator('[data-attr="insight-card-title"]')
-        await title.hover()
+        const infoButton = this.insightCards.first().locator('[data-attr="card-meta-info"]')
+        await infoButton.click()
     }
 
     get tilePopover(): Locator {

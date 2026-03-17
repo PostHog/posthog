@@ -463,11 +463,13 @@ class ModalSandbox:
             mcp_json = json.dumps([c.to_dict() for c in mcp_configs])
             mcp_servers_arg = f" --mcpServers {shlex.quote(mcp_json)}"
 
-        env_prefix = f"env TWIG_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        env_prefix = (
+            f"env POSTHOG_CODE_INTERACTION_ORIGIN={shlex.quote(interaction_origin)} " if interaction_origin else ""
+        )
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
         command = (
             f"cd /scripts && "
-            f"nohup {env_prefix}npx agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
+            f"nohup {env_prefix}./node_modules/.bin/agent-server --port {AGENT_SERVER_PORT} --repositoryPath {shlex.quote(repo_path)} "
             f"--taskId {shlex.quote(task_id)} --runId {shlex.quote(run_id)} --mode {shlex.quote(mode)}"
             f"{branch_flag}{mcp_servers_arg} "
             f"> /tmp/agent-server.log 2>&1 &"

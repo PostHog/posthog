@@ -27,6 +27,7 @@ import type {
     TaskRunCreateRequestApi,
     TaskRunDetailApi,
     TaskRunRelayMessageRequestApi,
+    TaskRunRelayMessageResponseApi,
     TasksListParams,
     TasksRepositoryReadinessRetrieveParams,
     TasksRunsListParams,
@@ -443,8 +444,8 @@ export const tasksRunsRelayMessageCreate = async (
     id: string,
     taskRunRelayMessageRequestApi: TaskRunRelayMessageRequestApi,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
+): Promise<TaskRunRelayMessageResponseApi> => {
+    return apiMutator<TaskRunRelayMessageResponseApi>(getTasksRunsRelayMessageCreateUrl(projectId, taskId, id), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },

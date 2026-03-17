@@ -7,7 +7,7 @@ use capture_logs::config::Config;
 use capture_logs::endpoints::datadog;
 use capture_logs::kafka::KafkaSink;
 use capture_logs::service::Service;
-use capture_logs::service::{export_logs_http, options_handler};
+use capture_logs::service::{export_logs_http, export_traces_http, options_handler};
 use common_metrics::setup_metrics_routes;
 use std::future::ready;
 use std::net::SocketAddr;
@@ -129,6 +129,14 @@ async fn main() {
         .route(
             "/i/v1/logs",
             post(export_logs_http).options(options_handler),
+        )
+        .route(
+            "/v1/traces",
+            post(export_traces_http).options(options_handler),
+        )
+        .route(
+            "/i/v1/traces",
+            post(export_traces_http).options(options_handler),
         )
         .route(
             "/i/v1/logs/datadog",

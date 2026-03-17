@@ -1,149 +1,6 @@
 {
     "$schema": "http://json-schema.org/draft-07/schema#",
     "definitions": {
-        "DashboardAddInsightSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "insightId": {
-                            "type": "string"
-                        },
-                        "dashboardId": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        }
-                    },
-                    "required": ["insightId", "dashboardId"]
-                }
-            },
-            "required": ["data"]
-        },
-        "DashboardCreateSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "minLength": 1
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "pinned": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    },
-                    "required": ["name"]
-                }
-            },
-            "required": ["data"]
-        },
-        "DashboardDeleteSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "number"
-                }
-            },
-            "required": ["dashboardId"]
-        },
-        "DashboardGetAllSchema": {
-            "type": "object",
-            "properties": {
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "limit": {
-                            "type": "integer",
-                            "exclusiveMinimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "offset": {
-                            "type": "integer",
-                            "minimum": 0,
-                            "maximum": 9007199254740991
-                        },
-                        "search": {
-                            "type": "string"
-                        },
-                        "pinned": {
-                            "type": "boolean"
-                        }
-                    }
-                }
-            }
-        },
-        "DashboardGetSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "number"
-                }
-            },
-            "required": ["dashboardId"]
-        },
-        "DashboardReorderTilesSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "integer",
-                    "exclusiveMinimum": 0,
-                    "maximum": 9007199254740991,
-                    "description": "The ID of the dashboard to reorder tiles on"
-                },
-                "tileOrder": {
-                    "minItems": 1,
-                    "type": "array",
-                    "items": {
-                        "type": "integer",
-                        "exclusiveMinimum": 0,
-                        "maximum": 9007199254740991
-                    },
-                    "description": "Array of tile IDs in the desired order from top to bottom"
-                }
-            },
-            "required": ["dashboardId", "tileOrder"]
-        },
-        "DashboardUpdateSchema": {
-            "type": "object",
-            "properties": {
-                "dashboardId": {
-                    "type": "number"
-                },
-                "data": {
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string"
-                        },
-                        "description": {
-                            "type": "string"
-                        },
-                        "pinned": {
-                            "type": "boolean"
-                        },
-                        "tags": {
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            }
-                        }
-                    }
-                }
-            },
-            "required": ["dashboardId", "data"]
-        },
         "DebugMcpUiAppsSchema": {
             "type": "object",
             "properties": {
@@ -1189,8 +1046,12 @@
                         "favorited": {
                             "type": "boolean"
                         },
-                        "dashboard": {
-                            "type": "number"
+                        "dashboards": {
+                            "description": "Dashboard IDs this insight should belong to. This is a full replacement — always include all existing dashboard IDs when adding a new one.",
+                            "type": "array",
+                            "items": {
+                                "type": "number"
+                            }
                         },
                         "tags": {
                             "type": "array",
@@ -1198,8 +1059,7 @@
                                 "type": "string"
                             }
                         }
-                    },
-                    "required": ["query"]
+                    }
                 }
             },
             "required": ["insightId", "data"]

@@ -1,0 +1,112 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "after": {
+            "description": "Cursor for pagination (from previous response nextCursor)",
+            "type": "string"
+        },
+        "dateFrom": {
+            "description": "Start of date range (ISO 8601 format, e.g., \"2024-01-01T00:00:00Z\")",
+            "type": "string"
+        },
+        "dateTo": {
+            "description": "End of date range (ISO 8601 format, e.g., \"2024-01-02T00:00:00Z\")",
+            "type": "string"
+        },
+        "filters": {
+            "description": "Structured attribute filters. Each filter targets a log field or attribute. Combined with AND by default (use filtersType to change).",
+            "items": {
+                "properties": {
+                    "key": {
+                        "description": "The attribute key to filter on. For type \"log\", use \"message\" to filter the log body. For \"log_attribute\" or \"log_resource_attribute\", use the attribute key (e.g. \"k8s.container.name\").",
+                        "type": "string"
+                    },
+                    "operator": {
+                        "description": "Comparison operator",
+                        "enum": [
+                            "exact",
+                            "is_not",
+                            "icontains",
+                            "not_icontains",
+                            "regex",
+                            "not_regex",
+                            "is_set",
+                            "is_not_set",
+                            "gt",
+                            "gte",
+                            "lt",
+                            "lte",
+                            "in",
+                            "not_in"
+                        ],
+                        "type": "string"
+                    },
+                    "type": {
+                        "description": "\"log\" filters the log body/message. \"log_attribute\" filters log-level attributes. \"log_resource_attribute\" filters resource-level attributes (e.g. k8s labels).",
+                        "enum": ["log", "log_attribute", "log_resource_attribute"],
+                        "type": "string"
+                    },
+                    "value": {
+                        "anyOf": [
+                            {
+                                "type": "string"
+                            },
+                            {
+                                "type": "number"
+                            },
+                            {
+                                "items": {
+                                    "type": "string"
+                                },
+                                "type": "array"
+                            },
+                            {
+                                "items": {
+                                    "type": "number"
+                                },
+                                "type": "array"
+                            }
+                        ],
+                        "description": "Value to compare against. Omit for is_set/is_not_set operators."
+                    }
+                },
+                "required": ["key", "type", "operator"],
+                "type": "object"
+            },
+            "type": "array"
+        },
+        "filtersType": {
+            "description": "Logical operator to combine filters (default: AND)",
+            "enum": ["AND", "OR"],
+            "type": "string"
+        },
+        "limit": {
+            "description": "Maximum number of results (1-1000, default: 100)",
+            "maximum": 1000,
+            "minimum": 1,
+            "type": "integer"
+        },
+        "orderBy": {
+            "description": "Order results by timestamp (default: latest)",
+            "enum": ["latest", "earliest"],
+            "type": "string"
+        },
+        "serviceNames": {
+            "description": "Filter by service names",
+            "items": {
+                "type": "string"
+            },
+            "type": "array"
+        },
+        "severityLevels": {
+            "description": "Filter by severity levels (trace, debug, info, warn, error, fatal)",
+            "items": {
+                "enum": ["trace", "debug", "info", "warn", "error", "fatal"],
+                "type": "string"
+            },
+            "type": "array"
+        }
+    },
+    "required": ["dateFrom", "dateTo"],
+    "type": "object"
+}

@@ -3081,12 +3081,124 @@ export interface LifecycleQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
+export type LifecycleDataWarehouseNodeApiKind =
+    (typeof LifecycleDataWarehouseNodeApiKind)[keyof typeof LifecycleDataWarehouseNodeApiKind]
+
+export const LifecycleDataWarehouseNodeApiKind = {
+    LifecycleDataWarehouseNode: 'LifecycleDataWarehouseNode',
+} as const
+
+export const LifecycleDataWarehouseNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type LifecycleDataWarehouseNodeApiResponse = { [key: string]: unknown } | null | null
+
+export interface LifecycleDataWarehouseNodeApi {
+    aggregation_target_field: string
+    created_at_field: string
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+          )[]
+        | null
+    id: string
+    kind?: LifecycleDataWarehouseNodeApiKind
+    math?: (typeof LifecycleDataWarehouseNodeApiMath)[keyof typeof LifecycleDataWarehouseNodeApiMath] | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+          )[]
+        | null
+    /** @nullable */
+    response?: LifecycleDataWarehouseNodeApiResponse
+    table_name: string
+    timestamp_field: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
 export interface LifecycleQueryApi {
     /**
      * Groups aggregation
      * @nullable
      */
     aggregation_group_type_index?: number | null
+    /**
+     * For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups.
+     * @nullable
+     */
+    customAggregationTarget?: boolean | null
     /**
      * Colors used in the insight's visualization
      * @nullable
@@ -3137,7 +3249,7 @@ export interface LifecycleQueryApi {
      */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
+    series: (EventsNodeApi | ActionsNodeApi | LifecycleDataWarehouseNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /**

@@ -88,7 +88,7 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
         """
         Verify that Node.saved_query doesn't block organization and team deletion.
         """
-        from products.data_modeling.backend.models import Node
+        from products.data_modeling.backend.models import DAG, Node
         from products.data_warehouse.backend.models import DataWarehouseSavedQuery
 
         org = Organization.objects.create(name="Org to delete")
@@ -104,10 +104,13 @@ class TestDeleteOrganizationDataAndNotifyTask(BaseTest):
             query={"kind": "HogQLQuery", "query": "SELECT 1"},
         )
 
+        dag = DAG.objects.create(team=team, name=f"posthog_{team.id}")
+
         # Create a Node referencing the saved query (this has PROTECT on saved_query)
         node = Node.objects.create(
             team=team,
             saved_query=saved_query,
+            dag=dag,
             type="view",
         )
 

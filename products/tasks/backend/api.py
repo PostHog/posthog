@@ -52,13 +52,14 @@ from .serializers import (
     TaskRunCreateRequestSerializer,
     TaskRunDetailSerializer,
     TaskRunRelayMessageRequestSerializer,
+    TaskRunRelayMessageResponseSerializer,
     TaskRunSessionLogsQuerySerializer,
     TaskRunUpdateSerializer,
     TaskSerializer,
 )
 from .services.connection_token import create_sandbox_connection_token
 from .stream.redis_stream import TaskRunRedisStream, TaskRunStreamError, get_task_run_stream_key
-from .temporal.client import execute_task_processing_workflow, execute_twig_agent_relay_workflow
+from .temporal.client import execute_posthog_code_agent_relay_workflow, execute_task_processing_workflow
 
 logger = logging.getLogger(__name__)
 
@@ -222,10 +223,29 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         task = cast(Task, self.get_object())
         mode = request.validated_data.get("mode", "background")
         branch = request.validated_data.get("branch")
+        resume_from_run_id = request.validated_data.get("resume_from_run_id")
+        pending_user_message = request.validated_data.get("pending_user_message")
+
+        extra_state = None
+        if resume_from_run_id:
+            # prevent cross-task resume
+            previous_run = task.runs.filter(id=resume_from_run_id).first()
+            if not previous_run:
+                return Response({"detail": "Invalid resume_from_run_id"}, status=400)
+
+            # Derive snapshot_external_id from the validated previous run
+            snapshot_ext_id = (previous_run.state or {}).get("snapshot_external_id")
+            extra_state = {
+                "resume_from_run_id": str(resume_from_run_id),
+            }
+            if pending_user_message is not None:
+                extra_state["pending_user_message"] = pending_user_message
+            if snapshot_ext_id:
+                extra_state["snapshot_external_id"] = snapshot_ext_id
 
         logger.info(f"Creating task run for task {task.id} with mode={mode}, branch={branch}")
 
-        task_run = task.create_run(mode=mode, branch=branch)
+        task_run = task.create_run(mode=mode, branch=branch, extra_state=extra_state)
 
         logger.info(f"Triggering workflow for task {task.id}, run {task_run.id}")
 
@@ -474,7 +494,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     @validated_request(
         request_serializer=TaskRunRelayMessageRequestSerializer,
         responses={
-            200: OpenApiResponse(description="Relay accepted"),
+            200: OpenApiResponse(response=TaskRunRelayMessageResponseSerializer, description="Relay accepted"),
             404: OpenApiResponse(description="Run not found"),
         },
         summary="Relay run message to Slack",
@@ -498,7 +518,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             return Response({"status": "skipped"})
 
         try:
-            relay_id = execute_twig_agent_relay_workflow(
+            relay_id = execute_posthog_code_agent_relay_workflow(
                 run_id=str(task_run.id),
                 text=text,
                 delete_progress=True,

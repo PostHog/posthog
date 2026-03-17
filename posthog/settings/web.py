@@ -61,6 +61,7 @@ PRODUCTS_APPS = [
     "products.event_definitions.backend.apps.EventDefinitionsConfig",
     "products.logs.backend.apps.LogsConfig",
     "products.tracing.backend.apps.TracingConfig",
+    "products.metrics.backend.apps.MetricsConfig",
 ]
 
 INSTALLED_APPS = [

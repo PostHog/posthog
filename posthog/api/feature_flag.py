@@ -166,6 +166,12 @@ LOCAL_EVALUATION_AUTH_COUNTER = Counter(
     labelnames=["method"],  # "secret_api_key", "personal_api_key", "oauth", "jwt", "session", or "other"
 )
 
+LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER = Counter(
+    "posthog_local_evaluation_personal_api_key_source_total",
+    "Local evaluation requests authenticated via personal API key, by source",
+    labelnames=["source"],  # "header", "body", "query_string"
+)
+
 _AUTH_METHOD_BY_CLASS: dict[type, str] = {
     ProjectSecretAPIKeyAuthentication: "secret_api_key",
     PersonalAPIKeyAuthentication: "personal_api_key",
@@ -1178,7 +1184,11 @@ class FeatureFlagSerializer(
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
         report_user_action(
-            request.user, "feature flag created", analytics_metadata, team=instance.team, request=request
+            request.user,
+            "feature flag created",
+            analytics_metadata,
+            team=instance.team,
+            request=request,
         )
 
         return instance
@@ -2627,6 +2637,10 @@ class FeatureFlagViewSet(
 
         auth_method = _classify_auth_method(request.successful_authenticator)
         LOCAL_EVALUATION_AUTH_COUNTER.labels(method=auth_method).inc()
+
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            source = request.successful_authenticator.personal_api_key_source or "unknown"
+            LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source=source).inc()
 
         try:
             # Check if team is quota limited for feature flags
