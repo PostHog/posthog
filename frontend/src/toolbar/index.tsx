@@ -14,6 +14,7 @@ import { createRoot } from 'react-dom/client'
 
 import { disposablesPlugin } from '~/kea-disposables'
 import { ToolbarApp } from '~/toolbar/ToolbarApp'
+import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException } from '~/toolbar/toolbarPosthogJS'
 import { ToolbarParams } from '~/types'
 
@@ -42,7 +43,10 @@ const initKeaInToolbar = ({ routerHistory, routerLocation, beforePlugins }: Init
         formsPlugin,
         loadersPlugin({
             onFailure({ error, reducerKey, actionKey }: { error: any; reducerKey: string; actionKey: string }) {
-                console.error('toolbar fetch failed', error, reducerKey, actionKey)
+                toolbarLogger.error('kea_loader', 'Toolbar fetch failed', {
+                    reducer_key: reducerKey,
+                    action_key: actionKey,
+                })
                 captureToolbarException(error, 'kea_loader', {
                     reducer_key: reducerKey,
                     action_key: actionKey,
@@ -88,7 +92,7 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
                 if (data.featureFlags) {
                     posthog.featureFlags.overrideFeatureFlags({ flags: data.featureFlags })
                 } else {
-                    console.error('[Toolbar Flags] Feature flags not found:', JSON.stringify(data))
+                    toolbarLogger.error('flags', 'Feature flags not found', { response: data })
                     captureToolbarException(
                         new Error(`Toolbar feature flags not found: ${JSON.stringify(data)}`),
                         'preloaded_flags'
@@ -96,7 +100,7 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
                 }
             })
             .catch((error) => {
-                console.error('[Toolbar Flags] Error fetching toolbar feature flags:', error)
+                toolbarLogger.error('flags', 'Error fetching toolbar feature flags')
                 captureToolbarException(error, 'preloaded_flags_fetch')
             })
     }
@@ -108,9 +112,7 @@ win['ph_load_toolbar'] = async function (toolbarParams: ToolbarParams, posthog?:
     document.body.appendChild(container)
 
     if (!posthog) {
-        console.warn(
-            '⚠️⚠️⚠️ Loaded toolbar via old version of posthog-js that does not support feature flags. Please upgrade! ⚠️⚠️⚠️'
-        )
+        toolbarLogger.warn('init', 'Loaded toolbar via old version of posthog-js that does not support feature flags')
     }
 
     root.render(
