@@ -162,6 +162,19 @@ def mock_cost_service():
 
 
 @pytest.fixture(autouse=True)
+def clear_env_api_keys():
+    """Prevent real API keys in CI from leaking into unit tests.
+
+    _get_configured_providers() checks both settings and env vars, so we need
+    to clear the env vars to ensure unit tests only reflect mock settings.
+    """
+    with patch.dict(os.environ, {}, clear=False):
+        for var in PROVIDER_ENV_VARS:
+            os.environ.pop(var, None)
+        yield
+
+
+@pytest.fixture(autouse=True)
 def mock_settings():
     with patch(
         "llm_gateway.services.model_registry.get_settings",
@@ -229,13 +242,6 @@ class TestGetAvailableModels:
 
 
 class TestProviderFiltering:
-    @pytest.fixture(autouse=True)
-    def clear_env_api_keys(self):
-        with patch.dict(os.environ, {}, clear=False):
-            for var in PROVIDER_ENV_VARS:
-                os.environ.pop(var, None)
-            yield
-
     def test_only_returns_models_from_configured_providers(self):
         with patch(
             "llm_gateway.services.model_registry.get_settings",

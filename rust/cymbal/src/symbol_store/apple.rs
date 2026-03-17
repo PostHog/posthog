@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::io::{Cursor, Read};
 
-use axum::async_trait;
+use async_trait::async_trait;
 use serde::Deserialize;
 use symbolic::debuginfo::Archive;
 use symbolic::demangle::{Demangle, DemangleOptions};

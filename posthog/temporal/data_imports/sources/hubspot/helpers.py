@@ -5,7 +5,6 @@ from collections.abc import Iterator
 from typing import Any, Optional
 
 import requests
-import requests as http_requests
 
 from .auth import hubspot_refresh_access_token
 from .settings import OBJECT_TYPE_PLURAL
@@ -128,7 +127,7 @@ def fetch_data(
     # Make the API request
     try:
         r = requests.get(url, headers=headers, params=params)
-    except http_requests.exceptions.HTTPError as e:
+    except requests.exceptions.HTTPError as e:
         if e.response.status_code == 401:
             # refresh token
             api_key = hubspot_refresh_access_token(refresh_token)
@@ -174,7 +173,7 @@ def fetch_data(
             # Get the next page response
             try:
                 r = requests.get(next_url, headers=headers)
-            except http_requests.exceptions.HTTPError as e:
+            except requests.exceptions.HTTPError as e:
                 if e.response.status_code == 401:
                     # refresh token
                     api_key = hubspot_refresh_access_token(refresh_token)

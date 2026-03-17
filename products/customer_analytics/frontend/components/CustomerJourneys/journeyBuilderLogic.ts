@@ -162,7 +162,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): TaxonomicFilterGroupType[] => {
                 const { hasPageview, hasScreen } = getProjectEventExistence()
-                const supportsDwhFunnels = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT]
+                const supportsDwhFunnels = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_SUPPORT]
                 return [
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
