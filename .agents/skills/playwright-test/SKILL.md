@@ -18,17 +18,16 @@ You are to plan an end to end playwright test for a feature.
 
 ### Step 1: Plan the test(s) to be done.
 
-Use the Playwright MCP tools (e.g., `mcp__playwright__browser_navigate`, `mcp__playwright__browser_click`, `mcp__playwright__browser_screenshot`) to
-interact with the browser and plan your tests.
+Use the Playwright MCP tools (e.g., `mcp__playwright__browser_navigate`, `mcp__playwright__browser_click`, `mcp__playwright__browser_screenshot`) to interact with the browser and plan your tests.
 
 After your exploration, present the plan to me for confirmation or any changes.
 
 ### Step 2: Implement the test plan
 
-1. Write the tests, making sure to use common patters used in neighbouring files.
-2. Run the tests with `BASE_URL='http://localhost:8010' pnpm --filter=@posthog/playwright exec playwright test <file name> --retries 0 --workers 3`
-3. Debug any failures. Look at screen shots, if needed launch the playwright mcp skills to interact with the browser. Go back to step 1 after attempting a fix.
-4. **Keep looping until all tests pass.** Do not give up or ask the user for help. You must resolve every failure yourself.
+- Write the tests, making sure to use common patters used in neighbouring files.
+- Run the tests with `BASE_URL='http://localhost:8010' pnpm --filter=@posthog/playwright exec playwright test <file name> --retries 0 --workers 3`
+- Debug any failures. Look at screen shots, if needed launch the playwright mcp skills to interact with the browser. Go back to step 1 after attempting a fix.
+- **Keep looping until all tests pass.** Do not give up or ask the user for help. You must resolve every failure yourself.
 
 ### Step 3: Ensure no flaky tests
 
