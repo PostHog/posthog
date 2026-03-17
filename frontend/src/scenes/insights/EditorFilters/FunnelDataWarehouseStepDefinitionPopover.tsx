@@ -89,7 +89,7 @@ function FunnelDataWarehouseStepDefinitionPopoverContent({
             <span className="label-text font-semibold mt-3 mb-1">{activeField?.label}</span>
             <div className="text-secondary text-xs">{EDITABLE_FIELD_EXPLANATIONS[activeFieldKey]}</div>
 
-            {activeFieldKey === 'distinct_id_field' && (
+            {activeFieldKey === 'aggregation_target_field' && (
                 <div className="text-secondary text-xs mt-1">
                     {isAggregatingByHogQL ? (
                         <span>
