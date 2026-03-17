@@ -2872,10 +2872,6 @@
                 "completion_token": 0.0000012,
                 "cache_read_token": 3e-8
             },
-            "siliconflow-fp8": {
-                "prompt_token": 2.9e-7,
-                "completion_token": 0.0000012
-            },
             "venice": {
                 "prompt_token": 3.5e-7,
                 "completion_token": 0.0000015,
@@ -3460,10 +3456,6 @@
                 "prompt_token": 6e-7,
                 "completion_token": 0.0000025,
                 "cache_read_token": 1.5e-7
-            },
-            "siliconflow-fp8": {
-                "prompt_token": 5.5e-7,
-                "completion_token": 0.0000025
             }
         }
     },
@@ -3510,9 +3502,9 @@
                 "cache_read_token": 1e-7
             },
             "nextbit-fp4": {
-                "prompt_token": 7.5e-7,
+                "prompt_token": 0.000001,
                 "completion_token": 0.000004,
-                "cache_read_token": 2.5e-7
+                "cache_read_token": 5.5e-7
             },
             "novita": {
                 "prompt_token": 5.7e-7,
@@ -5798,10 +5790,6 @@
             "parasail-fp8": {
                 "prompt_token": 1e-7,
                 "completion_token": 0.0000011
-            },
-            "siliconflow-fp8": {
-                "prompt_token": 1.4e-7,
-                "completion_token": 0.0000014
             }
         }
     },

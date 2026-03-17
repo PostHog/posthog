@@ -2235,6 +2235,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     includeAvgTimeOnPage?: boolean
+    includeHost?: boolean
     limit?: integer
     offset?: integer
 }
