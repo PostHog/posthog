@@ -145,18 +145,9 @@ export const earlyAccessFeatureLogic = kea<earlyAccessFeatureLogicType>([
                 }
             },
             submit: async (payload) => {
-                let parsedJson: Record<string, any> = {}
-                if (payload.payload && typeof payload.payload === 'string') {
-                    try {
-                        parsedJson = JSON.parse(payload.payload)
-                    } catch {
-                        lemonToast.error('Payload must be valid JSON')
-                        return
-                    }
-                }
                 const parsedPayload = {
                     ...payload,
-                    payload: parsedJson,
+                    payload: payload.payload && typeof payload.payload === 'string' ? JSON.parse(payload.payload) : {},
                 }
 
                 if (props.id && props.id !== 'new') {
