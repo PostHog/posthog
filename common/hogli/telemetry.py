@@ -1,11 +1,10 @@
 """Anonymous opt-out telemetry for hogli CLI.
 
-Sends a single `command_invoked` event per invocation via a direct HTTP POST
-to PostHog's /capture endpoint.  No SDK is used because the `posthog` package
-name collides with the repo module.
+Events are sent via a direct HTTP POST to PostHog's /capture endpoint.
+No SDK is used because the `posthog` package name collides with the repo module.
 
 Opt-out precedence:
-    POSTHOG_TELEMETRY_OPT_OUT=1 → DO_NOT_TRACK=1 → config enabled: false
+    POSTHOG_TELEMETRY_OPT_OUT=1 -> DO_NOT_TRACK=1 -> config enabled: false
 
 Config file: $XDG_CONFIG_HOME/posthog/hogli_telemetry.json
              (default ~/.config/posthog/hogli_telemetry.json)
@@ -102,7 +101,7 @@ def show_first_run_notice_if_needed() -> None:
     click.echo(
         "\n"
         "hogli collects anonymous usage data to help improve the developer experience.\n"
-        "No personal information is collected — only command names and timing.\n"
+        "No personal information is collected -- only command names and timing.\n"
         "\n"
         "You can opt out at any time:\n"
         "  hogli telemetry:off          (persistent)\n"
@@ -186,12 +185,15 @@ def _post_event(host: str, payload: dict[str, Any]) -> None:
     """POST the event payload to the capture endpoint."""
     try:
         import requests
-
+    except ImportError:
+        _debug("requests package not installed, skipping telemetry POST")
+        return
+    try:
         resp = requests.post(
             f"{host}/capture/",
             json=payload,
             timeout=2,
         )
-        _debug(f"POST {host}/capture/ → {resp.status_code}")
+        _debug(f"POST {host}/capture/ -> {resp.status_code}")
     except Exception as exc:
         _debug(f"POST failed: {exc}")

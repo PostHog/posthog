@@ -105,7 +105,7 @@ def _auto_update_manifest() -> None:
 @dataclasses.dataclass
 class _TelemetryState:
     command: str | None = None
-    has_args: bool = False
+    has_extra_argv: bool = False
 
 
 _telemetry_state = _TelemetryState()
@@ -120,7 +120,8 @@ _telemetry_state = _TelemetryState()
 def cli(ctx: click.Context) -> None:
     """hogli - Developer CLI for PostHog."""
     _telemetry_state.command = ctx.invoked_subcommand
-    _telemetry_state.has_args = len(sys.argv) > 2
+    # >2 means argv beyond "hogli <subcommand>", e.g. flags or positional args
+    _telemetry_state.has_extra_argv = len(sys.argv) > 2
 
     # Auto-update manifest on every invocation (but skip for meta:check and git hooks)
     # Skip during git hooks to prevent manifest modifications during lint-staged execution
@@ -293,9 +294,11 @@ except ImportError:
 
 def _fire_telemetry(duration_s: float, exit_code: int) -> None:
     """Send a command_invoked telemetry event. Never raises."""
+    # Skip when CLI itself errors before reaching a subcommand (e.g. bad flag)
     if _telemetry_state.command is None and exit_code != 0:
         return
     try:
+        ci_env_vars = ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
         props: dict[str, Any] = {
             "command": _telemetry_state.command,
             "command_category": get_category_for_command(_telemetry_state.command)
@@ -303,15 +306,13 @@ def _fire_telemetry(duration_s: float, exit_code: int) -> None:
             else None,
             "duration_s": round(duration_s, 3),
             "exit_code": exit_code,
-            "has_args": _telemetry_state.has_args,
+            "has_extra_argv": _telemetry_state.has_extra_argv,
             "terminal_width": shutil.get_terminal_size().columns,
             "os": platform.system(),
             "arch": platform.machine(),
             "python_version": platform.python_version(),
             "hogli_version": "0.1.0",
-            "is_ci": any(
-                os.environ.get(v) for v in ("CI", "GITHUB_ACTIONS", "JENKINS_URL", "GITLAB_CI", "CIRCLECI", "BUILDKITE")
-            ),
+            "is_ci": any(os.environ.get(v) for v in ci_env_vars),
             "has_devenv_config": (REPO_ROOT / ".posthog" / ".generated" / "mprocs.yaml").exists(),
             "in_flox": os.environ.get("FLOX_ENV") is not None,
             "is_worktree": (REPO_ROOT / ".git").is_file(),
@@ -329,6 +330,11 @@ def main() -> None:
         cli()
     except SystemExit as e:
         exit_code = e.code if isinstance(e.code, int) else (1 if e.code else 0)
+    except KeyboardInterrupt:
+        exit_code = 130
+    except Exception:
+        exit_code = 1
+        raise
     finally:
         _fire_telemetry(_time.monotonic() - start, exit_code)
         telemetry.flush()
