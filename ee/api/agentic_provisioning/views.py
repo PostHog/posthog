@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 import secrets
 from datetime import timedelta
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -433,7 +433,9 @@ def agentic_authorize_confirm(request: Request) -> Response:
     if pending is None:
         return Response({"error": "expired_or_invalid_state"}, status=400)
 
-    if request.user.email != pending["email"]:
+    user = cast(User, request.user)
+
+    if user.email != pending["email"]:
         return Response({"error": "email_mismatch"}, status=403)
 
     try:
@@ -441,12 +443,11 @@ def agentic_authorize_confirm(request: Request) -> Response:
     except Team.DoesNotExist:
         return Response({"error": "team_not_found"}, status=404)
 
-    if not request.user.organization_memberships.filter(organization=team.organization).exists():
+    if not user.organization_memberships.filter(organization=team.organization).exists():
         return Response({"error": "team_not_accessible"}, status=403)
 
     cache.delete(pending_key)
 
-    user = request.user
     code = secrets.token_urlsafe(32)
     cache.set(
         f"{AUTH_CODE_CACHE_PREFIX}{code}",
