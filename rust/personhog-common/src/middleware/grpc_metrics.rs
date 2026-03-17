@@ -1,6 +1,5 @@
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::time::Instant;
 
@@ -12,33 +11,19 @@ use tower::{Layer, Service};
 /// Tower layer that instruments gRPC requests with timing metrics.
 ///
 /// Records per request:
-/// - `grpc_server_requests_total{service, method}` — counter
-/// - `grpc_server_request_duration_ms{service, method}` — histogram
+/// - `grpc_server_requests_total{method}` — counter
+/// - `grpc_server_request_duration_ms{method}` — histogram
 ///
-/// The `service` label distinguishes which personhog service emitted the metric
-/// (e.g. `"router"` vs `"replica"`), so Grafana queries don't need to rely on
-/// Prometheus job/instance labels.
-#[derive(Clone)]
-pub struct GrpcMetricsLayer {
-    service_name: Arc<str>,
-}
-
-impl GrpcMetricsLayer {
-    pub fn new(service_name: &str) -> Self {
-        Self {
-            service_name: Arc::from(service_name),
-        }
-    }
-}
+/// The `service` label is set globally via `PrometheusBuilder::add_global_label`
+/// at recorder init time, so it doesn't need to be threaded through here.
+#[derive(Clone, Copy)]
+pub struct GrpcMetricsLayer;
 
 impl<S> Layer<S> for GrpcMetricsLayer {
     type Service = GrpcMetricsService<S>;
 
     fn layer(&self, service: S) -> Self::Service {
-        GrpcMetricsService {
-            inner: service,
-            service_name: self.service_name.clone(),
-        }
+        GrpcMetricsService { inner: service }
     }
 }
 
@@ -46,7 +31,6 @@ impl<S> Layer<S> for GrpcMetricsLayer {
 #[derive(Clone)]
 pub struct GrpcMetricsService<S> {
     inner: S,
-    service_name: Arc<str>,
 }
 
 impl<S, ReqBody, ResBody> Service<Request<ReqBody>> for GrpcMetricsService<S>
@@ -75,7 +59,6 @@ where
             inner: future,
             start,
             method,
-            service_name: self.service_name.clone(),
         }
     }
 }
@@ -87,7 +70,6 @@ pub struct GrpcMetricsFuture<F> {
     inner: F,
     start: Instant,
     method: String,
-    service_name: Arc<str>,
 }
 
 impl<F, ResBody, E> Future for GrpcMetricsFuture<F>
@@ -102,17 +84,14 @@ where
 
         if result.is_ready() {
             let duration_ms = this.start.elapsed().as_secs_f64() * 1000.0;
-            let service: &str = this.service_name;
 
             counter!(
                 "grpc_server_requests_total",
-                "service" => service.to_string(),
                 "method" => this.method.clone(),
             )
             .increment(1);
             histogram!(
                 "grpc_server_request_duration_ms",
-                "service" => service.to_string(),
                 "method" => this.method.clone(),
             )
             .record(duration_ms);

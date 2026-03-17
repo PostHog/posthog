@@ -7,8 +7,8 @@ publish = false
 [dependencies]
 personhog-common = { path = "../personhog-common" }
 personhog-proto = { path = "../personhog-proto" }
-common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
+metrics-exporter-prometheus = { workspace = true }
 lifecycle = { path = "../common/lifecycle" }
 
 async-trait = { workspace = true }

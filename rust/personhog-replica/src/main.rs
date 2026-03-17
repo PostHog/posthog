@@ -3,9 +3,9 @@ use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
-use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
+use metrics_exporter_prometheus::PrometheusBuilder;
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;
@@ -120,7 +120,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }),
             )
             .route("/_liveness", get(move || async move { liveness.check() }));
-        let router = setup_metrics_routes(health_router);
+        let recorder_handle = PrometheusBuilder::new()
+            .add_global_label("service", "personhog-replica")
+            .install_recorder()
+            .expect("Failed to install metrics recorder");
+
+        let router = health_router.route(
+            "/metrics",
+            get(move || std::future::ready(recorder_handle.render())),
+        );
 
         let bind = format!("0.0.0.0:{metrics_port}");
         let listener = tokio::net::TcpListener::bind(&bind)
@@ -152,7 +160,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         });
     }
     spawn_pool_monitor(
-        "replica",
         pools,
         Duration::from_secs(config.pool_monitor_interval_secs),
     );
@@ -165,7 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         let _guard = grpc_handle.process_scope();
         if let Err(e) = Server::builder()
-            .layer(GrpcMetricsLayer::new("replica"))
+            .layer(GrpcMetricsLayer)
             .add_service(PersonHogReplicaServer::new(service))
             .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
             .await
