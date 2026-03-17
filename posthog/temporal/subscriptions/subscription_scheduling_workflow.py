@@ -11,6 +11,7 @@ import temporalio.common
 import temporalio.activity
 import temporalio.workflow
 from structlog import get_logger
+from temporalio.exceptions import ApplicationError
 
 from posthog.models.subscription import Subscription
 from posthog.sync import database_sync_to_async
@@ -288,7 +289,7 @@ class ScheduleAllSubscriptionsWorkflow(PostHogWorkflow):
 
         if failed:
             failed_ids = [f["subscription_id"] for f in failed]
-            raise RuntimeError(f"Subscription deliveries failed for IDs: {failed_ids}")
+            raise ApplicationError(f"Subscription deliveries failed for IDs: {failed_ids}", non_retryable=True)
 
 
 @temporalio.workflow.defn(name="handle-subscription-value-change")

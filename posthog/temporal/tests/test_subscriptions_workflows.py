@@ -12,6 +12,7 @@ from django.conf import settings
 import pytest_asyncio
 from asgiref.sync import sync_to_async
 from temporalio.client import Client, WorkflowFailureError
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
@@ -298,7 +299,7 @@ async def test_deliver_subscription_report_slack(
         target_value="C12345|#test-channel",
     )
 
-    async def mock_generate_assets_async(subscription):
+    async def mock_generate_assets_async():
         return [insight], [asset]
 
     mock_gen_assets.side_effect = mock_generate_assets_async
@@ -359,7 +360,7 @@ async def test_delivery_outcome_events(
 
     async def mock_generate_assets_async(subscription):
         if not should_succeed:
-            raise Exception("OOM killed")
+            raise ApplicationError("OOM killed", non_retryable=True)
         return [insight], [asset]
 
     mock_gen_assets.side_effect = mock_generate_assets_async
@@ -367,10 +368,6 @@ async def test_delivery_outcome_events(
     await sync_to_async(set_instance_setting)("EMAIL_HOST", "fake_host")
     await sync_to_async(set_instance_setting)("EMAIL_ENABLED", True)
 
-    # Use freeze_time only for subscription creation so next_delivery_date is in the past
-    # (always found by fetch_due_subscriptions_activity). Don't freeze time during workflow
-    # execution. Freezegun freezes time.monotonic() which breaks asyncio.sleep in the
-    # Temporal SDK's activity retry backoff, causing the test to hang.
     with freeze_time("2022-02-02T08:30:00.000Z"):
         sub = await sync_to_async(create_subscription)(team=team, insight=insight, created_by=user)
 
@@ -446,7 +443,7 @@ async def test_mixed_success_and_failure_does_not_block(
 
     async def mock_generate_assets_async(subscription):
         if subscription.id == sub_fail.id:
-            raise Exception("asset generation failed")
+            raise ApplicationError("asset generation failed", non_retryable=True)
         return [insight], [asset]
 
     mock_gen_assets.side_effect = mock_generate_assets_async
