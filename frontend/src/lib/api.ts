@@ -4269,7 +4269,9 @@ const api = {
         },
         async update(
             featureId: EarlyAccessFeatureType['id'],
-            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'>
+            data: Pick<EarlyAccessFeatureType, 'name' | 'description' | 'stage' | 'documentation_url'> & {
+                rollout_to_all?: boolean
+            }
         ): Promise<EarlyAccessFeatureType> {
             return await new ApiRequest().earlyAccessFeature(featureId).update({ data })
         },
