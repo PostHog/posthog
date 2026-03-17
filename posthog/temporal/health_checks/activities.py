@@ -9,11 +9,12 @@ import structlog
 import temporalio.activity
 
 from posthog.clickhouse.client.execute import KillSwitchLevel, get_kill_switch_level
+from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.dags.common.health.observability import push_health_check_metrics
 from posthog.sync import database_sync_to_async
 from posthog.temporal.health_checks.models import BatchResult, HealthCheckWorkflowInputs
 from posthog.temporal.health_checks.processing import _process_batch_detection
-from posthog.temporal.health_checks.registry import ensure_registry_loaded, get_detect_fn
+from posthog.temporal.health_checks.registry import ensure_registry_loaded, get_detect_fn, get_product
 
 logger = structlog.get_logger(__name__)
 
@@ -85,6 +86,11 @@ def _run_health_check_batch_sync(
     close_old_connections()
 
     ensure_registry_loaded()
+    tag_queries(
+        product=get_product(kind),
+        feature=Feature.HEALTH_CHECK,
+        name=kind,
+    )
     detect_fn = get_detect_fn(kind)
 
     result = _process_batch_detection(team_ids, kind, detect_fn, dry_run=dry_run)

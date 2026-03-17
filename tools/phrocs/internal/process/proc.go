@@ -314,6 +314,11 @@ func (p *Process) Start(send func(tea.Msg)) error {
 
 // Falls back to stdout/stderr pipes when PTY allocation fails
 func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
+	// pty.Start may have contaminated SysProcAttr with Setsid/Setctty
+	// before failing. For the pipe path we only need Setpgid so Stop() can
+	// kill the full process tree via Kill(-pid, SIGTERM).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return err
@@ -521,11 +526,26 @@ func collectProcessTree(ps *gops.Process) []*gops.Process {
 
 // killProcessGroup sends SIGTERM to the process group. Must be called with
 // p.mu held. Falls back to signaling the direct child if the group kill fails.
+// Also walks the process tree to terminate descendants that escaped the group
+// (e.g. pnpm/node processes spawned with a detached process group).
 func (p *Process) killProcessGroup() {
-	if p.cmd != nil && p.cmd.Process != nil {
-		pgid := p.cmd.Process.Pid
-		if err := syscall.Kill(-pgid, syscall.SIGTERM); err != nil {
-			_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	if p.cmd == nil || p.cmd.Process == nil {
+		return
+	}
+	// If the tracked command has already exited, avoid signaling based on a
+	// potentially reused PID.
+	if p.cmd.ProcessState != nil && p.cmd.ProcessState.Exited() {
+		return
+	}
+	pid := p.cmd.Process.Pid
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
+		_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	}
+	// Walk the full process tree to catch any descendants that escaped the
+	// process group (e.g. pnpm spawns node as a detached child).
+	if ps, err := gops.NewProcess(int32(pid)); err == nil {
+		for _, proc := range collectProcessTree(ps) {
+			_ = proc.SendSignal(syscall.SIGTERM)
 		}
 	}
 }
