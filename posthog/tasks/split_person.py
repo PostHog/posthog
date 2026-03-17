@@ -30,6 +30,8 @@ def split_person(
         max_splits=max_splits,
     )
 
+    resolved_team_id: Union[int, None] = None
+
     try:
         # Backward compatibility: detect old 3-arg signature (person_id, main_distinct_id, max_splits)
         # where second arg would be a string (distinct_id) or None
@@ -57,16 +59,17 @@ def split_person(
             if not pdi:
                 raise ValueError(f"Cannot find team_id for person_id={person_id}")
 
+            resolved_team_id = pdi.team_id
             logger.info(
                 "split_person legacy path: fetching Person",
                 person_id=person_id,
-                team_id=pdi.team_id,
+                team_id=resolved_team_id,
             )
-            person = Person.objects.get(team_id=pdi.team_id, pk=person_id)
+            person = Person.objects.get(team_id=resolved_team_id, pk=person_id)
             logger.info(
                 "split_person legacy path: calling split_person on model",
                 person_id=person_id,
-                team_id=pdi.team_id,
+                team_id=resolved_team_id,
                 main_distinct_id=old_main_distinct_id,
                 max_splits=old_max_splits,
             )
@@ -74,16 +77,17 @@ def split_person(
         else:
             # New signature: split_person(person_id, team_id, main_distinct_id, max_splits)
             assert team_id is not None and isinstance(team_id, int), "team_id must be an int in new signature"
+            resolved_team_id = team_id
             logger.info(
                 "split_person new path: fetching Person",
                 person_id=person_id,
-                team_id=team_id,
+                team_id=resolved_team_id,
             )
-            person = Person.objects.get(team_id=team_id, pk=person_id)
+            person = Person.objects.get(team_id=resolved_team_id, pk=person_id)
             logger.info(
                 "split_person new path: calling split_person on model",
                 person_id=person_id,
-                team_id=team_id,
+                team_id=resolved_team_id,
                 main_distinct_id=main_distinct_id,
                 max_splits=max_splits,
             )
@@ -92,13 +96,13 @@ def split_person(
         logger.info(
             "split_person task completed",
             person_id=person_id,
-            team_id=team_id,
+            team_id=resolved_team_id,
         )
     except Exception as e:
         logger.exception(
             "split_person task failed",
             person_id=person_id,
-            team_id=team_id,
+            team_id=resolved_team_id,
             main_distinct_id=main_distinct_id,
             max_splits=max_splits,
             error_type=type(e).__name__,
