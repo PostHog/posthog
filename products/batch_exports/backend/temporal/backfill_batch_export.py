@@ -24,7 +24,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, get_client
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -557,34 +557,45 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
 
     interval_seconds = batch_export.interval_time_delta.total_seconds()
 
-    if model == "events":
-        min_timestamp, record_count = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=start_at,
-            end_at=end_at,
-            include_events=include_events,
-            exclude_events=exclude_events,
-            filters_str=filters_str,
-            extra_query_parameters=extra_query_parameters,
-            log_comment=log_comment,
-        )
-    elif model == "persons":
-        min_timestamp, record_count = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
-            start_at=start_at,
-            end_at=end_at,
-            log_comment=log_comment,
-        )
-    elif model == "sessions":
-        min_timestamp, record_count = await _get_backfill_info_for_sessions(
-            batch_export=batch_export,
-            start_at=start_at,
-            end_at=end_at,
-            log_comment=log_comment,
-        )
-    else:
-        logger.info(
-            "Backfill info not yet implemented for model, skipping estimation",
+    try:
+        if model == "events":
+            min_timestamp, record_count = await _get_backfill_info_for_events(
+                batch_export=batch_export,
+                start_at=start_at,
+                end_at=end_at,
+                include_events=include_events,
+                exclude_events=exclude_events,
+                filters_str=filters_str,
+                extra_query_parameters=extra_query_parameters,
+                log_comment=log_comment,
+            )
+        elif model == "persons":
+            min_timestamp, record_count = await _get_backfill_info_for_persons(
+                batch_export=batch_export,
+                start_at=start_at,
+                end_at=end_at,
+                log_comment=log_comment,
+            )
+        elif model == "sessions":
+            min_timestamp, record_count = await _get_backfill_info_for_sessions(
+                batch_export=batch_export,
+                start_at=start_at,
+                end_at=end_at,
+                log_comment=log_comment,
+            )
+        else:
+            logger.info(
+                "Backfill info not yet implemented for model, skipping estimation",
+                model=model,
+            )
+            return GetBackfillInfoOutputs(
+                adjusted_start_at=inputs.start_at,
+                total_records_count=None,
+                interval_seconds=interval_seconds,
+            )
+    except ClickHouseMemoryLimitExceededError:
+        logger.warning(
+            "Backfill estimation query exceeded memory limit, proceeding without estimate",
             model=model,
         )
         return GetBackfillInfoOutputs(
