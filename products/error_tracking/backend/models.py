@@ -1,4 +1,3 @@
-import uuid as uuid_mod
 from decimal import Decimal
 from uuid import UUID
 
@@ -14,7 +13,7 @@ from rest_framework.exceptions import ValidationError
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_ERROR_TRACKING_ISSUE_FINGERPRINT
 from posthog.models.integration import Integration
-from posthog.models.utils import UUIDTModel
+from posthog.models.utils import UUIDModel, UUIDTModel
 from posthog.storage import object_storage
 
 from products.error_tracking.backend.sql import INSERT_ERROR_TRACKING_ISSUE_FINGERPRINT_OVERRIDES
@@ -521,8 +520,7 @@ class ErrorTrackingSpikeDetectionConfig(models.Model):
         db_table = "posthog_errortrackingspikedetectionconfig"
 
 
-class ErrorTrackingSpikeEvent(models.Model):
-    id = models.UUIDField(primary_key=True, default=uuid_mod.uuid4)
+class ErrorTrackingSpikeEvent(UUIDModel):
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     issue = models.ForeignKey(ErrorTrackingIssue, on_delete=models.CASCADE, related_name="spike_events")
     detected_at = models.DateTimeField()
