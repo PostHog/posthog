@@ -27,7 +27,6 @@ TEMPLATE_FILES = [
     "unused-features-education",
     "user-stuck-onboarding",
     "user-upgrade-webhook",
-    
 ]
 
 _TEMPLATE_CACHE: Optional[list[dict]] = None
