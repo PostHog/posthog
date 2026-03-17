@@ -26,7 +26,8 @@ use tokio::time::timeout;
 use tracing::{info, warn, Level};
 
 use capture::config::{CaptureMode, Config, KafkaConfig};
-use capture::server::serve;
+use capture::server::{self, serve};
+use capture::setup;
 use common_continuous_profiling::ContinuousProfilingConfig;
 use limiters::redis::{QuotaResource, OVERFLOW_LIMITER_CACHE_KEY, QUOTA_LIMITER_CACHE_KEY};
 
@@ -161,13 +162,17 @@ impl ServerHandle {
 
         let shutdown_token = tokio_util::sync::CancellationToken::new();
 
-        let manager = lifecycle::Manager::builder("capture-test")
+        let mut manager = lifecycle::Manager::builder("capture-test")
             .with_trap_signals(false)
             .with_prestop_check(false)
             .with_shutdown_token(shutdown_token.clone())
             .build();
 
-        tokio::spawn(async move { serve(config, listener, manager).await });
+        let handles = server::register_components(&mut manager, &config);
+        std::mem::forget(manager.monitor_background());
+        let components = setup::build_components(config, handles).await;
+
+        tokio::spawn(async move { serve(listener, components).await });
 
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(3000))

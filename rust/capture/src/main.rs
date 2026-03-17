@@ -14,7 +14,8 @@ use tracing_subscriber::{EnvFilter, Layer};
 
 use capture::config::Config;
 use capture::error_tracking_sampler;
-use capture::server::serve;
+use capture::server::{self, serve};
+use capture::setup;
 
 common_alloc::used!();
 
@@ -123,16 +124,24 @@ async fn main() {
         );
     }
 
-    let manager = lifecycle::Manager::builder("capture")
+    let mut manager = lifecycle::Manager::builder("capture")
         .with_trap_signals(true)
         .with_prestop_check(true)
         .build();
 
-    // Open the TCP port and start the server
+    let handles = server::register_components(&mut manager, &config);
+    let guard = manager.monitor_background();
+
     let listener = tokio::net::TcpListener::bind(config.address)
         .await
         .expect("could not bind port");
-    serve(config, listener, manager).await;
+    let components = setup::build_components(config, handles).await;
 
+    serve(listener, components).await;
+
+    match guard.wait().await {
+        Ok(()) => tracing::info!("All lifecycle components completed cleanly"),
+        Err(e) => tracing::warn!("Lifecycle monitor reported: {e}"),
+    }
     tracing::info!("Shutdown complete");
 }
