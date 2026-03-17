@@ -1110,6 +1110,7 @@ export interface TableSettings {
 
 export interface SharingConfigurationSettings {
     whitelabel?: boolean
+    theme?: 'light' | 'dark' | 'system'
     // Insights
     noHeader?: boolean
     legend?: boolean

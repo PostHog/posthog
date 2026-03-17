@@ -31651,6 +31651,10 @@
                 "showInspector": {
                     "type": "boolean"
                 },
+                "theme": {
+                    "enum": ["light", "dark", "system"],
+                    "type": "string"
+                },
                 "whitelabel": {
                     "type": "boolean"
                 }

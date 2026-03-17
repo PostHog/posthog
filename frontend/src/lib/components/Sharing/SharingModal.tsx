@@ -7,7 +7,15 @@ import posthog from 'posthog-js'
 import { ReactNode, useEffect, useState } from 'react'
 
 import { IconCollapse, IconExpand, IconInfo, IconLock } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonDivider, LemonModal, LemonSkeleton, LemonSwitch } from '@posthog/lemon-ui'
+import {
+    LemonBanner,
+    LemonButton,
+    LemonDivider,
+    LemonModal,
+    LemonSelect,
+    LemonSkeleton,
+    LemonSwitch,
+} from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { TEMPLATE_LINK_HEADING, TEMPLATE_LINK_PII_WARNING } from 'lib/components/Sharing/templateLinkMessages'
@@ -369,6 +377,23 @@ export function SharingModalContent({
                                                             label={<div>Show inspector panel</div>}
                                                             onChange={onChange}
                                                             checked={value}
+                                                        />
+                                                    )}
+                                                </LemonField>
+                                            )}
+
+                                            {dashboardId && (
+                                                <LemonField name="theme">
+                                                    {({ value, onChange }) => (
+                                                        <LemonSelect
+                                                            value={value ?? 'system'}
+                                                            onSelect={(theme) => onChange(theme)}
+                                                            options={[
+                                                                { value: 'system', label: 'Theme: System' },
+                                                                { value: 'light', label: 'Theme: Light' },
+                                                                { value: 'dark', label: 'Theme: Dark' },
+                                                            ]}
+                                                            fullWidth
                                                         />
                                                     )}
                                                 </LemonField>
