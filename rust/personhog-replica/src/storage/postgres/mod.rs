@@ -13,8 +13,7 @@ use sqlx::Postgres;
 use super::error::StorageError;
 
 pub(crate) const DB_QUERY_DURATION: &str = "personhog_replica_db_query_duration_ms";
-pub(crate) const DB_POOL_ACQUIRE_DURATION: &str =
-    "personhog_replica_db_pool_acquire_duration_ms";
+pub(crate) const DB_POOL_ACQUIRE_DURATION: &str = "personhog_replica_db_pool_acquire_duration_ms";
 pub(crate) const DB_ROWS_RETURNED: &str = "personhog_replica_db_rows_returned";
 
 /// Consistency level for read operations

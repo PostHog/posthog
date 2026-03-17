@@ -152,8 +152,7 @@ impl FeatureFlagStorage for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn =
-            PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
         let result = sqlx::query!(
             r#"
@@ -190,8 +189,7 @@ impl FeatureFlagStorage for PostgresStorage {
         ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
-        let mut conn =
-            PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
         let team_ids_i32: Vec<i32> = team_ids.iter().map(|&id| id as i32).collect();
 

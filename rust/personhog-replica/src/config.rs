@@ -42,7 +42,6 @@ pub struct Config {
     pub metrics_port: u16,
 }
 
-
 impl Config {
     pub fn acquire_timeout(&self) -> Duration {
         Duration::from_secs(self.acquire_timeout_secs)
