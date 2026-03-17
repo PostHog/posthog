@@ -42,6 +42,7 @@ export type RequestProperties = {
     projectId?: string
     clientUserAgent?: string
     readOnly?: boolean
+    transport?: 'streamable-http' | 'sse'
 }
 
 export class MCP extends McpAgent<Env> {
@@ -225,6 +226,7 @@ export class MCP extends McpAgent<Env> {
                     ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
                     ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
                     ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
+                    ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...properties,
                 },
             })
