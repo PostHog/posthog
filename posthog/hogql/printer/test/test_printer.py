@@ -4763,6 +4763,10 @@ class TestPostgresPrinter(BaseTest):
             # Aggregation
             ("uniq", "uniq(1)", "COUNT(DISTINCT 1)"),
             ("uniqExact", "uniqExact(1)", "COUNT(DISTINCT 1)"),
+            # Case-insensitive function lookup
+            ("now_uppercase", "NOW()", "NOW()"),
+            ("count_uppercase", "COUNT(event)", "count(events.event)"),
+            ("if_uppercase", "IF(1, 2, 3)", "CASE WHEN 1 THEN 2 ELSE 3 END"),
         ]
     )
     def test_clickhouse_functions_translate_to_postgres(self, _name: str, expr: str, expected: str):

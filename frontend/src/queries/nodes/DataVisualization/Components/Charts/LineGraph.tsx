@@ -51,8 +51,6 @@ Chart.register(annotationPlugin)
 Chart.register(ChartjsPluginStacked100)
 Chart.register(chartTrendline)
 
-const TOOLTIP_ROW_CUTOFF = 8
-
 const getGraphType = (chartType: ChartDisplayType, settings: AxisSeriesSettings | undefined): GraphType => {
     if (!settings || !settings.display || !settings.display.displayType || settings.display?.displayType === 'auto') {
         return chartType === ChartDisplayType.ActionsBar || chartType === ChartDisplayType.ActionsStackedBar
@@ -439,11 +437,6 @@ export const LineGraph = ({
                                     (series) => series.data[referenceDataPoint.dataIndex] !== null
                                 )
 
-                                const isTruncated = filteredSeriesData.length > TOOLTIP_ROW_CUTOFF
-                                if (isTruncated) {
-                                    filteredSeriesData = filteredSeriesData.slice(0, TOOLTIP_ROW_CUTOFF)
-                                }
-
                                 const tooltipData = filteredSeriesData.map((series, index) => {
                                     const seriesName =
                                         series?.settings?.display?.label ||
@@ -457,19 +450,17 @@ export const LineGraph = ({
                                         ),
                                         rawData: series.data[referenceDataPoint.dataIndex],
                                         dataIndex: referenceDataPoint.dataIndex,
-                                        isTotalRow: false,
                                         seriesIndex: seriesIndex,
                                         stackedSeriesTotalAtIndex,
                                     }
                                 })
 
+                                let totalLabel: string | null = null
                                 const tooltipTotalData = ySeriesData.filter(
                                     (n) =>
                                         n.settings?.formatting?.style !== 'percent' &&
                                         n.data[referenceDataPoint.dataIndex] !== null
                                 )
-
-                                // Don't show total row when highlighting a single bar
                                 if (
                                     tooltipTotalData.length > 1 &&
                                     chartSettings.showTotalRow !== false &&
@@ -479,100 +470,84 @@ export const LineGraph = ({
                                         acc += cur.data[referenceDataPoint.dataIndex] ?? 0
                                         return acc
                                     }, 0)
-
                                     const firstSeriesSettings = tooltipTotalData[0]?.settings
-
-                                    tooltipData.push({
-                                        series: '',
-                                        data: formatDataWithSettings(totalRawData, firstSeriesSettings),
-                                        rawData: totalRawData,
-                                        dataIndex: referenceDataPoint.dataIndex,
-                                        isTotalRow: true,
-                                        seriesIndex: -1,
-                                        stackedSeriesTotalAtIndex,
-                                    })
+                                    totalLabel = String(
+                                        formatDataWithSettings(totalRawData, firstSeriesSettings) ?? totalRawData
+                                    )
                                 }
 
                                 tooltipRoot.render(
                                     <div className="InsightTooltip">
-                                        <LemonTable
-                                            dataSource={tooltipData}
-                                            columns={[
-                                                {
-                                                    title: xSeriesData.data[referenceDataPoint.dataIndex],
-                                                    dataIndex: 'series',
-                                                    render: (value, record) => {
-                                                        if (record.isTotalRow) {
+                                        <div className="px-5 py-2 text-xs font-semibold border-b border-primary">
+                                            {xSeriesData.data[referenceDataPoint.dataIndex]}
+                                        </div>
+                                        <div className="max-h-64 overflow-y-auto">
+                                            <LemonTable
+                                                showHeader={false}
+                                                dataSource={tooltipData}
+                                                columns={[
+                                                    {
+                                                        dataIndex: 'series',
+                                                        render: (value) => {
                                                             return (
                                                                 <div className="datum-label-column">
-                                                                    <span className="font-extrabold">Total</span>
-                                                                    {isTruncated && (
-                                                                        <span className="text-xs text-muted ml-1">
-                                                                            (incl. hidden series)
-                                                                        </span>
-                                                                    )}
+                                                                    <InsightLabel
+                                                                        fallbackName={value?.toString()}
+                                                                        hideBreakdown
+                                                                        showSingleName
+                                                                        hideCompare
+                                                                        hideIcon
+                                                                        allowWrap
+                                                                    />
                                                                 </div>
                                                             )
-                                                        }
-
-                                                        return (
-                                                            <div className="datum-label-column">
-                                                                <InsightLabel
-                                                                    fallbackName={value?.toString()}
-                                                                    hideBreakdown
-                                                                    showSingleName
-                                                                    hideCompare
-                                                                    hideIcon
-                                                                    allowWrap
-                                                                />
-                                                            </div>
-                                                        )
+                                                        },
                                                     },
-                                                },
-                                                {
-                                                    title: '',
-                                                    dataIndex: 'data',
-                                                    render: (value, record) => {
-                                                        if (isStackedBarChart && chartSettings.stackBars100) {
-                                                            const total = record.stackedSeriesTotalAtIndex
-                                                            if (!total) {
+                                                    {
+                                                        dataIndex: 'data',
+                                                        render: (value, record) => {
+                                                            if (isStackedBarChart && chartSettings.stackBars100) {
+                                                                const total = record.stackedSeriesTotalAtIndex
+                                                                if (!total) {
+                                                                    return (
+                                                                        <div className="series-data-cell text-right">
+                                                                            {String(value)}
+                                                                        </div>
+                                                                    )
+                                                                }
+                                                                const rawData = record.rawData ?? 0
+                                                                const percentageLabel: number = parseFloat(
+                                                                    ((rawData / total) * 100).toFixed(1)
+                                                                )
+
                                                                 return (
-                                                                    <div className="series-data-cell">
-                                                                        {String(value)}
+                                                                    <div className="series-data-cell text-right">
+                                                                        {String(value)} ({percentageLabel}%)
                                                                     </div>
                                                                 )
                                                             }
-                                                            const rawData = record.rawData ?? 0
-                                                            const percentageLabel: number = parseFloat(
-                                                                ((rawData / total) * 100).toFixed(1)
-                                                            )
 
                                                             return (
-                                                                <div className="series-data-cell">
-                                                                    {String(value)} ({percentageLabel}%)
+                                                                <div className="series-data-cell text-right">
+                                                                    {String(value)}
                                                                 </div>
                                                             )
-                                                        }
-
-                                                        return <div className="series-data-cell">{String(value)}</div>
+                                                        },
                                                     },
-                                                },
-                                            ]}
-                                            uppercaseHeader={false}
-                                            rowRibbonColor={(_datum) => {
-                                                if (_datum.isTotalRow) {
-                                                    return undefined
-                                                }
-                                                return (
-                                                    ySeriesData[_datum.seriesIndex]?.settings?.display?.color ??
-                                                    getSeriesColor(_datum.seriesIndex)
-                                                )
-                                            }}
-                                            showHeader
-                                        />
-                                        {isTruncated && (
-                                            <div className="text-xs text-muted p-2 border-t">
-                                                For readability, <b>not all series are displayed</b>
+                                                ]}
+                                                uppercaseHeader={false}
+                                                rowRibbonColor={(_datum) => {
+                                                    return (
+                                                        ySeriesData[_datum.seriesIndex]?.settings?.display?.color ??
+                                                        getSeriesColor(_datum.seriesIndex)
+                                                    )
+                                                }}
+                                            />
+                                        </div>
+                                        {totalLabel && (
+                                            <div className="flex justify-between px-5 py-2 text-xs font-bold border-t border-primary">
+                                                <span className="flex-1">Total</span>
+                                                <span className="text-right">{totalLabel}</span>
                                             </div>
                                         )}
                                         {isBarChart && isStackedBarChart && !isHighlightBarMode && (

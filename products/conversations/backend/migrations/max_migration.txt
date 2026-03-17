@@ -1,1 +1,1 @@
-0023_ticket_sla_due_at_index
+0024_ticket_channel_detail
