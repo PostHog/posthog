@@ -1,6 +1,7 @@
 import os
 import json
 from contextlib import suppress
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -8,6 +9,7 @@ from django.core.exceptions import ImproperlyConfigured
 
 import dj_database_url
 
+from posthog.product_db_config import load_product_db_routes
 from posthog.settings.base_variables import DEBUG, IN_EVAL_TESTING, IS_COLLECT_STATIC, TEST
 from posthog.settings.utils import get_from_env, get_list, str_to_bool
 from posthog.utils import str_to_int_set
@@ -171,6 +173,56 @@ if persons_db_writer_url:
         DATABASES["persons_db_reader"]["DISABLE_SERVER_SIDE_CURSORS"] = True
 
     DATABASE_ROUTERS.insert(0, "posthog.person_db_router.PersonDBRouter")
+
+
+def _database_alias_to_env_var(alias: str) -> str:
+    return f"{alias.upper()}_URL"
+
+
+def _default_local_db_name_for_alias(alias: str) -> str:
+    alias_without_suffix = alias.removesuffix("_db_writer").removesuffix("_writer")
+    return f"posthog_{alias_without_suffix}"
+
+
+def _get_product_route_writer_url(route) -> str | None:
+    writer_env_var = _database_alias_to_env_var(route.database)
+    writer_url = os.getenv(writer_env_var)
+    if writer_url:
+        return writer_url
+
+    if DEBUG and not TEST:
+        default_product_db_name = _default_local_db_name_for_alias(route.database)
+        return f"postgres://{PG_USER}:{PG_PASSWORD}@localhost:5432/{default_product_db_name}"
+
+    return None
+
+
+def _configure_product_route_database(alias: str, default_url: str) -> None:
+    DATABASES[alias] = dj_database_url.config(
+        env=_database_alias_to_env_var(alias), default=default_url, conn_max_age=0
+    )
+    if DISABLE_SERVER_SIDE_CURSORS:
+        DATABASES[alias]["DISABLE_SERVER_SIDE_CURSORS"] = True
+
+
+product_routes = load_product_db_routes(Path(__file__).resolve().parents[2])
+configured_product_db_aliases: set[str] = set()
+
+for route in product_routes:
+    writer_url = _get_product_route_writer_url(route)
+    if not writer_url:
+        continue
+
+    if route.database not in configured_product_db_aliases:
+        _configure_product_route_database(route.database, writer_url)
+        configured_product_db_aliases.add(route.database)
+
+    if route.reader_database not in configured_product_db_aliases:
+        _configure_product_route_database(route.reader_database, writer_url)
+        configured_product_db_aliases.add(route.reader_database)
+
+if configured_product_db_aliases:
+    DATABASE_ROUTERS.insert(0, "posthog.product_db_router.ProductDBRouter")
 
 # Opt-in to using the read replica
 # Models using this will likely see better query latency, and better performance.

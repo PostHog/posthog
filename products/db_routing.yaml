@@ -1,0 +1,4 @@
+routes:
+  - app_label: visual_review
+    database: visual_review_db_writer
+    reader_database: visual_review_db_reader
