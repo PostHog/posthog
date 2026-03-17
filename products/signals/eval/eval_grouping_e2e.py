@@ -454,7 +454,9 @@ class TestGroupingPipeline:
             candidate_diversity = sum(jaccards) / len(jaccards)
 
         is_existing = isinstance(specificity_match_result, ExistingReportMatch)
-        report_id = specificity_match_result.report_id if is_existing else None
+        report_id = (
+            specificity_match_result.report_id if isinstance(specificity_match_result, ExistingReportMatch) else None
+        )
 
         output = {
             "report": "EXISTING_REPORT" if is_existing else "NEW_REPORT",
