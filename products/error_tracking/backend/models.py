@@ -532,4 +532,5 @@ class ErrorTrackingSpikeEvent(UUIDModel):
         indexes = [
             models.Index(fields=["team", "-detected_at"]),
             models.Index(fields=["issue", "-detected_at"]),
+            models.Index(fields=["-detected_at"]),
         ]

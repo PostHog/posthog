@@ -48,6 +48,10 @@ class Migration(migrations.Migration):
                         fields=["issue", "-detected_at"],
                         name="posthog_err_issue_i_7c3037_idx",
                     ),
+                    models.Index(
+                        fields=["-detected_at"],
+                        name="posthog_err_detecte_d1a2f3_idx",
+                    ),
                 ],
             },
         ),
