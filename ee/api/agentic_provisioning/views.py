@@ -77,7 +77,8 @@ PAY_AS_YOU_GO_PLAN_SERVICE: dict[str, Any] = {
     "pricing": {
         "type": "paid",
         "paid": {
-            "type": "custom",
+            "type": "freeform",
+            "freeform": "Usage-based pricing",
         },
     },
     "kind": "plan",
@@ -99,7 +100,8 @@ ANALYTICS_DEPLOYABLE_SERVICE: dict[str, Any] = {
                     "parent_service_ids": [PAY_AS_YOU_GO_PLAN_ID],
                     "type": "paid",
                     "paid": {
-                        "type": "custom",
+                        "type": "freeform",
+                        "freeform": "Usage-based pricing",
                     },
                 },
             ]
