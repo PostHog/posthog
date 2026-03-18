@@ -8,7 +8,9 @@ use crate::{
         },
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
-    cohorts::membership::{NoOpCohortMembershipProvider, CohortMembershipProvider, CohortMembershipError},
+    cohorts::membership::{
+        CohortMembershipError, CohortMembershipProvider, NoOpCohortMembershipProvider,
+    },
     config::Config,
     flags::{
         flag_analytics::SURVEY_TARGETING_FLAG_PREFIX,
@@ -25,6 +27,7 @@ use crate::{
         setup_pg_writer_client, setup_redis_client, setup_team_hypercache_reader, TestContext,
     },
 };
+use async_trait::async_trait;
 use axum::http::HeaderMap;
 use base64::{engine::general_purpose, Engine as _};
 use bytes::Bytes;
@@ -34,10 +37,9 @@ use common_geoip::GeoIpClient;
 use reqwest::header::CONTENT_TYPE;
 use serde_json::{json, Value};
 use std::net::{Ipv4Addr, Ipv6Addr};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{collections::HashMap, net::IpAddr, sync::Arc};
 use uuid::Uuid;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use async_trait::async_trait;
 
 #[derive(Debug, Default)]
 struct CountingCohortMembershipProvider {
@@ -1764,7 +1766,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         .expect("Failed to insert team in pg");
 
     let distinct_id = "test-user".to_string();
-    
+
     // Insert a person to ensure we get a valid person UUID for evaluation
     context
         .insert_person(team.id, distinct_id.clone(), None)
@@ -1784,6 +1786,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
                 properties: Some(vec![]),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                aggregation_group_type_index: None,
             }],
             multivariate: None,
             aggregation_group_type_index: None,
@@ -1815,7 +1818,11 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         persons_writer: context.persons_writer.clone(),
         non_persons_reader: context.non_persons_reader.clone(),
         non_persons_writer: context.non_persons_writer.clone(),
-        cohort_cache: Arc::new(CohortCacheManager::new(context.persons_reader.clone(), None, None)),
+        cohort_cache: Arc::new(CohortCacheManager::new(
+            context.persons_reader.clone(),
+            None,
+            None,
+        )),
         person_property_overrides: None,
         group_property_overrides: None,
         groups: None,
@@ -1829,7 +1836,7 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         enable_realtime_cohort_evaluation: false,
     };
 
-    // Test with realtime cohort evaluation ENABLED  
+    // Test with realtime cohort evaluation ENABLED
     let provider_enabled = Arc::new(CountingCohortMembershipProvider::new());
     let evaluation_context_enabled = FeatureFlagEvaluationContext {
         team_id: team.id,
@@ -1840,7 +1847,11 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
         persons_writer: context.persons_writer.clone(),
         non_persons_reader: context.non_persons_reader.clone(),
         non_persons_writer: context.non_persons_writer.clone(),
-        cohort_cache: Arc::new(CohortCacheManager::new(context.persons_reader.clone(), None, None)),
+        cohort_cache: Arc::new(CohortCacheManager::new(
+            context.persons_reader.clone(),
+            None,
+            None,
+        )),
         person_property_overrides: None,
         group_property_overrides: None,
         groups: None,
@@ -1857,14 +1868,18 @@ async fn test_realtime_cohort_evaluation_setting_behavior() {
     let request_id = Uuid::new_v4();
 
     // Evaluate flags with both settings
-    let result_disabled = evaluate_feature_flags(evaluation_context_disabled, request_id)
-        .await;
-    let result_enabled = evaluate_feature_flags(evaluation_context_enabled, request_id)
-        .await;
+    let result_disabled = evaluate_feature_flags(evaluation_context_disabled, request_id).await;
+    let result_enabled = evaluate_feature_flags(evaluation_context_enabled, request_id).await;
 
     // Both evaluations should succeed
-    assert!(result_disabled.is_ok(), "Flag evaluation should succeed with realtime cohorts disabled");
-    assert!(result_enabled.is_ok(), "Flag evaluation should succeed with realtime cohorts enabled");
+    assert!(
+        result_disabled.is_ok(),
+        "Flag evaluation should succeed with realtime cohorts disabled"
+    );
+    assert!(
+        result_enabled.is_ok(),
+        "Flag evaluation should succeed with realtime cohorts enabled"
+    );
 
     // For flags without cohort dependencies, both providers should have the same call count (0)
     // This is a meaningful assertion because it verifies that the evaluation setting doesn't
