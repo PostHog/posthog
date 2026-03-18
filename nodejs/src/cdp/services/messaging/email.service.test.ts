@@ -47,7 +47,7 @@ describe('EmailService', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub({})
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         service = new EmailService(
             {
                 sesAccessKeyId: hub.SES_ACCESS_KEY_ID,
@@ -450,6 +450,24 @@ describe('EmailService', () => {
                 'reply2@example.com',
                 'Customer Service <reply3@example.com>',
             ])
+        })
+
+        it('should send plaintext-only email when html is empty', async () => {
+            sendEmailSpy.mockResolvedValue({ MessageId: 'test-message-id' })
+            invocation.hogFunction.metadata = { message_category_type: 'transactional' }
+            invocation.queueParameters = createEmailParams({
+                from: { integrationId: 1, email: 'test@posthog-test.com' },
+                html: '',
+                text: 'Hello, this is a plain text email.',
+            })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            const sentCommand = sendEmailSpy.mock.calls[0][0] as { input: any }
+            expect(sentCommand.input.Content.Simple.Body.Text).toEqual({
+                Data: 'Hello, this is a plain text email.',
+                Charset: 'UTF-8',
+            })
+            expect(sentCommand.input.Content.Simple.Body.Html).toBeUndefined()
         })
 
         it('should not include preheader span if not in params', async () => {

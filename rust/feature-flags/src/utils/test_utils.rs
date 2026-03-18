@@ -807,6 +807,7 @@ pub fn create_test_flag(
                 properties: Some(vec![]),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
@@ -878,6 +879,7 @@ pub fn create_test_flag_with_properties(
                 properties: Some(filters),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
@@ -1261,7 +1263,7 @@ impl TestContext {
         let pak_id = format!("test_pak_{}", &uuid::Uuid::new_v4().to_string()[..8]);
         let api_key_value = format!("phx_{}", &uuid::Uuid::new_v4().to_string()[..12]);
 
-        let secure_value = crate::api::auth::hash_personal_api_key(&api_key_value);
+        let secure_value = crate::api::auth::hash_key_value(&api_key_value);
 
         let mut conn = self.non_persons_writer.get_connection().await?;
 
@@ -1304,6 +1306,41 @@ impl TestContext {
         query.build().execute(&mut *conn).await?;
 
         Ok((pak_id, api_key_value))
+    }
+
+    /// Creates a project secret API key with hashed value (SHA256 mode)
+    pub async fn create_project_secret_api_key(
+        &self,
+        team_id: i32,
+        label: &str,
+        scopes: Option<Vec<&str>>,
+    ) -> Result<String, Error> {
+        let key_id = format!("test_psk_{}", &uuid::Uuid::new_v4().to_string()[..8]);
+        let raw_key = format!("phs_{}", &uuid::Uuid::new_v4().to_string()[..12]);
+
+        let secure_value = crate::api::auth::hash_key_value(&raw_key);
+        let mask_value = format!("...{}", &raw_key[raw_key.len().saturating_sub(5)..]);
+
+        let mut conn = self.non_persons_writer.get_connection().await?;
+
+        let scopes_vec: Option<Vec<String>> =
+            scopes.map(|s| s.iter().map(|v| v.to_string()).collect());
+
+        sqlx::query(
+            r#"INSERT INTO posthog_projectsecretapikey
+               (id, team_id, label, mask_value, secure_value, scopes, created_at)
+               VALUES ($1, $2, $3, $4, $5, $6, NOW())"#,
+        )
+        .bind(&key_id)
+        .bind(team_id)
+        .bind(label)
+        .bind(&mask_value)
+        .bind(&secure_value)
+        .bind(&scopes_vec)
+        .execute(&mut *conn)
+        .await?;
+
+        Ok(raw_key)
     }
 
     /// Creates a team with both public token and secret API token
