@@ -5,9 +5,11 @@ from posthog.models import Dashboard, OrganizationMembership, User
 
 from ee.api.test.base import APILicensedTest
 from ee.models.dashboard_privilege import DashboardPrivilege
+from ee.models.rbac.access_control import AccessControl
 
 
 class TestDashboardCollaboratorsAPI(APILicensedTest):
+    CONFIG_FORCE_ADVANCED_PERMISSIONS_ON_SETUP = True
     test_dashboard: Dashboard
 
     def setUp(self):
@@ -15,6 +17,15 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
             self.skipTest("Dashboard collaborators tests require advanced permissions")
+
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            organization_member=None,
+            role=None,
+            access_level="member",
+        )
 
         self.test_dashboard = Dashboard.objects.create(team=self.team, name="Test Insights 9001", created_by=self.user)
 
