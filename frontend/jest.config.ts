@@ -33,6 +33,8 @@ const esmModules = [
     'comma-separated-tokens',
     'zwitch',
     '@posthog/hogql-parser',
+    'react-markdown',
+    'remark-gfm',
 ]
 function rootDirectories(): string[] {
     return ['<rootDir>/src', '<rootDir>/../products']
