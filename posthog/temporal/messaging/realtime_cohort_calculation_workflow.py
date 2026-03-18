@@ -225,7 +225,7 @@ async def flush_kafka_batch(
 
 
 @database_sync_to_async
-def _batch_update_cohort_durations(cohort_durations: dict[int, int]) -> int:
+def _batch_update_cohort_metrics(cohort_durations: dict[int, int]) -> int:
     """Batch update cohort durations and last backfill timestamp.
 
     Only updates duration_ms when it changed by more than DURATION_UPDATE_RELATIVE_THRESHOLD from the previous value.
@@ -560,7 +560,7 @@ async def process_realtime_cohort_calculation_activity(inputs: RealtimeCohortCal
         # Batch update all cohort durations at once
         if cohort_durations:
             batch_update_start = time.monotonic()
-            duration_updates_count = await _batch_update_cohort_durations(cohort_durations)
+            duration_updates_count = await _batch_update_cohort_metrics(cohort_durations)
             batch_update_duration = time.monotonic() - batch_update_start
 
             # Record batch update timing
