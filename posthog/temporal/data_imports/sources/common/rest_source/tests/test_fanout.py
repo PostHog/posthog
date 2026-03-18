@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from typing import Any
 
+import pytest
 from unittest.mock import patch
 
 from dlt.sources.helpers.rest_client.paginators import BasePaginator
@@ -142,3 +143,26 @@ def test_build_dependent_resource_backwards_compatible_defaults(mock_rest_api_re
     assert child_resource["endpoint"]["params"]["limit"] == 7
     assert "data_selector" not in parent_resource["endpoint"]
     assert "data_selector" not in child_resource["endpoint"]
+
+
+@patch("posthog.temporal.data_imports.sources.common.rest_source.fanout.rest_api_resources")
+def test_build_dependent_resource_rejects_params_in_endpoint_extras(mock_rest_api_resources) -> None:
+    mock_rest_api_resources.return_value = []
+
+    with pytest.raises(ValueError, match="Do not pass 'params' in child_endpoint_extra"):
+        build_dependent_resource(
+            endpoint_configs=_build_endpoint_configs(),
+            child_endpoint="children",
+            fanout=DependentEndpointConfig(
+                parent_name="parents",
+                resolve_param="parent_id",
+                resolve_field="id",
+                include_from_parent=["id"],
+            ),
+            client_config={"base_url": "https://example.com"},
+            path_format_values={},
+            team_id=1,
+            job_id="job-1",
+            db_incremental_field_last_value=None,
+            child_endpoint_extra={"params": {"limit": 1}},
+        )

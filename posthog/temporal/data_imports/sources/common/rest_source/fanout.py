@@ -77,6 +77,10 @@ def build_dependent_resource(
         "params": parent_params,
     }
     if parent_endpoint_extra:
+        if "params" in parent_endpoint_extra:
+            raise ValueError(
+                "Do not pass 'params' in parent_endpoint_extra. Use fanout.parent_params or page_size_param instead."
+            )
         parent_endpoint_config.update(parent_endpoint_extra)
 
     parent_resource: EndpointResource = {
@@ -105,6 +109,11 @@ def build_dependent_resource(
         "params": child_params,
     }
     if child_endpoint_extra:
+        if "params" in child_endpoint_extra:
+            raise ValueError(
+                "Do not pass 'params' in child_endpoint_extra. "
+                "The child resolve/page-size params are managed by build_dependent_resource."
+            )
         child_endpoint_config.update(child_endpoint_extra)
 
     use_merge = should_use_incremental_field and bool(child_config.incremental_fields)
