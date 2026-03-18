@@ -50,28 +50,33 @@ UserPaths.parameters = {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
     },
 }
-// The Paths component uses useResizeObserver to measure canvasWidth, then destroys
-// and recreates the SVG when it changes. This causes a race condition where the SVG
-// width may not have stabilized before the snapshot is taken. Wait for it to settle
-// by requiring the width to be stable for 2 consecutive checks (400ms apart).
+// The Paths component uses useResizeObserver to measure canvasWidth/canvasHeight, then destroys
+// and recreates the SVG when they change. This causes a race condition where the SVG
+// dimensions may not have stabilized before the snapshot is taken. Wait for both width
+// and height to be stable for 3 consecutive checks (600ms apart) to ensure the SVG
+// has fully settled and won't be recreated by a late ResizeObserver callback.
 const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
     let lastWidth = 0
+    let lastHeight = 0
     let stableCount = 0
     await waitFor(
         () => {
             const svg = canvasElement.querySelector('.Paths__canvas')
-            const currentWidth = svg ? svg.getBoundingClientRect().width : 0
-            if (currentWidth === 0 || currentWidth !== lastWidth) {
+            const rect = svg ? svg.getBoundingClientRect() : null
+            const currentWidth = rect ? rect.width : 0
+            const currentHeight = rect ? rect.height : 0
+            if (currentWidth === 0 || currentHeight === 0 || currentWidth !== lastWidth || currentHeight !== lastHeight) {
                 lastWidth = currentWidth
+                lastHeight = currentHeight
                 stableCount = 0
-                throw new Error('SVG width not yet stable')
+                throw new Error('SVG dimensions not yet stable')
             }
             stableCount++
-            if (stableCount < 2) {
-                throw new Error('SVG width not yet confirmed stable')
+            if (stableCount < 3) {
+                throw new Error('SVG dimensions not yet confirmed stable')
             }
         },
-        { timeout: 5000, interval: 200 }
+        { timeout: 8000, interval: 200 }
     )
 }
 UserPaths.play = waitForPathsCanvasToStabilize
