@@ -239,6 +239,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Determine if hogql-parser has changed compared to master
@@ -458,6 +459,14 @@ jobs:
                     fi
                   fi
 
+            - name: Verify changed Playwright tests are stable
+              if: success() && github.event_name == 'pull_request'
+              shell: bash
+              run: |
+                  BASE_SHA="${{ github.event.pull_request.base.sha }}"
+                  git fetch --no-tags --prune --depth=50 origin "$BASE_SHA"
+                  .github/scripts/verify-playwright-new-tests-and-snapshots.sh "$BASE_SHA" 10
+
             # Create git patch for aggregation (handles A/M/D including binary files)
             # Only run in UPDATE mode - CHECK mode doesn't update snapshots
             # Run even if tests failed, as long as snapshots may have been updated
@@ -610,6 +619,16 @@ jobs:
                           }
                       } catch {}
 
+                      // Flake verification results for changed test files
+                      try {
+                          const flakeResults = JSON.parse(fs.readFileSync('playwright/flake-verification-results.json', 'utf8'));
+                          if (flakeResults.status === 'failed') {
+                              const fileList = flakeResults.files.map(f => `- \`${f}\``).join('\n');
+                              const flakeReportLink = reportUrl ? ` [View report →](${reportUrl})` : '';
+                              extraLines += `\n\n🔁 **Flake verification failed** (--repeat-each=${flakeResults.repeat_count}):\n${fileList}\n\nThe report only shows the tests under verification.${flakeReportLink} Fix these before merging.`;
+                          }
+                      } catch {}
+
                       const { data: comments } = await github.rest.issues.listComments({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
@@ -633,7 +652,7 @@ jobs:
                       const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
                       const snapshotMode = '${{ needs.detect-snapshot-mode.outputs.mode }}';
                       const snapshotHint = (snapshotMode === 'check' && failed.length > 0)
-                          ? '\n\n---\n**If your changes intentionally update screenshots:** add the `update-snapshots` label, then push an empty commit or merge master to trigger a new run. Screenshots will be auto-committed.\n**If you didn\'t change any UI:** this is likely a flaky screenshot — wait for a fix to land on master.'
+                          ? '\n\n**If your changes intentionally update screenshots:** add the `update-snapshots` label, then push an empty commit or merge master to trigger a new run. Screenshots will be auto-committed.\n**If you didn\'t change any UI:** this is likely a flaky screenshot — wait for a fix to land on master.'
                           : '';
                       const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
                       const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${snapshotHint}${footer}`;

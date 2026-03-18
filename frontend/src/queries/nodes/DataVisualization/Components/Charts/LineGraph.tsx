@@ -433,23 +433,25 @@ export const LineGraph = ({
                                     (series) => series.data[referenceDataPoint.dataIndex] !== null
                                 )
 
-                                const tooltipData = filteredSeriesData.map((series, index) => {
-                                    const seriesName =
-                                        series?.settings?.display?.label ||
-                                        ('column' in series ? series.column.name : series.name)
-                                    const seriesIndex = isHighlightBarMode ? referenceDataPoint.datasetIndex : index
-                                    return {
-                                        series: seriesName,
-                                        data: formatDataWithSettings(
-                                            series.data[referenceDataPoint.dataIndex],
-                                            series.settings
-                                        ),
-                                        rawData: series.data[referenceDataPoint.dataIndex],
-                                        dataIndex: referenceDataPoint.dataIndex,
-                                        seriesIndex: seriesIndex,
-                                        stackedSeriesTotalAtIndex,
-                                    }
-                                })
+                                const tooltipData = filteredSeriesData
+                                    .map((series, index) => {
+                                        const seriesName =
+                                            series?.settings?.display?.label ||
+                                            ('column' in series ? series.column.name : series.name)
+                                        const seriesIndex = isHighlightBarMode ? referenceDataPoint.datasetIndex : index
+                                        return {
+                                            series: seriesName,
+                                            data: formatDataWithSettings(
+                                                series.data[referenceDataPoint.dataIndex],
+                                                series.settings
+                                            ),
+                                            rawData: series.data[referenceDataPoint.dataIndex],
+                                            dataIndex: referenceDataPoint.dataIndex,
+                                            seriesIndex: seriesIndex,
+                                            stackedSeriesTotalAtIndex,
+                                        }
+                                    })
+                                    .sort((a, b) => b.rawData! - a.rawData!)
 
                                 let totalLabel: string | null = null
                                 const tooltipTotalData = ySeriesData.filter(

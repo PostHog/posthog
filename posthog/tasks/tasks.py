@@ -964,7 +964,11 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
     from posthog.models.async_deletion import AsyncDeletion, DeletionType
     from posthog.models.project import Project
     from posthog.models.team import Team
-    from posthog.models.team.util import delete_batch_exports, delete_bulky_postgres_data
+    from posthog.models.team.util import (
+        delete_batch_exports,
+        delete_bulky_postgres_data,
+        delete_data_modeling_schedules,
+    )
     from posthog.models.user import User
 
     user = User.objects.filter(id=user_id).first()
@@ -982,6 +986,9 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
 
     logger.info("Deleting batch exports", team_ids=team_ids)
     delete_batch_exports(team_ids=team_ids)
+
+    logger.info("Deleting data modeling schedules", team_ids=team_ids)
+    delete_data_modeling_schedules(team_ids=team_ids)
 
     logger.info("Deleting team records", team_ids=team_ids)
     if project_id:
