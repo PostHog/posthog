@@ -5,6 +5,8 @@ import datetime as dt
 import dataclasses
 from typing import TYPE_CHECKING, Any, Optional
 
+from django.utils import timezone
+
 import temporalio.activity
 import temporalio.workflow
 from prometheus_client import Histogram
@@ -18,8 +20,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.hogql_queries.hogql_cohort_query import HogQLRealtimeCohortQuery
 from posthog.kafka_client.client import KafkaProducer
 from posthog.kafka_client.topics import KAFKA_COHORT_MEMBERSHIP_CHANGED
-from django.utils import timezone
-
 from posthog.models.cohort.cohort import Cohort, CohortType
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
