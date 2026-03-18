@@ -36,7 +36,7 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.custom import InvoiceListWithAllLines
-from posthog.temporal.data_imports.sources.stripe.settings import INCREMENTAL_FIELDS
+from posthog.temporal.data_imports.sources.stripe.settings import APPEND_ONLY_INCREMENTAL_FIELDS
 
 from products.data_warehouse.backend.models.external_table_definitions import get_dlt_mapping_for_external_table
 
@@ -115,7 +115,7 @@ def get_rows(
     logger.debug(f"Stripe: reading from resource {resource}")
 
     # Get the incremental field name for this endpoint
-    incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
+    incremental_field_config = APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
     resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
@@ -233,7 +233,7 @@ def stripe_source(
     column_hints = {key: value.get("data_type") for key, value in column_mapping.items()}
 
     # Get the incremental field name for partition keys
-    incremental_field_config = INCREMENTAL_FIELDS.get(endpoint, [])
+    incremental_field_config = APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, [])
     incremental_field_name = incremental_field_config[0]["field"] if incremental_field_config else "created"
 
     webhook_enabled = async_to_sync(webhook_source_manager.webhook_enabled)()
@@ -356,6 +356,7 @@ def create_webhook(config: StripeSourceConfig, webhook_url: str) -> WebhookCreat
                 "url": webhook_url,
                 "enabled_events": filtered_events,
                 "description": "PostHog data warehouse webhook",
+                "name": "PostHog data warehouse webhook",
             }
         )
 

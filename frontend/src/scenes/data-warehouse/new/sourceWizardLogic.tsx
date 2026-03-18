@@ -479,25 +479,18 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 databaseSchema.some((s) => s.supports_webhooks && s.sync_type === 'incremental' && s.should_sync),
         ],
         webhookStepComplete: [
-            (s) => [s.webhookResult, s.webhookFieldInputs, s.selectedConnector],
-            (
-                webhookResult: { success: boolean } | null,
-                webhookFieldInputs: Record<string, any>,
-                selectedConnector: SourceConfig | null
-            ): boolean => {
+            (s) => [s.webhookResult, s.selectedConnector],
+            (webhookResult: { success: boolean } | null, selectedConnector: SourceConfig | null): boolean => {
                 if (webhookResult?.success) {
                     return true
                 }
                 if (!webhookResult) {
                     return false
                 }
-                // Failed - check if all required webhook fields are filled
+
                 const webhookFields = selectedConnector?.webhookFields ?? []
                 const requiredFields = webhookFields.filter((f) => 'required' in f && f.required)
-                if (requiredFields.length === 0) {
-                    return true
-                }
-                return requiredFields.every((f) => !!webhookFieldInputs[f.name])
+                return requiredFields.length === 0
             },
         ],
         isManualLinkingSelected: [(s) => [s.selectedConnector], (selectedConnector): boolean => !selectedConnector],
@@ -553,8 +546,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             },
         ],
         nextButtonText: [
-            (s) => [s.currentStep, s.isManualLinkingSelected, s.isDirectQueryMode, (_, props) => props.onComplete],
-            (currentStep, isManualLinkingSelected, isDirectQueryMode, onComplete): string => {
+            (s) => [
+                s.currentStep,
+                s.isManualLinkingSelected,
+                s.isDirectQueryMode,
+                s.hasWebhookSchemas,
+                (_, props) => props.onComplete,
+            ],
+            (currentStep, isManualLinkingSelected, isDirectQueryMode, hasWebhookSchemas, onComplete): string => {
                 if (currentStep === 3 && isManualLinkingSelected) {
                     return 'Link'
                 }
@@ -563,6 +562,11 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     if (isDirectQueryMode) {
                         return 'Save tables'
                     }
+
+                    if (hasWebhookSchemas) {
+                        return 'Set up webhook'
+                    }
+
                     return 'Import'
                 }
 
@@ -1062,8 +1066,10 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 return
             }
 
-            actions.selectConnector(null)
-            actions.setStep(1)
+            if (values.currentStep <= 1) {
+                actions.selectConnector(null)
+                actions.setStep(1)
+            }
         }
 
         return {

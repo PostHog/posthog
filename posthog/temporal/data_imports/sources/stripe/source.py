@@ -36,8 +36,8 @@ from posthog.temporal.data_imports.sources.stripe.constants import (
     SUBSCRIPTION_RESOURCE_NAME,
 )
 from posthog.temporal.data_imports.sources.stripe.settings import (
+    APPEND_ONLY_INCREMENTAL_FIELDS as STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS,
     ENDPOINTS as STRIPE_ENDPOINTS,
-    INCREMENTAL_FIELDS as STRIPE_INCREMENTAL_FIELDS,
 )
 from posthog.temporal.data_imports.sources.stripe.stripe import (
     StripePermissionError,
@@ -217,12 +217,12 @@ Once created, copy the **Signing secret** from the webhook details page and add 
             SourceSchema(
                 name=endpoint,
                 supports_incremental=_is_webhook_feature_flag_enabled(team_id)
-                and STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                and STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
                 supports_webhooks=_is_webhook_feature_flag_enabled(team_id)
-                and STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                # nested resources are only full refresh and are not in STRIPE_INCREMENTAL_FIELDS
-                supports_append=STRIPE_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=STRIPE_INCREMENTAL_FIELDS.get(endpoint, []),
+                and STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                # nested resources are only full refresh and are not in STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS
+                supports_append=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, None) is not None,
+                incremental_fields=STRIPE_APPEND_ONLY_INCREMENTAL_FIELDS.get(endpoint, []),
             )
             for endpoint in STRIPE_ENDPOINTS
         ]
