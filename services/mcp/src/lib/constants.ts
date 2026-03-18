@@ -69,6 +69,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'profile',
     'email',
     'introspection',
+    'alert:read',
+    'alert:write',
     'annotation:read',
     'annotation:write',
     'action:read',
