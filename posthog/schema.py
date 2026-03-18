@@ -16256,6 +16256,12 @@ class FunnelsFilter(BaseModel):
         default=None,
         description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
     )
+    customAggregationTarget: bool | None = Field(
+        default=None,
+        description=(
+            "For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups."
+        ),
+    )
     exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
     funnelAggregateByHogQL: str | None = None
     funnelFromStep: int | None = None

@@ -2606,6 +2606,11 @@ export namespace Schemas {
        * @nullable
        */
       breakdownSorting?: string | null;
+      /**
+       * For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups.
+       * @nullable
+       */
+      customAggregationTarget?: boolean | null;
       /** @nullable */
       exclusions?: (FunnelExclusionEventsNode | FunnelExclusionActionsNode)[] | null;
       /** @nullable */

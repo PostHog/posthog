@@ -16788,6 +16788,10 @@
                     "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
                     "type": "string"
                 },
+                "customAggregationTarget": {
+                    "description": "For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups.",
+                    "type": "boolean"
+                },
                 "exclusions": {
                     "default": [],
                     "items": {
