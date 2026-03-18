@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, cast
 
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, QuerySet
 
 import django_filters
@@ -202,6 +202,18 @@ class ReviewQueueItemCreateSerializer(BaseReviewQueueItemWriteSerializer):
         help_text="Trace ID to add to the selected review queue.",
     )
 
+    def _validate_trace_id_constraints(self, *, team: Team, trace_id: str, resolved_queue: ReviewQueue) -> None:
+        if TraceReview.objects.filter(team=team, trace_id=trace_id, deleted=False).exists():
+            raise serializers.ValidationError(
+                {"trace_id": "This trace is already reviewed and cannot be added to a queue."}
+            )
+
+        existing_item = ReviewQueueItem.objects.filter(team=team, trace_id=trace_id, deleted=False).first()
+        if existing_item:
+            if existing_item.queue_id == resolved_queue.id:
+                raise serializers.ValidationError({"trace_id": "This trace is already pending in this queue."})
+            raise serializers.ValidationError({"trace_id": "This trace is already pending in another queue."})
+
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         team = cast(Team, self.context["team"])
         resolved_queue = self._get_resolved_queue()
@@ -210,33 +222,29 @@ class ReviewQueueItemCreateSerializer(BaseReviewQueueItemWriteSerializer):
         if not normalized_trace_id:
             raise serializers.ValidationError({"trace_id": "This field is required."})
 
-        if TraceReview.objects.filter(team=team, trace_id=normalized_trace_id, deleted=False).exists():
-            raise serializers.ValidationError(
-                {"trace_id": "This trace is already reviewed and cannot be added to a queue."}
-            )
-
-        existing_item = ReviewQueueItem.objects.filter(team=team, trace_id=normalized_trace_id, deleted=False).first()
-        if existing_item:
-            if existing_item.queue_id == resolved_queue.id:
-                raise serializers.ValidationError({"trace_id": "This trace is already pending in this queue."})
-            raise serializers.ValidationError({"trace_id": "This trace is already pending in another queue."})
+        self._validate_trace_id_constraints(team=team, trace_id=normalized_trace_id, resolved_queue=resolved_queue)
 
         attrs["trace_id"] = normalized_trace_id
         attrs["_resolved_queue"] = resolved_queue
         return attrs
 
+    @transaction.atomic
     def create(self, validated_data: dict[str, Any]) -> ReviewQueueItem:
         request = cast(Request, self.context["request"])
         team = cast(Team, self.context["team"])
         queue_user = cast(User, request.user)
         resolved_queue = cast(ReviewQueue, validated_data.pop("_resolved_queue"))
         validated_data.pop("queue_id", None)
+        trace_id = validated_data["trace_id"]
+
+        Team.objects.select_for_update().get(id=team.id)
+        self._validate_trace_id_constraints(team=team, trace_id=trace_id, resolved_queue=resolved_queue)
 
         try:
             return ReviewQueueItem.objects.create(
                 team=team,
                 queue=resolved_queue,
-                trace_id=validated_data["trace_id"],
+                trace_id=trace_id,
                 created_by=queue_user,
             )
         except IntegrityError as err:

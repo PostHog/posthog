@@ -462,11 +462,14 @@ class BaseTraceReviewWriteSerializer(serializers.Serializer):
         review_user = cast(User, request.user)
         resolved_scores = cast(list[dict[str, Any]], validated_data.pop("_resolved_scores", []))
         validated_data.pop("scores", None)
+        trace_id = validated_data["trace_id"]
+
+        Team.objects.select_for_update().get(id=team.id)
 
         try:
             review = TraceReview.objects.create(
                 team=team,
-                trace_id=validated_data["trace_id"],
+                trace_id=trace_id,
                 comment=validated_data.get("comment"),
                 created_by=review_user,
                 reviewed_by=review_user,

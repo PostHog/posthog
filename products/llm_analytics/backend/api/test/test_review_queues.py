@@ -1,8 +1,11 @@
+from types import SimpleNamespace
+
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from rest_framework import status
+from rest_framework import serializers, status
 
+from products.llm_analytics.backend.api.review_queues import ReviewQueueItemCreateSerializer
 from products.llm_analytics.backend.models.review_queues import ReviewQueue, ReviewQueueItem
 from products.llm_analytics.backend.models.trace_reviews import TraceReview
 
@@ -115,6 +118,27 @@ class TestReviewQueuesApi(APIBaseTest):
                 message="This trace is already reviewed and cannot be added to a queue.",
                 attr="trace_id",
             ),
+        )
+
+    def test_save_rechecks_trace_review_created_after_validation(self):
+        queue = self._create_queue()
+        serializer = ReviewQueueItemCreateSerializer(
+            data={"queue_id": str(queue.id), "trace_id": "trace_reviewed"},
+            context={"request": SimpleNamespace(user=self.user), "team": self.team},
+        )
+
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        self._create_review(trace_id="trace_reviewed")
+
+        with self.assertRaises(serializers.ValidationError) as exc:
+            serializer.save()
+
+        self.assertEqual(
+            exc.exception.detail,
+            {"trace_id": ["This trace is already reviewed and cannot be added to a queue."]},
+        )
+        self.assertFalse(
+            ReviewQueueItem.objects.filter(team=self.team, trace_id="trace_reviewed", deleted=False).exists()
         )
 
     def test_cannot_add_pending_trace_to_another_queue(self):
