@@ -1,0 +1,43 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "content": {
+            "anyOf": [
+                {},
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "deleted": {
+            "type": "boolean"
+        },
+        "text_content": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "title": {
+            "anyOf": [
+                {
+                    "maxLength": 256,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ]
+        },
+        "version": {
+            "maximum": 2147483647,
+            "minimum": -2147483648,
+            "type": "number"
+        }
+    },
+    "type": "object"
+}
