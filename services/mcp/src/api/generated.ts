@@ -13576,6 +13576,8 @@ export namespace Schemas {
       readonly incremental_field_type: string | null;
       readonly sync_frequency: string;
       readonly sync_time_of_day: string;
+      /** @nullable */
+      readonly description: string | null;
     }
 
     export interface ExternalDataSourceRevenueAnalyticsConfig {
@@ -21117,6 +21119,8 @@ export namespace Schemas {
       readonly incremental_field_type?: string | null;
       readonly sync_frequency?: string;
       readonly sync_time_of_day?: string;
+      /** @nullable */
+      readonly description?: string | null;
     }
 
     /**
