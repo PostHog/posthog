@@ -39,6 +39,7 @@ celerybeat.pid
 common/hogvm/typescript/.parcel-cache
 common/hogvm/typescript/dist
 common/plugin_transpiler/dist
+common/replay-headless/dist
 common/storybook/dist
 coverage-*.xml
 debug.log
@@ -123,6 +124,9 @@ frontend/public/Matter*.woff*
 frontend/tmp
 frontend/types/
 
+# Watchman cache
+.watchman-cookie-*
+
 # Dist release target dir
 target/*
 
@@ -175,7 +179,7 @@ data/seaweedfs/
 agent-os/
 
 # MCP build files
-services/mcp/ui-apps-dist
+services/mcp/public/ui-apps
 
 # Product skills (synced by hogli sync:skill)
 .agents/skills/.gitignore

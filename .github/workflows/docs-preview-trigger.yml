@@ -21,6 +21,47 @@ jobs:
             - name: Checkout
               uses: actions/checkout@v6
 
+            - name: Check frontmatter in published docs
+              continue-on-error: true
+              run: |
+                  echo "Checking for required frontmatter in published docs..."
+
+                  MISSING_FRONTMATTER=0
+
+                  # Find all markdown/mdx files in published docs
+                  for file in docs/published/**/*.{md,mdx}; do
+                    if [ -f "$file" ]; then
+                      # Check if file starts with ---
+                      if ! head -1 "$file" | grep -q "^---"; then
+                        echo "❌ Missing frontmatter in: $file"
+                        MISSING_FRONTMATTER=1
+                      fi
+                    fi
+                  done
+
+                  if [ $MISSING_FRONTMATTER -eq 1 ]; then
+                    echo "Some files are missing required frontmatter. All docs in /docs/published/ must have YAML frontmatter."
+                    exit 1
+                  fi
+
+                  echo "✅ All published docs have frontmatter"
+
+            - name: Verify internal docs not in published
+              continue-on-error: true
+              run: |
+                  echo "Verifying internal docs are not accidentally in published..."
+
+                  if find docs/published -name "*internal*" -o -name "*private*" -o -name "*secret*" 2>/dev/null | grep -q .; then
+                    echo "❌ Found internal/private docs in published directory!"
+                    exit 1
+                  fi
+
+                  echo "✅ No internal docs found in published directory"
+
+            - name: Check for broken links
+              continue-on-error: true
+              run: node .github/scripts/check-docs-links.js
+
             - name: Trigger Vercel build
               id: trigger-build
               env:
@@ -49,47 +90,3 @@ jobs:
                         deploymentUrl: process.env.DEPLOYMENT_URL,
                         deploymentId: process.env.DEPLOYMENT_ID
                       });
-
-    validate-docs:
-        name: Validate docs structure
-        runs-on: ubuntu-latest
-        steps:
-            - uses: actions/checkout@v6
-
-            - name: Check frontmatter in published docs
-              run: |
-                  echo "Checking for required frontmatter in published docs..."
-
-                  MISSING_FRONTMATTER=0
-
-                  # Find all markdown/mdx files in published docs
-                  for file in docs/published/**/*.{md,mdx}; do
-                    if [ -f "$file" ]; then
-                      # Check if file starts with ---
-                      if ! head -1 "$file" | grep -q "^---"; then
-                        echo "❌ Missing frontmatter in: $file"
-                        MISSING_FRONTMATTER=1
-                      fi
-                    fi
-                  done
-
-                  if [ $MISSING_FRONTMATTER -eq 1 ]; then
-                    echo "Some files are missing required frontmatter. All docs in /docs/published/ must have YAML frontmatter."
-                    exit 1
-                  fi
-
-                  echo "✅ All published docs have frontmatter"
-
-            - name: Verify internal docs not in published
-              run: |
-                  echo "Verifying internal docs are not accidentally in published..."
-
-                  if find docs/published -name "*internal*" -o -name "*private*" -o -name "*secret*" 2>/dev/null | grep -q .; then
-                    echo "❌ Found internal/private docs in published directory!"
-                    exit 1
-                  fi
-
-                  echo "✅ No internal docs found in published directory"
-
-            - name: Check for broken links
-              run: node .github/scripts/check-docs-links.js

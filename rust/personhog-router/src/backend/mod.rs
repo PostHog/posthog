@@ -1,9 +1,14 @@
+mod leader;
 mod replica;
 mod retry;
 
+pub use leader::LeaderBackend;
 pub use replica::ReplicaBackend;
 
 use async_trait::async_trait;
+use personhog_proto::personhog::leader::v1::{
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+};
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
@@ -21,8 +26,19 @@ use personhog_proto::personhog::types::v1::{
 };
 use tonic::Status;
 
-/// Trait defining the backend interface for person-related operations.
-/// Implementations provide the actual data access (e.g., replica, leader).
+/// Trait for leader-specific operations: strong-consistency reads and writes.
+/// Only the leader backend implements this (partition-aware routing to leader pods).
+#[async_trait]
+pub trait LeaderOps: Send + Sync {
+    async fn get_person(&self, request: GetPersonRequest) -> Result<GetPersonResponse, Status>;
+    async fn update_person_properties(
+        &self,
+        request: UpdatePersonPropertiesRequest,
+    ) -> Result<UpdatePersonPropertiesResponse, Status>;
+}
+
+/// Trait defining the replica backend interface for read operations.
+/// The replica serves eventual-consistency reads from Postgres replicas.
 #[async_trait]
 pub trait PersonHogBackend: Send + Sync {
     // Person lookups by ID

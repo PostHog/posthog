@@ -321,6 +321,7 @@ mod tests {
                             }]),
                             rollout_percentage: Some(50.0),
                             variant: None,
+                            ..Default::default()
                         }],
                         multivariate: None,
                         aggregation_group_type_index: None,
@@ -376,6 +377,7 @@ mod tests {
                             }]),
                             rollout_percentage: Some(100.0),
                             variant: None,
+                            ..Default::default()
                         }],
                         multivariate: None,
                         aggregation_group_type_index: None,
@@ -500,6 +502,7 @@ mod tests {
                             }]),
                             rollout_percentage: Some(50.0 + i as f64),
                             variant: None,
+                            ..Default::default()
                         }],
                         multivariate: None,
                         aggregation_group_type_index: None,
