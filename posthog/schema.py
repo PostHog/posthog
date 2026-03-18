@@ -2994,6 +2994,7 @@ class NodeKind(StrEnum):
     GROUP_NODE = "GroupNode"
     ACTIONS_NODE = "ActionsNode"
     DATA_WAREHOUSE_NODE = "DataWarehouseNode"
+    FUNNELS_DATA_WAREHOUSE_NODE = "FunnelsDataWarehouseNode"
     LIFECYCLE_DATA_WAREHOUSE_NODE = "LifecycleDataWarehouseNode"
     EVENTS_QUERY = "EventsQuery"
     SESSIONS_QUERY = "SessionsQuery"
@@ -11918,6 +11919,90 @@ class FunnelExclusionEventsNode(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class FunnelsDataWarehouseNode(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    aggregation_target_field: str
+    custom_name: str | None = None
+    dw_source_type: str | None = None
+    fixedProperties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | None
+    ) = Field(
+        default=None,
+        description=("Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)"),
+    )
+    id: str
+    id_field: str
+    kind: Literal["FunnelsDataWarehouseNode"] = "FunnelsDataWarehouseNode"
+    math: (
+        BaseMathType
+        | FunnelMathType
+        | PropertyMathType
+        | CountPerActorMathType
+        | ExperimentMetricMathType
+        | CalendarHeatmapMathType
+        | Literal["unique_group"]
+        | Literal["hogql"]
+        | None
+    ) = None
+    math_group_type_index: MathGroupTypeIndex | None = None
+    math_hogql: str | None = None
+    math_multiplier: float | None = None
+    math_property: str | None = None
+    math_property_revenue_currency: RevenueCurrencyPropertyConfig | None = None
+    math_property_type: str | None = None
+    name: str | None = None
+    optionalInFunnel: bool | None = None
+    properties: (
+        list[
+            EventPropertyFilter
+            | PersonPropertyFilter
+            | ElementPropertyFilter
+            | EventMetadataPropertyFilter
+            | SessionPropertyFilter
+            | CohortPropertyFilter
+            | RecordingPropertyFilter
+            | LogEntryPropertyFilter
+            | GroupPropertyFilter
+            | FeaturePropertyFilter
+            | FlagPropertyFilter
+            | HogQLPropertyFilter
+            | EmptyPropertyFilter
+            | DataWarehousePropertyFilter
+            | DataWarehousePersonPropertyFilter
+            | ErrorTrackingIssueFilter
+            | LogPropertyFilter
+            | RevenueAnalyticsPropertyFilter
+        ]
+        | None
+    ) = Field(default=None, description="Properties configurable in the interface")
+    response: dict[str, Any] | None = None
+    table_name: str
+    timestamp_field: str
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class FunnelsQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -15500,12 +15585,16 @@ class ActorsPropertyTaxonomyQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class AnyDataWarehouseNode(RootModel[DataWarehouseNode | LifecycleDataWarehouseNode]):
-    root: DataWarehouseNode | LifecycleDataWarehouseNode
+class AnyDataWarehouseNode(RootModel[DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode]):
+    root: DataWarehouseNode | FunnelsDataWarehouseNode | LifecycleDataWarehouseNode
 
 
 class AnyEntityNodeDataWarehouseNode(RootModel[EventsNode | ActionsNode | DataWarehouseNode]):
     root: EventsNode | ActionsNode | DataWarehouseNode
+
+
+class AnyEntityNodeFunnelsDataWarehouseNode(RootModel[EventsNode | ActionsNode | FunnelsDataWarehouseNode]):
+    root: EventsNode | ActionsNode | FunnelsDataWarehouseNode
 
 
 class AnyEntityNodeLifecycleDataWarehouseNode(RootModel[EventsNode | ActionsNode | LifecycleDataWarehouseNode]):
@@ -16166,6 +16255,12 @@ class FunnelsFilter(BaseModel):
     breakdownSorting: str | None = Field(
         default=None,
         description=("Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)"),
+    )
+    customAggregationTarget: bool | None = Field(
+        default=None,
+        description=(
+            "For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups."
+        ),
     )
     exclusions: list[FunnelExclusionEventsNode | FunnelExclusionActionsNode] | None = []
     funnelAggregateByHogQL: str | None = None
@@ -18135,7 +18230,7 @@ class FunnelsQuery(BaseModel):
     ) = Field(default=[], description="Property filters for all series")
     response: FunnelsQueryResponse | None = None
     samplingFactor: float | None = Field(default=None, description="Sampling rate")
-    series: list[GroupNode | EventsNode | ActionsNode | DataWarehouseNode] = Field(
+    series: list[GroupNode | EventsNode | ActionsNode | FunnelsDataWarehouseNode] = Field(
         ..., description="Events and actions to include"
     )
     tags: QueryLogTags | None = Field(default=None, description="Tags that will be added to the Query log comment")
@@ -19534,6 +19629,7 @@ class MaxInsightContext(BaseModel):
         | ActionsNode
         | PersonsNode
         | DataWarehouseNode
+        | FunnelsDataWarehouseNode
         | LifecycleDataWarehouseNode
         | EventsQuery
         | SessionsQuery
@@ -19647,6 +19743,7 @@ class QueryRequest(BaseModel):
         | ActionsNode
         | PersonsNode
         | DataWarehouseNode
+        | FunnelsDataWarehouseNode
         | LifecycleDataWarehouseNode
         | EventsQuery
         | SessionsQuery
@@ -19752,6 +19849,7 @@ class QuerySchemaRoot(
         | ActionsNode
         | PersonsNode
         | DataWarehouseNode
+        | FunnelsDataWarehouseNode
         | LifecycleDataWarehouseNode
         | EventsQuery
         | SessionsQuery
@@ -19827,6 +19925,7 @@ class QuerySchemaRoot(
         | ActionsNode
         | PersonsNode
         | DataWarehouseNode
+        | FunnelsDataWarehouseNode
         | LifecycleDataWarehouseNode
         | EventsQuery
         | SessionsQuery
@@ -19907,6 +20006,7 @@ class QueryUpgradeRequest(BaseModel):
         | ActionsNode
         | PersonsNode
         | DataWarehouseNode
+        | FunnelsDataWarehouseNode
         | LifecycleDataWarehouseNode
         | EventsQuery
         | SessionsQuery
@@ -19987,6 +20087,7 @@ class QueryUpgradeResponse(BaseModel):
         | ActionsNode
         | PersonsNode
         | DataWarehouseNode
+        | FunnelsDataWarehouseNode
         | LifecycleDataWarehouseNode
         | EventsQuery
         | SessionsQuery
@@ -20193,6 +20294,7 @@ class VisualizationArtifactContent(BaseModel):
         | ActionsNode
         | PersonsNode
         | DataWarehouseNode
+        | FunnelsDataWarehouseNode
         | LifecycleDataWarehouseNode
         | EventsQuery
         | SessionsQuery
