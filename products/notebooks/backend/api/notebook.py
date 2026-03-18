@@ -141,7 +141,9 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "title": {"help_text": "Title of the notebook."},
             "content": {"help_text": "Notebook content as a ProseMirror JSON document structure."},
             "text_content": {"help_text": "Plain text representation of the notebook content for search."},
-            "version": {"help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."},
+            "version": {
+                "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
+            },
             "deleted": {"help_text": "Whether the notebook has been soft-deleted."},
         }
 
