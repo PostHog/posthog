@@ -208,7 +208,7 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         elif validated_data["kind"] == "google-cloud-service-account":
             config = validated_data.get("config", {})
             service_account_email = config.get("service_account_email")
-            project_id = config.get("client_id")
+            project_id = config.get("project_id")
             if not (service_account_email and project_id):
                 raise ValidationError("Service account email and project ID must be provided")
 
