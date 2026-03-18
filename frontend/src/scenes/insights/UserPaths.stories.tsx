@@ -65,7 +65,12 @@ const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canva
             const rect = svg ? svg.getBoundingClientRect() : null
             const currentWidth = rect ? rect.width : 0
             const currentHeight = rect ? rect.height : 0
-            if (currentWidth === 0 || currentHeight === 0 || currentWidth !== lastWidth || currentHeight !== lastHeight) {
+            if (
+                currentWidth === 0 ||
+                currentHeight === 0 ||
+                currentWidth !== lastWidth ||
+                currentHeight !== lastHeight
+            ) {
                 lastWidth = currentWidth
                 lastHeight = currentHeight
                 stableCount = 0
