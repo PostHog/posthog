@@ -3,10 +3,11 @@ from unittest.mock import AsyncMock, Mock, patch
 
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
-    PersonPropertyFilter,
     backfill_precalculated_person_properties_activity,
     flush_kafka_batch,
 )
+from posthog.temporal.messaging.filter_storage import filter_storage
+from posthog.temporal.messaging.types import PersonPropertyFilter
 
 
 class TestFlushKafkaBatch:
@@ -310,10 +311,14 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             ),
         ]
 
+        # Store filters in filter storage
+        filter_storage_key = filter_storage.store_filters(filters, team_id=1)
+
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
-            filters=filters,
+            filter_storage_key=filter_storage_key,
             cohort_ids=[100, 200],
+            filter_count=len(filters),
             batch_size=100,
             offset=0,
             limit=2,
@@ -480,10 +485,14 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             ),
         ]
 
+        # Store filters in filter storage
+        filter_storage_key = filter_storage.store_filters(filters, team_id=1)
+
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
-            filters=filters,
+            filter_storage_key=filter_storage_key,
             cohort_ids=[100, 200],
+            filter_count=len(filters),
             batch_size=100,
             offset=0,
             limit=1,
