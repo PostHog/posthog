@@ -31,7 +31,7 @@ The HogQL table alias is `document_embeddings`. HogQL automatically constrains q
 
 ## Mandatory Filters
 
-Every signals query MUST include all four of these filters. Missing any of them will return zero results, wrong data, or unnecessarily expensive scans:
+Every signals query MUST include all four of these filters. Missing any of them can cause the query to fail with an invalid model error, return wrong data, or trigger unnecessarily expensive scans:
 
 ```sql
 WHERE model_name = 'text-embedding-3-small-1536'
@@ -40,7 +40,7 @@ WHERE model_name = 'text-embedding-3-small-1536'
   AND timestamp >= now() - INTERVAL 30 DAY
 ```
 
-The `model_name` filter is especially critical — the HogQL engine uses it to route to the correct underlying ClickHouse table. Wrong model = zero results.
+The `model_name` filter is especially critical — the HogQL engine uses it to route to the correct underlying ClickHouse table. If the `WHERE model_name = ...` equality filter is missing or uses an unknown model, the query will fail with an "Invalid model name" error (you cannot use `IN` or other expressions here).
 
 The `product` and `document_type` filters are equally important — the same model contains data from multiple products (e.g. error tracking, AI memory). Without these filters you will get unrelated data mixed in.
 
