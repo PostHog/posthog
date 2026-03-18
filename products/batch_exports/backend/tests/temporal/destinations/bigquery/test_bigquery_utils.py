@@ -19,6 +19,9 @@ from products.batch_exports.backend.temporal.destinations.bigquery_batch_export 
     get_service_account_description,
     verify_impersonated_service_account_ownership,
 )
+from products.batch_exports.backend.tests.temporal.destinations.bigquery.utils import (
+    SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS,
+)
 
 
 @pytest.mark.parametrize(
@@ -110,6 +113,7 @@ def test_boto3_credentials_supplier_raises_if_missing(mock_aws_credentials):
         _ = supplier.get_aws_security_credentials(None, None)
 
 
+@SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.asyncio
 @pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
 @pytest.mark.parametrize("service_account_description", ["any"], indirect=True)
@@ -125,6 +129,7 @@ async def test_get_service_account_description(
     assert description == service_account_description
 
 
+@SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.asyncio
 @pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
 async def test_verify_impersonated_service_account_ownership(
@@ -138,6 +143,7 @@ async def test_verify_impersonated_service_account_ownership(
     await verify_impersonated_service_account_ownership(service_account_integration.service_account_email, ateam.id)
 
 
+@SKIP_IF_MISSING_GOOGLE_APPLICATION_CREDENTIALS
 @pytest.mark.asyncio
 @pytest.mark.parametrize("integration", ["impersonated"], indirect=True)
 @pytest.mark.parametrize("service_account_description", ["any"], indirect=True)
