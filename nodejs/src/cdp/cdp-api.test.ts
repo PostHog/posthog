@@ -9,6 +9,7 @@ import { setupExpressApp } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { HogFlow } from '~/schema/hogflow'
 
+import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
@@ -76,7 +77,7 @@ describe('CDP API', () => {
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
         team = await getFirstTeam(hub.postgres)
 
-        api = new CdpApi(hub, hub)
+        api = new CdpApi(hub, createCdpConsumerDeps(hub))
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
