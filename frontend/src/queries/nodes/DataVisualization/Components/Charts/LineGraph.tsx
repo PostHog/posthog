@@ -478,12 +478,13 @@ export const LineGraph = ({
 
                                 tooltipRoot.render(
                                     <div className="InsightTooltip">
-                                        <div className="flex items-center justify-between px-5 py-2 text-xs font-semibold border-b border-primary">
-                                            {xSeriesData.data[referenceDataPoint.dataIndex]}
+                                        <div className="flex items-center justify-between pl-5 pr-2 py-2 text-xs font-semibold border-b border-primary">
+                                            <span>{xSeriesData.data[referenceDataPoint.dataIndex]}</span>
                                             {pinTooltip && (
                                                 <button
                                                     type="button"
-                                                    className="ml-2 p-0.5 rounded hover:bg-fill-button-tertiary-hover cursor-pointer"
+                                                    className="InsightTooltip__close ml-5 p-0.5 rounded hover:bg-fill-button-tertiary-hover cursor-pointer"
+                                                    style={{ opacity: 0 }}
                                                     onClick={() => unpinTooltip(tooltipId)}
                                                 >
                                                     <IconX className="w-3 h-3" />

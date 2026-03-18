@@ -214,12 +214,19 @@ export function unpinTooltip(id: string): void {
     }
 
     instance.isPinned = false
-    instance.element.style.opacity = '0'
     disableInteractivity(instance)
 
-    const onUnpincallback = instance.onUnpin
+    const onUnpinCallback = instance.onUnpin
     instance.onUnpin = null
-    onUnpincallback?.()
+
+    // Hide tooltip and close button
+    instance.element.style.opacity = '0'
+    const closeButton = instance.element.querySelector<HTMLElement>('.InsightTooltip__close')
+    if (closeButton) {
+        closeButton.style.opacity = '0'
+    }
+
+    onUnpinCallback?.()
 }
 
 export function pinTooltip(id: string, onUnpin?: () => void): void {
@@ -227,9 +234,15 @@ export function pinTooltip(id: string, onUnpin?: () => void): void {
     if (!instance) {
         return
     }
+
     instance.isPinned = true
     instance.onUnpin = onUnpin ?? null
     instance.element.style.pointerEvents = 'auto'
+
+    const closeButton = instance.element.querySelector<HTMLElement>('.InsightTooltip__close')
+    if (closeButton) {
+        closeButton.style.opacity = '1'
+    }
 }
 
 export function cleanupTooltip(id: string): void {
