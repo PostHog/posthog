@@ -76,11 +76,13 @@ depends_on = [
     "products.logs",
     "products.marketing_analytics",
     "products.notebooks",
+    "products.notifications",
     "products.revenue_analytics",
     "products.signals",
     "products.slack_app",
     "products.surveys",
     "products.tasks",
+    "products.tracing",
     "products.user_interviews",
     "products.visual_review",
     "products.web_analytics",
@@ -240,6 +242,18 @@ depends_on = [
 layer = "non_isolated"
 
 [[modules]]
+path = "products.notifications"
+depends_on = [
+    "ee",
+    "posthog",
+]
+layer = "products"
+interfaces = [
+    "products.notifications.backend.facade",
+    "products.notifications.backend.presentation.views",
+]
+
+[[modules]]
 path = "products.product_analytics"
 depends_on = []
 layer = "non_isolated"
@@ -312,6 +326,10 @@ depends_on = [
     "posthog",
 ]
 layer = "products"
+interfaces = [
+    "products.visual_review.backend.facade",
+    "products.visual_review.backend.presentation.views",
+]
 
 [[modules]]
 path = "products.web_analytics"
@@ -334,3 +352,16 @@ layer = "non_isolated"
 path = "products.tracing"
 depends_on = ["posthog"]
 layer = "products"
+interfaces = [
+    "products.tracing.backend.facade",
+    "products.tracing.backend.presentation.views",
+]
+
+[[modules]]
+path = "products.metrics"
+depends_on = ["posthog"]
+layer = "products"
+interfaces = [
+    "products.metrics.backend.facade",
+    "products.metrics.backend.presentation.views",
+]

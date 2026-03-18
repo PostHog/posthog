@@ -37,8 +37,8 @@ use crate::{
         flag_definitions_rate_limiter::FlagDefinitionsRateLimiter,
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
     },
-    cohorts::cohort_cache_manager::CohortCacheManager,
-    config::{Config, TeamIdCollection},
+    cohorts::{cohort_cache_manager::CohortCacheManager, membership::CohortMembershipProvider},
+    config::{Config, ServiceMode, TeamIdCollection},
     metrics::{
         consts::{
             FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
@@ -87,6 +87,8 @@ pub struct State {
     /// In-memory negative cache for invalid API tokens, preventing repeated
     /// Redis/S3/PG lookups for tokens that don't correspond to any team
     pub team_negative_cache: NegativeCache,
+    /// Provider for realtime/behavioral cohort membership lookups
+    pub cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -106,6 +108,7 @@ pub fn router(
     config_hypercache_reader: Arc<HyperCacheReader>,
     rayon_dispatcher: RayonDispatcher,
     team_negative_cache: NegativeCache,
+    cohort_membership_provider: Arc<dyn CohortMembershipProvider>,
     config: Config,
 ) -> Router {
     // Initialize flag definitions rate limiter with default and custom team rates
@@ -117,12 +120,21 @@ pub fn router(
     )
     .expect("Failed to initialize flag definitions rate limiter");
 
-    // Initialize token-based rate limiter with configuration
+    // Initialize token-based rate limiter.
+    // Both modes use the same thresholds (warn at ratio of enforce capacity).
+    // log_only=true sets warn_only, so requests are never blocked.
+    let (flags_warn_cap, flags_enforce_cap, flags_warn_only) = resolve_rate_limit_capacities(
+        config.flags_bucket_capacity,
+        config.flags_warn_capacity_ratio,
+        *config.flags_rate_limit_log_only,
+    );
     let flags_rate_limiter = FlagsRateLimiter::new(
         *config.flags_rate_limit_enabled,
-        *config.flags_rate_limit_log_only,
         config.flags_bucket_replenish_rate,
-        config.flags_bucket_capacity,
+        flags_warn_cap,
+        flags_enforce_cap,
+        flags_warn_only,
+        config.flags_token_rate_limit_overrides.0.clone(),
     )
     .unwrap_or_else(|e| {
         panic!(
@@ -131,12 +143,18 @@ pub fn router(
         )
     });
 
-    // Initialize IP-based rate limiter with configuration
+    // Initialize IP-based rate limiter with backwards-compatible configuration
+    let (ip_warn_cap, ip_enforce_cap, ip_warn_only) = resolve_rate_limit_capacities(
+        config.flags_ip_burst_size,
+        config.flags_warn_capacity_ratio,
+        *config.flags_ip_rate_limit_log_only,
+    );
     let ip_rate_limiter = IpRateLimiter::new(
         *config.flags_ip_rate_limit_enabled,
-        *config.flags_ip_rate_limit_log_only,
         config.flags_ip_replenish_rate,
-        config.flags_ip_burst_size,
+        ip_warn_cap,
+        ip_enforce_cap,
+        ip_warn_only,
     )
     .unwrap_or_else(|e| {
         panic!(
@@ -172,6 +190,7 @@ pub fn router(
         config_hypercache_reader,
         rayon_dispatcher,
         team_negative_cache,
+        cohort_membership_provider,
     };
 
     // Very permissive CORS policy, as old SDK versions
@@ -180,7 +199,10 @@ pub fn router(
         .allow_methods([Method::GET, Method::POST, Method::OPTIONS, Method::HEAD])
         .allow_headers(AllowHeaders::mirror_request())
         .allow_credentials(true)
-        .allow_origin(AllowOrigin::mirror_request());
+        .allow_origin(AllowOrigin::mirror_request())
+        .expose_headers([axum::http::HeaderName::from_static(
+            "x-posthog-rate-limit-warning",
+        )]);
 
     // Clone database_pools for the startup route
     let db_pools_for_startup = state.database_pools.clone();
@@ -203,19 +225,32 @@ pub fn router(
     // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
     //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
     // 3. ConcurrencyLimitLayer (innermost): bounds in-flight requests.
-    let flags_router = Router::new()
-        .route("/flags", any(endpoint::flags))
-        .route("/flags/", any(endpoint::flags))
-        .route(
-            "/flags/definitions",
-            any(flag_definitions::flags_definitions),
-        )
-        .route(
-            "/flags/definitions/",
-            any(flag_definitions::flags_definitions),
-        )
-        .route("/decide", any(endpoint::flags))
-        .route("/decide/", any(endpoint::flags))
+    let mut flags_router = Router::new();
+
+    if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
+        flags_router = flags_router
+            .route("/flags", any(endpoint::flags))
+            .route("/flags/", any(endpoint::flags))
+            .route("/decide", any(endpoint::flags))
+            .route("/decide/", any(endpoint::flags));
+    }
+
+    if matches!(
+        config.service_mode,
+        ServiceMode::All | ServiceMode::Definitions
+    ) {
+        flags_router = flags_router
+            .route(
+                "/flags/definitions",
+                any(flag_definitions::flags_definitions),
+            )
+            .route(
+                "/flags/definitions/",
+                any(flag_definitions::flags_definitions),
+            );
+    }
+
+    let flags_router = flags_router
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
         .layer(
             ServiceBuilder::new()
@@ -255,6 +290,29 @@ pub fn router(
     } else {
         router
     }
+}
+
+/// Resolves warn/enforce capacities with backwards-compat logic for the old `log_only` flag.
+///
+/// Returns `(warn_capacity, enforce_capacity, warn_only)`:
+/// - Both modes use the same threshold calculation: warn at `warn_ratio` of enforce capacity.
+/// - `log_only == true`: Sets `warn_only = true` so requests are never blocked, only warned.
+///   Thresholds are identical to enforcing mode, giving operators visibility into what
+///   _would_ happen when they flip `log_only` to `false`.
+/// - `log_only == false`: Same thresholds, but enforce tier actually blocks with 429s.
+/// - Set `warn_ratio` to 0.0 to disable the warn tier entirely.
+fn resolve_rate_limit_capacities(
+    enforce_capacity: u32,
+    warn_ratio: f64,
+    log_only: bool,
+) -> (Option<u32>, u32, bool) {
+    let derived_warn = (enforce_capacity as f64 * warn_ratio.clamp(0.0, 1.0)) as u32;
+    let warn_capacity = if derived_warn > 0 {
+        Some(derived_warn)
+    } else {
+        None
+    };
+    (warn_capacity, enforce_capacity, log_only)
 }
 
 /// Spawns a background task to periodically clean up stale rate limiter entries.
@@ -491,5 +549,66 @@ mod tests {
 
         let result = startup(database_pools).await;
         assert_eq!(result, "started");
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_default_ratio() {
+        // 80% of 200 = 160
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(200, 0.8, false);
+        assert_eq!(warn, Some(160));
+        assert_eq!(enforce, 200);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_custom_ratio() {
+        // 40% of 500 = 200
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(500, 0.4, false);
+        assert_eq!(warn, Some(200));
+        assert_eq!(enforce, 500);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_zero_ratio_disables_warn() {
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(500, 0.0, false);
+        assert_eq!(warn, None);
+        assert_eq!(enforce, 500);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_ratio_clamped_to_1() {
+        // ratio > 1.0 is clamped to 1.0, so warn == enforce
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(200, 1.5, false);
+        assert_eq!(warn, Some(200));
+        assert_eq!(enforce, 200);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_log_only_uses_real_thresholds() {
+        // log_only uses the same thresholds as enforcing mode — only warn_only differs
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(200, 0.8, true);
+        assert_eq!(warn, Some(160));
+        assert_eq!(enforce, 200);
+        assert!(warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_tiny_capacity_no_warn() {
+        // enforce=1 → 80% rounds to 0, too small for warn tier
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(1, 0.8, false);
+        assert_eq!(warn, None);
+        assert_eq!(enforce, 1);
+        assert!(!warn_only);
+    }
+
+    #[test]
+    fn test_resolve_rate_limit_zero_capacity() {
+        let (warn, enforce, warn_only) = resolve_rate_limit_capacities(0, 0.8, false);
+        assert_eq!(warn, None);
+        assert_eq!(enforce, 0);
+        assert!(!warn_only);
     }
 }

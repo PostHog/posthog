@@ -16,7 +16,7 @@ import type { IngestionConsumerConfig } from './ingestion/config'
 import type { CookielessManager } from './ingestion/cookieless/cookieless-manager'
 import type { ErrorTrackingConsumerConfig } from './ingestion/error-tracking/config'
 import { KafkaProducerWrapper } from './kafka/producer'
-import type { LogsIngestionConsumerConfig } from './logs-ingestion/config'
+import type { LogsIngestionConsumerConfig, TracesIngestionConsumerConfig } from './logs-ingestion/config'
 import type { SessionRecordingApiConfig, SessionRecordingConfig } from './session-recording/config'
 import { PostgresRouter } from './utils/db/postgres'
 import { GeoIPService } from './utils/geoip'
@@ -117,6 +117,7 @@ export interface PluginsServerConfig
         CdpConfig,
         IngestionConsumerConfig,
         LogsIngestionConsumerConfig,
+        TracesIngestionConsumerConfig,
         ErrorTrackingConsumerConfig,
         SessionRecordingConfig,
         SessionRecordingApiConfig {}
@@ -150,6 +151,7 @@ export interface PluginServerCapabilities {
     ingestionV2Combined?: boolean
     ingestionV2?: boolean
     logsIngestion?: boolean
+    tracesIngestion?: boolean
     errorTrackingIngestion?: boolean
     sessionRecordingBlobIngestionV2?: boolean
     sessionRecordingBlobIngestionV2Overflow?: boolean
@@ -283,6 +285,7 @@ export interface Team {
     name: string
     anonymize_ips: boolean
     api_token: string
+    secret_api_token: string | null
     slack_incoming_webhook: string | null
     session_recording_opt_in: boolean
     person_processing_opt_out: boolean | null

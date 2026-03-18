@@ -139,7 +139,7 @@ class TestToolbarOAuthStateCache(APIBaseTest):
 
 
 class TestToolbarOAuthRefresh(APIBaseTest):
-    @patch("posthog.api.oauth.toolbar_service.external_requests.post")
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_refresh_success(self, mock_post):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {
@@ -186,7 +186,7 @@ class TestToolbarOAuthRefresh(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["code"] == "invalid_json"
 
-    @patch("posthog.api.oauth.toolbar_service.external_requests.post")
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_refresh_surfaces_token_error(self, mock_post):
         mock_post.return_value.status_code = 400
         mock_post.return_value.json.return_value = {
@@ -202,7 +202,7 @@ class TestToolbarOAuthRefresh(APIBaseTest):
         assert response.status_code == 400
         assert response.json()["code"] == "invalid_grant"
 
-    @patch("posthog.api.oauth.toolbar_service.external_requests.post")
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_refresh_handles_non_json_response(self, mock_post):
         mock_post.return_value.status_code = 502
         mock_post.return_value.content = b"not json"
@@ -216,7 +216,7 @@ class TestToolbarOAuthRefresh(APIBaseTest):
         assert response.status_code == 502
         assert response.json()["code"] == "token_refresh_failed"
 
-    @patch("posthog.api.oauth.toolbar_service.external_requests.post")
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_refresh_rejects_missing_access_token_in_response(self, mock_post):
         mock_post.return_value.status_code = 200
         mock_post.return_value.json.return_value = {
@@ -246,7 +246,7 @@ class TestToolbarOAuthRefresh(APIBaseTest):
         response = self.client.get("/api/user/toolbar_oauth_refresh/")
         assert response.status_code == 405
 
-    @patch("posthog.api.oauth.toolbar_service.external_requests.post")
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_refresh_handles_network_failure(self, mock_post):
         mock_post.side_effect = requests.RequestException("connection refused")
 
@@ -258,7 +258,7 @@ class TestToolbarOAuthRefresh(APIBaseTest):
         assert response.status_code == 500
         assert response.json()["code"] == "token_refresh_failed"
 
-    @patch("posthog.api.oauth.toolbar_service.external_requests.post")
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_refresh_rate_limits_after_30_requests(self, mock_post):
         from django.core.cache import cache
 
@@ -292,7 +292,7 @@ class TestTokenEndpointStatusRemapping(APIBaseTest):
             ("502_passes_through", 502, 502),
         ]
     )
-    @patch("posthog.api.oauth.toolbar_service.external_requests.post")
+    @patch("posthog.api.oauth.toolbar_service.requests.post")
     def test_internal_oauth_status_remapping(self, _name, internal_status, expected_status, mock_post):
         mock_post.return_value.status_code = internal_status
         mock_post.return_value.content = b'{"error": "test_error", "error_description": "test"}'

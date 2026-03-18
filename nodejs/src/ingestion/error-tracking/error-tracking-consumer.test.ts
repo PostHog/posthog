@@ -203,7 +203,7 @@ describe('ErrorTrackingConsumer', () => {
         offsetIncrementer = 0
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         // Replace the real personRepository with a mock to avoid database schema issues
         // (the test database may be missing the last_seen_at column)

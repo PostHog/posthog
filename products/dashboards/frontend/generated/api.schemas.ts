@@ -128,9 +128,14 @@ export const EffectivePrivilegeLevelEnumApi = {
  */
 export interface DashboardBasicApi {
     readonly id: number
-    /** @nullable */
+    /**
+     * Name of the dashboard.
+     * @nullable
+     */
     readonly name: string | null
+    /** Description of the dashboard. */
     readonly description: string
+    /** Whether the dashboard is pinned to the top of the list. */
     readonly pinned: boolean
     readonly created_at: string
     readonly created_by: UserBasicApi
@@ -142,6 +147,10 @@ export interface DashboardBasicApi {
     readonly deleted: boolean
     readonly creation_mode: CreationModeEnumApi
     tags?: unknown[]
+    /** Controls who can edit the dashboard.
+
+* `21` - Everyone in the project can edit
+* `37` - Only those invited to this dashboard can edit */
     readonly restriction_level: DashboardRestrictionLevelApi
     readonly effective_restriction_level: EffectiveRestrictionLevelEnumApi
     readonly effective_privilege_level: EffectivePrivilegeLevelEnumApi
@@ -208,8 +217,12 @@ export interface DashboardApi {
     readonly filters: DashboardApiFilters
     /** @nullable */
     readonly variables: DashboardApiVariables
+    /** Custom color mapping for breakdown values. */
     breakdown_colors?: unknown
-    /** @nullable */
+    /**
+     * ID of the color theme used for chart visualizations.
+     * @nullable
+     */
     data_color_theme_id?: number | null
     tags?: unknown[]
     /**
@@ -239,11 +252,28 @@ export interface DashboardApi {
     quick_filter_ids?: string[] | null
     /** @nullable */
     readonly tiles: readonly DashboardApiTilesItem[] | null
+    /** Template key to create the dashboard from a predefined template. */
     use_template?: string
-    /** @nullable */
+    /**
+     * ID of an existing dashboard to duplicate.
+     * @nullable
+     */
     use_dashboard?: number | null
+    /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
     _create_in_folder?: string
+}
+
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
 }
 
 export interface SharingConfigurationApi {
@@ -253,7 +283,7 @@ export interface SharingConfigurationApi {
     readonly access_token: string | null
     settings?: unknown | null
     password_required?: boolean
-    readonly share_passwords: string
+    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 export type PatchedDashboardApiFilters = { [key: string]: unknown }
@@ -299,8 +329,12 @@ export interface PatchedDashboardApi {
     readonly filters?: PatchedDashboardApiFilters
     /** @nullable */
     readonly variables?: PatchedDashboardApiVariables
+    /** Custom color mapping for breakdown values. */
     breakdown_colors?: unknown
-    /** @nullable */
+    /**
+     * ID of the color theme used for chart visualizations.
+     * @nullable
+     */
     data_color_theme_id?: number | null
     tags?: unknown[]
     /**
@@ -330,11 +364,24 @@ export interface PatchedDashboardApi {
     quick_filter_ids?: string[] | null
     /** @nullable */
     readonly tiles?: readonly PatchedDashboardApiTilesItem[] | null
+    /** Template key to create the dashboard from a predefined template. */
     use_template?: string
-    /** @nullable */
+    /**
+     * ID of an existing dashboard to duplicate.
+     * @nullable
+     */
     use_dashboard?: number | null
+    /** When deleting, also delete insights that are only on this dashboard. */
     delete_insights?: boolean
     _create_in_folder?: string
+}
+
+export interface ReorderTilesRequestApi {
+    /**
+     * Array of tile IDs in the desired display order (top to bottom, left to right).
+     * @minItems 1
+     */
+    tile_order: number[]
 }
 
 export interface DataColorThemeApi {
@@ -342,7 +389,7 @@ export interface DataColorThemeApi {
     /** @maxLength 100 */
     name: string
     colors?: unknown
-    readonly is_global: string
+    readonly is_global: boolean
     /** @nullable */
     readonly created_at: string | null
     readonly created_by: UserBasicApi
@@ -362,7 +409,7 @@ export interface PatchedDataColorThemeApi {
     /** @maxLength 100 */
     name?: string
     colors?: unknown
-    readonly is_global?: string
+    readonly is_global?: boolean
     /** @nullable */
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
@@ -463,6 +510,18 @@ export type DashboardsMoveTilePartialUpdateFormat =
     (typeof DashboardsMoveTilePartialUpdateFormat)[keyof typeof DashboardsMoveTilePartialUpdateFormat]
 
 export const DashboardsMoveTilePartialUpdateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsReorderTilesCreateParams = {
+    format?: DashboardsReorderTilesCreateFormat
+}
+
+export type DashboardsReorderTilesCreateFormat =
+    (typeof DashboardsReorderTilesCreateFormat)[keyof typeof DashboardsReorderTilesCreateFormat]
+
+export const DashboardsReorderTilesCreateFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

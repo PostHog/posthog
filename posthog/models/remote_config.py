@@ -9,6 +9,7 @@ from django.dispatch.dispatcher import receiver
 from django.http import HttpRequest
 from django.utils import timezone
 
+import requests
 import structlog
 from opentelemetry import trace
 from prometheus_client import Counter
@@ -24,7 +25,6 @@ from posthog.models.surveys.survey import Survey
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
-from posthog.security.outbound_proxy import external_requests
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
 from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
@@ -130,7 +130,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
-        from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
+        from products.error_tracking.backend.remote_config import build_error_tracking_config
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -164,10 +164,7 @@ class RemoteConfig(UUIDTModel):
             config["elementsChainAsString"] = True
 
         # MARK: Error tracking
-        config["errorTracking"] = {
-            "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
-            "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
-        }
+        config["errorTracking"] = build_error_tracking_config(team)
 
         # MARK: Logs
         logs_settings = team.logs_settings or {}
@@ -476,7 +473,7 @@ class RemoteConfig(UUIDTModel):
         logger.info(f"Purging CDN for team {self.team_id}", {"data": data})
 
         try:
-            res = external_requests.post(
+            res = requests.post(
                 settings.REMOTE_CONFIG_CDN_PURGE_ENDPOINT,
                 headers={"Authorization": f"Bearer {settings.REMOTE_CONFIG_CDN_PURGE_TOKEN}"},
                 json=data,

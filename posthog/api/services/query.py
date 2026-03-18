@@ -1,14 +1,9 @@
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 import structlog
 import pydantic_core
 from pydantic import BaseModel
 from rest_framework.exceptions import ValidationError
-
-from posthog.hogql.modifiers import create_default_modifiers_for_team
-
-if TYPE_CHECKING:
-    from rest_framework.request import Request
 
 from posthog.schema import (
     DashboardFilter,
@@ -29,9 +24,11 @@ from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.direct_connection import resolve_database_for_connection
 from posthog.hogql.metadata import get_hogql_metadata
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.cloud_utils import is_cloud
+from posthog.event_usage import AnalyticsProps
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import CacheMissResponse, ExecutionMode, QueryResponse, get_query_runner
 from posthog.models import Team, User
@@ -57,8 +54,8 @@ def process_query_dict(
     insight_id: Optional[int] = None,
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
-    request: Optional["Request"] = None,
     pagination_cursor: Optional[str] = None,
+    analytics_props: Optional[AnalyticsProps] = None,
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
     try:
@@ -107,8 +104,8 @@ def process_query_dict(
         insight_id=insight_id,
         dashboard_id=dashboard_id,
         is_query_service=is_query_service,
-        request=request,
         pagination_cursor=pagination_cursor,
+        analytics_props=analytics_props,
     )
 
 
@@ -126,8 +123,8 @@ def process_query_model(
     dashboard_id: Optional[int] = None,
     is_query_service: bool = False,
     cache_age_seconds: Optional[int] = None,
-    request: Optional["Request"] = None,
     pagination_cursor: Optional[str] = None,
+    analytics_props: Optional[AnalyticsProps] = None,
 ) -> dict | BaseModel:
     result: dict | BaseModel
 
@@ -181,7 +178,7 @@ def process_query_model(
         )
 
     try:
-        query_runner = get_query_runner(query, team, limit_context=limit_context, request=request)
+        query_runner = get_query_runner(query, team, limit_context=limit_context)
     except ValueError:  # This query doesn't run via query runner
         if hasattr(query, "source") and isinstance(query.source, BaseModel):
             result = process_query_model(
@@ -197,7 +194,7 @@ def process_query_model(
                 dashboard_id=dashboard_id,
                 is_query_service=is_query_service,
                 cache_age_seconds=cache_age_seconds,
-                request=request,
+                analytics_props=analytics_props,
             )
         elif execution_mode == ExecutionMode.CACHE_ONLY_NEVER_CALCULATE:
             # Caching is handled by query runners, so in this case we can only return a cache miss
@@ -235,6 +232,7 @@ def process_query_model(
             insight_id=insight_id,
             dashboard_id=dashboard_id,
             cache_age_seconds=cache_age_seconds,
+            analytics_props=analytics_props,
         )
 
     return result

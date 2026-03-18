@@ -16,8 +16,8 @@ import { eventNameToEventsNode } from '~/queries/nodes/InsightQuery/utils/eventN
 import {
     ActionsNode,
     AnyEntityNode,
-    DataWarehouseNode,
     EventsNode,
+    FunnelsDataWarehouseNode,
     FunnelsQuery,
     InsightVizNode,
     NodeKind,
@@ -162,7 +162,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             (s) => [s.featureFlags],
             (featureFlags): TaxonomicFilterGroupType[] => {
                 const { hasPageview, hasScreen } = getProjectEventExistence()
-                const supportsDwhFunnels = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNEL_DWH_SUPPORT]
+                const supportsDwhFunnels = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DWH_FUNNEL_SUPPORT]
                 return [
                     TaxonomicFilterGroupType.Events,
                     TaxonomicFilterGroupType.Actions,
@@ -211,7 +211,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             const series = [...values.query.source.series]
             const name = item?.name || value || ''
 
-            let node: AnyEntityNode
+            let node: AnyEntityNode<FunnelsDataWarehouseNode>
             if (groupType === TaxonomicFilterGroupType.Actions) {
                 node = {
                     kind: NodeKind.ActionsNode,
@@ -220,14 +220,14 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                 } as ActionsNode
             } else if (groupType === TaxonomicFilterGroupType.DataWarehouse) {
                 node = {
-                    kind: NodeKind.DataWarehouseNode,
+                    kind: NodeKind.FunnelsDataWarehouseNode,
                     id: String(value),
                     table_name: item?.name || String(value),
                     id_field: item?.id_field || 'id',
                     timestamp_field: item?.timestamp_field || 'timestamp',
-                    distinct_id_field: item?.distinct_id_field || 'distinct_id',
+                    aggregation_target_field: item?.aggregation_target_field || 'distinct_id',
                     name,
-                } as DataWarehouseNode
+                } as FunnelsDataWarehouseNode
             } else {
                 node = {
                     kind: NodeKind.EventsNode,

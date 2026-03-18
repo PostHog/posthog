@@ -1,13 +1,12 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import date, datetime
+from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.security.outbound_proxy import external_requests
 from posthog.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -75,7 +74,7 @@ def _get_headers(api_key: str) -> dict[str, str]:
 def validate_credentials(api_key: str) -> bool:
     url = f"{KLAVIYO_BASE_URL}/accounts"
     try:
-        response = external_requests.get(url, headers=_get_headers(api_key), timeout=10)
+        response = requests.get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -100,6 +99,10 @@ def _build_initial_params(
 
     if config.page_size is not None and config.page_size > 0:
         params["page[size]"] = config.page_size
+
+    # On first sync/full refresh, apply a lookback window to avoid fetching the entire history
+    if should_use_incremental_field and not db_incremental_field_last_value and config.default_lookback_days:
+        db_incremental_field_last_value = datetime.now(UTC) - timedelta(days=config.default_lookback_days)
 
     formatted_last_value = (
         _format_incremental_value(db_incremental_field_last_value)
@@ -149,7 +152,7 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> dict:
-        response = external_requests.get(page_url, headers=headers, timeout=60)
+        response = requests.get(page_url, headers=headers, timeout=60)
 
         if response.status_code == 429 or response.status_code >= 500:
             raise KlaviyoRetryableError(f"Klaviyo API error (retryable): status={response.status_code}, url={page_url}")

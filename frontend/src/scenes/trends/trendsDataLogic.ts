@@ -2,6 +2,7 @@ import { actions, connect, kea, key, listeners, path, props, reducers, selectors
 
 import { DataColorTheme, DataColorToken } from 'lib/colors'
 import { dayjs } from 'lib/dayjs'
+import { isMultiSeriesFormula } from 'lib/utils'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { getColorFromToken } from 'scenes/dataThemeLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
@@ -168,6 +169,20 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                 return !!insightData.hasMore
             },
         ],
+        hasPersonsModal: [
+            (s) => [s.formula, s.hasDataWarehouseSeries, s.isLifecycle, s.querySource],
+            (formula, hasDataWarehouseSeries, isLifecycle, querySource) => {
+                if (isMultiSeriesFormula(formula)) {
+                    return false
+                }
+
+                if (!hasDataWarehouseSeries) {
+                    return true
+                }
+
+                return isLifecycle && (querySource as LifecycleQuery | null)?.customAggregationTarget !== true
+            },
+        ],
 
         isBreakdownValid: [
             (s) => [s.breakdownFilter],
@@ -244,6 +259,12 @@ export const trendsDataLogic = kea<trendsDataLogicType>([
                     return { ...item, colorIndex, id: index }
                 })
             },
+        ],
+
+        currentPeriodResult: [
+            (s) => [s.indexedResults],
+            (indexedResults: IndexedTrendResult[]): IndexedTrendResult | undefined =>
+                indexedResults.find((r) => r.compare_label === 'current') ?? indexedResults[0],
         ],
 
         labelGroupType: [

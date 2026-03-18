@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 
-import { FeatureFlagSchema } from './flags'
 import {
     ExperimentCreateSchema as ToolExperimentCreateSchema,
     ExperimentUpdateInputSchema as ToolExperimentUpdateInputSchema,
@@ -10,6 +9,17 @@ import {
 const ExperimentType = ['web', 'product'] as const
 
 const ExperimentConclusion = ['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'] as const
+
+const FeatureFlagSchema = z.object({
+    id: z.number(),
+    key: z.string(),
+    name: z.string(),
+    description: z.string().nullish(),
+    filters: z.any().nullish(),
+    active: z.boolean(),
+    tags: z.array(z.string()).optional(),
+    updated_at: z.string().nullish(),
+})
 
 /**
  * This is the schema for the experiment metric base properties.

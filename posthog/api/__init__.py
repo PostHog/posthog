@@ -72,11 +72,13 @@ from products.llm_analytics.backend.api import (
     LLMProviderKeyViewSet,
     LLMProxyViewSet,
     ScoreDefinitionViewSet,
+    TraceReviewViewSet,
 )
 from products.notebooks.backend.api.notebook import NotebookViewSet
 from products.posthog_ai.backend.api import MCPToolsViewSet
 from products.product_tours.backend.api import ProductTourViewSet
 from products.signals.backend.views import SignalViewSet
+from products.tracing.backend.presentation.views import SpansViewSet as TracingSpansViewSet
 from products.user_interviews.backend.api import UserInterviewViewSet
 from products.visual_review.backend.presentation.views import (
     RepoViewSet as VisualReviewRepoViewSet,
@@ -1133,6 +1135,13 @@ projects_router.register(
     ["project_id"],
 )
 
+projects_router.register(
+    r"tracing/spans",
+    TracingSpansViewSet,
+    "project_tracing_spans",
+    ["project_id"],
+)
+
 environments_router.register(
     r"desktop_recordings",
     DesktopRecordingViewSet,
@@ -1291,6 +1300,13 @@ environments_router.register(
     r"llm_analytics/score_definitions",
     ScoreDefinitionViewSet,
     "environment_llm_analytics_score_definitions",
+    ["team_id"],
+)
+
+environments_router.register(
+    r"llm_analytics/trace_reviews",
+    TraceReviewViewSet,
+    "environment_llm_analytics_trace_reviews",
     ["team_id"],
 )
 

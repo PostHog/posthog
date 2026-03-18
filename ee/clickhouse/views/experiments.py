@@ -1,8 +1,8 @@
-from enum import Enum
+import asyncio
 from typing import Any, Literal
 
-from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
-from django.db.models.functions import Now
+from django.conf import settings
+from django.db.models import Prefetch, QuerySet
 
 from drf_spectacular.utils import extend_schema
 from rest_framework import serializers, viewsets
@@ -21,16 +21,15 @@ from posthog.hogql_queries.experiments.experiment_metric_fingerprint import comp
 from posthog.hogql_queries.experiments.utils import get_experiment_stats_method
 from posthog.models import Survey
 from posthog.models.activity_logging.activity_log import Detail, changes_between, log_activity
-from posthog.models.cohort import Cohort
 from posthog.models.evaluation_context import FeatureFlagEvaluationContext
-from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentSavedMetric
-from posthog.models.feature_flag.feature_flag import FeatureFlag
+from posthog.models.experiment import Experiment, ExperimentHoldout, ExperimentTimeseriesRecalculation
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.team.team import Team
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import UserAccessControlSerializerMixin
-from posthog.utils import str_to_bool
+from posthog.temporal.common.client import sync_connect
+from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 
 from products.experiments.backend.experiment_service import ExperimentService
 from products.product_tours.backend.models import ProductTour
@@ -147,33 +146,7 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return data
 
     def validate_saved_metrics_ids(self, value):
-        if value is None:
-            return value
-
-        # check value is valid json list with id and optionally metadata param
-        if not isinstance(value, list):
-            raise ValidationError("Saved metrics must be a list")
-
-        for saved_metric in value:
-            if not isinstance(saved_metric, dict):
-                raise ValidationError("Saved metric must be an object")
-            if "id" not in saved_metric:
-                raise ValidationError("Saved metric must have an id")
-            if "metadata" in saved_metric and not isinstance(saved_metric["metadata"], dict):
-                raise ValidationError("Metadata must be an object")
-
-            # metadata is optional, but if it exists, should have type key
-            # TODO: extend with other metadata keys when known
-            if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
-                raise ValidationError("Metadata must have a type key")
-
-        # check if all saved metrics exist and belong to the same team
-        saved_metrics = ExperimentSavedMetric.objects.filter(
-            id__in=[saved_metric["id"] for saved_metric in value], team_id=self.context["team_id"]
-        )
-        if saved_metrics.count() != len(value):
-            raise ValidationError("Saved metric does not exist or does not belong to this project")
-
+        ExperimentService.validate_saved_metrics_ids(value, self.context["team_id"])
         return value
 
     def validate(self, data):
@@ -264,18 +237,6 @@ class ExperimentSerializer(UserAccessControlSerializerMixin, serializers.ModelSe
         return service.update_experiment(instance, validated_data, serializer_context=self.context)
 
 
-class ExperimentQueryStatus(str, Enum):
-    """
-    Note: The frontend still treats paused experiments as a UI-only variant of "running"
-    when the linked flag is disabled, so the API only filters on stored experiment statuses.
-    """
-
-    DRAFT = "draft"
-    RUNNING = "running"
-    STOPPED = "stopped"
-    ALL = "all"
-
-
 @extend_schema(tags=["experiments"])
 class EnterpriseExperimentsViewSet(
     ForbidDestroyModel, TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.ModelViewSet
@@ -296,108 +257,14 @@ class EnterpriseExperimentsViewSet(
     ordering = "-created_at"
 
     def safely_get_queryset(self, queryset) -> QuerySet:
-        """Override to filter out deleted experiments and apply filters."""
-        include_deleted = False
-        if self.action in ("partial_update", "update") and hasattr(self, "request"):
-            deleted_value = self.request.data.get("deleted")
-            if deleted_value is not None:
-                include_deleted = not str_to_bool(deleted_value)
-
-        if not include_deleted:
-            queryset = queryset.exclude(deleted=True)
-
-        # Only apply filters for list view, not detail view
-        if self.action == "list":
-            # filtering by status
-            status = self.request.query_params.get("status")
-            if status:
-                normalized_status = status.lower()
-                if normalized_status == "complete":
-                    normalized_status = ExperimentQueryStatus.STOPPED.value
-
-                try:
-                    status_enum = ExperimentQueryStatus(normalized_status)
-                except ValueError:
-                    status_enum = None
-
-                if status_enum and status_enum != ExperimentQueryStatus.ALL:
-                    if status_enum == ExperimentQueryStatus.DRAFT:
-                        queryset = queryset.filter(
-                            Q(status=Experiment.Status.DRAFT) | Q(status__isnull=True, start_date__isnull=True)
-                        )
-                    elif status_enum == ExperimentQueryStatus.RUNNING:
-                        queryset = queryset.filter(
-                            Q(status=Experiment.Status.RUNNING)
-                            | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
-                        )
-                    elif status_enum == ExperimentQueryStatus.STOPPED:
-                        queryset = queryset.filter(
-                            Q(status=Experiment.Status.STOPPED) | Q(status__isnull=True, end_date__isnull=False)
-                        )
-
-            # filtering by creator id
-            created_by_id = self.request.query_params.get("created_by_id")
-            if created_by_id:
-                queryset = queryset.filter(created_by_id=created_by_id)
-
-            # archived
-            archived = self.request.query_params.get("archived")
-            if archived is not None:
-                archived_bool = archived.lower() == "true"
-                queryset = queryset.filter(archived=archived_bool)
-            else:
-                queryset = queryset.filter(archived=False)
-
-            # feature_flag_id
-            feature_flag_id = self.request.query_params.get("feature_flag_id")
-            if feature_flag_id:
-                try:
-                    feature_flag_id_int = int(feature_flag_id)
-                    queryset = queryset.filter(feature_flag_id=feature_flag_id_int)
-                except ValueError:
-                    raise ValidationError("feature_flag_id must be an integer")
-
-        # search by name
-        search = self.request.query_params.get("search")
-        if search:
-            queryset = queryset.filter(Q(name__icontains=search))
-
-        # Ordering
-        order = self.request.query_params.get("order")
-        if order:
-            # Handle computed field sorting
-            if order in ["duration", "-duration"]:
-                # Duration = end_date - start_date (or now() - start_date if running)
-                queryset = queryset.annotate(
-                    computed_duration=Case(
-                        When(start_date__isnull=True, then=Value(None)),
-                        When(end_date__isnull=False, then=F("end_date") - F("start_date")),
-                        default=Now() - F("start_date"),
-                    )
-                )
-                queryset = queryset.order_by(f"{'-' if order.startswith('-') else ''}computed_duration")
-            elif order in ["status", "-status"]:
-                # Status ordering: Draft (no start) -> Running (no end) -> Complete (has end)
-                # Annotate with numeric status values for clear ordering
-                queryset = queryset.annotate(
-                    computed_status=Case(
-                        When(start_date__isnull=True, then=Value(0)),  # Draft
-                        When(end_date__isnull=True, then=Value(1)),  # Running
-                        default=Value(2),  # Complete
-                    )
-                )
-                if order.startswith("-"):
-                    # Descending: Complete -> Running -> Draft
-                    queryset = queryset.order_by(F("computed_status").desc())
-                else:
-                    # Ascending: Draft -> Running -> Complete
-                    queryset = queryset.order_by(F("computed_status").asc())
-            else:
-                queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-created_at")
-
-        return queryset
+        request = getattr(self, "request", None)
+        service = ExperimentService(team=self.team, user=getattr(request, "user", None))
+        return service.filter_experiments_queryset(
+            queryset,
+            action=self.action,
+            query_params=getattr(request, "query_params", None),
+            request_data=getattr(request, "data", None),
+        )
 
     # ******************************************
     # /projects/:id/experiments/requires_flag_implementation
@@ -471,89 +338,28 @@ class EnterpriseExperimentsViewSet(
         except ValueError:
             return Response({"error": "Invalid limit or offset"}, status=400)
 
-        queryset = FeatureFlag.objects.filter(team__project_id=self.project_id)
-
-        # Filter for multivariate flags with at least 2 variants and first variant is "control"
-        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
-        queryset = queryset.extra(
-            where=[
-                """
-                jsonb_array_length(filters->'multivariate'->'variants') >= 2
-                AND filters->'multivariate'->'variants'->0->>'key' = 'control'
-                """
-            ]
-        )
-
-        # Exclude survey targeting flags (same as regular feature flag list endpoint)
         survey_flag_ids = Survey.get_internal_flag_ids(project_id=self.project_id)
         product_tour_internal_targeting_flags = ProductTour.all_objects.filter(
             team__project_id=self.project_id, internal_targeting_flag__isnull=False
         ).values_list("internal_targeting_flag_id", flat=True)
         excluded_flag_ids = survey_flag_ids | set(product_tour_internal_targeting_flags)
-        queryset = queryset.exclude(id__in=excluded_flag_ids)
 
-        # Apply search filter
-        search = request.query_params.get("search")
-        if search:
-            queryset = queryset.filter(Q(key__icontains=search) | Q(name__icontains=search))
-
-        # Apply active filter
-        active = request.query_params.get("active")
-        if active is not None:
-            queryset = queryset.filter(active=active.lower() == "true")
-
-        # Apply created_by filter
-        created_by_id = request.query_params.get("created_by_id")
-        if created_by_id:
-            queryset = queryset.filter(created_by_id=created_by_id)
-
-        # Apply evaluation_runtime filter
-        evaluation_runtime = request.query_params.get("evaluation_runtime")
-        if evaluation_runtime:
-            queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
-
-        # Apply has_evaluation_tags filter
-        has_evaluation_tags = request.query_params.get("has_evaluation_tags")
-        if has_evaluation_tags is not None:
-            filter_value = has_evaluation_tags.lower() in ("true", "1", "yes")
-            queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
-            if filter_value:
-                queryset = queryset.filter(eval_tag_count__gt=0)
-            else:
-                queryset = queryset.filter(eval_tag_count=0)
-
-        # Ordering
-        order = request.query_params.get("order")
-        if order:
-            queryset = queryset.order_by(order)
-        else:
-            queryset = queryset.order_by("-created_at")
-
-        # Prefetch related data to avoid N+1 queries (same as regular feature flag list)
-        queryset = queryset.prefetch_related(
-            Prefetch(
-                "experiment_set", queryset=Experiment.objects.filter(deleted=False), to_attr="_active_experiments"
-            ),
-            "features",
-            "analytics_dashboards",
-            "surveys_linked_flag",
-            Prefetch(
-                "flag_evaluation_contexts",
-                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
-            ),
-            Prefetch(
-                "team__cohort_set",
-                queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
-                to_attr="available_cohorts",
-            ),
-        ).select_related("created_by", "last_modified_by")
-
-        total_count = queryset.count()
-        results = queryset[offset : offset + limit]
+        service = ExperimentService(team=self.team, user=request.user)
+        eligible_feature_flags = service.get_eligible_feature_flags(
+            limit=limit,
+            offset=offset,
+            excluded_flag_ids=excluded_flag_ids,
+            search=request.query_params.get("search"),
+            active=request.query_params.get("active"),
+            created_by_id=request.query_params.get("created_by_id"),
+            order=request.query_params.get("order"),
+            evaluation_runtime=request.query_params.get("evaluation_runtime"),
+            has_evaluation_tags=request.query_params.get("has_evaluation_tags"),
+        )
 
         # Serialize using the standard FeatureFlagSerializer
         serializer = FeatureFlagSerializer(
-            results,
+            eligible_feature_flags["results"],
             many=True,
             context=self.get_serializer_context(),
         )
@@ -561,7 +367,7 @@ class EnterpriseExperimentsViewSet(
         return Response(
             {
                 "results": serializer.data,
-                "count": total_count,
+                "count": eligible_feature_flags["count"],
             }
         )
 
@@ -593,7 +399,27 @@ class EnterpriseExperimentsViewSet(
 
         service = ExperimentService(team=self.team, user=request.user)
         result = service.request_timeseries_recalculation(experiment, metric=metric, fingerprint=fingerprint)
-        status_code = 200 if result.pop("is_existing", False) else 201
+        is_existing = result.pop("is_existing", False)
+
+        if not is_existing:
+            recalculation_id = str(result["id"])
+            try:
+                temporal = sync_connect()
+                asyncio.run(
+                    temporal.start_workflow(
+                        "experiment-timeseries-recalculation-workflow",
+                        ExperimentTimeseriesRecalculationWorkflowInputs(recalculation_id=recalculation_id),
+                        id=f"experiment-recalculation-{recalculation_id}",
+                        task_queue=settings.GENERAL_PURPOSE_TASK_QUEUE,
+                    )
+                )
+            except Exception:
+                ExperimentTimeseriesRecalculation.objects.filter(id=recalculation_id).update(
+                    status=ExperimentTimeseriesRecalculation.Status.FAILED
+                )
+                raise
+
+        status_code = 200 if is_existing else 201
         return Response(result, status=status_code)
 
     @action(methods=["GET"], detail=False, url_path="stats", required_scopes=["experiment:read"])
