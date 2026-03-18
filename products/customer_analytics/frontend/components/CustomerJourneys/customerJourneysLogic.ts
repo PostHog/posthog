@@ -29,7 +29,7 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
     props({} as CustomerJourneysLogicProps),
     key((props) => props.key ?? 'default'),
     connect(() => ({
-        actions: [eventUsageLogic, ['reportCustomerJourneyViewed', 'reportCustomerJourneyUpdated']],
+        actions: [eventUsageLogic, ['reportCustomerJourneyViewed']],
     })),
     actions({
         setActiveJourneyId: (journeyId: string | null) => ({ journeyId }),
@@ -107,13 +107,6 @@ export const customerJourneysLogic = kea<customerJourneysLogicType>([
         updateJourneySuccess: ({ journeys }) => {
             lemonToast.success('Customer journey updated')
             actions.selectFirstJourneyIfNeeded(journeys)
-            const journey = values.activeJourney
-            if (journey) {
-                const stepCount =
-                    (values.activeInsight?.query as InsightVizNode<FunnelsQuery> | undefined)?.source?.series?.length ??
-                    0
-                actions.reportCustomerJourneyUpdated(journey.id, journey.name, stepCount)
-            }
         },
         updateJourneyFailure: ({ error }) => {
             posthog.captureException(error)

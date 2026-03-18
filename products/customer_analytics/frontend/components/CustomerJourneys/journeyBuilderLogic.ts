@@ -156,6 +156,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
             eventUsageLogic,
             [
                 'reportCustomerJourneyCreated',
+                'reportCustomerJourneyUpdated',
                 'reportCustomerJourneyBuilderStepAdded',
                 'reportCustomerJourneyBuilderStepRemoved',
             ],
@@ -537,6 +538,7 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
                         name,
                         description: journeyDescription.trim() || undefined,
                     })
+                    actions.reportCustomerJourneyUpdated(editingJourneyId, name, series.length)
                 } else {
                     const insight = await insightsApi.create({
                         query: saveQuery,
