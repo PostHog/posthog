@@ -9,6 +9,7 @@ import { setupExpressApp } from '~/api/router'
 import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 import { HogFlow } from '~/schema/hogflow'
 
+import { createCdpConsumerDeps } from '../../tests/helpers/cdp'
 import { forSnapshot } from '../../tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '../../tests/helpers/sql'
 import { Hub, Team } from '../types'
@@ -19,12 +20,14 @@ import { insertHogFunction as _insertHogFunction, createHogFunction } from './_t
 import { insertHogFlow as _insertHogFlow } from './_tests/fixtures-hogflows'
 import { deleteKeysWithPrefix } from './_tests/redis'
 import { CdpApi } from './cdp-api'
+import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
 describe('CDP API', () => {
     let hub: Hub
+    let cdpDeps: CdpConsumerBaseDeps
     let team: Team
     let app: express.Application
     let server: Server
@@ -76,7 +79,8 @@ describe('CDP API', () => {
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
         team = await getFirstTeam(hub.postgres)
 
-        api = new CdpApi(hub, hub)
+        cdpDeps = createCdpConsumerDeps(hub)
+        api = new CdpApi(hub, cdpDeps)
         app = setupExpressApp()
         app.use('/', api.router())
         server = app.listen(0, () => {})
@@ -636,7 +640,7 @@ describe('CDP API', () => {
         let originalKafkaProducer: any
 
         beforeEach(async () => {
-            originalKafkaProducer = hub.kafkaProducer
+            originalKafkaProducer = cdpDeps.kafkaProducer
             batchHogFlow = await insertHogFlow({
                 id: new UUIDT().toString(),
                 name: 'test batch hog flow',
@@ -662,7 +666,7 @@ describe('CDP API', () => {
         })
 
         afterEach(() => {
-            hub.kafkaProducer = originalKafkaProducer
+            cdpDeps.kafkaProducer = originalKafkaProducer
         })
 
         it('errors if missing team', async () => {
@@ -712,7 +716,7 @@ describe('CDP API', () => {
 
         it('queues batch job request to kafka', async () => {
             const mockProduce = jest.fn().mockResolvedValue(undefined)
-            hub.kafkaProducer = { produce: mockProduce } as any
+            cdpDeps.kafkaProducer = { produce: mockProduce } as any
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)
@@ -743,7 +747,7 @@ describe('CDP API', () => {
 
         it('queues batch job with filters from hog flow config when not provided', async () => {
             const mockProduce = jest.fn().mockResolvedValue(undefined)
-            hub.kafkaProducer = { produce: mockProduce } as any
+            cdpDeps.kafkaProducer = { produce: mockProduce } as any
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-456`)
@@ -769,7 +773,7 @@ describe('CDP API', () => {
         })
 
         it('errors if kafka producer not available', async () => {
-            hub.kafkaProducer = undefined as any
+            cdpDeps.kafkaProducer = undefined as any
 
             const res = await supertest(app)
                 .post(`/api/projects/${batchHogFlow.team_id}/hog_flows/${batchHogFlow.id}/batch_invocations/job-123`)

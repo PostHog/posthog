@@ -38,6 +38,7 @@ export enum PluginServerMode {
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     recording_api = 'recording-api',
     ingestion_v2_testing = 'ingestion-v2-testing',
+    ingestion_traces = 'ingestion-traces',
 }
 
 export const stringToPluginServerMode = Object.fromEntries(

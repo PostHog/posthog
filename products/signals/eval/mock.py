@@ -111,21 +111,28 @@ class EmbeddingStore:
             )
         )
 
+    @staticmethod
+    def cosine_distance(a: list[float], b: list[float]) -> float:
+        """Cosine distance between two vectors: 1 - cosine_similarity."""
+        va = np.array(a, dtype=np.float64)
+        vb = np.array(b, dtype=np.float64)
+        norm_product = np.linalg.norm(va) * np.linalg.norm(vb)
+        if norm_product == 0:
+            return 1.0
+        return 1.0 - float(np.dot(va, vb) / norm_product)
+
     def search(self, query_embedding: list[float], limit: int = 10) -> list[SignalCandidate]:
         """Cosine search against stored signals. Returns SignalCandidate list."""
         searchable = [s for s in self._signals if not s.deleted and s.report_id and np.linalg.norm(s.embedding) > 0]
         if not searchable:
             return []
 
-        q = np.array(query_embedding, dtype=np.float64)
-        q_norm = np.linalg.norm(q)
-        if q_norm == 0:
+        if np.linalg.norm(query_embedding) == 0:
             return []
 
         scored: list[tuple[float, StoredSignal]] = []
         for sig in searchable:
-            s = np.array(sig.embedding, dtype=np.float64)
-            dist = 1.0 - float(np.dot(q, s) / (q_norm * np.linalg.norm(s)))
+            dist = self.cosine_distance(query_embedding, sig.embedding)
             scored.append((dist, sig))
 
         scored.sort(key=lambda x: x[0])

@@ -22,17 +22,19 @@ class TestExperimentSavedMetricService(APIBaseTest):
         }
 
     def test_create_saved_metric_with_minimum_fields(self) -> None:
+        original_query = self._valid_trends_query()
         saved_metric = self._service().create_saved_metric(
             name="Service saved metric",
             description="Created through the service",
-            query=self._valid_trends_query(),
+            query=original_query,
         )
 
         assert saved_metric.team_id == self.team.id
         assert saved_metric.created_by_id == self.user.id
         assert saved_metric.name == "Service saved metric"
         assert saved_metric.description == "Created through the service"
-        assert saved_metric.query == self._valid_trends_query()
+        assert saved_metric.query["uuid"]
+        assert {key: value for key, value in saved_metric.query.items() if key != "uuid"} == original_query
 
     @parameterized.expand(
         [
@@ -126,6 +128,45 @@ class TestExperimentSavedMetricService(APIBaseTest):
         saved_metric.refresh_from_db()
         assert saved_metric.name == "Original name"
         assert saved_metric.query == self._valid_trends_query()
+
+    def test_update_saved_metric_query_preserves_existing_uuid(self) -> None:
+        saved_metric = self._service().create_saved_metric(
+            name="Saved metric with generated UUID",
+            query=self._valid_trends_query(),
+        )
+        original_uuid = saved_metric.query["uuid"]
+
+        updated = self._service().update_saved_metric(
+            saved_metric,
+            {
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                }
+            },
+        )
+
+        assert updated.query["uuid"] == original_uuid
+        assert updated.query["count_query"]["series"][0]["event"] == "$pageleave"
+
+    def test_update_saved_metric_rejects_uuid_changes(self) -> None:
+        saved_metric = self._service().create_saved_metric(
+            name="Saved metric with stable UUID",
+            query=self._valid_trends_query(),
+        )
+
+        with self.assertRaises(ValidationError) as ctx:
+            self._service().update_saved_metric(
+                saved_metric,
+                {
+                    "query": {
+                        **saved_metric.query,
+                        "uuid": "different-uuid",
+                    }
+                },
+            )
+
+        assert "Saved metric UUID cannot be changed" in str(ctx.exception)
 
     def test_update_saved_metric_rejects_unknown_keys(self) -> None:
         saved_metric = ExperimentSavedMetric.objects.create(
