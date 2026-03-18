@@ -87,7 +87,6 @@ Five eval experiments, each with their own metrics:
 | `report-actionability-check`   | Per-report  | `correct_classification` (binary) — actionability judge vs ground truth                                                                                                                                 |
 | `grouping-aggregate`           | Global      | `ari`, `homogeneity`, `completeness`, `mean_purity`, `group_recall`, `malicious_leaked_rate`                                                                                                            |
 
-
 ### Aggregate metrics explained
 
 - **ARI** (adjusted rand index) — chance-corrected clustering similarity, -1 to 1
