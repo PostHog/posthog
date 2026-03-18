@@ -1,11 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconArrowRight, IconGear, IconGithub, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconArrowRight, IconCopy, IconGear, IconGithub, IconPencil, IconPlus, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonSelect, LemonSkeleton, Spinner } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { SceneExport } from 'scenes/sceneTypes'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import type { GitHubRepoApi } from '~/generated/core/api.schemas'
@@ -122,9 +124,21 @@ function BaselinePathEditor({ paths, onChange }: BaselinePathEditorProps): JSX.E
     )
 }
 
+function generateSnapshotYml(repo: RepoApi, teamId: number): string {
+    const apiUrl = window.location.origin
+    return `version: 1
+config:
+    api: ${apiUrl}
+    team: '${teamId}'
+    repo: '${repo.id}'
+snapshots: {}
+`
+}
+
 function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
     const { editingRepoId } = useValues(visualReviewSettingsSceneLogic)
     const { editRepo } = useActions(visualReviewSettingsSceneLogic)
+    const { currentTeamId } = useValues(teamLogic)
 
     const isEditing = editingRepoId === repo.id
     if (isEditing) {
@@ -132,6 +146,7 @@ function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
     }
 
     const pathEntries = Object.entries(repo.baseline_file_paths || {})
+    const snippet = currentTeamId ? generateSnapshotYml(repo, currentTeamId) : ''
 
     return (
         <div className="border rounded-lg p-4">
@@ -157,6 +172,24 @@ function RepoCard({ repo }: { repo: RepoApi }): JSX.Element {
                     Edit
                 </LemonButton>
             </div>
+
+            {snippet && (
+                <div className="mt-3 pt-3 border-t">
+                    <div className="flex items-center justify-between mb-1">
+                        <span className="text-xs text-muted">Baseline config — paste into your snapshots.yml</span>
+                        <LemonButton
+                            icon={<IconCopy />}
+                            size="xsmall"
+                            type="secondary"
+                            tooltip="Copy config snippet"
+                            onClick={() => copyToClipboard(snippet, 'config snippet')}
+                        />
+                    </div>
+                    <pre className="text-xs bg-bg-3000 rounded p-2 overflow-x-auto font-mono whitespace-pre">
+                        {snippet.trim()}
+                    </pre>
+                </div>
+            )}
         </div>
     )
 }

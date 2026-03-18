@@ -21,7 +21,7 @@ describe('ActionManagerCDP()', () => {
 
         postgres = new PostgresRouter(defaultConfig)
         actionManager = new ActionManagerCDP(postgres)
-        const team = await getFirstTeam(hub)
+        const team = await getFirstTeam(hub.postgres)
         teamId = team.id
         fetchActionsSpy = jest.spyOn(actionManager as any, 'fetchActions')
     })

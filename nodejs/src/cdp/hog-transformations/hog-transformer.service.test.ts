@@ -47,7 +47,7 @@ describe('HogTransformer', () => {
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())
 
         // Create a team first before inserting hog functions
-        const team = await getFirstTeam(hub)
+        const team = await getFirstTeam(hub.postgres)
         teamId = team.id
 
         hogTransformer = createHogTransformerService(hub, hub)
