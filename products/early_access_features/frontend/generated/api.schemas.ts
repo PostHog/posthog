@@ -96,6 +96,11 @@ export const StageEnumApi = {
     Archived: 'archived',
 } as const
 
+/**
+ * Feature flag payload for this early access feature
+ */
+export type EarlyAccessFeatureApiPayload = { [key: string]: unknown }
+
 export interface EarlyAccessFeatureApi {
     readonly id: string
     readonly feature_flag: MinimalFeatureFlagApi
@@ -108,7 +113,8 @@ export interface EarlyAccessFeatureApi {
     stage: StageEnumApi
     /** @maxLength 800 */
     documentation_url?: string
-    readonly payload: string
+    /** Feature flag payload for this early access feature */
+    readonly payload: EarlyAccessFeatureApiPayload
     readonly created_at: string
 }
 
@@ -139,6 +145,11 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     _create_in_folder?: string
 }
 
+/**
+ * Feature flag payload for this early access feature
+ */
+export type PatchedEarlyAccessFeatureApiPayload = { [key: string]: unknown }
+
 export interface PatchedEarlyAccessFeatureApi {
     readonly id?: string
     readonly feature_flag?: MinimalFeatureFlagApi
@@ -151,7 +162,8 @@ export interface PatchedEarlyAccessFeatureApi {
     stage?: StageEnumApi
     /** @maxLength 800 */
     documentation_url?: string
-    readonly payload?: string
+    /** Feature flag payload for this early access feature */
+    readonly payload?: PatchedEarlyAccessFeatureApiPayload
     readonly created_at?: string
 }
 
