@@ -330,29 +330,33 @@ class Person(models.Model):
                 expected_count=len(ids_to_split),
             )
 
-            # 2. Batch create new persons — ignore_conflicts handles pre-existing ones
+            # 2. Batch create new persons, or update version if they already exist.
+            # update_conflicts ensures pre-existing persons (e.g., from a previous partial run)
+            # get their version bumped, so the Kafka message carries the correct version.
+            # Set version higher than delete events (which use version + 100).
+            # Keep in sync with: posthog/models/person/util.py:222 (_delete_person)
+            # and plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
             Person.objects.bulk_create(
                 [
                     Person(
                         uuid=uuid_by_did[did],
                         team_id=self.team_id,
-                        # Set version higher than delete events (which use version + 100).
-                        # Keep in sync with: posthog/models/person/util.py:222 (_delete_person)
-                        # and plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
                         version=original_person_version + 101,
                     )
                     for did in ids_to_split
                 ],
-                ignore_conflicts=True,
+                update_conflicts=True,
+                unique_fields=["team_id", "uuid"],
+                update_fields=["version"],
             )
 
-            # 3. Fetch all new persons — only columns needed for Kafka publishes
-            person_by_uuid = {
-                p.uuid: p
-                for p in Person.objects.only("id", "team_id", "uuid", "version", "created_at").filter(
-                    team_id=self.team_id, uuid__in=list(uuid_by_did.values())
-                )
-            }
+            # 3. Fetch all new persons in a single query — bulk_create doesn't
+            # populate id/created_at on the returned objects, so we need this fetch
+            new_uuids = list(uuid_by_did.values())
+            new_persons = Person.objects.only("id", "team_id", "uuid", "version", "created_at").filter(
+                team_id=self.team_id, uuid__in=new_uuids
+            )
+            person_by_uuid = {p.uuid: p for p in new_persons}
 
             logger.info(
                 "split_person created persons",
@@ -373,7 +377,13 @@ class Person(models.Model):
                     )
                     continue
 
-                person = person_by_uuid[uuid_by_did[did]]
+                expected_uuid = uuid_by_did[did]
+                person = person_by_uuid.get(expected_uuid)
+                if not person:
+                    raise ValueError(
+                        f"split_person: new person not found after bulk_create "
+                        f"(team_id={self.team_id}, distinct_id={did}, expected_uuid={expected_uuid})"
+                    )
                 pdi.person_id = str(person.id)
                 # Set distinct_id version higher than delete events (which use pdi.version + 100).
                 # This ensures the split distinct_id overrides any deleted distinct_id.
@@ -387,7 +397,7 @@ class Person(models.Model):
             pdi = pdis.get(did)
             if not pdi:
                 continue
-            person = person_by_uuid[uuid_by_did[did]]
+            person = person_by_uuid[uuid_by_did[did]]  # safe: validated in transaction above
 
             create_person_distinct_id(
                 team_id=self.team_id,

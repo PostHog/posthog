@@ -57,8 +57,8 @@ class TestSplitPerson(BaseTest):
         assert person.properties == {"email": "test@example.com", "name": "Test"}
 
         # New persons have empty properties
-        new_person_2 = Person.objects.get(id=pdi_id2.person_id)
-        new_person_3 = Person.objects.get(id=pdi_id3.person_id)
+        new_person_2 = Person.objects.get(team_id=self.team.id, id=pdi_id2.person_id)
+        new_person_3 = Person.objects.get(team_id=self.team.id, id=pdi_id3.person_id)
         assert new_person_2.properties == {}
         assert new_person_3.properties == {}
 
@@ -116,7 +116,7 @@ class TestSplitPerson(BaseTest):
         person.split_person(main_distinct_id="id1")
 
         pdi_id2 = PersonDistinctId.objects.get(team=self.team, distinct_id="id2")
-        new_person = Person.objects.get(id=pdi_id2.person_id)
+        new_person = Person.objects.get(team_id=self.team.id, id=pdi_id2.person_id)
 
         assert new_person.version == 5 + 101
 
@@ -138,7 +138,7 @@ class TestSplitPerson(BaseTest):
         person.split_person(main_distinct_id="id1")
 
         pdi_id2 = PersonDistinctId.objects.get(team=self.team, distinct_id="id2")
-        new_person = Person.objects.get(id=pdi_id2.person_id)
+        new_person = Person.objects.get(team_id=self.team.id, id=pdi_id2.person_id)
 
         expected_uuid = uuidFromDistinctId(self.team.id, "id2")
         assert new_person.uuid == expected_uuid
@@ -161,15 +161,54 @@ class TestSplitPerson(BaseTest):
         for call in mock_create_person.call_args_list:
             assert call.kwargs["team_id"] == self.team.id
 
-    def test_split_is_atomic(self, mock_create_pdi, mock_create_person):
+    def test_split_rolls_back_on_failure(self, mock_create_pdi, mock_create_person):
         person = self._create_person_with_distinct_ids(["id1", "id2", "id3"], mock_create_pdi, mock_create_person)
+
+        original_pdi_ids = {
+            did: PersonDistinctId.objects.get(team=self.team, distinct_id=did).person_id
+            for did in ["id1", "id2", "id3"]
+        }
+        original_person_count = Person.objects.filter(team_id=self.team.id).count()
+
+        with patch.object(PersonDistinctId.objects, "bulk_update", side_effect=Exception("simulated failure")):
+            with self.assertRaises(Exception, msg="simulated failure"):
+                person.split_person(main_distinct_id="id1")
+
+        # All PDIs should still point to the original person
+        for did in ["id1", "id2", "id3"]:
+            pdi = PersonDistinctId.objects.get(team=self.team, distinct_id=did)
+            assert pdi.person_id == original_pdi_ids[did]
+
+        # No new persons should have been committed
+        assert Person.objects.filter(team_id=self.team.id).count() == original_person_count
+
+    def test_split_updates_version_on_pre_existing_person(self, mock_create_pdi, mock_create_person):
+        person = self._create_person_with_distinct_ids(["id1", "id2"], mock_create_pdi, mock_create_person, version=5)
+
+        # Pre-create a person with the UUID that split would generate, simulating a previous partial run
+        expected_uuid = uuidFromDistinctId(self.team.id, "id2")
+        pre_existing = Person.objects.create(
+            team=self.team,
+            uuid=expected_uuid,
+            version=0,
+        )
+        mock_create_person.reset_mock()
+        mock_create_pdi.reset_mock()
 
         person.split_person(main_distinct_id="id1")
 
-        for did in ["id2", "id3"]:
-            pdi = PersonDistinctId.objects.get(team=self.team, distinct_id=did)
-            assert pdi.person_id != person.id
-            assert Person.objects.filter(id=pdi.person_id).exists()
+        # The pre-existing person's version should be updated to original_version + 101
+        pre_existing.refresh_from_db()
+        assert pre_existing.version == 5 + 101
+
+        # PDI should point to the pre-existing person
+        pdi_id2 = PersonDistinctId.objects.get(team=self.team, distinct_id="id2")
+        assert pdi_id2.person_id == pre_existing.id
+
+        # Kafka message should carry the updated version
+        person_calls = [c for c in mock_create_person.call_args_list if c.kwargs.get("uuid") == str(expected_uuid)]
+        assert len(person_calls) == 1
+        assert person_calls[0].kwargs["version"] == 5 + 101
 
     def test_split_many_distinct_ids(self, mock_create_pdi, mock_create_person):
         distinct_ids = ["main"] + [f"id_{i}" for i in range(100)]
