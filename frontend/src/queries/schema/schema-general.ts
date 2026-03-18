@@ -4847,10 +4847,10 @@ export enum MarketingAnalyticsBaseColumns {
     Impressions = 'Impressions',
     CPC = 'CPC',
     CTR = 'CTR',
-    ReportedConversion = 'Reported Conversions',
+    ReportedConversions = 'Reported Conversions',
     ReportedConversionValue = 'Reported Conversion Value',
     ReportedROAS = 'Reported ROAS',
-    CostPerReportedConversion = 'Cost per Reported Conversions',
+    CostPerReportedConversions = 'Cost per Reported Conversions',
 }
 
 export type MarketingAnalyticsDrillDownConfig = {
