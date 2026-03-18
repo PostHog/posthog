@@ -125,29 +125,79 @@ class TypeformResponsesPaginator(BasePaginator):
             request.params["before"] = self._cursor
 
 
-def validate_credentials(auth_token: str, api_base_url: str | None = None) -> tuple[bool, str | None]:
+def validate_credentials(
+    auth_token: str, api_base_url: str | None = None, schema_name: str | None = None
+) -> tuple[bool, str | None]:
     try:
         base_url = _validated_api_base_url(api_base_url)
     except ValueError as exc:
         return False, str(exc)
 
-    url = f"{base_url}/me"
     headers = _auth_headers(auth_token)
+    errors: list[str] = []
 
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            return True, None
-        if response.status_code == 401:
-            return False, "Invalid Typeform personal access token"
-        if response.status_code == 403:
-            return False, "Typeform token is missing required scopes: Accounts, Forms, Responses"
+    skip_responses_validation = False
+    if schema_name == "forms":
+        skip_responses_validation = True
+
+    def _parse_error_description(response: requests.Response) -> str:
         try:
-            return False, response.json().get("description", response.text)
+            payload = response.json()
+            if isinstance(payload, dict):
+                description = payload.get("description")
+                if isinstance(description, str) and description:
+                    return description
         except Exception:
-            return False, response.text
+            pass
+        return response.text
+
+    forms_response: requests.Response | None = None
+    try:
+        forms_response = requests.get(
+            f"{base_url}/forms",
+            headers=headers,
+            params={"page_size": 1, "page": 1},
+            timeout=10,
+        )
+        if forms_response.status_code == 401:
+            errors.append("Invalid Typeform personal access token")
+        elif forms_response.status_code == 403:
+            errors.append("Typeform token is missing required scope for forms endpoint: forms:read")
+        elif forms_response.status_code != 200:
+            errors.append(f"/forms endpoint failed: {_parse_error_description(forms_response)}")
+
     except requests.exceptions.RequestException as exc:
-        return False, str(exc)
+        errors.append(f"/forms request failed: {exc}")
+
+    if not skip_responses_validation and forms_response and forms_response.status_code == 200:
+        forms_items = forms_response.json().get("items", [])
+
+        # If there are no forms, we cannot probe /responses. This should not block validation.
+        if forms_items:
+            first_form = forms_items[0]
+            form_id = first_form.get("id") if isinstance(first_form, dict) else None
+            if not isinstance(form_id, str) or not form_id:
+                errors.append("Typeform returned an invalid form id while validating responses access.")
+            else:
+                try:
+                    responses_response = requests.get(
+                        f"{base_url}/forms/{form_id}/responses",
+                        headers=headers,
+                        params={"page_size": 1},
+                        timeout=10,
+                    )
+                    if responses_response.status_code == 401:
+                        errors.append("Invalid Typeform personal access token")
+                    elif responses_response.status_code == 403:
+                        errors.append("Typeform token is missing required scope for responses endpoint: responses:read")
+                    elif responses_response.status_code != 200:
+                        errors.append(f"/responses endpoint failed: {_parse_error_description(responses_response)}")
+                except requests.exceptions.RequestException as exc:
+                    errors.append(f"/responses request failed: {exc}")
+
+    if errors:
+        return False, "; ".join(errors)
+    return True, None
 
 
 def get_resource(
