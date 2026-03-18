@@ -127,11 +127,7 @@ export function NavTabChat({
                     <ScrollableShadows
                         direction="vertical"
                         className="flex flex-col flex-1 min-h-0 overflow-hidden"
-<<<<<<< ux/ai-first-nav-final-fixes-2
-                        innerClassName="flex flex-col px-1 pb-4 focus-visible:outline-accent -outline-offset-2"
-=======
-                        innerClassName="flex flex-col px-1 pb-4 -mx-1 scroll-pt-8"
->>>>>>> master
+                        innerClassName="flex flex-col px-1 pb-4 -mx-1 scroll-pt-8 focus-visible:outline-accent -outline-offset-2"
                         styledScrollbars
                     >
                         {conversationHistoryLoading && conversationHistory.length === 0 ? (
