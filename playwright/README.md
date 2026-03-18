@@ -26,13 +26,22 @@ It will explore the UI with Playwright MCP tools, plan the tests, implement them
 
 ## Writing tests
 
-### Flaky tests are almost always due to not waiting for the right thing
+### Best practices
 
-Consider adding a better selector, an intermediate step like waiting for URL or page title to change, or waiting for a critical network request to complete.
+- Don't use CSS selectors — prefer accessibility roles (`getByRole`) or `getByTestId()` which maps to `data-attr` in our config. Add `data-attr` to components if needed.
+- Write fewer, longer tests that do multiple things. Split logical steps with `test.step()`.
+- Use page object models for common tasks and accessing common elements (see `page-models/`).
+- After UI interactions, assert on UI changes — don't assert on network requests resolving.
+- Never put conditional logic (`if`) in a test.
 
-### Useful output from Playwright
+### Gotchas
 
-If you write a selector that is too loose and matches multiple elements, Playwright will output all the matches. With a better selector for each:
+**Flaky tests are almost always due to not waiting for the right thing.**
+Consider adding a better selector, an intermediate step like waiting for URL or page title to change,
+or waiting for a critical network request to complete.
+
+**Loose selectors cause strict mode violations.**
+If a selector matches multiple elements, Playwright will show all matches — use the output to narrow down:
 
 ```text
 Error: locator.click: Error: strict mode violation: locator('text=Set a billing limit') resolved to 2 elements:
