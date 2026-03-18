@@ -81,7 +81,7 @@ NON_SHARDED_TABLES = [
     "plugin_log_entries",
 ]
 
-LOGS_TABLES = ["logs32"]
+LOGS_TABLES = ["logs34"]
 
 
 @dataclass
