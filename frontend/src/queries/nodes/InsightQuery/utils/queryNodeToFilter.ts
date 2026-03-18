@@ -22,6 +22,7 @@ import {
     isAnyDataWarehouseNode,
     isDataWarehouseNode,
     isEventsNode,
+    isFunnelsDataWarehouseNode,
     isFunnelsQuery,
     isGroupNode,
     isLifecycleDataWarehouseNode,
@@ -88,6 +89,14 @@ export const seriesNodeToFilter = (
                   id_field: node.id_field,
                   timestamp_field: node.timestamp_field,
                   distinct_id_field: node.distinct_id_field,
+              }
+            : {}),
+        ...(isFunnelsDataWarehouseNode(node)
+            ? {
+                  table_name: node.table_name,
+                  id_field: node.id_field,
+                  timestamp_field: node.timestamp_field,
+                  aggregation_target_field: node.aggregation_target_field,
               }
             : {}),
         ...(isLifecycleDataWarehouseNode(node)
