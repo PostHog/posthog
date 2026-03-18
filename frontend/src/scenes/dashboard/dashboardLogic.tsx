@@ -1,3 +1,4 @@
+import equal from 'fast-deep-equal'
 import {
     BindLogic,
     actions,
@@ -271,7 +272,9 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setPageVisibility: (visible: boolean) => ({ visible }),
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
         /** Set the dashboard mode, see DashboardMode for details. */
-        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
+        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource) => ({ mode, source }),
+        /** Make it easier to handle organizing the layout when theres lots of tiles by zooming out */
+        setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
         /** Optimistic pin/unpin toggle. */
         togglePinned: true,
         /** Open/close the Terraform export modal. */
@@ -407,9 +410,48 @@ export const dashboardLogic = kea<dashboardLogicType>([
                             layouts: tile.layouts?.sm ? { sm: tile.layouts.sm } : {},
                         }))
 
+                        const currentDashboard = values.dashboard
+                        if (!currentDashboard) {
+                            return null
+                        }
+
+                        const persistedFilters = currentDashboard.persisted_filters || {}
+                        const persistedVariables = currentDashboard.persisted_variables || {}
+                        const persistedBreakdownColors = currentDashboard.breakdown_colors || []
+                        const persistedThemeId = currentDashboard.data_color_theme_id ?? null
+
+                        const filtersChanged = !equal(persistedFilters, values.effectiveEditBarFilters || {})
+                        const variablesChanged = !equal(
+                            persistedVariables,
+                            values.effectiveDashboardVariableOverrides || {}
+                        )
+                        const breakdownColorsChanged = !equal(
+                            persistedBreakdownColors,
+                            values.temporaryBreakdownColors || []
+                        )
+                        const themeChanged = (values.dataColorThemeId ?? null) !== persistedThemeId
+
+                        const layoutsChanged = (currentDashboard.tiles || []).some((tile) => {
+                            const originalLayouts = values.dashboardLayouts?.[tile.id]?.sm
+                            const updatedLayouts = layoutsToUpdate.find((t) => t.id === tile.id)?.layouts?.sm
+                            return !equal(originalLayouts || {}, updatedLayouts || {})
+                        })
+
+                        if (
+                            !filtersChanged &&
+                            !variablesChanged &&
+                            !breakdownColorsChanged &&
+                            !themeChanged &&
+                            !layoutsChanged
+                        ) {
+                            actions.resetUrlFilters()
+                            actions.resetUrlVariables()
+                            return currentDashboard
+                        }
+
                         breakpoint()
 
-                        const dashboard: DashboardType<InsightModel> = await api.update(
+                        const updatedDashboard: DashboardType<InsightModel> = await api.update(
                             `api/environments/${values.currentTeamId}/dashboards/${props.id}`,
                             {
                                 filters: values.effectiveEditBarFilters,
@@ -421,7 +463,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                         )
                         actions.resetUrlFilters()
                         actions.resetUrlVariables()
-                        return getQueryBasedDashboard(dashboard)
+                        return getQueryBasedDashboard(updatedDashboard)
                     } catch (e) {
                         lemonToast.error('Could not update dashboard: ' + String(e))
                         return values.dashboard
@@ -594,6 +636,14 @@ export const dashboardLogic = kea<dashboardLogicType>([
             {
                 setDataColorThemeId: (_, { dataColorThemeId }) => dataColorThemeId || null,
                 loadDashboardSuccess: (_, { dashboard }) => dashboard?.data_color_theme_id || null,
+            },
+        ],
+        layoutZoom: [
+            1,
+            {
+                setLayoutZoom: (_state: number, { layoutZoom }: { layoutZoom: number }) =>
+                    Math.min(1, Math.max(0.25, layoutZoom)),
+                updateContainerWidth: (state: number, { columns }: { columns: number }) => (columns === 1 ? 1 : state),
             },
         ],
         dashboard: [
@@ -1447,7 +1497,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
         ],
         breadcrumbs: [
             (s) => [s.dashboard, s.error404, s.dashboardFailedToLoad, router.selectors.searchParams],
-            (dashboard, error404, dashboardFailedToLoad, searchParams): Breadcrumb[] => {
+            (
+                dashboard: DashboardType<QueryBasedInsightModel> | null,
+                error404: boolean,
+                dashboardFailedToLoad: boolean,
+                searchParams: Record<string, any>
+            ): Breadcrumb[] => {
                 const backUrl = searchParams.backUrl as string | undefined
                 const backName = searchParams.backName as string | undefined
                 return [
@@ -2065,7 +2120,11 @@ export const dashboardLogic = kea<dashboardLogicType>([
             }
 
             if (mode || source) {
-                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source)
+                eventUsageLogic.actions.reportDashboardModeToggled(values.dashboard, mode, source, values.layoutZoom)
+            }
+
+            if (mode !== DashboardMode.Edit) {
+                actions.setLayoutZoom(1)
             }
         },
         setAutoRefresh: () => {
@@ -2220,7 +2279,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 forceRefresh: false,
             })
             if (values.dashboardMode !== DashboardMode.Edit) {
-                actions.setDashboardMode(DashboardMode.Edit, null)
+                actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardVariableOverride)
             }
         },
         quickFiltersCommitted: async (_, breakpoint) => {
@@ -2477,24 +2536,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 : undefined
             actions.setSubscriptionMode(true, id)
             actions.setTextTileId(null)
-            actions.setDashboardMode(null, null)
+            actions.setDashboardMode(null, DashboardEventSource.Browser)
         },
 
         '/dashboard/:id': () => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             if (values.dashboardMode === DashboardMode.Sharing) {
-                actions.setDashboardMode(null, null)
+                actions.setDashboardMode(null, DashboardEventSource.Browser)
             }
         },
         '/dashboard/:id/sharing': () => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
-            actions.setDashboardMode(DashboardMode.Sharing, null)
+            actions.setDashboardMode(DashboardMode.Sharing, DashboardEventSource.Browser)
         },
         '/dashboard/:id/text-tiles/:textTileId': ({ textTileId }) => {
             actions.setSubscriptionMode(false, undefined)
-            actions.setDashboardMode(null, null)
+            actions.setDashboardMode(null, DashboardEventSource.Browser)
             actions.setTextTileId(textTileId === undefined ? 'new' : textTileId !== 'new' ? Number(textTileId) : 'new')
         },
     })),

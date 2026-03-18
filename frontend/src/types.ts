@@ -399,6 +399,7 @@ export interface PersonalAPIKeyType {
     id: string
     label: string
     value?: string
+    is_legacy_hashing: boolean
     mask_value?: string | null
     created_at: string
     last_used_at: string | null
@@ -1349,11 +1350,19 @@ export interface ActionFilter extends EntityFilter {
 
 export const isGroupFilter = (filter: EntityFilter): filter is ActionFilter => filter.type === EntityTypes.GROUPS
 
-export interface DataWarehouseFilter extends ActionFilter {
+export type DataWarehouseFilter = TrendsDataWarehouseFilter | LifecycleDatawarehouseFilter
+export interface TrendsDataWarehouseFilter extends ActionFilter {
+    table_name: string
     id_field: string
     timestamp_field: string
     distinct_id_field: string
+}
+
+export interface LifecycleDatawarehouseFilter extends ActionFilter {
     table_name: string
+    timestamp_field: string
+    aggregation_target_field: string
+    created_at_field: string
 }
 
 export const isDataWarehouseFilter = (filter: EntityFilter): filter is DataWarehouseFilter =>
@@ -4248,6 +4257,8 @@ export interface PersonProperty {
 
 export type GroupTypeIndex = 0 | 1 | 2 | 3 | 4
 
+export type LabelGroupType = GroupTypeIndex | 'people'
+
 export interface GroupType {
     group_type: string
     group_type_index: GroupTypeIndex
@@ -5480,6 +5491,7 @@ export interface ExternalDataSourceSyncSchema {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
+    description?: string | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -5492,6 +5504,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_field: string | null
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
+    description?: string | null
 }
 
 export enum ExternalDataSchemaStatus {
