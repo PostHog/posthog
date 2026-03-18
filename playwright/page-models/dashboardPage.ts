@@ -76,15 +76,21 @@ export class DashboardPage {
     }
 
     async addTextCard(text: string): Promise<void> {
-        await this.page.getByTestId('add-text-tile-to-dashboard').click()
+        const addTextTileButton = this.page.getByTestId('add-text-tile-to-dashboard')
+        await expect(addTextTileButton).toBeVisible()
+        await addTextTileButton.click()
 
-        const modal = this.page.locator('.LemonModal')
+        await expect(this.page).toHaveURL(/\/dashboard\/\d+\/text-tiles\/new(?:\?.*)?$/, { timeout: 5000 })
+
+        const modal = this.page.locator('.LemonModal').filter({
+            has: this.page.getByTestId('text-card-edit-area'),
+        })
         await expect(modal).toBeVisible()
 
-        const textArea = modal.locator('textarea')
+        const textArea = modal.getByTestId('text-card-edit-area')
         await expect(textArea).toBeVisible()
         await textArea.fill(text)
-        await this.page.getByTestId('save-new-text-tile').click()
+        await modal.getByTestId('save-new-text-tile').click()
 
         await expect(this.textCards.filter({ hasText: text })).toBeVisible()
     }
