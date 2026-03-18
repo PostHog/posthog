@@ -18,3 +18,4 @@ workspace = true
 [dependencies]
 thiserror = { workspace = true }
 serde = { workspace = true }
+zstd = "0.13"
