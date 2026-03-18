@@ -66,7 +66,11 @@ function getRawMessageText(aiInput: unknown, messageIndex: number): string {
 }
 
 function getCardMessageText(card: SentimentCard): string {
-    return getRawMessageText(card.generation.aiInput, card.messageIndex).trim()
+    const text = getRawMessageText(card.generation.aiInput, card.messageIndex).trim()
+    // Group by the same trailing window the classifier processes so messages
+    // that differ only in a prefix (e.g. varying system prompt headers) are
+    // correctly treated as duplicates.
+    return text.slice(-SNIPPET_MAX_LENGTH)
 }
 
 function getSnippetFromCard(card: SentimentCard): string {
