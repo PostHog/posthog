@@ -7,6 +7,7 @@ and pushes results back to Salesforce.
 
 import json
 import hashlib
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Literal, cast
 
 import polars as pl
@@ -26,6 +27,12 @@ from ee.billing.salesforce_enrichment.enrichment import bulk_update_salesforce_a
 from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_client
 
 ARCHETYPE_TEAM_ID = 2
+
+
+class ArchetypeClassificationConfig(dagster.Config):
+    llm_max_workers: int = 20
+    llm_batch_size: int = 20
+
 
 # All columns from the PostHog_Customer_Archetype saved query
 COLUMNS = [
@@ -432,6 +439,7 @@ def archetype_account_data(
 )
 def archetype_llm_classification(
     context: dagster.AssetExecutionContext,
+    config: ArchetypeClassificationConfig,
     archetype_account_data: pl.DataFrame,
 ) -> pl.DataFrame:
     """Classify all accounts using LLM."""
@@ -474,19 +482,21 @@ def archetype_llm_classification(
     new_classifications: list[AccountClassification] = []
     if accounts_to_classify:
         classify_df = pl.DataFrame(accounts_to_classify, infer_schema_length=None)
-        batches = prepare_llm_batches(classify_df)
+        batches = prepare_llm_batches(classify_df, batch_size=config.llm_batch_size)
         client = get_llm_client("customer_archetype_classification")
 
-        for i, batch in enumerate(batches):
-            context.log.info(f"LLM batch {i + 1}/{len(batches)}: {len(batch)} accounts")
-            try:
-                batch_results = _classify_batch(client, batch)
-                new_classifications.extend(batch_results)
-            except Exception:
-                batch_ids = [a.get("sf_account_id", "?") for a in batch]
-                context.log.exception(
-                    f"LLM batch {i + 1} failed after retries, skipping {len(batch)} accounts: {batch_ids}"
-                )
+        context.log.info(f"Classifying {len(batches)} batches concurrently (max_workers={config.llm_max_workers})")
+        with ThreadPoolExecutor(max_workers=config.llm_max_workers) as pool:
+            futures = {pool.submit(_classify_batch, client, batch): i for i, batch in enumerate(batches)}
+            for future in as_completed(futures):
+                i = futures[future]
+                try:
+                    new_classifications.extend(future.result())
+                except Exception:
+                    batch_ids = [a.get("sf_account_id", "?") for a in batches[i]]
+                    context.log.exception(
+                        f"LLM batch {i + 1} failed after retries, skipping {len(batches[i])} accounts: {batch_ids}"
+                    )
 
     new_classifications = apply_confidence_threshold(new_classifications)
 
