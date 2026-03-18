@@ -16,7 +16,7 @@ import { extractContentText, formatScore } from '../sentimentUtils'
 import type { SentimentLabel } from '../sentimentUtils'
 import type { CompatMessage } from '../types'
 import { normalizeMessages } from '../utils'
-import type { SentimentCard, SentimentFeedbackLabel } from './llmAnalyticsSentimentLogic'
+import type { GroupedSentimentCard, SentimentCard, SentimentFeedbackLabel } from './llmAnalyticsSentimentLogic'
 import { llmAnalyticsSentimentLogic, SentimentFilterLabel } from './llmAnalyticsSentimentLogic'
 
 /**
@@ -144,7 +144,15 @@ function SentimentFeedbackButtons({ card }: { card: SentimentCard }): JSX.Elemen
     )
 }
 
-function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: boolean }): JSX.Element {
+function SentimentCardRow({
+    card,
+    expanded,
+    traceCount,
+}: {
+    card: SentimentCard
+    expanded: boolean
+    traceCount: number
+}): JSX.Element {
     const { generation, messageIndex, sentiment } = card
     const { uuid, traceId, aiInput, timestamp } = generation
     const { toggleCardExpanded } = useActions(llmAnalyticsSentimentLogic)
@@ -176,6 +184,13 @@ function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: b
                         </p>
                     </Tooltip>
                     <div className="shrink-0 flex items-center gap-1">
+                        {traceCount > 1 && (
+                            <Tooltip title={`${traceCount} traces contain this same message`}>
+                                <span className="inline-flex items-center text-xs font-medium text-muted bg-surface-tertiary rounded px-1.5 py-0.5 tabular-nums">
+                                    {traceCount}x
+                                </span>
+                            </Tooltip>
+                        )}
                         <SentimentFeedbackButtons card={card} />
                         <MessageSentimentBar sentiment={sentiment} />
                         <span className="text-xs text-muted whitespace-nowrap tabular-nums">
@@ -286,8 +301,15 @@ function SentimentControls(): JSX.Element {
 }
 
 export function LLMAnalyticsSentiment(): JSX.Element {
-    const { generations, generationsLoading, sentimentCards, stillAnalyzing, expandedCardIds, hasMore } =
-        useValues(llmAnalyticsSentimentLogic)
+    const {
+        generations,
+        generationsLoading,
+        groupedSentimentCards,
+        sentimentCards,
+        stillAnalyzing,
+        expandedCardIds,
+        hasMore,
+    } = useValues(llmAnalyticsSentimentLogic)
     const { loadMoreGenerations } = useActions(llmAnalyticsSentimentLogic)
 
     return (
@@ -306,13 +328,16 @@ export function LLMAnalyticsSentiment(): JSX.Element {
                 </div>
             ) : (
                 <>
-                    {sentimentCards.length > 0 && (
+                    {groupedSentimentCards.length > 0 && (
                         <div className="space-y-2">
-                            {sentimentCards.map((card: SentimentCard) => (
+                            {groupedSentimentCards.map((group: GroupedSentimentCard) => (
                                 <SentimentCardRow
-                                    key={`${card.generation.uuid}:${card.messageIndex}`}
-                                    card={card}
-                                    expanded={expandedCardIds.has(`${card.generation.uuid}:${card.messageIndex}`)}
+                                    key={`${group.card.generation.uuid}:${group.card.messageIndex}`}
+                                    card={group.card}
+                                    expanded={expandedCardIds.has(
+                                        `${group.card.generation.uuid}:${group.card.messageIndex}`
+                                    )}
+                                    traceCount={group.traceCount}
                                 />
                             ))}
                         </div>

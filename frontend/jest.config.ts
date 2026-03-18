@@ -36,6 +36,7 @@ const esmModules = [
     'react-markdown',
     'remark-gfm',
     'hast-util-to-jsx-runtime',
+    'estree-util-is-identifier-name',
 ]
 function rootDirectories(): string[] {
     return ['<rootDir>/src', '<rootDir>/../products']
