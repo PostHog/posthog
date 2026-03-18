@@ -1,7 +1,8 @@
 import json
+import types
 import typing
 import datetime as dt
-from dataclasses import asdict, dataclass, fields
+from dataclasses import Field, asdict, dataclass, fields
 from uuid import UUID
 
 from django.conf import settings
@@ -80,6 +81,21 @@ class BackfillDetails:
     is_earliest_backfill: bool = False
 
 
+def _field_is_type(f: Field, target: type) -> bool:
+    """Check if a dataclass field's type is or contains the target type.
+
+    Handles plain types (int, bool), PEP 604 unions (int | None),
+    and typing.Optional / typing.Union.
+    """
+    if f.type is target:
+        return True
+    if isinstance(f.type, types.UnionType):
+        return target in f.type.__args__
+    if typing.get_origin(f.type) is typing.Union:
+        return target in typing.get_args(f.type)
+    return False
+
+
 @dataclass(kw_only=True)
 class BaseBatchExportInputs:
     """Base class for all batch export inputs containing common fields.
@@ -107,6 +123,23 @@ class BaseBatchExportInputs:
     batch_export_model: BatchExportModel | None = None
     batch_export_schema: BatchExportSchema | None = None
     integration_id: int | None = None
+
+    def __post_init__(self):
+        """Coerce string values to their declared types.
+
+        EncryptedJSONField may not preserve Python types, so fields can
+        arrive as strings (e.g. "true" instead of True, "5432" instead of 5432).
+        """
+        for f in fields(self):
+            value = getattr(self, f.name)
+            if value is None:
+                continue
+            if _field_is_type(f, bool):
+                if isinstance(value, str):
+                    setattr(self, f.name, value.lower() == "true")
+            elif _field_is_type(f, int):
+                if isinstance(value, str):
+                    setattr(self, f.name, int(value))
 
     def get_is_backfill(self) -> bool:
         """Needed for backwards compatibility with existing batch exports.
@@ -158,13 +191,6 @@ class S3BatchExportInputs(BaseBatchExportInputs):
     max_file_size_mb: int | None = None
     use_virtual_style_addressing: bool = False
 
-    def __post_init__(self):
-        if self.max_file_size_mb:
-            self.max_file_size_mb = int(self.max_file_size_mb)
-
-        if self.use_virtual_style_addressing and isinstance(self.use_virtual_style_addressing, str):
-            self.use_virtual_style_addressing = self.use_virtual_style_addressing.lower() == "true"  # type: ignore
-
 
 @dataclass(kw_only=True)
 class SnowflakeBatchExportInputs(BaseBatchExportInputs):
@@ -195,14 +221,6 @@ class PostgresBatchExportInputs(BaseBatchExportInputs):
     table_name: str = "events"
     port: int = 5432
     has_self_signed_cert: bool = False
-
-    def __post_init__(self):
-        if self.has_self_signed_cert == "True":  # type: ignore
-            self.has_self_signed_cert = True
-        elif self.has_self_signed_cert == "False":  # type: ignore
-            self.has_self_signed_cert = False
-
-        self.port = int(self.port)
 
 
 IAMRole = str
@@ -243,6 +261,7 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
     copy_inputs: RedshiftCopyInputs | None = None
 
     def __post_init__(self):
+        super().__post_init__()
         if (
             self.mode == "COPY"
             and self.copy_inputs is not None
@@ -290,12 +309,6 @@ class BigQueryBatchExportInputs(BaseBatchExportInputs):
     client_email: str
     use_json_type: bool = False
 
-    def __post_init__(self):
-        if self.use_json_type == "True":  # type: ignore
-            self.use_json_type = True
-        elif self.use_json_type == "False":  # type: ignore
-            self.use_json_type = False
-
 
 @dataclass(kw_only=True)
 class DatabricksBatchExportInputs(BaseBatchExportInputs):
@@ -326,10 +339,6 @@ class AzureBlobBatchExportInputs(BaseBatchExportInputs):
     compression: str | None = None
     file_format: str = "JSONLines"
     max_file_size_mb: int | None = None
-
-    def __post_init__(self):
-        if self.max_file_size_mb:
-            self.max_file_size_mb = int(self.max_file_size_mb)
 
 
 @dataclass(kw_only=True)
@@ -945,7 +954,7 @@ def sync_batch_export(batch_export: BatchExport, created: bool):
     return batch_export
 
 
-async def acreate_batch_export_backfill(
+async def aget_or_create_batch_export_backfill(
     batch_export_id: UUID,
     team_id: int,
     start_at: str | None,
@@ -953,7 +962,10 @@ async def acreate_batch_export_backfill(
     status: str = BatchExportRun.Status.RUNNING,
     backfill_id: str | None = None,
 ) -> BatchExportBackfill:
-    """Create a BatchExportBackfill.
+    """Create a BatchExportBackfill, or return an existing one if a backfill_id is provided and already exists.
+
+    We use `aget_or_create` to handle the rare case (which we have seen in production) where the Temporal activity
+    retries due to a timeout, but the previous attempt has committed the row to Postgres.
 
     Args:
         batch_export_id: The UUID of the BatchExport the BatchExportBackfill to create belongs to.
@@ -963,17 +975,23 @@ async def acreate_batch_export_backfill(
         status: The initial status for the created BatchExportBackfill.
         backfill_id: Pre-generated UUID for the backfill. If provided, will be used as the model's primary key.
     """
-    kwargs: dict = {
-        "batch_export_id": batch_export_id,
+
+    defaults: dict = {
         "status": status,
         "start_at": dt.datetime.fromisoformat(start_at) if start_at else None,
         "end_at": dt.datetime.fromisoformat(end_at) if end_at else None,
-        "team_id": team_id,
     }
+
     if backfill_id is not None:
-        kwargs["id"] = backfill_id
-    backfill = BatchExportBackfill(**kwargs)
-    await backfill.asave()
+        backfill, _created = await BatchExportBackfill.objects.aget_or_create(
+            id=backfill_id,
+            team_id=team_id,
+            batch_export_id=batch_export_id,
+            defaults=defaults,
+        )
+    else:
+        backfill = BatchExportBackfill(**defaults, team_id=team_id, batch_export_id=batch_export_id)
+        await backfill.asave()
 
     return backfill
 

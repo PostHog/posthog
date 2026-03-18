@@ -6,7 +6,6 @@ import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -94,8 +93,6 @@ export function ViewModeActions(): JSX.Element {
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { push } = useActions(router)
-    const hasTileRedesign = useFeatureFlag('DASHBOARD_TILE_REDESIGN')
-
     if (!dashboard) {
         return <></>
     }
@@ -138,7 +135,7 @@ export function ViewModeActions(): JSX.Element {
                     </LemonButton>
                 </AppShortcut>
             </AccessControlAction>
-            {canEditDashboard && hasTileRedesign && (
+            {canEditDashboard && (
                 <AppShortcut
                     name="EnterEditMode"
                     scope={Scene.Dashboard}
