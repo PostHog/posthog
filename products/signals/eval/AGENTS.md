@@ -1,48 +1,266 @@
-# LLMA Eval Framework
+# Signal grouping eval
 
-## Structure
+End-to-end evaluation of the signal grouping pipeline.
+Measures how well the pipeline clusters incoming signals into reports,
+compared against hand-labeled ground-truth groups.
 
-- `products/signals/eval/framework.py` — core: `EvalCase`, `EvalMetric`, `run_eval()`
-- `products/signals/eval/conftest.py` — pytest fixtures: `posthog_client`, `openai_client`
-- `products/signals/eval/test_joke_eval.py` — reference example with two evals
+## What it tests
 
-## How it works
+The eval feeds 92 synthetic signals (from 42 ground-truth groups) through the **real** pipeline:
+LLM query generation, embedding search, LLM matching, specificity verification, summarization,
+safety judging, and actionability judging.
+Infrastructure is mocked — an in-memory embedding store (`mock.py`) replaces ClickHouse + Kafka,
+and a `ReportStore` replaces Postgres.
 
-Each eval has three parts:
+Signals arrive in a deterministic random order (seeded RNG),
+interleaved across groups to simulate real-world arrival patterns.
 
-1. **Task function** — runs the LLM call being evaluated
-2. **Judge function** — scores the output using a stronger LLM, returns JSON with score + reasoning
-3. **Cases** — list of `EvalCase(name, input, expected)` defining test inputs
+### Pipeline stages per signal
 
-`run_eval()` is async and runs all cases concurrently (bounded by `max_concurrency`, default 10) using `asyncio.gather`. Errors are caught — pytest always passes.
-By default (`verbose=True`), each case logs the task output, thoughts (if present), and judge reasoning alongside the score.
+1. **Pre-emit** — summarize long descriptions, check actionability (Gemini).
+   Signals that fail actionability are dropped.
+2. **Match** — generate search queries (LLM), embed queries (OpenAI),
+   cosine search against stored signals, LLM match to existing report or create new,
+   verify specificity of match (LLM).
+3. **Persist** — store the signal + embedding, update report metadata.
 
-## Rules
+After all signals are processed:
 
-- All task and judge functions must be `async`
-- Use `@pytest.mark.django_db` on test functions
-- Pass `posthog_distinct_id="llma_eval"` to all LLM calls
-- Use a production model for the task, a strong reasoning model for the judge
-- `experiment_name` and `EvalCase.name` must be unique
-- Judge LLM must return JSON — parse with `json.loads()`
-- `openai_client` fixture is `AsyncOpenAI`; for Gemini use `AsyncGeminiClient(posthog_client=client._ph_client)`
-- Judge JSON must put `"reasoning"` before the score field (e.g. `{"reasoning": "...", "correct": true}`) — this forces the model to analyze before committing to a score
-- Judge prompt must include a rubric with explicit per-level definitions and one anchor example per level (e.g. an example ACTIONABLE ticket and an example NOT_ACTIONABLE ticket) — this is the single highest-impact lever for judge consistency
-- If the production flow uses a reasoning model or has thinking/chain-of-thought enabled, the task function should return thoughts alongside the answer (e.g. `{"answer": "...", "thoughts": "..."}`) and the judge prompt should include them — this lets the judge catch cases where the model got the right answer for the wrong reason
+4. **Judge** — for each report: summarize signals (LLM),
+   judge safety (prompt injection detection), judge actionability.
 
-## Running
+## How to run
 
 ```bash
-# Run all cases
-pytest products/signals/eval/eval_<name>.py -s -v --log-cli-level=WARNING
+# Full run — captures eval results to PostHog
+pytest products/signals/eval/eval_grouping_e2e.py -xvs
 
-# Run specific cases only
-pytest products/signals/eval/eval_<name>.py --case-ids=00005,00010 -s -v --log-cli-level=WARNING
+# Quick test — 10 signals, no capture
+pytest products/signals/eval/eval_grouping_e2e.py -xvs --limit 10 --no-capture
+
+# Online eval mode (tags results as "online" instead of "offline")
+pytest products/signals/eval/eval_grouping_e2e.py -xvs --online
 ```
 
-Requires `POSTHOG_PROJECT_API_KEY` (`phc_` prefix) and relevant AI provider keys in `.env`.
-Events go to `POSTHOG_HOST` (default `http://localhost:8010`).
+### Required environment variables
 
-## Maintaining this document
+Set in `.env` at the repo root (loaded automatically):
 
-If you change the eval framework (fixtures, `run_eval` signature, `EvalMetric` fields, conventions), update this file to match.
+| Variable                  | Purpose                                                |
+| ------------------------- | ------------------------------------------------------ |
+| `ANTHROPIC_API_KEY`       | LLM calls (matching, specificity, summarization)       |
+| `OPENAI_API_KEY`          | Embeddings (text-embedding-3-small)                    |
+| `GEMINI_API_KEY`          | Actionability check                                    |
+| `POSTHOG_PROJECT_API_KEY` | Capturing eval results (skip with `--no-capture`)      |
+| `POSTHOG_HOST`            | PostHog instance (defaults to `http://localhost:8010`) |
+
+### CLI options
+
+| Flag           | Effect                                                 |
+| -------------- | ------------------------------------------------------ |
+| `--limit N`    | Process only the first N signals from the stream       |
+| `--no-capture` | Skip emitting `$ai_evaluation` events to PostHog       |
+| `--online`     | Tag captured results as online eval (default: offline) |
+
+## What it produces
+
+### Progress output (stderr)
+
+Two tqdm progress bars:
+
+- **Matching** — per-signal progress with `processing` (in-flight) and `dropped` (filtered/failed) counters
+- **Judging** — per-report progress
+
+Followed by an aggregate results summary table.
+
+### Eval metrics captured to PostHog
+
+All metrics are captured as `$ai_evaluation` events with source `signals-grouping`.
+Five eval experiments, each with their own metrics:
+
+| Experiment                     | Granularity | Metrics                                                                                      |
+| ------------------------------ | ----------- | -------------------------------------------------------------------------------------------- |
+| `match-quality`                | Per-signal  | `correct_match` (binary), failure mode: NONE/UNDERGROUP/OVERGROUP/SPECIFICITY_SPLIT          |
+| `{source}-actionability-check` | Per-signal  | `correct_classification` (binary) — did pre-emit filter agree with ground truth              |
+| `grouping-quality`             | Per-report  | `purity`, `is_pure`, `group_recall`                                                          |
+| `report-safety-check`          | Per-report  | `correct_classification` (binary) — safety judge vs ground truth                             |
+| `report-actionability-check`   | Per-report  | `correct_classification` (binary) — actionability judge vs ground truth                      |
+| `grouping-aggregate`           | Global      | `ari`, `homogeneity`, `completeness`, `mean_purity`, `group_recall`, `malicious_leaked_rate` |
+
+### Aggregate metrics explained
+
+- **ARI** (adjusted rand index) — chance-corrected clustering similarity, -1 to 1
+- **Homogeneity** — each report contains only signals from one true group (1.0 = no overgrouping)
+- **Completeness** — all signals from a true group land in the same report (1.0 = no undergrouping)
+- **Mean purity** — average fraction of dominant group per report
+- **Mean recall** — average fraction of a group's signals captured by its best report
+- **Malicious leaked rate** — fraction of unsafe signals that made it through unblocked
+
+## File structure
+
+| File                        | Purpose                                                                           |
+| --------------------------- | --------------------------------------------------------------------------------- |
+| `eval_grouping_e2e.py`      | Test class, pipeline orchestration, metric capture                                |
+| `conftest.py`               | pytest fixtures: API clients, CLI options, mock temporal                          |
+| `mock.py`                   | `EmbeddingStore` (in-memory vector store) and `ReportStore` (in-memory report DB) |
+| `capture.py`                | `capture_evaluation()` helper — formats and sends `$ai_evaluation` events         |
+| `data_spec.py`              | `EvalSignalSpec` / `EvalGroupSpec` — signal and group specifications              |
+| `fixtures/grouping_data.py` | Ground-truth dataset: 42 groups, 92 signals across Zendesk/GitHub/Linear          |
+| `cache/embeddings.json`     | Disk cache for OpenAI embeddings (auto-generated, avoids redundant API calls)     |
+
+## Clearing eval data
+
+To delete captured eval events from ClickHouse (DEBUG mode only):
+
+```bash
+python manage.py clear_eval_data --dry-run    # preview counts
+python manage.py clear_eval_data --yes         # delete all
+python manage.py clear_eval_data --source X    # filter by eval source tag
+```
+
+## Concurrency model
+
+- Signals run through the pipeline concurrently (semaphore-bounded, 70 max).
+- The match + persist step is serialized behind `asyncio.Lock` —
+  this ensures the embedding store and report store see a consistent view
+  when deciding whether a signal joins an existing report or creates a new one.
+- Report judging runs concurrently (all reports at once).
+
+# Reports
+
+## HogQL queries
+
+All queries filter on `$ai_eval_source = 'signals-grouping'` and `$ai_evaluation_type = 'offline'`.
+Run these in the PostHog SQL editor.
+
+### Aggregate metrics
+
+ARI, homogeneity, completeness, purity, recall, malicious leak rate.
+
+```sql
+SELECT
+    properties.$ai_metric_name AS metric,
+    properties.$ai_score AS score,
+    properties.$ai_metric_description AS description,
+    properties.$ai_reasoning AS reasoning,
+    properties.$ai_input AS input,
+    properties.$ai_output AS output,
+    properties.$ai_expected AS expected
+FROM events
+WHERE event = '$ai_evaluation'
+  AND properties.$ai_eval_source = 'signals-grouping'
+  AND properties.$ai_evaluation_type = 'offline'
+  AND properties.$ai_experiment_name = 'signals-grouping/grouping-aggregate'
+ORDER BY metric
+```
+
+### Match quality failure mode breakdown
+
+```sql
+SELECT
+    multiIf(
+        properties.$ai_score = 1.0, 'CORRECT',
+        properties.$ai_reasoning LIKE '%UNDERGROUP%', 'UNDERGROUP',
+        properties.$ai_reasoning LIKE '%SPECIFICITY_SPLIT%', 'SPECIFICITY_SPLIT',
+        properties.$ai_reasoning LIKE '%OVERGROUP%', 'OVERGROUP',
+        'UNKNOWN'
+    ) AS failure_mode,
+    count() AS cnt,
+    round(count() * 100.0 / (SELECT count() FROM events WHERE event = '$ai_evaluation' AND properties.$ai_eval_source = 'signals-grouping' AND properties.$ai_evaluation_type = 'offline' AND properties.$ai_experiment_name = 'signals-grouping/match-quality'), 1) AS pct
+FROM events
+WHERE event = '$ai_evaluation'
+  AND properties.$ai_eval_source = 'signals-grouping'
+  AND properties.$ai_evaluation_type = 'offline'
+  AND properties.$ai_experiment_name = 'signals-grouping/match-quality'
+  AND properties.$ai_metric_name = 'correct_match'
+GROUP BY failure_mode
+ORDER BY cnt DESC
+```
+
+### Pre-emit actionability by source type
+
+```sql
+SELECT
+    replaceOne(properties.$ai_experiment_name, 'signals-grouping/', '') AS check_name,
+    count() AS total,
+    countIf(properties.$ai_score = 1.0) AS correct,
+    countIf(properties.$ai_score != 1.0) AS failures,
+    round(countIf(properties.$ai_score != 1.0) * 100.0 / count(), 1) AS failure_pct,
+    countIf(properties.$ai_score != 1.0 AND properties.$ai_output = 'ACTIONABLE') AS false_positives,
+    countIf(properties.$ai_score != 1.0 AND properties.$ai_output = 'NOT_ACTIONABLE') AS false_negatives
+FROM events
+WHERE event = '$ai_evaluation'
+  AND properties.$ai_eval_source = 'signals-grouping'
+  AND properties.$ai_evaluation_type = 'offline'
+  AND properties.$ai_experiment_name IN (
+      'signals-grouping/zendesk-actionability-check',
+      'signals-grouping/github-actionability-check',
+      'signals-grouping/linear-actionability-check'
+  )
+  AND properties.$ai_metric_name = 'correct_classification'
+GROUP BY check_name
+ORDER BY check_name
+```
+
+### Report-level judges (safety + actionability)
+
+```sql
+SELECT
+    replaceOne(properties.$ai_experiment_name, 'signals-grouping/', '') AS judge,
+    count() AS total,
+    countIf(properties.$ai_score = 1.0) AS correct,
+    round(countIf(properties.$ai_score = 1.0) * 100.0 / count(), 1) AS accuracy_pct,
+    countIf(properties.$ai_score != 1.0 AND properties.$ai_output IN ('SAFE', 'IMMEDIATELY_ACTIONABLE')) AS false_positives,
+    countIf(properties.$ai_score != 1.0 AND properties.$ai_output NOT IN ('SAFE', 'IMMEDIATELY_ACTIONABLE')) AS false_negatives
+FROM events
+WHERE event = '$ai_evaluation'
+  AND properties.$ai_eval_source = 'signals-grouping'
+  AND properties.$ai_evaluation_type = 'offline'
+  AND properties.$ai_experiment_name IN (
+      'signals-grouping/report-safety-check',
+      'signals-grouping/report-actionability-check'
+  )
+  AND properties.$ai_metric_name = 'correct_classification'
+GROUP BY judge
+ORDER BY judge
+```
+
+### Per-report grouping quality
+
+Purity, is_pure, group_recall distributions.
+
+```sql
+SELECT
+    properties.$ai_metric_name AS metric,
+    count() AS n,
+    round(avg(properties.$ai_score), 3) AS mean_score,
+    round(min(properties.$ai_score), 3) AS min_score,
+    round(max(properties.$ai_score), 3) AS max_score,
+    countIf(properties.$ai_score = 1.0) AS perfect_count
+FROM events
+WHERE event = '$ai_evaluation'
+  AND properties.$ai_eval_source = 'signals-grouping'
+  AND properties.$ai_evaluation_type = 'offline'
+  AND properties.$ai_experiment_name = 'signals-grouping/grouping-quality'
+GROUP BY metric
+ORDER BY metric
+```
+
+### Detailed match failures (for debugging)
+
+```sql
+SELECT
+    properties.$ai_experiment_item_name AS item,
+    properties.$ai_reasoning AS failure_mode,
+    properties.$ai_input AS signal_description,
+    properties.$ai_expected AS expected,
+    JSONExtractString(properties.$ai_output, 'report') AS actual_decision
+FROM events
+WHERE event = '$ai_evaluation'
+  AND properties.$ai_eval_source = 'signals-grouping'
+  AND properties.$ai_evaluation_type = 'offline'
+  AND properties.$ai_experiment_name = 'signals-grouping/match-quality'
+  AND properties.$ai_metric_name = 'correct_match'
+  AND properties.$ai_score != 1.0
+ORDER BY properties.$ai_reasoning, item
+```
