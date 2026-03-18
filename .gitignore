@@ -39,6 +39,7 @@ celerybeat.pid
 common/hogvm/typescript/.parcel-cache
 common/hogvm/typescript/dist
 common/plugin_transpiler/dist
+common/replay-headless/dist
 common/storybook/dist
 coverage-*.xml
 debug.log
@@ -122,6 +123,9 @@ frontend/pnpm-error.log
 frontend/public/Matter*.woff*
 frontend/tmp
 frontend/types/
+
+# Watchman cache
+.watchman-cookie-*
 
 # Dist release target dir
 target/*

@@ -3307,12 +3307,75 @@ export namespace Schemas {
       timings?: QueryTiming[] | null;
     }
 
+    export type LifecycleDataWarehouseNodeKind = typeof LifecycleDataWarehouseNodeKind[keyof typeof LifecycleDataWarehouseNodeKind];
+
+
+    export const LifecycleDataWarehouseNodeKind = {
+      LifecycleDataWarehouseNode: 'LifecycleDataWarehouseNode',
+    } as const;
+
+    export const LifecycleDataWarehouseNodeMath = {...BaseMathType,...FunnelMathType,...PropertyMathType,...CountPerActorMathType,...ExperimentMetricMathType,...CalendarHeatmapMathType,  unique_group: 'unique_group',
+      hogql: 'hogql',
+    } as const
+    /**
+     * @nullable
+     */
+    export type LifecycleDataWarehouseNodeResponse = { [key: string]: unknown } | null | null;
+
+    export interface LifecycleDataWarehouseNode {
+      aggregation_target_field: string;
+      created_at_field: string;
+      /** @nullable */
+      custom_name?: string | null;
+      /**
+       * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+       * @nullable
+       */
+      fixedProperties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      id: string;
+      kind?: LifecycleDataWarehouseNodeKind;
+      math?: typeof LifecycleDataWarehouseNodeMath[keyof typeof LifecycleDataWarehouseNodeMath]  | null;
+      math_group_type_index?: MathGroupTypeIndex | null;
+      /** @nullable */
+      math_hogql?: string | null;
+      /** @nullable */
+      math_multiplier?: number | null;
+      /** @nullable */
+      math_property?: string | null;
+      math_property_revenue_currency?: RevenueCurrencyPropertyConfig | null;
+      /** @nullable */
+      math_property_type?: string | null;
+      /** @nullable */
+      name?: string | null;
+      /** @nullable */
+      optionalInFunnel?: boolean | null;
+      /**
+       * Properties configurable in the interface
+       * @nullable
+       */
+      properties?: (EventPropertyFilter | PersonPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | RevenueAnalyticsPropertyFilter)[] | null;
+      /** @nullable */
+      response?: LifecycleDataWarehouseNodeResponse;
+      table_name: string;
+      timestamp_field: string;
+      /**
+       * version of the node, used for schema migrations
+       * @nullable
+       */
+      version?: number | null;
+    }
+
     export interface LifecycleQuery {
       /**
        * Groups aggregation
        * @nullable
        */
       aggregation_group_type_index?: number | null;
+      /**
+       * For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups.
+       * @nullable
+       */
+      customAggregationTarget?: boolean | null;
       /**
        * Colors used in the insight's visualization
        * @nullable
@@ -3341,7 +3404,7 @@ export namespace Schemas {
        */
       samplingFactor?: number | null;
       /** Events and actions to include */
-      series: (EventsNode | ActionsNode | DataWarehouseNode)[];
+      series: (EventsNode | ActionsNode | LifecycleDataWarehouseNode)[];
       /** Tags that will be added to the Query log comment */
       tags?: QueryLogTags | null;
       /**
@@ -3491,6 +3554,8 @@ export namespace Schemas {
       includeAvgTimeOnPage?: boolean | null;
       /** @nullable */
       includeBounceRate?: boolean | null;
+      /** @nullable */
+      includeHost?: boolean | null;
       /** @nullable */
       includeRevenue?: boolean | null;
       /** @nullable */
@@ -10719,9 +10784,12 @@ export namespace Schemas {
       readonly id: string;
       /** @nullable */
       deleted?: boolean | null;
-      /** @maxLength 128 */
+      /**
+       * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+       * @maxLength 128
+       */
       name: string;
-      /** HogQL query */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
       query?: unknown | null;
       readonly created_by: UserBasic;
       readonly created_at: string;
@@ -10740,10 +10808,16 @@ export namespace Schemas {
       readonly managed_viewset_kind: string;
       /** @nullable */
       readonly latest_error: string | null;
-      /** @nullable */
+      /**
+       * Activity log ID from the last known edit. Used for conflict detection.
+       * @nullable
+       */
       edited_history_id?: string | null;
       readonly latest_history_id: string;
-      /** @nullable */
+      /**
+       * If true, skip column inference and validation. For saving drafts.
+       * @nullable
+       */
       soft_update?: boolean | null;
       /** @nullable */
       readonly is_materialized: boolean | null;
@@ -11507,7 +11581,10 @@ export namespace Schemas {
     export interface EarlyAccessFeature {
       readonly id: string;
       readonly feature_flag: MinimalFeatureFlag;
-      /** @maxLength 200 */
+      /**
+       * The name of the early access feature.
+       * @maxLength 200
+       */
       name: string;
       description?: string;
       stage: StageEnum;
@@ -11519,7 +11596,10 @@ export namespace Schemas {
 
     export interface EarlyAccessFeatureSerializerCreateOnly {
       readonly id: string;
-      /** @maxLength 200 */
+      /**
+       * The name of the early access feature.
+       * @maxLength 200
+       */
       name: string;
       description?: string;
       stage: StageEnum;
@@ -12000,6 +12080,8 @@ export namespace Schemas {
        */
       order_key: number;
       disabled_data?: unknown | null;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export type ErrorTrackingBreakdownsQueryKind = typeof ErrorTrackingBreakdownsQueryKind[keyof typeof ErrorTrackingBreakdownsQueryKind];
@@ -12067,16 +12149,29 @@ export namespace Schemas {
       readonly created_at: string;
     }
 
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    export type ErrorTrackingGroupingRuleIssue = {[key: string]: string} | null | null;
+
     export interface ErrorTrackingGroupingRule {
       readonly id: string;
       filters: unknown;
       readonly assignee: string;
+      /**
+       * Issue linked to this rule
+       * @nullable
+       */
+      readonly issue: ErrorTrackingGroupingRuleIssue;
       /**
        * @minimum -2147483648
        * @maximum 2147483647
        */
       order_key: number;
       disabled_data?: unknown | null;
+      readonly created_at: string;
+      readonly updated_at: string;
     }
 
     export interface ErrorTrackingIssueAssignment {
@@ -19469,6 +19564,68 @@ export namespace Schemas {
       results: Ticket[];
     }
 
+    export interface TraceReviewScore {
+      readonly id: string;
+      /** Stable scorer definition ID. */
+      readonly definition_id: string;
+      /** Human-readable scorer name. */
+      readonly definition_name: string;
+      /** Scorer kind for this saved score. */
+      readonly definition_kind: string;
+      /** Whether the scorer is currently archived. */
+      readonly definition_archived: boolean;
+      /** Immutable scorer version ID used to validate this score. */
+      readonly definition_version_id: string;
+      /** Immutable scorer version number used to validate this score. */
+      readonly definition_version: number;
+      /** Immutable scorer configuration snapshot used to validate this score. */
+      readonly definition_config: ScoreDefinitionConfig;
+      /**
+       * Categorical option keys selected for this score.
+       * @nullable
+       */
+      readonly categorical_values: readonly string[] | null;
+      /**
+       * @nullable
+       * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+       */
+      readonly numeric_value: string | null;
+      /** @nullable */
+      readonly boolean_value: boolean | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface TraceReview {
+      readonly id: string;
+      /** Trace ID for the review. */
+      readonly trace_id: string;
+      /**
+       * Optional human comment or reasoning for the review.
+       * @nullable
+       */
+      readonly comment: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly updated_at: string | null;
+      readonly created_by: UserBasic;
+      /** User who last saved this review. */
+      readonly reviewed_by: UserBasic;
+      /** Saved scorer values for this review. */
+      readonly scores: readonly TraceReviewScore[];
+      readonly team: number;
+    }
+
+    export interface PaginatedTraceReviewList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: TraceReview[];
+    }
+
     export interface UserInterview {
       readonly id: string;
       readonly created_by: UserBasic;
@@ -20289,9 +20446,12 @@ export namespace Schemas {
       readonly id?: string;
       /** @nullable */
       deleted?: boolean | null;
-      /** @maxLength 128 */
+      /**
+       * Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.
+       * @maxLength 128
+       */
       name?: string;
-      /** HogQL query */
+      /** HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"} */
       query?: unknown | null;
       readonly created_by?: UserBasic;
       readonly created_at?: string;
@@ -20310,10 +20470,16 @@ export namespace Schemas {
       readonly managed_viewset_kind?: string;
       /** @nullable */
       readonly latest_error?: string | null;
-      /** @nullable */
+      /**
+       * Activity log ID from the last known edit. Used for conflict detection.
+       * @nullable
+       */
       edited_history_id?: string | null;
       readonly latest_history_id?: string;
-      /** @nullable */
+      /**
+       * If true, skip column inference and validation. For saving drafts.
+       * @nullable
+       */
       soft_update?: boolean | null;
       /** @nullable */
       readonly is_materialized?: boolean | null;
@@ -20451,7 +20617,10 @@ export namespace Schemas {
     export interface PatchedEarlyAccessFeature {
       readonly id?: string;
       readonly feature_flag?: MinimalFeatureFlag;
-      /** @maxLength 200 */
+      /**
+       * The name of the early access feature.
+       * @maxLength 200
+       */
       name?: string;
       description?: string;
       stage?: StageEnum;
@@ -20585,6 +20754,8 @@ export namespace Schemas {
        */
       order_key?: number;
       disabled_data?: unknown | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedErrorTrackingExternalReference {
@@ -20596,16 +20767,29 @@ export namespace Schemas {
       readonly external_url?: string;
     }
 
+    /**
+     * Issue linked to this rule
+     * @nullable
+     */
+    export type PatchedErrorTrackingGroupingRuleIssue = {[key: string]: string} | null | null;
+
     export interface PatchedErrorTrackingGroupingRule {
       readonly id?: string;
       filters?: unknown;
       readonly assignee?: string;
+      /**
+       * Issue linked to this rule
+       * @nullable
+       */
+      readonly issue?: PatchedErrorTrackingGroupingRuleIssue;
       /**
        * @minimum -2147483648
        * @maximum 2147483647
        */
       order_key?: number;
       disabled_data?: unknown | null;
+      readonly created_at?: string;
+      readonly updated_at?: string;
     }
 
     export interface PatchedErrorTrackingIssueFull {
@@ -22651,6 +22835,48 @@ export namespace Schemas {
       tags?: unknown[];
     }
 
+    export interface TraceReviewScoreWrite {
+      /** Stable scorer definition ID. */
+      definition_id: string;
+      /**
+       * Optional immutable scorer version ID. Defaults to the scorer's current version.
+       * @nullable
+       */
+      definition_version_id?: string | null;
+      /**
+       * Categorical option keys selected for this score.
+       * @minItems 1
+       * @nullable
+       */
+      categorical_values?: string[] | null;
+      /**
+       * Numeric value selected for this score.
+       * @nullable
+       * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+       */
+      numeric_value?: string | null;
+      /**
+       * Boolean value selected for this score.
+       * @nullable
+       */
+      boolean_value?: boolean | null;
+    }
+
+    export interface PatchedTraceReviewUpdate {
+      /**
+       * Trace ID for the review. Only one active review can exist per trace and team.
+       * @maxLength 255
+       */
+      trace_id?: string;
+      /**
+       * Optional human comment or reasoning for the review.
+       * @nullable
+       */
+      comment?: string | null;
+      /** Full desired score set for this review. Omit scorers you want to leave blank. */
+      scores?: TraceReviewScoreWrite[];
+    }
+
     /**
      * @nullable
      */
@@ -23588,7 +23814,7 @@ export namespace Schemas {
     ```
 
     For more details on HogQL queries, see the [PostHog HogQL documentation](/docs/hogql#api-access). */
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
       /** Whether results should be calculated sync or async, and how much to rely on the cache:
     - `'blocking'` - calculate synchronously (returning only when the query is done), UNLESS there are very fresh results in the cache
     - `'async'` - kick off background calculation (returning immediately with a query status), UNLESS there are very fresh results in the cache
@@ -25958,11 +26184,11 @@ export namespace Schemas {
     }
 
     export interface QueryUpgradeRequest {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface QueryUpgradeResponse {
-      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
+      query: EventsNode | ActionsNode | PersonsNode | DataWarehouseNode | LifecycleDataWarehouseNode | EventsQuery | SessionsQuery | ActorsQuery | GroupsQuery | InsightActorsQuery | InsightActorsQueryOptions | SessionsTimelineQuery | HogQuery | HogQLQuery | HogQLMetadata | HogQLAutocomplete | SessionAttributionExplorerQuery | RevenueExampleEventsQuery | RevenueExampleDataWarehouseTablesQuery | ErrorTrackingQuery | ErrorTrackingSimilarIssuesQuery | ErrorTrackingBreakdownsQuery | ErrorTrackingIssueCorrelationQuery | ExperimentFunnelsQuery | ExperimentTrendsQuery | ExperimentQuery | ExperimentExposureQuery | DocumentSimilarityQuery | WebOverviewQuery | WebStatsTableQuery | WebExternalClicksTableQuery | WebGoalsQuery | WebVitalsQuery | WebVitalsPathBreakdownQuery | WebPageURLSearchQuery | WebAnalyticsExternalSummaryQuery | RevenueAnalyticsGrossRevenueQuery | RevenueAnalyticsMetricsQuery | RevenueAnalyticsMRRQuery | RevenueAnalyticsOverviewQuery | RevenueAnalyticsTopCustomersQuery | MarketingAnalyticsTableQuery | MarketingAnalyticsAggregatedQuery | NonIntegratedConversionsTableQuery | DataVisualizationNode | DataTableNode | SavedInsightNode | InsightVizNode | TrendsQuery | FunnelsQuery | RetentionQuery | PathsQuery | StickinessQuery | LifecycleQuery | FunnelCorrelationQuery | DatabaseSchemaQuery | LogsQuery | LogAttributesQuery | LogValuesQuery | SuggestedQuestionsQuery | TeamTaxonomyQuery | EventTaxonomyQuery | ActorsPropertyTaxonomyQuery | TracesQuery | TraceQuery | TraceNeighborsQuery | VectorSearchQuery | UsageMetricsQuery | EndpointsUsageOverviewQuery | EndpointsUsageTableQuery | EndpointsUsageTrendsQuery | PropertyValuesQuery;
     }
 
     export interface ReorderTilesRequest {
@@ -26989,6 +27215,21 @@ export namespace Schemas {
       text: string;
       /** Metadata about the text representation */
       metadata: TextReprMetadata;
+    }
+
+    export interface TraceReviewCreate {
+      /**
+       * Trace ID for the review. Only one active review can exist per trace and team.
+       * @maxLength 255
+       */
+      trace_id: string;
+      /**
+       * Optional human comment or reasoning for the review.
+       * @nullable
+       */
+      comment?: string | null;
+      /** Full desired score set for this review. Omit scorers you want to leave blank. */
+      scores?: TraceReviewScoreWrite[];
     }
 
     export interface ViewLinkValidation {
@@ -28742,6 +28983,41 @@ export namespace Schemas {
 
     export type LlmAnalyticsTextReprCreate503 = {[key: string]: unknown};
 
+    export type LlmAnalyticsTraceReviewsListParams = {
+    /**
+     * Filter by a stable scorer definition ID.
+     */
+    definition_id?: string;
+    /**
+     * Filter by multiple scorer definition IDs separated by commas.
+     */
+    definition_id__in?: string;
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    /**
+     * Order by `updated_at` or `created_at`.
+     */
+    order_by?: string;
+    /**
+     * Search trace IDs and comments.
+     */
+    search?: string;
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string;
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string;
+    };
+
     export type LlmPromptsListParams = {
     /**
      * Number of results to return per page.
@@ -29123,6 +29399,273 @@ export namespace Schemas {
     export const ActionsDestroyFormat = {
       Csv: 'csv',
       Json: 'json',
+    } as const;
+
+    export type ActivityLogListParams = {
+    /**
+     * Filter by the ID of the affected resource.
+     * @minLength 1
+     */
+    item_id?: string;
+    /**
+     * Page number for pagination. When provided, uses page-based pagination ordered by most recent first.
+     * @minimum 1
+     */
+    page?: number;
+    /**
+     * Number of results per page (default: 100, max: 1000). Only used with page-based pagination.
+     * @minimum 1
+     * @maximum 1000
+     */
+    page_size?: number;
+    /**
+     * Filter by a single activity scope, e.g. "FeatureFlag", "Insight", "Dashboard", "Experiment".
+
+    * `Cohort` - Cohort
+    * `FeatureFlag` - FeatureFlag
+    * `Person` - Person
+    * `Group` - Group
+    * `Insight` - Insight
+    * `Plugin` - Plugin
+    * `PluginConfig` - PluginConfig
+    * `HogFunction` - HogFunction
+    * `HogFlow` - HogFlow
+    * `DataManagement` - DataManagement
+    * `EventDefinition` - EventDefinition
+    * `PropertyDefinition` - PropertyDefinition
+    * `Notebook` - Notebook
+    * `Endpoint` - Endpoint
+    * `EndpointVersion` - EndpointVersion
+    * `Dashboard` - Dashboard
+    * `Replay` - Replay
+    * `Experiment` - Experiment
+    * `ExperimentHoldout` - ExperimentHoldout
+    * `ExperimentSavedMetric` - ExperimentSavedMetric
+    * `Survey` - Survey
+    * `EarlyAccessFeature` - EarlyAccessFeature
+    * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+    * `Comment` - Comment
+    * `Team` - Team
+    * `Project` - Project
+    * `ErrorTrackingIssue` - ErrorTrackingIssue
+    * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+    * `Organization` - Organization
+    * `OrganizationDomain` - OrganizationDomain
+    * `OrganizationMembership` - OrganizationMembership
+    * `Role` - Role
+    * `UserGroup` - UserGroup
+    * `BatchExport` - BatchExport
+    * `BatchImport` - BatchImport
+    * `Integration` - Integration
+    * `Annotation` - Annotation
+    * `Tag` - Tag
+    * `TaggedItem` - TaggedItem
+    * `Subscription` - Subscription
+    * `PersonalAPIKey` - PersonalAPIKey
+    * `User` - User
+    * `Action` - Action
+    * `AlertConfiguration` - AlertConfiguration
+    * `Threshold` - Threshold
+    * `AlertSubscription` - AlertSubscription
+    * `ExternalDataSource` - ExternalDataSource
+    * `ExternalDataSchema` - ExternalDataSchema
+    * `LLMTrace` - LLMTrace
+    * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
+    * `CustomerProfileConfig` - CustomerProfileConfig
+    * `Log` - Log
+    * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `ProductTour` - ProductTour
+    * `Ticket` - Ticket
+     * @minLength 1
+     */
+    scope?: ActivityLogListScope;
+    /**
+     * Filter by multiple activity scopes, comma-separated. Values must be valid ActivityScope enum values. E.g. "FeatureFlag,Insight".
+     */
+    scopes?: ActivityLogListScopesItem[];
+    /**
+     * Filter by user UUID who performed the action.
+     */
+    user?: string;
+    };
+
+    export type ActivityLogListScope = typeof ActivityLogListScope[keyof typeof ActivityLogListScope];
+
+
+    export const ActivityLogListScope = {
+      Cohort: 'Cohort',
+      FeatureFlag: 'FeatureFlag',
+      Person: 'Person',
+      Group: 'Group',
+      Insight: 'Insight',
+      Plugin: 'Plugin',
+      PluginConfig: 'PluginConfig',
+      HogFunction: 'HogFunction',
+      HogFlow: 'HogFlow',
+      DataManagement: 'DataManagement',
+      EventDefinition: 'EventDefinition',
+      PropertyDefinition: 'PropertyDefinition',
+      Notebook: 'Notebook',
+      Endpoint: 'Endpoint',
+      EndpointVersion: 'EndpointVersion',
+      Dashboard: 'Dashboard',
+      Replay: 'Replay',
+      Experiment: 'Experiment',
+      ExperimentHoldout: 'ExperimentHoldout',
+      ExperimentSavedMetric: 'ExperimentSavedMetric',
+      Survey: 'Survey',
+      EarlyAccessFeature: 'EarlyAccessFeature',
+      SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+      Comment: 'Comment',
+      Team: 'Team',
+      Project: 'Project',
+      ErrorTrackingIssue: 'ErrorTrackingIssue',
+      DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+      Organization: 'Organization',
+      OrganizationDomain: 'OrganizationDomain',
+      OrganizationMembership: 'OrganizationMembership',
+      Role: 'Role',
+      UserGroup: 'UserGroup',
+      BatchExport: 'BatchExport',
+      BatchImport: 'BatchImport',
+      Integration: 'Integration',
+      Annotation: 'Annotation',
+      Tag: 'Tag',
+      TaggedItem: 'TaggedItem',
+      Subscription: 'Subscription',
+      PersonalAPIKey: 'PersonalAPIKey',
+      User: 'User',
+      Action: 'Action',
+      AlertConfiguration: 'AlertConfiguration',
+      Threshold: 'Threshold',
+      AlertSubscription: 'AlertSubscription',
+      ExternalDataSource: 'ExternalDataSource',
+      ExternalDataSchema: 'ExternalDataSchema',
+      LLMTrace: 'LLMTrace',
+      WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
+      CustomerProfileConfig: 'CustomerProfileConfig',
+      Log: 'Log',
+      LogsAlertConfiguration: 'LogsAlertConfiguration',
+      ProductTour: 'ProductTour',
+      Ticket: 'Ticket',
+    } as const;
+
+    /**
+     * * `Cohort` - Cohort
+    * `FeatureFlag` - FeatureFlag
+    * `Person` - Person
+    * `Group` - Group
+    * `Insight` - Insight
+    * `Plugin` - Plugin
+    * `PluginConfig` - PluginConfig
+    * `HogFunction` - HogFunction
+    * `HogFlow` - HogFlow
+    * `DataManagement` - DataManagement
+    * `EventDefinition` - EventDefinition
+    * `PropertyDefinition` - PropertyDefinition
+    * `Notebook` - Notebook
+    * `Endpoint` - Endpoint
+    * `EndpointVersion` - EndpointVersion
+    * `Dashboard` - Dashboard
+    * `Replay` - Replay
+    * `Experiment` - Experiment
+    * `ExperimentHoldout` - ExperimentHoldout
+    * `ExperimentSavedMetric` - ExperimentSavedMetric
+    * `Survey` - Survey
+    * `EarlyAccessFeature` - EarlyAccessFeature
+    * `SessionRecordingPlaylist` - SessionRecordingPlaylist
+    * `Comment` - Comment
+    * `Team` - Team
+    * `Project` - Project
+    * `ErrorTrackingIssue` - ErrorTrackingIssue
+    * `DataWarehouseSavedQuery` - DataWarehouseSavedQuery
+    * `Organization` - Organization
+    * `OrganizationDomain` - OrganizationDomain
+    * `OrganizationMembership` - OrganizationMembership
+    * `Role` - Role
+    * `UserGroup` - UserGroup
+    * `BatchExport` - BatchExport
+    * `BatchImport` - BatchImport
+    * `Integration` - Integration
+    * `Annotation` - Annotation
+    * `Tag` - Tag
+    * `TaggedItem` - TaggedItem
+    * `Subscription` - Subscription
+    * `PersonalAPIKey` - PersonalAPIKey
+    * `User` - User
+    * `Action` - Action
+    * `AlertConfiguration` - AlertConfiguration
+    * `Threshold` - Threshold
+    * `AlertSubscription` - AlertSubscription
+    * `ExternalDataSource` - ExternalDataSource
+    * `ExternalDataSchema` - ExternalDataSchema
+    * `LLMTrace` - LLMTrace
+    * `WebAnalyticsFilterPreset` - WebAnalyticsFilterPreset
+    * `CustomerProfileConfig` - CustomerProfileConfig
+    * `Log` - Log
+    * `LogsAlertConfiguration` - LogsAlertConfiguration
+    * `ProductTour` - ProductTour
+    * `Ticket` - Ticket
+     */
+    export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
+
+
+    export const ActivityLogListScopesItem = {
+      Cohort: 'Cohort',
+      FeatureFlag: 'FeatureFlag',
+      Person: 'Person',
+      Group: 'Group',
+      Insight: 'Insight',
+      Plugin: 'Plugin',
+      PluginConfig: 'PluginConfig',
+      HogFunction: 'HogFunction',
+      HogFlow: 'HogFlow',
+      DataManagement: 'DataManagement',
+      EventDefinition: 'EventDefinition',
+      PropertyDefinition: 'PropertyDefinition',
+      Notebook: 'Notebook',
+      Endpoint: 'Endpoint',
+      EndpointVersion: 'EndpointVersion',
+      Dashboard: 'Dashboard',
+      Replay: 'Replay',
+      Experiment: 'Experiment',
+      ExperimentHoldout: 'ExperimentHoldout',
+      ExperimentSavedMetric: 'ExperimentSavedMetric',
+      Survey: 'Survey',
+      EarlyAccessFeature: 'EarlyAccessFeature',
+      SessionRecordingPlaylist: 'SessionRecordingPlaylist',
+      Comment: 'Comment',
+      Team: 'Team',
+      Project: 'Project',
+      ErrorTrackingIssue: 'ErrorTrackingIssue',
+      DataWarehouseSavedQuery: 'DataWarehouseSavedQuery',
+      Organization: 'Organization',
+      OrganizationDomain: 'OrganizationDomain',
+      OrganizationMembership: 'OrganizationMembership',
+      Role: 'Role',
+      UserGroup: 'UserGroup',
+      BatchExport: 'BatchExport',
+      BatchImport: 'BatchImport',
+      Integration: 'Integration',
+      Annotation: 'Annotation',
+      Tag: 'Tag',
+      TaggedItem: 'TaggedItem',
+      Subscription: 'Subscription',
+      PersonalAPIKey: 'PersonalAPIKey',
+      User: 'User',
+      Action: 'Action',
+      AlertConfiguration: 'AlertConfiguration',
+      Threshold: 'Threshold',
+      AlertSubscription: 'AlertSubscription',
+      ExternalDataSource: 'ExternalDataSource',
+      ExternalDataSchema: 'ExternalDataSchema',
+      LLMTrace: 'LLMTrace',
+      WebAnalyticsFilterPreset: 'WebAnalyticsFilterPreset',
+      CustomerProfileConfig: 'CustomerProfileConfig',
+      Log: 'Log',
+      LogsAlertConfiguration: 'LogsAlertConfiguration',
+      ProductTour: 'ProductTour',
+      Ticket: 'Ticket',
     } as const;
 
     export type AlertsListParams = {

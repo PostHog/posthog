@@ -8,7 +8,7 @@
  */
 import * as zod from 'zod'
 
-export const ActionsListParams = zod.object({
+export const ActionsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -16,13 +16,13 @@ export const ActionsListParams = zod.object({
         ),
 })
 
-export const ActionsListQueryParams = zod.object({
+export const ActionsListQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
 })
 
-export const ActionsCreateParams = zod.object({
+export const ActionsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -30,7 +30,7 @@ export const ActionsCreateParams = zod.object({
         ),
 })
 
-export const ActionsCreateQueryParams = zod.object({
+export const ActionsCreateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
@@ -48,7 +48,7 @@ export const actionsCreateBodyStepsItemPropertiesItemFourTypeDefault = `event`
 export const actionsCreateBodyStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
 export const actionsCreateBodyStepsItemPropertiesItemFiveTypeDefault = `event`
 
-export const ActionsCreateBody = zod
+export const ActionsCreateBody = /* @__PURE__ */ zod
     .object({
         name: zod
             .string()
@@ -408,8 +408,7 @@ export const ActionsCreateBody = zod
             .describe(
                 'Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.'
             ),
-        pinned_at: zod
-            .string()
+        pinned_at: zod.iso
             .datetime({})
             .nullish()
             .describe(
@@ -419,7 +418,7 @@ export const ActionsCreateBody = zod
     })
     .describe('Serializer mixin that handles tags for objects.')
 
-export const ActionsRetrieveParams = zod.object({
+export const ActionsRetrieveParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this action.'),
     project_id: zod
         .string()
@@ -428,11 +427,11 @@ export const ActionsRetrieveParams = zod.object({
         ),
 })
 
-export const ActionsRetrieveQueryParams = zod.object({
+export const ActionsRetrieveQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
-export const ActionsPartialUpdateParams = zod.object({
+export const ActionsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this action.'),
     project_id: zod
         .string()
@@ -441,7 +440,7 @@ export const ActionsPartialUpdateParams = zod.object({
         ),
 })
 
-export const ActionsPartialUpdateQueryParams = zod.object({
+export const ActionsPartialUpdateQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })
 
@@ -459,7 +458,7 @@ export const actionsPartialUpdateBodyStepsItemPropertiesItemFourTypeDefault = `e
 export const actionsPartialUpdateBodyStepsItemPropertiesItemFourOperatorDefault = `is_date_exact`
 export const actionsPartialUpdateBodyStepsItemPropertiesItemFiveTypeDefault = `event`
 
-export const ActionsPartialUpdateBody = zod
+export const ActionsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod
             .string()
@@ -821,8 +820,7 @@ export const ActionsPartialUpdateBody = zod
             .describe(
                 'Action steps defining trigger conditions. Each step matches events by name, properties, URL, or element attributes. Multiple steps are OR-ed together.'
             ),
-        pinned_at: zod
-            .string()
+        pinned_at: zod.iso
             .datetime({})
             .nullish()
             .describe(
@@ -835,7 +833,7 @@ export const ActionsPartialUpdateBody = zod
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const ActionsDestroyParams = zod.object({
+export const ActionsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this action.'),
     project_id: zod
         .string()
@@ -844,6 +842,6 @@ export const ActionsDestroyParams = zod.object({
         ),
 })
 
-export const ActionsDestroyQueryParams = zod.object({
+export const ActionsDestroyQueryParams = /* @__PURE__ */ zod.object({
     format: zod.enum(['csv', 'json']).optional(),
 })

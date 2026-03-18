@@ -47,7 +47,6 @@ import { LLMAnalyticsTools } from './LLMAnalyticsTools'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
-import { LLMAnalyticsScoreDefinitions } from './scoreDefinitions/LLMAnalyticsScoreDefinitions'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
@@ -55,6 +54,7 @@ import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLo
 import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
+import { LLMAnalyticsHumanReviews } from './traceReviews/LLMAnalyticsHumanReviews'
 import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
 export const scene: SceneExport = {
@@ -517,7 +517,11 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                   {
                       key: 'reviews',
                       label: 'Human reviews',
-                      content: <LLMAnalyticsScoreDefinitions />,
+                      content: (
+                          <LLMAnalyticsSetupPrompt thing="trace">
+                              <LLMAnalyticsHumanReviews />
+                          </LLMAnalyticsSetupPrompt>
+                      ),
                       link: combineUrl(urls.llmAnalyticsReviews(), searchParams).url,
                       'data-attr': 'reviews-tab',
                   } as LemonTab<string>,

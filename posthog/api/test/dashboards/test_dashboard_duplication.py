@@ -91,6 +91,31 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
             self.tile_layout,
         ]
 
+    def test_deep_duplicate_copies_filters_overrides_and_show_description(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        insight_tile = next(t for t in dashboard_json["tiles"] if t["insight"] is not None)
+
+        # Set filters_overrides and show_description on the tile
+        filters_overrides = {"date_from": "-7d"}
+        insight_tile["filters_overrides"] = filters_overrides
+        insight_tile["show_description"] = True
+        self.dashboard_api.update_dashboard(dashboard_id, {"tiles": [insight_tile]})
+
+        duplicated = self.client.post(
+            f"/api/projects/{self.team.id}/dashboards/",
+            {"duplicate_tiles": True, "use_dashboard": dashboard_id, "name": "dup"},
+        ).json()
+
+        original_tile_ids = {t["id"] for t in dashboard_json["tiles"]}
+        new_tiles = [t for t in duplicated["tiles"] if t["id"] not in original_tile_ids]
+        new_insight_tile = next(t for t in new_tiles if t["insight"] is not None)
+
+        assert new_insight_tile["filters_overrides"] == filters_overrides
+        assert new_insight_tile["show_description"] is True
+
     @staticmethod
     def _tile_child_ids_from(dashboard_json: dict) -> list[int]:
         return [

@@ -1,7 +1,17 @@
+#![allow(dead_code, clippy::type_complexity)]
+
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use dashmap::DashMap;
+use personhog_proto::personhog::leader::v1::person_hog_leader_server::{
+    PersonHogLeader, PersonHogLeaderServer,
+};
+use personhog_proto::personhog::leader::v1::{
+    LeaderGetPersonRequest, UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::{
     PersonHogReplica, PersonHogReplicaServer,
 };
@@ -22,11 +32,12 @@ use personhog_proto::personhog::types::v1::{
     Person, PersonsByDistinctIdsInTeamResponse, PersonsByDistinctIdsResponse, PersonsResponse,
     UpsertHashKeyOverridesRequest, UpsertHashKeyOverridesResponse,
 };
-use personhog_router::backend::ReplicaBackend;
+use personhog_router::backend::{LeaderBackend, ReplicaBackend};
 use personhog_router::config::RetryConfig;
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
 use tokio::net::TcpListener;
+use tokio::sync::RwLock;
 use tonic::transport::{Channel, Server};
 use tonic::{Request, Response, Status};
 
@@ -350,4 +361,162 @@ pub fn create_test_person() -> Person {
         is_user_id: None,
         last_seen_at: None,
     }
+}
+
+// ============================================================
+// Leader test helpers
+// ============================================================
+
+/// A simple in-memory leader service for integration tests.
+/// Stores persons keyed by (team_id, person_id), ignoring partition for lookups.
+pub struct TestLeaderService {
+    persons: DashMap<(i64, i64), Person>,
+}
+
+impl TestLeaderService {
+    pub fn new() -> Self {
+        Self {
+            persons: DashMap::new(),
+        }
+    }
+
+    pub fn with_person(self, person: Person) -> Self {
+        self.persons.insert((person.team_id, person.id), person);
+        self
+    }
+}
+
+#[tonic::async_trait]
+impl PersonHogLeader for TestLeaderService {
+    async fn get_person(
+        &self,
+        request: Request<LeaderGetPersonRequest>,
+    ) -> Result<Response<GetPersonResponse>, Status> {
+        let req = request.into_inner();
+        let person = self
+            .persons
+            .get(&(req.team_id, req.person_id))
+            .map(|entry| entry.value().clone());
+
+        match person {
+            Some(p) => Ok(Response::new(GetPersonResponse { person: Some(p) })),
+            None => Err(Status::not_found(format!(
+                "person not found: team_id={}, person_id={}",
+                req.team_id, req.person_id
+            ))),
+        }
+    }
+
+    async fn update_person_properties(
+        &self,
+        request: Request<UpdatePersonPropertiesRequest>,
+    ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
+        let req = request.into_inner();
+        let key = (req.team_id, req.person_id);
+
+        let mut person = self
+            .persons
+            .get(&key)
+            .map(|entry| entry.value().clone())
+            .ok_or_else(|| {
+                Status::not_found(format!(
+                    "person not found: team_id={}, person_id={}",
+                    req.team_id, req.person_id
+                ))
+            })?;
+
+        // Merge $set properties into existing properties
+        if !req.set_properties.is_empty() {
+            let set: serde_json::Value =
+                serde_json::from_slice(&req.set_properties).unwrap_or_default();
+            let mut existing: serde_json::Value =
+                serde_json::from_slice(&person.properties).unwrap_or_default();
+            if let (Some(existing_map), Some(set_map)) = (existing.as_object_mut(), set.as_object())
+            {
+                for (k, v) in set_map {
+                    existing_map.insert(k.clone(), v.clone());
+                }
+            }
+            person.properties = serde_json::to_vec(&existing).unwrap_or_default();
+        }
+
+        person.version += 1;
+        self.persons.insert(key, person.clone());
+
+        Ok(Response::new(UpdatePersonPropertiesResponse {
+            person: Some(person),
+            updated: true,
+        }))
+    }
+}
+
+/// Start a test leader server on a random port and return its address.
+pub async fn start_test_leader(service: TestLeaderService) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogLeaderServer::new(service))
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    addr
+}
+
+/// Start a test router with both replica and leader backends.
+/// All partitions are mapped to the given leader address.
+pub async fn start_test_router_with_leader(
+    replica_addr: SocketAddr,
+    leader_addr: SocketAddr,
+    num_partitions: u32,
+) -> SocketAddr {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let retry_config = RetryConfig {
+        max_retries: 1,
+        initial_backoff_ms: 1,
+        max_backoff_ms: 1,
+    };
+
+    // Replica backend
+    let replica_url = format!("http://{}", replica_addr);
+    let replica = ReplicaBackend::new(&replica_url, Duration::from_secs(5), retry_config).unwrap();
+
+    // Leader backend: all partitions → "leader-0", resolver → leader_addr
+    let mut routing = HashMap::new();
+    for p in 0..num_partitions {
+        routing.insert(p, "leader-0".to_string());
+    }
+    let routing_table = Arc::new(RwLock::new(routing));
+    let leader_url = format!("http://{}", leader_addr);
+    let address_resolver: Arc<dyn Fn(&str) -> Option<String> + Send + Sync> =
+        Arc::new(move |_pod_name| Some(leader_url.clone()));
+    let leader = LeaderBackend::new(
+        routing_table,
+        address_resolver,
+        num_partitions,
+        Duration::from_secs(5),
+        retry_config,
+    );
+
+    let router = PersonHogRouter::new(Arc::new(replica)).with_leader(Arc::new(leader));
+    let service = PersonHogRouterService::new(Arc::new(router));
+
+    tokio::spawn(async move {
+        Server::builder()
+            .add_service(PersonHogServiceServer::new(service))
+            .serve_with_incoming(tokio_stream::wrappers::TcpListenerStream::new(listener))
+            .await
+            .unwrap();
+    });
+
+    tokio::time::sleep(Duration::from_millis(10)).await;
+
+    addr
 }

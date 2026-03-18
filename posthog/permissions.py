@@ -472,11 +472,7 @@ class APIScopePermission(ScopeBasePermission):
         # API Scopes apply to PersonalAPIKeyAuthentication and OAuthAccessTokenAuthentication
 
         if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
-            key_scopes = request.successful_authenticator.personal_api_key.scopes
-            # TRICKY: Legacy Personal API keys have scopes=None and are allowed to do anything.
-            # Must use `is None` — an empty list [] is NOT legacy and must be denied.
-            if key_scopes is None:
-                return True
+            key_scopes = request.successful_authenticator.personal_api_key.scopes or []
         elif isinstance(request.successful_authenticator, OAuthAccessTokenAuthentication):
             # OAuth tokens store scopes as space-separated string
             token_scope_string = request.successful_authenticator.access_token.scope
@@ -534,7 +530,7 @@ class APIScopePermission(ScopeBasePermission):
                 if team.id not in scoped_teams:
                     raise PermissionDenied(f"API key does not have access to the requested project: ID {team.id}.")
             except (KeyError, AttributeError):
-                raise PermissionDenied(f"API keys with scoped projects are only supported on project-based endpoints.")
+                raise PermissionDenied("API keys with scoped projects are only supported on project-based endpoints.")
 
         if scoped_organizations:
             try:

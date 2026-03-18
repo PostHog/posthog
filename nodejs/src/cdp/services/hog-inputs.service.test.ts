@@ -20,7 +20,7 @@ describe('Hog Inputs', () => {
         await resetTestDatabase()
         hub = await createHub()
         hub.SITE_URL = 'http://localhost:8000'
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         const fixedTime = DateTime.fromObject({ year: 2025, month: 1, day: 1 }, { zone: 'UTC' })
         jest.spyOn(Date, 'now').mockReturnValue(fixedTime.toMillis())

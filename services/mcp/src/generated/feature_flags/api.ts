@@ -13,7 +13,7 @@ import * as zod from 'zod'
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsListParams = zod.object({
+export const FeatureFlagsListParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -21,7 +21,7 @@ export const FeatureFlagsListParams = zod.object({
         ),
 })
 
-export const FeatureFlagsListQueryParams = zod.object({
+export const FeatureFlagsListQueryParams = /* @__PURE__ */ zod.object({
     active: zod.enum(['STALE', 'false', 'true']).optional(),
     created_by_id: zod.string().optional().describe('The User ID which initially created the feature flag.'),
     evaluation_runtime: zod
@@ -50,7 +50,7 @@ export const FeatureFlagsListQueryParams = zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsCreateParams = zod.object({
+export const FeatureFlagsCreateParams = /* @__PURE__ */ zod.object({
     project_id: zod
         .string()
         .describe(
@@ -58,7 +58,7 @@ export const FeatureFlagsCreateParams = zod.object({
         ),
 })
 
-export const FeatureFlagsCreateBody = zod.object({
+export const FeatureFlagsCreateBody = /* @__PURE__ */ zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
     name: zod
         .string()
@@ -342,7 +342,7 @@ export const FeatureFlagsCreateBody = zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsRetrieve2Params = zod.object({
+export const FeatureFlagsRetrieve2Params = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -356,7 +356,7 @@ export const FeatureFlagsRetrieve2Params = zod.object({
 
 If you're looking to use feature flags on your application, you can either use our JavaScript Library or our dedicated endpoint to check if feature flags are enabled for a given user.
  */
-export const FeatureFlagsPartialUpdateParams = zod.object({
+export const FeatureFlagsPartialUpdateParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
@@ -365,7 +365,7 @@ export const FeatureFlagsPartialUpdateParams = zod.object({
         ),
 })
 
-export const FeatureFlagsPartialUpdateBody = zod.object({
+export const FeatureFlagsPartialUpdateBody = /* @__PURE__ */ zod.object({
     key: zod.string().optional().describe('Feature flag key.'),
     name: zod
         .string()
@@ -647,7 +647,7 @@ export const FeatureFlagsPartialUpdateBody = zod.object({
 /**
  * Hard delete of this model is not allowed. Use a patch API call to set "deleted" to true
  */
-export const FeatureFlagsDestroyParams = zod.object({
+export const FeatureFlagsDestroyParams = /* @__PURE__ */ zod.object({
     id: zod.number().describe('A unique integer value identifying this feature flag.'),
     project_id: zod
         .string()
