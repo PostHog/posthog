@@ -81,7 +81,6 @@ EXCEPTIONS_TO_RETRY = (
     ClickHouseAtCapacity,
     SocketTimeoutError,
     SSLError,
-    TimeoutException,  # Selenium page-load timeout - transient under heavy load
 )
 
 USER_QUERY_ERRORS = (
