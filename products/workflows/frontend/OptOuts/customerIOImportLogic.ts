@@ -47,7 +47,7 @@ export interface CSVImportProgress {
 export const customerIOImportLogic = kea<customerIOImportLogicType>([
     path(['products', 'workflows', 'customerIOImportLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamIdStrict']],
     })),
     actions({
         openImportModal: true,
@@ -186,7 +186,7 @@ export const customerIOImportLogic = kea<customerIOImportLogicType>([
 
             try {
                 const response = await fetch(
-                    `/api/environments/${values.currentTeamId}/messaging_categories/import_preferences_csv/`,
+                    `/api/environments/${values.currentTeamIdStrict}/messaging_categories/import_preferences_csv/`,
                     {
                         method: 'POST',
                         body: formData,

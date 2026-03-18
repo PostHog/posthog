@@ -29,7 +29,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
     path(['scenes', 'health', 'healthSceneLogic']),
     tabAwareScene(),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeamId']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeamIdStrict']],
     }),
     actions({
         setShowDismissed: (show: boolean) => ({ show }),
@@ -67,7 +67,7 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
                     }
 
                     const queryString = new URLSearchParams(params).toString()
-                    const url = `api/environments/${values.currentTeamId}/health_issues/?${queryString}`
+                    const url = `api/environments/${values.currentTeamIdStrict}/health_issues/?${queryString}`
 
                     return await api.get(url)
                 },
@@ -147,7 +147,9 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         },
         dismissIssue: async ({ id }) => {
             try {
-                await api.update(`api/environments/${values.currentTeamId}/health_issues/${id}/`, { dismissed: true })
+                await api.update(`api/environments/${values.currentTeamIdStrict}/health_issues/${id}/`, {
+                    dismissed: true,
+                })
                 actions.loadHealthIssues()
                 unifiedHealthMenuLogic.actions.loadHealthSummary()
             } catch {
@@ -156,7 +158,9 @@ export const healthSceneLogic = kea<healthSceneLogicType>([
         },
         undismissIssue: async ({ id }) => {
             try {
-                await api.update(`api/environments/${values.currentTeamId}/health_issues/${id}/`, { dismissed: false })
+                await api.update(`api/environments/${values.currentTeamIdStrict}/health_issues/${id}/`, {
+                    dismissed: false,
+                })
                 actions.loadHealthIssues()
                 unifiedHealthMenuLogic.actions.loadHealthSummary()
             } catch {

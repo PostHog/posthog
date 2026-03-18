@@ -22,7 +22,7 @@ export interface ClusteringConfig {
 
 export const clusteringConfigLogic = kea<clusteringConfigLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clusteringConfigLogic']),
-    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
+    connect(() => ({ values: [teamLogic, ['currentTeamIdStrict']] })),
 
     actions({
         openSettingsPanel: true,
@@ -36,13 +36,13 @@ export const clusteringConfigLogic = kea<clusteringConfigLogicType>([
             {
                 loadConfig: async () => {
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/llm_analytics/clustering_config/`
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_config/`
                     )
                     return response as ClusteringConfig
                 },
                 saveEventFilters: async () => {
                     const response = await api.create(
-                        `api/environments/${values.currentTeamId}/llm_analytics/clustering_config/set_event_filters/`,
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_config/set_event_filters/`,
                         {
                             event_filters: values.localEventFilters,
                         }

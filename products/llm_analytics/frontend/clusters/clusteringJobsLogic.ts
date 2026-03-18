@@ -11,7 +11,7 @@ import type { ClusteringJob } from './types'
 
 export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clusteringJobsLogic']),
-    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
+    connect(() => ({ values: [teamLogic, ['currentTeamIdStrict']] })),
 
     actions({
         openJobsPanel: true,
@@ -26,28 +26,31 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
             {
                 loadJobs: async () => {
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/llm_analytics/clustering_jobs/`
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
                     return (response.results ?? response) as ClusteringJob[]
                 },
                 createJob: async (payload: Partial<ClusteringJob>) => {
-                    await api.create(`api/environments/${values.currentTeamId}/llm_analytics/clustering_jobs/`, payload)
+                    await api.create(
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`,
+                        payload
+                    )
                     lemonToast.success('Clustering job created')
                     // Reload to get server-assigned fields
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/llm_analytics/clustering_jobs/`
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
                     return (response.results ?? response) as ClusteringJob[]
                 },
                 updateJob: async (payload: Partial<ClusteringJob> & { id: number }) => {
                     const { id, ...data } = payload
                     await api.update(
-                        `api/environments/${values.currentTeamId}/llm_analytics/clustering_jobs/${id}/`,
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/${id}/`,
                         data
                     )
                     lemonToast.success('Clustering job updated')
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/llm_analytics/clustering_jobs/`
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/`
                     )
                     return (response.results ?? response) as ClusteringJob[]
                 },
@@ -78,7 +81,9 @@ export const clusteringJobsLogic = kea<clusteringJobsLogicType>([
         },
         deleteJob: async ({ jobId }) => {
             try {
-                await api.delete(`api/environments/${values.currentTeamId}/llm_analytics/clustering_jobs/${jobId}/`)
+                await api.delete(
+                    `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_jobs/${jobId}/`
+                )
                 lemonToast.success('Clustering job deleted')
                 posthog.capture('llma clustering job deleted', { job_id: jobId })
                 actions.loadJobs()

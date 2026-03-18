@@ -20,7 +20,7 @@ export interface EventIngestionRestriction {
 export const eventIngestionRestrictionLogic = kea<eventIngestionRestrictionLogicType>([
     path(['lib', 'logic', 'eventIngestionRestrictionLogic']),
 
-    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
+    connect(() => ({ values: [teamLogic, ['currentTeamIdStrict']] })),
 
     lazyLoaders(({ values }) => ({
         eventIngestionRestrictions: {
@@ -28,7 +28,7 @@ export const eventIngestionRestrictionLogic = kea<eventIngestionRestrictionLogic
             loadEventIngestionRestrictions: async () => {
                 try {
                     const response = await api.get(
-                        `api/environments/${values.currentTeamId}/event_ingestion_restrictions/`
+                        `api/environments/${values.currentTeamIdStrict}/event_ingestion_restrictions/`
                     )
                     return response
                 } catch (error) {

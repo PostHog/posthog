@@ -31,7 +31,7 @@ export const REFRESH_INTERVAL = 60 * 1000 * 5 // 5 minutes
 export const sidePanelHealthLogic = kea<sidePanelHealthLogicType>([
     path(['scenes', 'navigation', 'sidepanel', 'sidePanelHealthLogic']),
     connect({
-        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeamId']],
+        values: [featureFlagLogic, ['featureFlags'], teamLogic, ['currentTeamIdStrict']],
     }),
 
     actions({
@@ -59,7 +59,7 @@ export const sidePanelHealthLogic = kea<sidePanelHealthLogicType>([
                     }
                     try {
                         const response = await api.get<DataHealthIssuesResponse>(
-                            `api/environments/${values.currentTeamId}/data_warehouse/data_health_issues/`
+                            `api/environments/${values.currentTeamIdStrict}/data_warehouse/data_health_issues/`
                         )
                         return response
                     } catch (error) {

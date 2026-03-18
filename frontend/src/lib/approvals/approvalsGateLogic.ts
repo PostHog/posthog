@@ -13,7 +13,7 @@ export const approvalsGateLogic = kea<approvalsGateLogicType>([
     path(['lib', 'approvals', 'approvalsGateLogic']),
 
     connect(() => ({
-        values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeamId']],
+        values: [userLogic, ['hasAvailableFeature'], teamLogic, ['currentTeamIdStrict']],
     })),
 
     loaders(({ values }) => ({
@@ -26,7 +26,9 @@ export const approvalsGateLogic = kea<approvalsGateLogicType>([
                     }
 
                     try {
-                        const response = await api.get(`api/environments/${values.currentTeamId}/approval_policies/`)
+                        const response = await api.get(
+                            `api/environments/${values.currentTeamIdStrict}/approval_policies/`
+                        )
                         return (response.results || []).filter((p: ApprovalPolicy) => p.enabled)
                     } catch {
                         return []

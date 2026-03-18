@@ -28,7 +28,7 @@ export interface MessageTemplate {
 export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
     path(['products', 'workflows', 'frontend', 'library', 'messageTemplatesLogic']),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamIdStrict']],
     })),
     actions({
         setSearch: (search: string) => ({ search }),
@@ -48,7 +48,7 @@ export const messageTemplatesLogic = kea<messageTemplatesLogicType>([
                 },
                 deleteTemplate: async (template: MessageTemplate) => {
                     await deleteWithUndo({
-                        endpoint: `environments/${values.currentTeamId}/messaging_templates`,
+                        endpoint: `environments/${values.currentTeamIdStrict}/messaging_templates`,
                         object: {
                             id: template.id,
                             name: template.name,

@@ -11,14 +11,14 @@ const REFRESH_INTERVAL = 60 * 1000 * 5
 
 export const unifiedHealthMenuLogic = kea<unifiedHealthMenuLogicType>([
     path(['lib', 'components', 'HealthMenu', 'unifiedHealthMenuLogic']),
-    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
+    connect(() => ({ values: [teamLogic, ['currentTeamIdStrict']] })),
     loaders(({ values }) => ({
         healthSummary: [
             null as HealthIssueSummary | null,
             {
                 loadHealthSummary: async (): Promise<HealthIssueSummary | null> => {
                     try {
-                        return await api.get(`api/environments/${values.currentTeamId}/health_issues/summary/`)
+                        return await api.get(`api/environments/${values.currentTeamIdStrict}/health_issues/summary/`)
                     } catch {
                         return null
                     }

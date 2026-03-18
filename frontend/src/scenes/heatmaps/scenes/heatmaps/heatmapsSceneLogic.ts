@@ -23,7 +23,7 @@ export const HEATMAPS_PER_PAGE = 30
 
 export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
     path(['scenes', 'heatmaps', 'scenes', 'heatmaps', 'heatmapsSceneLogic']),
-    connect(() => ({ values: [teamLogic, ['currentTeamId']] })),
+    connect(() => ({ values: [teamLogic, ['currentTeamIdStrict']] })),
     actions({
         loadSavedHeatmaps: true,
         setSavedHeatmaps: (items: HeatmapScreenshotType[]) => ({ items }),
@@ -105,7 +105,7 @@ export const heatmapsSceneLogic = kea<heatmapsSceneLogicType>([
                 object,
                 idField: 'short_id',
                 // project/environment-scoped API path; backend must support soft-delete via PATCH
-                endpoint: `environments/${values.currentTeamId}/saved`,
+                endpoint: `environments/${values.currentTeamIdStrict}/saved`,
                 callback: () => actions.loadSavedHeatmaps(),
             })
         },

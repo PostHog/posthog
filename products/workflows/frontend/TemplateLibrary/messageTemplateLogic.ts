@@ -23,7 +23,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
     props({} as MessageTemplateLogicProps),
     key(({ id }) => id ?? 'new'),
     connect(() => ({
-        values: [teamLogic, ['currentTeamId']],
+        values: [teamLogic, ['currentTeamIdStrict']],
     })),
     actions({
         setTemplate: (template: MessageTemplate) => ({ template }),
@@ -148,7 +148,7 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
                 return
             }
             await deleteWithUndo({
-                endpoint: `environments/${values.currentTeamId}/messaging_templates`,
+                endpoint: `environments/${values.currentTeamIdStrict}/messaging_templates`,
                 object: {
                     id: template.id,
                     name: template.name,

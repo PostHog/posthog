@@ -91,7 +91,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             userLogic,
             ['hasAvailableFeature'],
             teamLogic,
-            ['currentTeamId', 'currentProjectId'],
+            ['currentTeamIdStrict', 'currentProjectId'],
         ],
     })),
 
@@ -232,7 +232,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
                 loadExports: async () => {
                     const params = new URLSearchParams()
                     params.append('context_path', '/advanced_activity_logs/')
-                    const response = await api.get(`api/environments/${values.currentTeamId}/exports/?${params}`)
+                    const response = await api.get(`api/environments/${values.currentTeamIdStrict}/exports/?${params}`)
                     return response.results || []
                 },
             },

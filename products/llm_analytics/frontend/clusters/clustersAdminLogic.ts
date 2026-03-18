@@ -59,7 +59,7 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
     path(['products', 'llm_analytics', 'frontend', 'clusters', 'clustersAdminLogic']),
 
     connect({
-        values: [clusteringConfigLogic, ['config', 'configLoading'], teamLogic, ['currentTeamId']],
+        values: [clusteringConfigLogic, ['config', 'configLoading'], teamLogic, ['currentTeamIdStrict']],
     }),
 
     actions({
@@ -93,7 +93,7 @@ export const clustersAdminLogic = kea<clustersAdminLogicType>([
             {
                 triggerClusteringRun: async () => {
                     const response = await api.create(
-                        `api/environments/${values.currentTeamId}/llm_analytics/clustering_runs`,
+                        `api/environments/${values.currentTeamIdStrict}/llm_analytics/clustering_runs`,
                         values.params
                     )
                     return response as ClusteringRunResponse
