@@ -2,8 +2,8 @@
 /**
  * Lint check: ensures MCP tool names don't exceed the length limit.
  *
- * MCP clients (e.g., Claude Code) enforce a combined server+tool name length
- * limit of 60 characters. With server name "posthog" (7 chars), tool names
+ * Some MCP clients (notably Cursor) enforce a 60-character combined limit on
+ * server_name + tool_name. With server name "posthog" (7 chars), tool names
  * must be <= 52 chars.
  *
  * Usage:
@@ -54,7 +54,7 @@ function main(): void {
 
     process.stderr.write(
         `Found ${violations.length} tool name(s) exceeding ${MAX_TOOL_NAME_LENGTH}-char limit ` +
-            `(combined server "posthog" + tool must be < 60):\n\n`
+            `(Cursor enforces a 60-char combined server+tool name limit, "posthog" is 7 chars):\n\n`
     )
     for (const v of violations) {
         process.stderr.write(`  ${v.tool} (${v.length} chars) in ${v.file}\n`)
