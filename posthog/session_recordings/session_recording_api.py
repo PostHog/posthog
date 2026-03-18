@@ -57,7 +57,12 @@ from posthog.schema import (
 from posthog.api.person import MinimalPersonSerializer
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_string
-from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
+from posthog.auth import (
+    JwtAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    SharingAccessTokenAuthentication,
+)
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.constants import AvailableFeature
@@ -151,10 +156,15 @@ tracer = trace.get_tracer(__name__)
 
 
 def _request_auth_type(request) -> str:
-    if isinstance(getattr(request, "successful_authenticator", None), PersonalAPIKeyAuthentication):
+    authenticator = getattr(request, "successful_authenticator", None)
+    if isinstance(authenticator, PersonalAPIKeyAuthentication):
         return "personal_api_key"
-    if isinstance(getattr(request, "successful_authenticator", None), SharingAccessTokenAuthentication):
+    if isinstance(authenticator, SharingAccessTokenAuthentication):
         return "shared"
+    if isinstance(authenticator, OAuthAccessTokenAuthentication):
+        return "oauth"
+    if isinstance(authenticator, JwtAuthentication):
+        return "jwt"
     return "logged_in"
 
 
