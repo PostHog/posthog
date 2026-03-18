@@ -59,14 +59,14 @@ def _safe_convert_datetime(obj: Any) -> datetime.datetime | None:
         sec_parts = time_parts[2].split(".", 1)
         seconds = int(sec_parts[0])
         microseconds = int(sec_parts[1].ljust(6, "0")) if len(sec_parts) > 1 else 0
-        return datetime.datetime(*date_values, hours, minutes, seconds, microseconds)
+        return datetime.datetime(date_values[0], date_values[1], date_values[2], hours, minutes, seconds, microseconds)
     except (ValueError, IndexError, AttributeError):
         return None
 
 
 # Custom conversions that return None for MySQL zero dates instead of raw strings
 _MYSQL_SAFE_CONVERSIONS: dict[int, Any] = {
-    **pymysql.converters.conversions,
+    **dict(pymysql.converters.conversions),
     FIELD_TYPE.DATE: _safe_convert_date,
     FIELD_TYPE.DATETIME: _safe_convert_datetime,
     FIELD_TYPE.TIMESTAMP: _safe_convert_datetime,
