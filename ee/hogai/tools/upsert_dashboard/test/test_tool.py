@@ -354,6 +354,7 @@ class TestUpsertDashboardTool(BaseTest):
         action = UpdateDashboardToolArgs(
             dashboard_id=str(dashboard.id),
             insight_ids=[insight_a_new.short_id, insight_b_new.short_id],
+            layout_mode="reflow_all",
         )
 
         await tool._arun_impl(action)
@@ -368,6 +369,48 @@ class TestUpsertDashboardTool(BaseTest):
         sorted_tiles = DashboardTile.sort_tiles_by_layout(active_tiles)
         self.assertEqual(sorted_tiles[0].insight_id, insight_a_new.id)
         self.assertEqual(sorted_tiles[1].insight_id, insight_b_new.id)
+
+    async def test_add_insight_preserves_existing_layouts_by_default(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard with custom layout",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("Insight A")
+        insight_b = await self._create_insight("Insight B")
+        insight_c = await self._create_insight("Insight C")
+
+        tile_a = await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_a,
+            layouts={"sm": {"x": 0, "y": 0, "w": 8, "h": 7}, "xs": {"x": 0, "y": 0, "w": 1, "h": 5}},
+        )
+        tile_b = await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_b,
+            layouts={"sm": {"x": 8, "y": 0, "w": 4, "h": 6}, "xs": {"x": 0, "y": 5, "w": 1, "h": 5}},
+        )
+
+        original_layout_a = tile_a.layouts.copy()
+        original_layout_b = tile_b.layouts.copy()
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id, insight_c.short_id],
+        )
+
+        await tool._arun_impl(action)
+
+        await tile_a.arefresh_from_db()
+        await tile_b.arefresh_from_db()
+
+        self.assertEqual(tile_a.layouts, original_layout_a)
+        self.assertEqual(tile_b.layouts, original_layout_b)
+
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        self.assertEqual(tile_c.layouts, {})
 
     @parameterized.expand(
         [
@@ -545,6 +588,7 @@ class TestUpsertDashboardTool(BaseTest):
         action = UpdateDashboardToolArgs(
             dashboard_id=str(dashboard.id),
             insight_ids=[insight_b.short_id, insight_d.short_id, insight_a.short_id, insight_e.short_id],
+            layout_mode="reflow_all",
         )
 
         result, _ = await tool._arun_impl(action)
@@ -609,6 +653,7 @@ class TestUpsertDashboardTool(BaseTest):
         action = UpdateDashboardToolArgs(
             dashboard_id=str(dashboard.id),
             insight_ids=[insight_b.short_id, insight_d.short_id, insight_a.short_id, insight_e.short_id],
+            layout_mode="reflow_all",
         )
 
         result, _ = await tool._arun_impl(action)
@@ -636,14 +681,15 @@ class TestUpsertDashboardTool(BaseTest):
             self.assertIn("sm", tile.layouts)
             self.assertIn("y", tile.layouts["sm"])
 
-    async def test_update_preserves_existing_insight_tiles(self):
+    async def test_reflow_all_updates_existing_insight_tiles(self):
         """
-        Test that existing insights keep their original tiles with updated coordinates.
+        Test that reflow_all keeps tile IDs while rewriting layout.
 
         When updating a dashboard:
         - Existing insights that remain keep their tile IDs
         - Their layouts are updated based on position in insight_ids
-        - Sizes (w, h) are preserved, coordinates (x, y) are updated
+        - Heights are preserved
+        - Widths are equalized per row when there is horizontal gap
         """
         dashboard = await Dashboard.objects.acreate(
             team=self.team,
@@ -671,6 +717,7 @@ class TestUpsertDashboardTool(BaseTest):
         action = UpdateDashboardToolArgs(
             dashboard_id=str(dashboard.id),
             insight_ids=[insight_b.short_id, insight_a.short_id],
+            layout_mode="reflow_all",
         )
 
         await tool._arun_impl(action)
@@ -683,29 +730,66 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(tile_a.id, original_tile_a_id)
         self.assertEqual(tile_b.id, original_tile_b_id)
 
-        # Sizes are preserved
-        self.assertEqual(tile_a.layouts["sm"]["w"], 8)
+        # Heights are preserved and single-tile rows are widened to fill.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 12)
         self.assertEqual(tile_a.layouts["sm"]["h"], 7)
-        self.assertEqual(tile_b.layouts["sm"]["w"], 10)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 12)
         self.assertEqual(tile_b.layouts["sm"]["h"], 6)
 
         # Coordinates are updated based on order
-        # B (w=10, wide) at position 0: x=0, y=0
-        # A (w=8, wide) at position 1: x=0, y=6 (below B which has h=6)
+        # B at position 0: x=0, y=0
+        # A at position 1: x=0, y=6 (below B which has h=6)
         self.assertEqual(tile_b.layouts["sm"]["x"], 0)
         self.assertEqual(tile_b.layouts["sm"]["y"], 0)
         self.assertEqual(tile_a.layouts["sm"]["x"], 0)
         self.assertEqual(tile_a.layouts["sm"]["y"], 6)
 
-    async def test_two_column_flow_layout_algorithm(self):
+    async def test_reflow_all_preserves_existing_xs_heights(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard preserve xs heights",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_a,
+            layouts={"sm": {"x": 0, "y": 0, "w": 8, "h": 5}, "xs": {"x": 0, "y": 0, "w": 1, "h": 9}},
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_b,
+            layouts={"sm": {"x": 8, "y": 0, "w": 4, "h": 4}, "xs": {"x": 0, "y": 9, "w": 1, "h": 3}},
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+
+        self.assertEqual(tile_a.layouts["xs"]["h"], 9)
+        self.assertEqual(tile_b.layouts["xs"]["h"], 3)
+        self.assertEqual(tile_a.layouts["xs"]["y"], 0)
+        self.assertEqual(tile_b.layouts["xs"]["y"], 9)
+
+    async def test_reflow_all_compacts_layout_and_preserves_sizes(self):
         """
-        Test the 2-column flow layout algorithm.
+        Test row compaction for reflow_all.
 
         Rules:
-        - Half-width tiles (w<=6) flow left-to-right into 2 columns
-        - Full-width tiles (w>6) span both columns
-        - Tiles are placed in the column with lower Y (prefers left when equal)
-        - Original widths and heights are preserved
+        - Tile order is preserved
+        - Row heights are normalized to the tallest tile in the row
+        - Full-width single-tile rows stay unchanged
+        - Rows are stacked without overlap
         """
         dashboard = await Dashboard.objects.acreate(
             team=self.team,
@@ -749,6 +833,7 @@ class TestUpsertDashboardTool(BaseTest):
                 insight_d.short_id,
                 insight_e.short_id,
             ],
+            layout_mode="reflow_all",
         )
 
         await tool._arun_impl(action)
@@ -766,25 +851,30 @@ class TestUpsertDashboardTool(BaseTest):
 
         # Expected layout:
         # A (w=6, h=5): x=0, y=0 (left column, first)
-        # B (w=6, h=4): x=6, y=0 (right column, left_y=5 > right_y=0, so goes right)
+        # B (w=6, h=4): x=6, y=0 (fills top row gap on the right)
         # C (w=12, h=3): x=0, y=5 (full width, below max(5, 4)=5)
         # D (w=6, h=5): x=0, y=8 (left column, both at y=8 after C)
         # E (w=6, h=6): x=6, y=8 (right column)
 
-        # Verify widths and heights preserved
+        # Verify widths and heights
         self.assertEqual(tile_a.layouts["sm"]["w"], 6)
         self.assertEqual(tile_a.layouts["sm"]["h"], 5)
         self.assertEqual(tile_b.layouts["sm"]["w"], 6)
-        self.assertEqual(tile_b.layouts["sm"]["h"], 4)
+        # First row height is normalized to tallest tile (A has h=5).
+        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
         self.assertEqual(tile_c.layouts["sm"]["w"], 12)
+        # Full-width single row remains unchanged.
         self.assertEqual(tile_c.layouts["sm"]["h"], 3)
+        # Third row height is normalized to tallest tile (E has h=6).
+        self.assertEqual(tile_d.layouts["sm"]["h"], 6)
+        self.assertEqual(tile_e.layouts["sm"]["h"], 6)
 
         # Verify coordinates
         # A: first tile, goes to left column
         self.assertEqual(tile_a.layouts["sm"]["x"], 0)
         self.assertEqual(tile_a.layouts["sm"]["y"], 0)
 
-        # B: second tile, left_y=5, right_y=0, goes to right column (lower Y)
+        # B: second tile fills the top-right gap
         self.assertEqual(tile_b.layouts["sm"]["x"], 6)
         self.assertEqual(tile_b.layouts["sm"]["y"], 0)
 
@@ -796,9 +886,619 @@ class TestUpsertDashboardTool(BaseTest):
         self.assertEqual(tile_d.layouts["sm"]["x"], 0)
         self.assertEqual(tile_d.layouts["sm"]["y"], 8)
 
-        # E: left_y=13, right_y=8, goes to right column
+        # E: follows D in the same row
         self.assertEqual(tile_e.layouts["sm"]["x"], 6)
         self.assertEqual(tile_e.layouts["sm"]["y"], 8)
+
+    async def test_reflow_all_fills_top_row_gap_for_mixed_widths(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard mixed widths",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 8, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 0, "y": 4, "w": 4, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 4, "y": 4, "w": 4, "h": 2}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id, insight_c.short_id],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        tiles = {
+            t.insight_id: t async for t in DashboardTile.objects.filter(dashboard=dashboard).select_related("insight")
+        }
+
+        tile_a = tiles[insight_a.id]
+        tile_b = tiles[insight_b.id]
+        tile_c = tiles[insight_c.id]
+
+        # First row stays [A, B] because it already fills 12 columns.
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 12)
+        # C is alone in row 2, so it expands to fill the row.
+        self.assertEqual(tile_c.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 4)
+
+    async def test_reflow_all_equalizes_partial_row_widths(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard equal width scaling",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 8, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 8, "y": 0, "w": 2, "h": 5}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+
+        # Row width 10 is expanded to 12 with equal split for two tiles.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+
+    async def test_reflow_all_equalizes_three_tile_row_with_gap(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard three tile equalization",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 4, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 4, "y": 0, "w": 2, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 6, "y": 0, "w": 2, "h": 4}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id, insight_c.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+
+        # Row total width 8 is expanded to 12 as equal thirds.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 4)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 8)
+        # Row heights normalized to tallest tile (A has h=5).
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
+
+    async def test_reflow_all_adapts_inserted_large_middle_tile_to_row(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard middle insertion",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+
+        # Existing row with A and B, each taking a third, with a gap in between.
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 4, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 8, "y": 0, "w": 4, "h": 4}}
+        )
+        # New/moved large tile that would normally overflow after A (4 + 10 > 12).
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 8, "w": 10, "h": 6}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_c.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+
+        # All three should stay in one row and adapt to equal thirds.
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
+        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
+        # Height normalized to tallest in row (tile C h=6).
+        self.assertEqual(tile_a.layouts["sm"]["h"], 6)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 6)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+
+    async def test_reflow_all_adapts_third_tile_into_two_half_width_tiles_row(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard half width insertion",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 8, "w": 4, "h": 3}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_c.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+
+        # Two half-width tiles plus inserted third tile should compact to one equal row.
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
+        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        # Row height normalized to tallest tile in that row (A has h=5).
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
+
+    async def test_reflow_all_does_not_pull_fourth_tile_into_already_full_three_tile_row(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard four tile adaptation",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        insight_d = await self._create_insight("D")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 8, "w": 3, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_d, layouts={"sm": {"x": 3, "y": 8, "w": 3, "h": 2}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_c.short_id, insight_d.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        tile_d = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_d)
+
+        # Row [A, C, D] already fills 12 columns, so B stays in the next row.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_d.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 12)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_d.layouts["sm"]["x"], 9)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 5)
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_d.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 4)
+
+    async def test_reflow_all_keeps_insert_between_two_tiles_as_three_tile_row(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard insert between keeps row at three",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        insight_d = await self._create_insight("D")
+
+        # Initial shape: [A, B] in first row, [C, D] in next rows.
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 4, "h": 6}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 6, "w": 4, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_d, layouts={"sm": {"x": 6, "y": 6, "w": 6, "h": 4}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_d.short_id, insight_b.short_id, insight_c.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        tile_d = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_d)
+
+        # A, D, B share first row. C must stay on the next row.
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["x"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
+        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_d.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 6)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 12)
+
+    async def test_reflow_all_can_adapt_four_tiles_when_row_has_slack_before_overflow(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard four tile slack adaptation",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        insight_d = await self._create_insight("D")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 5, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 5, "y": 0, "w": 2, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 7, "y": 0, "w": 2, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_d, layouts={"sm": {"x": 0, "y": 8, "w": 4, "h": 2}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id, insight_c.short_id, insight_d.short_id],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        tile_d = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_d)
+
+        # Row had slack (width 9) before D caused overflow, so all four are adapted to one row.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_d.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 3)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_d.layouts["sm"]["x"], 9)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_d.layouts["sm"]["h"], 5)
+
+    async def test_reflow_all_splits_five_tiles_when_equalization_would_overcompress(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard five tile adaptation",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+        insight_d = await self._create_insight("D")
+        insight_e = await self._create_insight("E")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 0, "w": 6, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 6, "y": 0, "w": 6, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 8, "w": 3, "h": 3}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_d, layouts={"sm": {"x": 3, "y": 8, "w": 3, "h": 2}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_e, layouts={"sm": {"x": 6, "y": 8, "w": 3, "h": 4}}
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[
+                insight_a.short_id,
+                insight_c.short_id,
+                insight_d.short_id,
+                insight_e.short_id,
+                insight_b.short_id,
+            ],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        tile_d = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_d)
+        tile_e = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_e)
+
+        # Row [A, C, D] stays full. E and B are reflowed in the next row.
+        self.assertEqual(tile_a.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_d.layouts["sm"]["w"], 3)
+        self.assertEqual(tile_e.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_d.layouts["sm"]["x"], 9)
+        self.assertEqual(tile_e.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 6)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_d.layouts["sm"]["y"], 0)
+        self.assertEqual(tile_e.layouts["sm"]["y"], 5)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 5)
+        self.assertEqual(tile_a.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_c.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_d.layouts["sm"]["h"], 5)
+        self.assertEqual(tile_e.layouts["sm"]["h"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["h"], 4)
+
+    async def test_reflow_all_does_not_overcompress_six_medium_tiles_into_one_row(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard six tile over-compression guard",
+            created_by=self.user,
+        )
+
+        insights = [await self._create_insight(name) for name in ["A", "B", "C", "D", "E", "F"]]
+        for index, insight in enumerate(insights):
+            await DashboardTile.objects.acreate(
+                dashboard=dashboard,
+                insight=insight,
+                layouts={"sm": {"x": (index % 3) * 4, "y": (index // 3) * 5, "w": 4, "h": 5}},
+            )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight.short_id for insight in insights],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        tiles_by_insight_id = {
+            tile.insight_id: tile async for tile in DashboardTile.objects.filter(dashboard=dashboard)
+        }
+        row1 = [tiles_by_insight_id[insights[i].id] for i in range(3)]
+        row2 = [tiles_by_insight_id[insights[i].id] for i in range(3, 6)]
+
+        for expected_x, tile in zip([0, 4, 8], row1):
+            self.assertEqual(tile.layouts["sm"]["x"], expected_x)
+            self.assertEqual(tile.layouts["sm"]["y"], 0)
+            self.assertEqual(tile.layouts["sm"]["w"], 4)
+            self.assertEqual(tile.layouts["sm"]["h"], 5)
+
+        for expected_x, tile in zip([0, 4, 8], row2):
+            self.assertEqual(tile.layouts["sm"]["x"], expected_x)
+            self.assertEqual(tile.layouts["sm"]["y"], 5)
+            self.assertEqual(tile.layouts["sm"]["w"], 4)
+            self.assertEqual(tile.layouts["sm"]["h"], 5)
+
+    async def test_reflow_all_respects_full_width_text_tile_band(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard with full width text separator",
+            created_by=self.user,
+        )
+
+        insight_a = await self._create_insight("A")
+        insight_b = await self._create_insight("B")
+        insight_c = await self._create_insight("C")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_a, layouts={"sm": {"x": 0, "y": 4, "w": 4, "h": 5}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_b, layouts={"sm": {"x": 8, "y": 4, "w": 4, "h": 4}}
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard, insight=insight_c, layouts={"sm": {"x": 0, "y": 10, "w": 8, "h": 5}}
+        )
+
+        text = await Text.objects.acreate(team=self.team, body="Separator")
+        text_tile = await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            text=text,
+            layouts={"sm": {"x": 0, "y": 0, "w": 12, "h": 3}},
+        )
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_c.short_id, insight_b.short_id],
+            layout_mode="reflow_all",
+        )
+
+        await tool._arun_impl(action)
+
+        tile_a = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_a)
+        tile_b = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_b)
+        tile_c = await DashboardTile.objects.aget(dashboard=dashboard, insight=insight_c)
+        await text_tile.arefresh_from_db()
+
+        # Row should compact to equal thirds while staying below the fixed full-width text tile.
+        self.assertEqual(tile_a.layouts["sm"]["x"], 0)
+        self.assertEqual(tile_c.layouts["sm"]["x"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["x"], 8)
+        self.assertEqual(tile_a.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_c.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_b.layouts["sm"]["w"], 4)
+        self.assertEqual(tile_a.layouts["sm"]["y"], 3)
+        self.assertEqual(tile_c.layouts["sm"]["y"], 3)
+        self.assertEqual(tile_b.layouts["sm"]["y"], 3)
+
+        # Text tile stays fixed and undeleted.
+        self.assertFalse(text_tile.deleted)
+        self.assertEqual(text_tile.layouts["sm"]["x"], 0)
+        self.assertEqual(text_tile.layouts["sm"]["y"], 0)
+        self.assertEqual(text_tile.layouts["sm"]["w"], 12)
+        self.assertEqual(text_tile.layouts["sm"]["h"], 3)
+
+    async def test_reflow_all_produces_non_overlapping_layouts(self):
+        dashboard = await Dashboard.objects.acreate(
+            team=self.team,
+            name="Dashboard no overlap",
+            created_by=self.user,
+        )
+
+        insights = [await self._create_insight(name) for name in ["A", "B", "C", "D", "E", "F"]]
+        layouts = [
+            {"w": 8, "h": 4},
+            {"w": 4, "h": 5},
+            {"w": 6, "h": 3},
+            {"w": 6, "h": 4},
+            {"w": 12, "h": 2},
+            {"w": 4, "h": 6},
+        ]
+
+        for insight, layout in zip(insights, layouts):
+            await DashboardTile.objects.acreate(dashboard=dashboard, insight=insight, layouts={"sm": layout})
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight.short_id for insight in insights],
+            layout_mode="reflow_all",
+        )
+        await tool._arun_impl(action)
+
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        sm_layouts = [tile.layouts["sm"] for tile in active_tiles]
+
+        def overlaps(a: dict, b: dict) -> bool:
+            return (
+                a["x"] < b["x"] + b["w"]
+                and a["x"] + a["w"] > b["x"]
+                and a["y"] < b["y"] + b["h"]
+                and a["y"] + a["h"] > b["y"]
+            )
+
+        for i, layout_a in enumerate(sm_layouts):
+            for layout_b in sm_layouts[i + 1 :]:
+                self.assertFalse(overlaps(layout_a, layout_b))
 
     @parameterized.expand(
         [
@@ -829,6 +1529,7 @@ class TestUpsertDashboardTool(BaseTest):
         action = UpdateDashboardToolArgs(
             dashboard_id=str(dashboard.id),
             insight_ids=[insights[key].short_id for key in new_order],
+            layout_mode="reflow_all",
         )
         result, _ = await tool._arun_impl(action)
 
@@ -847,6 +1548,47 @@ class TestUpsertDashboardTool(BaseTest):
         active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
         self.assertEqual(len(active_tiles), 3)
         self.assertEqual({t.insight_id for t in active_tiles}, {insights[k].id for k in ["A", "B", "C"]})
+
+    async def test_preserve_existing_restores_soft_deleted_tile_and_keeps_layout(self):
+        dashboard = await Dashboard.objects.acreate(team=self.team, name="Dashboard", created_by=self.user)
+        insight_a = await self._create_insight("Insight_A")
+        insight_b = await self._create_insight("Insight_B")
+        insight_c = await self._create_insight("Insight_C")
+
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_a,
+            layouts={"sm": {"x": 0, "y": 0, "w": 4, "h": 5}, "xs": {"x": 0, "y": 0, "w": 1, "h": 5}},
+        )
+        tile_b = await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_b,
+            layouts={"sm": {"x": 4, "y": 0, "w": 8, "h": 6}, "xs": {"x": 0, "y": 5, "w": 1, "h": 5}},
+        )
+        await DashboardTile.objects.acreate(
+            dashboard=dashboard,
+            insight=insight_c,
+            layouts={"sm": {"x": 0, "y": 6, "w": 12, "h": 4}, "xs": {"x": 0, "y": 10, "w": 1, "h": 5}},
+        )
+
+        original_layout_b = tile_b.layouts.copy()
+        tile_b.deleted = True
+        await tile_b.asave(update_fields=["deleted"])
+
+        tool = self._create_tool()
+        action = UpdateDashboardToolArgs(
+            dashboard_id=str(dashboard.id),
+            insight_ids=[insight_a.short_id, insight_b.short_id, insight_c.short_id],
+        )
+        await tool._arun_impl(action)
+
+        await tile_b.arefresh_from_db()
+        self.assertFalse(tile_b.deleted)
+        self.assertEqual(tile_b.layouts, original_layout_b)
+
+        active_tiles = [t async for t in DashboardTile.objects.filter(dashboard=dashboard)]
+        self.assertEqual(len(active_tiles), 3)
+        self.assertEqual({t.insight_id for t in active_tiles}, {insight_a.id, insight_b.id, insight_c.id})
 
     @parameterized.expand(
         [

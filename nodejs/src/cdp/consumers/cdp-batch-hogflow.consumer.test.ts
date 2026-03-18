@@ -1,6 +1,7 @@
 import { HogFlow } from '~/schema/hogflow'
 import { UUIDT } from '~/utils/utils'
 
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { closeHub, createHub } from '../../utils/db/hub'
@@ -34,7 +35,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
 
-        processor = new CdpBatchHogFlowRequestsConsumer(hub, hub)
+        processor = new CdpBatchHogFlowRequestsConsumer(hub, createCdpConsumerDeps(hub))
 
         // NOTE: We don't want to actually connect to Kafka for these tests as it is slow and we are testing the core logic only
         processor['kafkaConsumer'] = {
