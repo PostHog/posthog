@@ -5,7 +5,7 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.schema import ProductKey
+from posthog.schema import HogQLFilters, ProductKey
 
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
@@ -24,20 +24,40 @@ def get_org_ids_with_exceptions() -> list[str]:
     return org_ids
 
 
-def get_exception_counts_for_org(org_id: int) -> dict[int, dict]:
-    """Get exception counts for all teams in an org, returned as {team_id: {exception_count, ingestion_failure_count, prev_exception_count}}"""
-    org_teams = list(Team.objects.filter(organization_id=org_id).values_list("id", flat=True))
-    if not org_teams:
+def get_exception_summary_for_team(team: Team) -> dict:
+    """Get filtered exception counts, ingestion failures, and prev week count for a single team."""
+    from posthog.hogql.query import execute_hogql_query
+
+    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:exception_summary")
+
+    try:
+        response = execute_hogql_query(
+            query="""
+                SELECT
+                    countIf(timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY) as exception_count,
+                    countIf(timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY AND issue_id IS NULL) as ingestion_failure_count,
+                    countIf(timestamp < toStartOfDay(now()) - INTERVAL 7 DAY) as prev_exception_count
+                FROM events
+                WHERE event = '$exception'
+                AND timestamp >= toStartOfDay(now()) - INTERVAL 14 DAY
+                AND timestamp < toStartOfDay(now())
+                AND {filters}
+            """,
+            team=team,
+            filters=HogQLFilters(filterTestAccounts=True),
+        )
+    except Exception:
+        logger.exception(f"Failed to query exception summary for team {team.pk}")
         return {}
 
-    results = get_exception_counts(org_teams)
+    if not response.results or not response.results[0]:
+        return {}
+
+    exception_count, ingestion_failure_count, prev_exception_count = response.results[0]
     return {
-        row[0]: {
-            "exception_count": row[1],
-            "ingestion_failure_count": row[2],
-            "prev_exception_count": row[3],
-        }
-        for row in results
+        "exception_count": exception_count,
+        "ingestion_failure_count": ingestion_failure_count,
+        "prev_exception_count": prev_exception_count,
     }
 
 
@@ -60,7 +80,7 @@ def auto_select_project_for_user(user, org_id: int, team_exception_counts: dict[
 
 
 def get_exception_counts(team_ids: list[int] | None = None) -> list:
-    """Exception counts and ingestion failures for the last 7 days"""
+    """Teams with at least one exception in the last 7 days, used for digest routing."""
     from posthog.clickhouse.client import sync_execute
 
     tag_queries(product=ProductKey.ERROR_TRACKING, name="weekly_digest:exception_counts")
@@ -72,22 +92,16 @@ def get_exception_counts(team_ids: list[int] | None = None) -> list:
         query_params["team_ids"] = team_ids
 
     # nosemgrep: clickhouse-fstring-param-audit (team_filter is built from trusted code, not user input)
-    exception_counts_query = f"""
-    SELECT
-        team_id,
-        countIf(timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY) as exception_count,
-        countIf(timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY AND mat_$exception_issue_id IS NULL) as ingestion_failure_count,
-        countIf(timestamp < toStartOfDay(now()) - INTERVAL 7 DAY) as prev_exception_count
+    query = f"""
+    SELECT DISTINCT team_id
     FROM events
     WHERE event = '$exception'
-    AND timestamp >= toStartOfDay(now()) - INTERVAL 14 DAY
+    AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
     AND timestamp < toStartOfDay(now())
     {team_filter}
-    GROUP BY team_id
-    HAVING exception_count > 0
     """
 
-    results = sync_execute(exception_counts_query, query_params)
+    results = sync_execute(query, query_params)
     return results if isinstance(results, list) else []
 
 
@@ -109,8 +123,10 @@ def get_crash_free_sessions(team: Team) -> dict:
                 WHERE timestamp >= toStartOfDay(now()) - INTERVAL 14 DAY
                 AND timestamp < toStartOfDay(now())
                 AND notEmpty($session_id)
+                AND {filters}
             """,
             team=team,
+            filters=HogQLFilters(filterTestAccounts=True),
         )
     except Exception:
         logger.exception(f"Failed to query crash free sessions for team {team.pk}")
@@ -172,33 +188,35 @@ def compute_week_over_week_change(current: float, previous: float | None, higher
     }
 
 
-def get_daily_exception_counts(team_id: int) -> list[dict]:
+def get_daily_exception_counts(team: Team) -> list[dict]:
     """Get exception counts per day for the last 7 days"""
-    from posthog.clickhouse.client import sync_execute
+    from posthog.hogql.query import execute_hogql_query
 
-    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team_id, name="weekly_digest:daily_exception_counts")
+    tag_queries(product=ProductKey.ERROR_TRACKING, team_id=team.pk, name="weekly_digest:daily_exception_counts")
 
     try:
-        results = sync_execute(
-            """
+        response = execute_hogql_query(
+            query="""
             SELECT
                 toDate(timestamp) as day,
                 count() as day_count
             FROM events
             WHERE event = '$exception'
-            AND team_id = %(team_id)s
             AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
             AND timestamp < toStartOfDay(now())
+            AND {filters}
             GROUP BY day
             ORDER BY day ASC
             """,
-            {"team_id": team_id},
+            team=team,
+            filters=HogQLFilters(filterTestAccounts=True),
         )
     except Exception:
-        logger.exception(f"Failed to query daily exception counts for team {team_id}")
+        logger.exception(f"Failed to query daily exception counts for team {team.pk}")
         return []
 
-    counts_by_day = {row[0].isoformat(): row[1] for row in results} if isinstance(results, list) else {}
+    results = response.results or []
+    counts_by_day = {row[0].isoformat(): row[1] for row in results}
 
     today = timezone.now().date()
     daily_counts = []
@@ -238,6 +256,7 @@ def get_top_issues_for_team(team: Team) -> list[dict]:
                     AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
                     AND timestamp < toStartOfDay(now())
                     AND issue_id IS NOT NULL
+                    AND {filters}
                     GROUP BY issue_id, day
                     ORDER BY day ASC
                 )
@@ -246,6 +265,7 @@ def get_top_issues_for_team(team: Team) -> list[dict]:
                 LIMIT 5
             """,
             team=team,
+            filters=HogQLFilters(filterTestAccounts=True),
         )
     except Exception:
         logger.exception(f"Failed to query top issues for team {team.pk}")
@@ -293,6 +313,7 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
                     AND timestamp >= toStartOfDay(now()) - INTERVAL 7 DAY
                     AND timestamp < toStartOfDay(now())
                     AND issue_id IN {issue_ids}
+                    AND {filters}
                     GROUP BY issue_id, day
                     ORDER BY day ASC
                 )
@@ -302,6 +323,7 @@ def get_new_issues_for_team(team: Team) -> list[dict]:
             """,
             team=team,
             placeholders={"issue_ids": ast.Constant(value=new_issue_ids)},
+            filters=HogQLFilters(filterTestAccounts=True),
         )
     except Exception:
         logger.exception(f"Failed to query new issues for team {team.pk}")

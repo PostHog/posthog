@@ -21,9 +21,9 @@ logger = structlog.get_logger(__name__)
 def _get_valid_saved_query_ids(candidate_ids: set[str]) -> set[str]:
     return {
         str(pk)
-        for pk in DataWarehouseSavedQuery.objects.filter(id__in=candidate_ids, deleted=False).values_list(
-            "id", flat=True
-        )
+        for pk in DataWarehouseSavedQuery.objects.filter(id__in=candidate_ids)
+        .exclude(deleted=True)
+        .values_list("id", flat=True)
     }
 
 

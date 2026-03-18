@@ -115,8 +115,12 @@ export function NavTabChat({
                                 </ButtonPrimitive>
                             )}
                         </label>
-                        <Link to={urls.ai()} buttonProps={{ iconOnly: true, variant: 'panel' }} tooltip="New chat">
-                            <IconPlusSmall />
+                        <Link
+                            to={urls.ai()}
+                            buttonProps={{ iconOnly: true, variant: 'outline', className: 'text-ai' }}
+                            tooltip="New chat"
+                        >
+                            <IconPlusSmall className="size-4" />
                         </Link>
                     </div>
 

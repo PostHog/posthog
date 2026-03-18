@@ -32,6 +32,11 @@ def _is_host_safe(host: str, team_id: int) -> tuple[bool, str | None]:
         return True, None
 
     normalized = host.lower().strip().rstrip(".")
+
+    # PostHog-managed DuckLake hosts resolve to internal IPs but are safe.
+    if normalized.endswith(".postwh.com"):
+        return True, None
+
     if normalized in {"localhost"}:
         return False, "Hosts with internal IP addresses are not allowed"
 

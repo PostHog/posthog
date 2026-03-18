@@ -122,6 +122,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         insightProps={insightProps}
                         breakdownFilter={effectiveEditBarFilters.breakdown_filter}
                         isTrends={false}
+                        isFunnels={false}
                         showLabel={false}
                         updateBreakdownFilter={(breakdown_filter) => {
                             if (dashboardMode !== DashboardMode.Edit) {
