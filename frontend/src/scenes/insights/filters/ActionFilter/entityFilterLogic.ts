@@ -4,14 +4,14 @@ import isEqual from 'lodash.isequal'
 import { convertPropertyGroupToProperties } from 'lib/components/PropertyFilters/utils'
 import { defaultDataWarehousePopoverFields } from 'lib/components/TaxonomicFilter/taxonomicFilterLogic'
 import { DataWarehousePopoverField } from 'lib/components/TaxonomicFilter/types'
-import { uuid } from 'lib/utils'
+import { assignField, uuid } from 'lib/utils'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 
 import {
     ActionFilter,
     AnyPropertyFilter,
-    DataWarehouseFilter,
+    AnyDataWarehouseFilter,
     Entity,
     EntityFilter,
     EntityType,
@@ -144,7 +144,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             optionalInFunnel: filter.optionalInFunnel,
         }),
         updateFilter: (
-            filter: (EntityFilter | ActionFilter | DataWarehouseFilter) & {
+            filter: (EntityFilter | ActionFilter | AnyDataWarehouseFilter) & {
                 index: number
                 table_name?: string
                 [key: string]: any
@@ -275,7 +275,11 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
                             // Dynamically handle fields from dataWarehousePopoverFields
                             dataWarehousePopoverFields.forEach(({ key }) => {
                                 const fieldValue = fieldValues[key]
-                                updatedFilter[key] = typeof fieldValue === 'undefined' ? filter[key] : fieldValue
+                                assignField(
+                                    updatedFilter,
+                                    key as keyof typeof updatedFilter,
+                                    typeof fieldValue === 'undefined' ? filter[key] : fieldValue
+                                )
                             })
 
                             return updatedFilter

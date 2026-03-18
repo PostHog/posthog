@@ -4,22 +4,19 @@ from typing import cast
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, _create_person, flush_persons_and_events
 from unittest.mock import patch
 
-from posthog.schema import (
-    CachedHogQLQueryResponse,
-    HogQLASTQuery,
-    HogQLFilters,
-    HogQLPropertyFilter,
-    HogQLQuery,
-    HogQLVariable,
-)
+from posthog.schema import CachedHogQLQueryResponse, HogQLFilters, HogQLPropertyFilter, HogQLQuery, HogQLVariable
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.visitor import clear_locations
 
 from posthog.caching.utils import ThresholdMode, staleness_threshold_map
 from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
 from posthog.models.insight_variable import InsightVariable
 from posthog.models.utils import UUIDT
+
+from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
+from products.data_warehouse.backend.types import ExternalDataSourceType
 
 
 class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
@@ -48,7 +45,7 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
         return random_uuid
 
-    def _create_runner(self, query: HogQLQuery | HogQLASTQuery) -> HogQLQueryRunner:
+    def _create_runner(self, query: HogQLQuery) -> HogQLQueryRunner:
         return HogQLQueryRunner(team=self.team, query=query)
 
     def setUp(self):
@@ -57,26 +54,6 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
 
     def test_default_hogql_query(self):
         runner = self._create_runner(HogQLQuery(query="select count(event) from events"))
-        query = runner.to_query()
-        query = clear_locations(query)
-        expected = ast.SelectQuery(
-            select=[ast.Call(name="count", args=[ast.Field(chain=["event"])])],
-            select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
-        )
-        self.assertEqual(clear_locations(query), expected)
-        response = runner.calculate()
-        self.assertEqual(response.results[0][0], 10)
-
-        self.assertEqual(response.hasMore, False)
-        self.assertIsNotNone(response.limit)
-
-    def test_default_hogql_query_ast(self):
-        query_input = {
-            "__hx_ast": "SelectQuery",
-            "select": [{"__hx_ast": "Call", "name": "count", "args": [{"__hx_ast": "Field", "chain": ["event"]}]}],
-            "select_from": {"__hx_ast": "JoinExpr", "table": {"__hx_ast": "Field", "chain": ["events"]}},
-        }
-        runner = self._create_runner(HogQLASTQuery(query=query_input))
         query = runner.to_query()
         query = clear_locations(query)
         expected = ast.SelectQuery(
@@ -202,3 +179,55 @@ class TestHogQLQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         result_false = runner_false.calculate()
         self.assertEqual(result_false.results[0][0], 1)
+
+    def test_invalid_connection_id_raises_exposed_hogql_error(self):
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select 1",
+                connectionId=str(UUIDT()),
+            )
+        )
+
+        with self.assertRaises(ExposedHogQLError):
+            runner.calculate()
+
+    def test_soft_deleted_connection_id_raises_exposed_hogql_error(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.POSTGRES,
+            deleted=True,
+        )
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select 1",
+                connectionId=str(source.id),
+            )
+        )
+
+        with self.assertRaises(ExposedHogQLError):
+            runner.calculate()
+
+    def test_non_direct_connection_id_raises_exposed_hogql_error(self):
+        source = ExternalDataSource.objects.create(
+            source_id="selected-upstream-source",
+            connection_id="selected-connection",
+            destination_id="destination-1",
+            team=self.team,
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type=ExternalDataSourceType.STRIPE,
+            access_method=ExternalDataSource.AccessMethod.WAREHOUSE,
+        )
+
+        runner = self._create_runner(
+            HogQLQuery(
+                query="select * from stripe.customers limit 1",
+                connectionId=str(source.id),
+            )
+        )
+
+        with self.assertRaises(ExposedHogQLError):
+            runner.calculate()

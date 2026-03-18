@@ -37,10 +37,10 @@ import {
     BatchExportConfigurationClearChangesButton,
     BatchExportConfigurationSaveButton,
 } from './BatchExportConfigurationButtons'
+import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { RenderBatchExportIcon } from './BatchExportIcon'
 import type { batchExportSceneLogicType } from './BatchExportSceneType'
 import { BatchExportsMetrics } from './BatchExportsMetrics'
-import { BatchExportConfigurationLogicProps, batchExportConfigurationLogic } from './batchExportConfigurationLogic'
 import { normalizeBatchExportService } from './utils'
 import { humanizeBatchExportName } from './utils'
 
@@ -248,7 +248,12 @@ function BatchExportSceneContentInner({
                   key: 'logs',
                   content: (
                       <FlaggedFeature flag="batch-export-new-logs" fallback={<PipelineNodeLogs id={id} />}>
-                          <LogsViewer sourceType="batch_exports" sourceId={id} instanceLabel="run" />
+                          <LogsViewer
+                              sourceType="batch_exports"
+                              sourceId={id}
+                              instanceLabel="run"
+                              defaultFilters={{ levels: ['LOG', 'INFO', 'WARN', 'ERROR'] }}
+                          />
                       </FlaggedFeature>
                   ),
               }

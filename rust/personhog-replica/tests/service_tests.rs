@@ -10,8 +10,7 @@ use personhog_proto::personhog::types::v1::{
     GetGroupsBatchRequest, GetGroupsRequest, GetHashKeyOverrideContextRequest,
     GetPersonByDistinctIdRequest, GetPersonByUuidRequest, GetPersonRequest,
     GetPersonsByDistinctIdsInTeamRequest, GetPersonsByDistinctIdsRequest, GetPersonsByUuidsRequest,
-    GetPersonsRequest, GroupIdentifier, GroupKey, HashKeyOverrideInput, TeamDistinctId,
-    UpsertHashKeyOverridesRequest,
+    GetPersonsRequest, GroupIdentifier, GroupKey, TeamDistinctId, UpsertHashKeyOverridesRequest,
 };
 use personhog_replica::service::PersonHogReplicaService;
 use tonic::Request;
@@ -800,17 +799,15 @@ async fn test_get_hash_key_override_context_with_check_person_exists() {
 #[tokio::test]
 async fn test_upsert_hash_key_overrides_single_override() {
     let ctx = ServiceTestContext::new().await;
-    let person = ctx.insert_person("upsert_user_1", None).await.unwrap();
+    ctx.insert_person("upsert_user_1", None).await.unwrap();
 
     let response = ctx
         .service
         .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
             team_id: ctx.team_id,
-            overrides: vec![HashKeyOverrideInput {
-                person_id: person.id,
-                feature_flag_key: "test-flag".to_string(),
-            }],
+            distinct_ids: vec!["upsert_user_1".to_string()],
             hash_key: "my_hash_key".to_string(),
+            feature_flag_keys: vec!["test-flag".to_string()],
         }))
         .await
         .expect("RPC failed");
@@ -841,27 +838,19 @@ async fn test_upsert_hash_key_overrides_single_override() {
 #[tokio::test]
 async fn test_upsert_hash_key_overrides_multiple_flags_same_hash_key() {
     let ctx = ServiceTestContext::new().await;
-    let person = ctx.insert_person("upsert_user_2", None).await.unwrap();
+    ctx.insert_person("upsert_user_2", None).await.unwrap();
 
     let response = ctx
         .service
         .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
             team_id: ctx.team_id,
-            overrides: vec![
-                HashKeyOverrideInput {
-                    person_id: person.id,
-                    feature_flag_key: "flag-a".to_string(),
-                },
-                HashKeyOverrideInput {
-                    person_id: person.id,
-                    feature_flag_key: "flag-b".to_string(),
-                },
-                HashKeyOverrideInput {
-                    person_id: person.id,
-                    feature_flag_key: "flag-c".to_string(),
-                },
-            ],
+            distinct_ids: vec!["upsert_user_2".to_string()],
             hash_key: "shared_hash".to_string(),
+            feature_flag_keys: vec![
+                "flag-a".to_string(),
+                "flag-b".to_string(),
+                "flag-c".to_string(),
+            ],
         }))
         .await
         .expect("RPC failed");
@@ -899,8 +888,9 @@ async fn test_upsert_hash_key_overrides_empty_returns_zero() {
         .service
         .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
             team_id: ctx.team_id,
-            overrides: vec![],
+            distinct_ids: vec![],
             hash_key: "unused".to_string(),
+            feature_flag_keys: vec!["some-flag".to_string()],
         }))
         .await
         .expect("RPC failed");
@@ -928,11 +918,9 @@ async fn test_upsert_hash_key_overrides_on_conflict_do_nothing() {
         .service
         .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
             team_id: ctx.team_id,
-            overrides: vec![HashKeyOverrideInput {
-                person_id: person.id,
-                feature_flag_key: "existing-flag".to_string(),
-            }],
+            distinct_ids: vec!["upsert_conflict_user".to_string()],
             hash_key: "different_hash".to_string(),
+            feature_flag_keys: vec!["existing-flag".to_string()],
         }))
         .await
         .expect("RPC failed");
@@ -960,26 +948,18 @@ async fn test_upsert_hash_key_overrides_on_conflict_do_nothing() {
 }
 
 #[tokio::test]
-async fn test_upsert_hash_key_overrides_multiple_persons() {
+async fn test_upsert_hash_key_overrides_multiple_distinct_ids() {
     let ctx = ServiceTestContext::new().await;
-    let person1 = ctx.insert_person("multi_person_1", None).await.unwrap();
-    let person2 = ctx.insert_person("multi_person_2", None).await.unwrap();
+    ctx.insert_person("multi_person_1", None).await.unwrap();
+    ctx.insert_person("multi_person_2", None).await.unwrap();
 
     let response = ctx
         .service
         .upsert_hash_key_overrides(Request::new(UpsertHashKeyOverridesRequest {
             team_id: ctx.team_id,
-            overrides: vec![
-                HashKeyOverrideInput {
-                    person_id: person1.id,
-                    feature_flag_key: "shared-flag".to_string(),
-                },
-                HashKeyOverrideInput {
-                    person_id: person2.id,
-                    feature_flag_key: "shared-flag".to_string(),
-                },
-            ],
+            distinct_ids: vec!["multi_person_1".to_string(), "multi_person_2".to_string()],
             hash_key: "common_hash".to_string(),
+            feature_flag_keys: vec!["shared-flag".to_string()],
         }))
         .await
         .expect("RPC failed");

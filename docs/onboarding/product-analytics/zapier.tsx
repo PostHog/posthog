@@ -15,7 +15,7 @@ export const getZapierSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         Zapier lets you connect PostHog to thousands of other apps. You can use it to send events to
                         PostHog from other services or trigger actions based on PostHog events. Go to the [PostHog
                         integration page](https://zapier.com/apps/posthog/integrations) on Zapier and click **Connect
-                        PostHog**. When prompted, enter your PostHog project API key:
+                        PostHog**. When prompted, enter your PostHog project token:
                     </Markdown>
                     <CodeBlock
                         blocks={[
@@ -23,7 +23,7 @@ export const getZapierSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 language: 'text',
                                 file: 'API Key',
                                 code: dedent`
-                                <ph_project_api_key>
+                                <ph_project_token>
                             `,
                             },
                         ]}

@@ -4,8 +4,8 @@ import { useActions, useValues } from 'kea'
 
 import { IconEmoji, IconPlay, IconRewindPlay, IconWarning } from '@posthog/icons'
 
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconSkipBackward } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { cn } from 'lib/utils/css-classes'
 import { sessionRecordingPlayerLogic } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 

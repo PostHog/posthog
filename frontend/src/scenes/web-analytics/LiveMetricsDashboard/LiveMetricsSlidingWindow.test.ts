@@ -194,6 +194,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 paths: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
             })
 
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
@@ -206,6 +207,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 paths: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
             })
 
             const breakdown = window.getDeviceBreakdown()
@@ -223,6 +225,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 paths: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
             })
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
@@ -230,6 +233,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 paths: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
             })
 
             const breakdown = window.getDeviceBreakdown()
@@ -254,6 +258,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 paths: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
             })
 
             const breakdown = window.getDeviceBreakdown()
@@ -278,6 +283,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 ]),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
             })
             window.extendBucketData(toUnixSeconds(relativeTime(-4 * MINUTE)), {
                 pageviews: 0,
@@ -288,6 +294,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 ]),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
             })
 
             const topPaths = window.getTopPaths(10)
@@ -318,6 +325,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 ]),
                 browsers: new Map(),
                 uniqueUsers: new Set(),
+                countries: new Map<string, Set<string>>(),
             })
 
             const topPaths = window.getTopPaths(limit)
@@ -368,6 +376,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 paths: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(['user-1', 'user-2']),
+                countries: new Map<string, Set<string>>(),
             })
             window.extendBucketData(minuteStart, {
                 pageviews: 0,
@@ -375,6 +384,7 @@ describe('LiveMetricsSlidingWindow', () => {
                 paths: new Map(),
                 browsers: new Map(),
                 uniqueUsers: new Set(['user-2', 'user-3']),
+                countries: new Map<string, Set<string>>(),
             })
 
             const buckets = window.getSortedBuckets()
@@ -560,6 +570,102 @@ describe('LiveMetricsSlidingWindow', () => {
             window.addDataPoint(toUnixSeconds(relativeTime(MINUTE)), 'user-2', { pageviews: 1 })
 
             expect(window.getTotalUniqueUsers()).toBe(2)
+        })
+    })
+
+    describe('country tracking via addGeoDataPoint', () => {
+        const getCountryCount = (
+            breakdown: { country: string; count: number; percentage: number }[],
+            countryCode: string
+        ): number | undefined => breakdown.find((c) => c.country === countryCode)?.count
+
+        it('tracks unique users per country', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'US', 'user-1')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'US', 'user-2')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'GB', 'user-3')
+
+            const breakdown = window.getCountryBreakdown()
+            expect(getCountryCount(breakdown, 'US')).toBe(2)
+            expect(getCountryCount(breakdown, 'GB')).toBe(1)
+        })
+
+        it('deduplicates same user in same country within a bucket', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'US', 'user-1')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'US', 'user-1')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'US', 'user-1')
+
+            const breakdown = window.getCountryBreakdown()
+            expect(getCountryCount(breakdown, 'US')).toBe(1)
+        })
+
+        it('deduplicates users across buckets', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'US', 'user-1')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'US', 'user-1')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-4 * MINUTE)), 'US', 'user-2')
+
+            const breakdown = window.getCountryBreakdown()
+            expect(getCountryCount(breakdown, 'US')).toBe(2)
+        })
+
+        it('decrements country count when buckets are pruned', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-30 * MINUTE)), 'US', 'user-1')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'US', 'user-2')
+
+            expect(getCountryCount(window.getCountryBreakdown(), 'US')).toBe(2)
+
+            tickMinute()
+
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(MINUTE)), 'GB', 'user-3')
+
+            const breakdown = window.getCountryBreakdown()
+            expect(getCountryCount(breakdown, 'US')).toBe(1)
+            expect(getCountryCount(breakdown, 'GB')).toBe(1)
+        })
+
+        it('keeps user count when user exists in multiple buckets and one is pruned', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-30 * MINUTE)), 'US', 'user-1')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'US', 'user-1')
+
+            expect(getCountryCount(window.getCountryBreakdown(), 'US')).toBe(1)
+
+            tickMinute()
+
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(MINUTE)), 'US', 'user-2')
+
+            const breakdown = window.getCountryBreakdown()
+            expect(getCountryCount(breakdown, 'US')).toBe(2)
+        })
+
+        it('returns empty array for empty window', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+            expect(window.getCountryBreakdown()).toEqual([])
+        })
+
+        it('includes percentage and sorts by count descending', () => {
+            const window = new LiveMetricsSlidingWindow(WINDOW_SIZE_MINUTES)
+
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'US', 'user-1')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'US', 'user-2')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'US', 'user-3')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'GB', 'user-4')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'GB', 'user-5')
+            window.addGeoDataPoint(toUnixSeconds(relativeTime(-5 * MINUTE)), 'DE', 'user-6')
+
+            const breakdown = window.getCountryBreakdown()
+            expect(breakdown).toHaveLength(3)
+            expect(breakdown[0]).toEqual({ country: 'US', count: 3, percentage: 50 })
+            expect(breakdown[1]).toEqual({ country: 'GB', count: 2, percentage: expect.closeTo(33.33, 1) })
+            expect(breakdown[2]).toEqual({ country: 'DE', count: 1, percentage: expect.closeTo(16.67, 1) })
         })
     })
 })

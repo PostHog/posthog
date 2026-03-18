@@ -25,6 +25,7 @@ const NEW_WAREHOUSE_TABLE: DataWarehouseTable = {
     name: '',
     url_pattern: '',
     format: 'Parquet',
+    options: { csv_allow_double_quotes: false },
     credential: {
         access_key: '',
         access_secret: '',

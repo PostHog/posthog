@@ -1,3 +1,4 @@
+from datetime import UTC, datetime
 from typing import Any, Optional, Union
 
 import pytest
@@ -15,6 +16,8 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.visitor import clone_expr
+
+from posthog.models import EventDefinition
 
 
 def f(s: Union[str, ast.Expr, None], placeholders: Optional[dict[str, ast.Expr]] = None) -> Union[ast.Expr, None]:
@@ -85,6 +88,59 @@ class TestSessionWhereClauseExtractorV3(ClickhouseTestMixin, APIBaseTest):
     def test_handles_select_with_no_where_claus(self):
         inner_where = self.inliner.get_inner_where(parse("SELECT * FROM sessions"))
         assert inner_where is None
+
+    def test_default_bound_with_limit(self):
+        EventDefinition.objects.create(
+            team=self.team,
+            name="$pageview",
+            last_seen_at=datetime(2099, 1, 15, tzinfo=UTC),
+        )
+        actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions LIMIT 10")))
+        expected = f("raw_sessions_v3.session_timestamp >= (toDateTime('2099-01-15 00:00:00') - toIntervalDay(30))")
+        assert expected == actual
+
+    def test_no_default_bound_with_limit_and_order_by(self):
+        actual = self.inliner.get_inner_where(parse("SELECT * FROM sessions ORDER BY $start_timestamp LIMIT 10"))
+        assert actual is None
+
+    def test_no_default_bound_with_limit_and_order_by_non_timestamp(self):
+        actual = self.inliner.get_inner_where(parse("SELECT * FROM sessions ORDER BY $channel_type LIMIT 10"))
+        assert actual is None
+
+    def test_no_default_bound_with_limit_and_non_timestamp_where(self):
+        actual = self.inliner.get_inner_where(
+            parse("SELECT * FROM sessions WHERE $initial_utm_campaign = $initial_utm_source LIMIT 10")
+        )
+        assert actual is None
+
+    def test_no_default_bound_with_limit_when_not_select_star(self):
+        actual = self.inliner.get_inner_where(parse("SELECT event FROM sessions LIMIT 10"))
+        assert actual is None
+
+    def assert_limit_bound_edge_case(self, query: str, expected: str):
+        EventDefinition.objects.create(
+            team=self.team,
+            name="$pageview",
+            last_seen_at=datetime(2099, 1, 15, tzinfo=UTC),
+        )
+        actual = f(self.inliner.get_inner_where(parse(query)))
+        assert actual == f(expected)
+
+    def test_limit_bound_where_wins(self):
+        self.assert_limit_bound_edge_case(
+            "SELECT * FROM sessions WHERE $start_timestamp > '2021-01-01' LIMIT 10",
+            "raw_sessions_v3.session_timestamp >= ('2021-01-01' - toIntervalDay(3))",
+        )
+
+    def test_limit_bound_with_offset(self):
+        self.assert_limit_bound_edge_case(
+            "SELECT * FROM sessions LIMIT 10 OFFSET 5",
+            "raw_sessions_v3.session_timestamp >= (toDateTime('2099-01-15 00:00:00') - toIntervalDay(30))",
+        )
+
+    def test_no_limit_bound_with_group_by(self):
+        actual = self.inliner.get_inner_where(parse("SELECT event, count() FROM sessions GROUP BY event LIMIT 10"))
+        assert actual is None
 
     def test_handles_select_with_eq(self):
         actual = f(self.inliner.get_inner_where(parse("SELECT * FROM sessions WHERE $start_timestamp = '2021-01-01'")))
@@ -384,6 +440,26 @@ SELECT
             "raw_sessions_v3.session_timestamp <= ((UUIDv7ToDateTime(toUUID('0199a58b-fdf2-785c-b6e3-6ba32b2380cf')) + toIntervalHour(1)) + toIntervalDay(3))"
         )
         assert expected == actual
+
+    def test_handles_select_set_query_in_comparison(self):
+        select_set_query = ast.SelectSetQuery(
+            initial_select_query=ast.SelectQuery(select=[ast.Constant(value="2021-01-01")]),
+            subsequent_select_queries=[
+                ast.SelectSetNode(
+                    select_query=ast.SelectQuery(select=[ast.Constant(value="2021-06-01")]),
+                    set_operator="UNION ALL",
+                )
+            ],
+        )
+        where = ast.CompareOperation(
+            left=ast.Field(chain=["$start_timestamp"]),
+            op=ast.CompareOperationOp.Gt,
+            right=select_set_query,
+        )
+        select = ast.SelectQuery(select=[], where=where)
+        # Should not raise NotImplementedError (regression test for #49867)
+        inner_where = self.inliner.get_inner_where(select)
+        assert inner_where is None
 
 
 class TestSessionsV3QueriesHogQLToClickhouse(ClickhouseTestMixin, APIBaseTest):

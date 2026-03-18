@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonButton, LemonSelect, LemonTag, lemonToast } from '@posthog/lemon-ui'
 
+import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
@@ -139,23 +140,34 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                                     such as a <code>updated_at</code> timestamp.
                                 </p>
                                 {!incrementalSyncSupported.disabled && (
-                                    <LemonSelect
-                                        value={incrementalFieldValue}
-                                        onChange={(newValue) => setIncrementalFieldValue(newValue)}
-                                        options={
-                                            schema.incremental_fields.map((n) => ({
-                                                value: n.field,
-                                                label: (
-                                                    <>
-                                                        <span className="leading-5">{n.label}</span>
-                                                        <LemonTag className="ml-2" type="success">
-                                                            {n.type}
-                                                        </LemonTag>
-                                                    </>
-                                                ),
-                                            })) ?? []
-                                        }
-                                    />
+                                    <>
+                                        <LemonSelect
+                                            value={incrementalFieldValue}
+                                            onChange={(newValue) => setIncrementalFieldValue(newValue)}
+                                            options={
+                                                schema.incremental_fields.map((n) => ({
+                                                    value: n.field,
+                                                    label: (
+                                                        <>
+                                                            <span className="leading-5">{n.label}</span>
+                                                            <LemonTag className="ml-2" type="success">
+                                                                {n.type}
+                                                            </LemonTag>
+                                                        </>
+                                                    ),
+                                                })) ?? []
+                                            }
+                                        />
+                                        {radioValue === 'incremental' &&
+                                            incrementalFieldValue &&
+                                            schema.incremental_fields.find((n) => n.field === incrementalFieldValue)
+                                                ?.nullable && (
+                                                <LemonBanner type="warning" className="mt-2">
+                                                    This field is nullable. Any rows where{' '}
+                                                    <code>{incrementalFieldValue}</code> is null will not be synced.
+                                                </LemonBanner>
+                                            )}
+                                    </>
                                 )}
                             </div>
                         ),
@@ -182,23 +194,34 @@ export const SyncMethodForm = ({ schema, onClose, onSave, saveButtonIsLoading }:
                                     <code>created_at</code> timestamp.
                                 </p>
                                 {!appendSyncSupported.disabled && (
-                                    <LemonSelect
-                                        value={appendFieldValue}
-                                        onChange={(newValue) => setAppendFieldValue(newValue)}
-                                        options={
-                                            schema.incremental_fields.map((n) => ({
-                                                value: n.field,
-                                                label: (
-                                                    <>
-                                                        <span className="leading-5">{n.label}</span>
-                                                        <LemonTag className="ml-2" type="success">
-                                                            {n.type}
-                                                        </LemonTag>
-                                                    </>
-                                                ),
-                                            })) ?? []
-                                        }
-                                    />
+                                    <>
+                                        <LemonSelect
+                                            value={appendFieldValue}
+                                            onChange={(newValue) => setAppendFieldValue(newValue)}
+                                            options={
+                                                schema.incremental_fields.map((n) => ({
+                                                    value: n.field,
+                                                    label: (
+                                                        <>
+                                                            <span className="leading-5">{n.label}</span>
+                                                            <LemonTag className="ml-2" type="success">
+                                                                {n.type}
+                                                            </LemonTag>
+                                                        </>
+                                                    ),
+                                                })) ?? []
+                                            }
+                                        />
+                                        {radioValue === 'append' &&
+                                            appendFieldValue &&
+                                            schema.incremental_fields.find((n) => n.field === appendFieldValue)
+                                                ?.nullable && (
+                                                <LemonBanner type="warning" className="mt-2">
+                                                    This field is nullable. Any rows where{' '}
+                                                    <code>{appendFieldValue}</code> is null will not be synced.
+                                                </LemonBanner>
+                                            )}
+                                    </>
                                 )}
                             </div>
                         ),

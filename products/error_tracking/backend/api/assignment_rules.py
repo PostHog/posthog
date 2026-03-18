@@ -20,8 +20,8 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingAssignmentRule
-        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
-        read_only_fields = ["team_id"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data", "created_at", "updated_at"]
+        read_only_fields = ["team_id", "created_at", "updated_at"]
 
     def get_assignee(self, obj):
         if obj.user_id:
@@ -56,7 +56,22 @@ class ErrorTrackingAssignmentRuleViewSet(TeamAndOrgViewSetMixin, viewsets.ModelV
         assignment_rule.disabled_data = None
         assignment_rule.save()
 
+        posthoganalytics.capture(
+            "error_tracking_assignment_rule_edited",
+            groups=groups(self.team.organization, self.team),
+        )
+
         return Response({"ok": True}, status=status.HTTP_204_NO_CONTENT)
+
+    def destroy(self, request, *args, **kwargs) -> Response:
+        response = super().destroy(request, *args, **kwargs)
+
+        posthoganalytics.capture(
+            "error_tracking_assignment_rule_deleted",
+            groups=groups(self.team.organization, self.team),
+        )
+
+        return response
 
     def create(self, request, *args, **kwargs) -> Response:
         json_filters = request.data.get("filters")

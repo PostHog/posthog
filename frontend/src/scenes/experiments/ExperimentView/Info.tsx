@@ -2,28 +2,27 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconGear, IconPencil, IconWarning } from '@posthog/icons'
+import { IconPencil, IconWarning } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonTag, Link, ProfilePicture, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
-import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea/LemonTextArea'
 import { Label } from 'lib/ui/Label/Label'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { ExperimentProgressStatus, ExperimentStatsMethod } from '~/types'
+import { ExperimentStatsMethod, ExperimentStatus } from '~/types'
 
 import { CONCLUSION_DISPLAY_CONFIG } from '../constants'
 import { experimentLogic } from '../experimentLogic'
 import type { ExperimentSceneLogicProps } from '../experimentSceneLogic'
-import { getExperimentStatus } from '../experimentsLogic'
+import { getExperimentStatus, isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
+import { StatusTag } from './components'
 import { ExperimentDuration } from './ExperimentDuration'
 import { ExperimentReloadAction } from './ExperimentReloadAction'
 import { RunningTimeNew } from './RunningTimeNew'
-import { StatsMethodModal } from './StatsMethodModal'
-import { StatusTag } from './components'
 
 export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.Element {
     const {
@@ -35,20 +34,14 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         primaryMetricsResultsLoading,
         secondaryMetricsResultsLoading,
         statsMethod,
-        usesNewQueryRunner,
         isExperimentDraft,
         isSingleVariantShipped,
         shippedVariantKey,
         autoRefresh,
     } = useValues(experimentLogic)
     const { updateExperiment, refreshExperimentResults, reportExperimentMetricsRefreshed } = useActions(experimentLogic)
-    const {
-        openEditConclusionModal,
-        openDescriptionModal,
-        closeDescriptionModal,
-        openStatsEngineModal,
-        openRunningTimeConfigModal,
-    } = useActions(modalsLogic)
+    const { openEditConclusionModal, openDescriptionModal, closeDescriptionModal, openRunningTimeConfigModal } =
+        useActions(modalsLogic)
     const { isDescriptionModalOpen } = useValues(modalsLogic)
 
     const [tempDescription, setTempDescription] = useState(experiment.description || '')
@@ -72,23 +65,24 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
         secondaryMetricsResults?.[0]?.last_refresh
 
     const status = getExperimentStatus(experiment)
+    const isPaused = isExperimentPaused(experiment)
 
     return (
         <>
-            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1400px]:grid-cols-[2fr_3fr]">
+            <div className="grid gap-2 overflow-hidden grid-cols-1 min-[1100px]:grid-cols-[1fr_1fr]">
                 {/* Column 1 */}
                 <div className="flex flex-col gap-0 overflow-hidden min-w-0">
                     {/* Row 1: Status, Feature flag, Stats engine */}
-                    <div className="flex flex-wrap gap-x-8 gap-y-2">
+                    <div className="flex flex-wrap gap-x-4 gap-y-2">
                         <div className="flex flex-col" data-attr="experiment-status">
                             <Label intent="menu">Status</Label>
                             <div className="flex gap-1">
-                                {status === ExperimentProgressStatus.Paused ? (
+                                {isPaused ? (
                                     <Tooltip
                                         placement="bottom"
                                         title="Your experiment is paused. The linked flag is disabled and no data is being collected."
                                     >
-                                        <StatusTag status={status} />
+                                        <StatusTag status={status} isPaused={isPaused} />
                                     </Tooltip>
                                 ) : (
                                     <StatusTag status={status} />
@@ -108,7 +102,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                             <div className="flex flex-col max-w-[500px]">
                                 <Label intent="menu">Feature flag</Label>
                                 <div className="flex gap-1 items-center">
-                                    {status === ExperimentProgressStatus.Paused && (
+                                    {isPaused && (
                                         <Tooltip
                                             placement="bottom"
                                             title="Your experiment is paused. The linked flag is disabled and no data is being collected."
@@ -143,33 +137,17 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                         )}
                         <div className="flex flex-col">
                             <Label intent="menu">Statistics</Label>
-                            <div className="inline-flex deprecated-space-x-2">
-                                <span>
-                                    {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
-                                    {' / '}
-                                    {statsMethod === ExperimentStatsMethod.Bayesian
-                                        ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
-                                        : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
-                                </span>
-                                {usesNewQueryRunner && (
-                                    <>
-                                        <LemonButton
-                                            type="secondary"
-                                            size="xsmall"
-                                            onClick={() => {
-                                                openStatsEngineModal()
-                                            }}
-                                            icon={<IconGear />}
-                                            tooltip="Configure statistics"
-                                        />
-                                        <StatsMethodModal />
-                                    </>
-                                )}
-                            </div>
+                            <span>
+                                {statsMethod === ExperimentStatsMethod.Bayesian ? 'Bayesian' : 'Frequentist'}
+                                {' / '}
+                                {statsMethod === ExperimentStatsMethod.Bayesian
+                                    ? `${((experiment.stats_config?.bayesian?.ci_level ?? 0.95) * 100).toFixed(0)}%`
+                                    : `${((1 - (experiment.stats_config?.frequentist?.alpha ?? 0.05)) * 100).toFixed(0)}%`}
+                            </span>
                         </div>
                     </div>
 
-                    <div className="w-[500px]">
+                    <div className="max-w-[500px]">
                         <div className="flex items-center gap-2 mt-2">
                             <Label intent="menu">Hypothesis</Label>
                             <LemonButton
@@ -219,12 +197,12 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                 </div>
 
                 {/* Column 2 */}
-                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1400px]:items-end min-w-0">
+                <div className="flex flex-col gap-4 overflow-hidden items-start min-[1100px]:items-end min-w-0">
                     {/* Row 1: Duration (date pickers) - only for launched experiments */}
                     {!isExperimentDraft && <ExperimentDuration />}
 
                     {/* Row 2: Running time, Last refreshed, Created by */}
-                    <div className="flex flex-col overflow-hidden items-start min-[1400px]:items-end">
+                    <div className="flex flex-col overflow-hidden items-start min-[1100px]:items-end">
                         <div className="flex flex-wrap gap-x-8 gap-y-2 justify-end">
                             {tabId && (
                                 <RunningTimeNew
@@ -234,7 +212,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                     isExperimentDraft={isExperimentDraft}
                                 />
                             )}
-                            {experiment.start_date && (
+                            {status !== ExperimentStatus.Draft && (
                                 <ExperimentReloadAction
                                     isRefreshing={primaryMetricsResultsLoading || secondaryMetricsResultsLoading}
                                     lastRefresh={lastRefresh}
@@ -245,7 +223,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
                                             auto_refresh_enabled: autoRefresh.enabled,
                                             auto_refresh_interval: autoRefresh.interval,
                                         })
-                                        refreshExperimentResults(true)
+                                        refreshExperimentResults(true, 'manual')
                                     }}
                                 />
                             )}
@@ -259,7 +237,7 @@ export function Info({ tabId }: Pick<ExperimentSceneLogicProps, 'tabId'>): JSX.E
             </div>
             <div className="flex gap-6">
                 {experiment.conclusion && experiment.end_date && (
-                    <div className="w-[500px]">
+                    <div className="max-w-[500px]">
                         <div className="flex items-center gap-2">
                             <Label intent="menu">Conclusion</Label>
                             <LemonButton

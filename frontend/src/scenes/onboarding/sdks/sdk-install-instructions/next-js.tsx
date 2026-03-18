@@ -156,7 +156,7 @@ export function SDKInstallNextJSInstructions({ hideWizard }: { hideWizard?: bool
             <h3>Add environment variables</h3>
             <p>
                 Add your environment variables to your .env.local file and to your hosting provider (e.g. Vercel,
-                Netlify, AWS). You can find your project API key in your project settings.
+                Netlify, AWS). You can find your project token in your project settings.
             </p>
             <p>
                 These values need to start with <code>NEXT_PUBLIC_</code> to be accessible on the client-side.

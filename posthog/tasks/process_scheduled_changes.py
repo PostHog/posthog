@@ -129,7 +129,7 @@ def process_scheduled_changes() -> None:
                 try:
                     # Execute the change on the model instance
                     model = models[scheduled_change.model_name]
-                    instance = model.objects.get(id=scheduled_change.record_id)
+                    instance = model.objects.get(id=scheduled_change.record_id, team_id=scheduled_change.team_id)
                     instance.scheduled_changes_dispatcher(
                         scheduled_change.payload, scheduled_change.created_by, scheduled_change_id=scheduled_change.id
                     )

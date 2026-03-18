@@ -17,6 +17,215 @@ export interface ExplainRequestApi {
 }
 
 /**
+ * * `above` - Above
+ * `below` - Below
+ */
+export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
+
+export const ThresholdOperatorEnumApi = {
+    Above: 'above',
+    Below: 'below',
+} as const
+
+/**
+ * * `not_firing` - Not firing
+ * `firing` - Firing
+ * `pending_resolve` - Pending resolve
+ * `errored` - Errored
+ * `snoozed` - Snoozed
+ */
+export type LogsAlertConfigurationStateEnumApi =
+    (typeof LogsAlertConfigurationStateEnumApi)[keyof typeof LogsAlertConfigurationStateEnumApi]
+
+export const LogsAlertConfigurationStateEnumApi = {
+    NotFiring: 'not_firing',
+    Firing: 'firing',
+    PendingResolve: 'pending_resolve',
+    Errored: 'errored',
+    Snoozed: 'snoozed',
+} as const
+
+/**
+ * * `engineering` - Engineering
+ * `data` - Data
+ * `product` - Product Management
+ * `founder` - Founder
+ * `leadership` - Leadership
+ * `marketing` - Marketing
+ * `sales` - Sales / Success
+ * `other` - Other
+ */
+export type RoleAtOrganizationEnumApi = (typeof RoleAtOrganizationEnumApi)[keyof typeof RoleAtOrganizationEnumApi]
+
+export const RoleAtOrganizationEnumApi = {
+    Engineering: 'engineering',
+    Data: 'data',
+    Product: 'product',
+    Founder: 'founder',
+    Leadership: 'leadership',
+    Marketing: 'marketing',
+    Sales: 'sales',
+    Other: 'other',
+} as const
+
+export type BlankEnumApi = (typeof BlankEnumApi)[keyof typeof BlankEnumApi]
+
+export const BlankEnumApi = {
+    '': '',
+} as const
+
+export type NullEnumApi = (typeof NullEnumApi)[keyof typeof NullEnumApi]
+
+export const NullEnumApi = {} as const
+
+/**
+ * @nullable
+ */
+export type UserBasicApiHedgehogConfig = { [key: string]: unknown } | null | null
+
+export interface UserBasicApi {
+    readonly id: number
+    readonly uuid: string
+    /**
+     * @maxLength 200
+     * @nullable
+     */
+    distinct_id?: string | null
+    /** @maxLength 150 */
+    first_name?: string
+    /** @maxLength 150 */
+    last_name?: string
+    /** @maxLength 254 */
+    email: string
+    /** @nullable */
+    is_email_verified?: boolean | null
+    /** @nullable */
+    readonly hedgehog_config: UserBasicApiHedgehogConfig
+    role_at_organization?: RoleAtOrganizationEnumApi | BlankEnumApi | NullEnumApi | null
+}
+
+export interface LogsAlertConfigurationApi {
+    readonly id: string
+    /** @maxLength 255 */
+    name: string
+    enabled?: boolean
+    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
+    filters: unknown
+    /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
+    threshold_count: number
+    /** Whether the alert fires when the count is above or below the threshold.
+
+* `above` - Above
+* `below` - Below */
+    threshold_operator?: ThresholdOperatorEnumApi
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    window_minutes?: number
+    readonly check_interval_minutes: number
+    readonly state: LogsAlertConfigurationStateEnumApi
+    /**
+     * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** @nullable */
+    snooze_until?: string | null
+    /** @nullable */
+    readonly next_check_at: string | null
+    /** @nullable */
+    readonly last_notified_at: string | null
+    /** @nullable */
+    readonly last_checked_at: string | null
+    readonly consecutive_failures: number
+    readonly created_at: string
+    readonly created_by: UserBasicApi
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedLogsAlertConfigurationListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: LogsAlertConfigurationApi[]
+}
+
+export interface PatchedLogsAlertConfigurationApi {
+    readonly id?: string
+    /** @maxLength 255 */
+    name?: string
+    enabled?: boolean
+    /** Filter criteria — subset of LogsViewerFilters. Must contain at least one of: severityLevels (list of severity strings), serviceNames (list of service name strings), or filterGroup (property filter group object). */
+    filters?: unknown
+    /**
+     * @minimum 1
+     * @maximum 2147483647
+     */
+    threshold_count?: number
+    /** Whether the alert fires when the count is above or below the threshold.
+
+* `above` - Above
+* `below` - Below */
+    threshold_operator?: ThresholdOperatorEnumApi
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    window_minutes?: number
+    readonly check_interval_minutes?: number
+    readonly state?: LogsAlertConfigurationStateEnumApi
+    /**
+     * Total number of check periods in the sliding evaluation window for firing (M in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    evaluation_periods?: number
+    /**
+     * How many periods within the evaluation window must breach the threshold to fire (N in N-of-M).
+     * @minimum 1
+     * @maximum 10
+     */
+    datapoints_to_alarm?: number
+    /**
+     * @minimum 0
+     * @maximum 2147483647
+     */
+    cooldown_minutes?: number
+    /** @nullable */
+    snooze_until?: string | null
+    /** @nullable */
+    readonly next_check_at?: string | null
+    /** @nullable */
+    readonly last_notified_at?: string | null
+    /** @nullable */
+    readonly last_checked_at?: string | null
+    readonly consecutive_failures?: number
+    readonly created_at?: string
+    readonly created_by?: UserBasicApi
+    /** @nullable */
+    readonly updated_at?: string | null
+}
+
+/**
  * * `SYSTEM` - SYSTEM
  * `PLUGIN` - PLUGIN
  * `CONSOLE` - CONSOLE
@@ -65,6 +274,17 @@ export interface PaginatedPluginLogEntryListApi {
     /** @nullable */
     previous?: string | null
     results: PluginLogEntryApi[]
+}
+
+export type LogsAlertsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type PluginConfigsLogsListParams = {

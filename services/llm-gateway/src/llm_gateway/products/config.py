@@ -16,8 +16,10 @@ class ProductConfig:
 
 
 # OAuth application IDs per region
-TWIG_US_APP_ID = "019a3066-4aa2-0000-ca70-48ecdcc519cf"
-TWIG_EU_APP_ID = "019a3067-5be7-0000-33c7-c6743eb59a79"
+POSTHOG_CODE_US_APP_ID = "019a3066-4aa2-0000-ca70-48ecdcc519cf"
+POSTHOG_CODE_EU_APP_ID = "019a3067-5be7-0000-33c7-c6743eb59a79"
+TWIG_US_APP_ID = POSTHOG_CODE_US_APP_ID
+TWIG_EU_APP_ID = POSTHOG_CODE_EU_APP_ID
 WIZARD_US_APP_ID = "019a0c79-b69d-0000-f31b-b41345208c9d"
 WIZARD_EU_APP_ID = "019a12d0-6edd-0000-0458-86616af3a3db"
 
@@ -27,8 +29,24 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,
         allow_api_keys=True,
     ),
-    "twig": ProductConfig(
-        allowed_application_ids=frozenset({TWIG_US_APP_ID, TWIG_EU_APP_ID}),
+    "posthog_code": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
+        allowed_models=frozenset(
+            {
+                "claude-opus-4-5",
+                "claude-opus-4-6",
+                "claude-sonnet-4-5",
+                "claude-sonnet-4-6",
+                "claude-haiku-4-5",
+                "gpt-5.3-codex",
+                "gpt-5.2",
+                "gpt-5-mini",
+            }
+        ),
+        allow_api_keys=False,
+    ),
+    "background_agents": ProductConfig(
+        allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID}),
         allowed_models=frozenset(
             {
                 "claude-opus-4-5",
@@ -47,9 +65,19 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
         allowed_models=None,
         allow_api_keys=True,
     ),
+    "llma_labeling": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"gpt-5.4"}),
+        allow_api_keys=True,
+    ),
     "django": ProductConfig(
         allowed_application_ids=None,
         allowed_models=None,
+        allow_api_keys=True,
+    ),
+    "slack-posthog-code": ProductConfig(
+        allowed_application_ids=None,
+        allowed_models=frozenset({"claude-haiku-4-5"}),
         allow_api_keys=True,
     ),
     "growth": ProductConfig(
@@ -78,7 +106,9 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
 ALLOWED_PRODUCTS: Final[frozenset[str]] = frozenset(PRODUCTS.keys())
 
 PRODUCT_ALIASES: Final[dict[str, str]] = {
-    "array": "twig",
+    "array": "posthog_code",
+    "twig": "posthog_code",
+    "slack-twig": "slack-posthog-code",
 }
 
 

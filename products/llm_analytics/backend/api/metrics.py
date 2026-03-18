@@ -85,6 +85,13 @@ LLMA_LLM_ERRORS = Counter(
     labelnames=["endpoint", "error_type"],
 )
 
+# BYOK request counter for spike alerting via rate(llma_proxy_byok_requests_total[5m])
+LLMA_PROXY_BYOK_REQUESTS = Counter(
+    "llma_proxy_byok_requests_total",
+    "BYOK completion requests through the LLM proxy",
+    labelnames=["provider"],
+)
+
 
 def llma_track_latency(endpoint: str) -> Callable[[F], F]:
     """

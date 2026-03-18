@@ -11,6 +11,7 @@ from django.http import HttpRequest
 from django.utils import timezone
 
 import structlog
+from django_deprecate_fields import deprecate_field
 
 from posthog.caching.flags_redis_cache import write_flags_to_cache
 from posthog.constants import ENRICHED_DASHBOARD_INSIGHT_IDENTIFIER, PropertyOperatorType
@@ -22,7 +23,7 @@ from posthog.models.file_system.file_system_representation import FileSystemRepr
 from posthog.models.property import GroupTypeIndex
 from posthog.models.property.property import Property, PropertyGroup
 from posthog.models.signals import mutable_receiver
-from posthog.models.utils import RootTeamMixin, UUIDModel
+from posthog.models.utils import RootTeamManager, RootTeamMixin, UUIDModel
 
 FIVE_DAYS = 60 * 60 * 24 * 5  # 5 days in seconds
 
@@ -33,6 +34,11 @@ if TYPE_CHECKING:
     from posthog.models.team import Team
 
 
+class FeatureFlagManager(RootTeamManager):
+    def get_queryset(self):
+        return super().get_queryset().exclude(deleted=True)
+
+
 class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
     # When adding new fields, make sure to update organization_feature_flags.py::copy_flags
     key = models.CharField(max_length=400)
@@ -41,7 +47,8 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     )  # contains description for the FF (field name `name` is kept for backwards-compatibility)
 
     filters = models.JSONField(default=dict)
-    rollout_percentage = models.IntegerField(null=True, blank=True)
+    # DEPRECATED: rollout percentage now lives in filters["groups"][N]["rollout_percentage"]
+    rollout_percentage = deprecate_field(models.IntegerField(null=True, blank=True))
 
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
     created_by = models.ForeignKey("User", on_delete=models.SET_NULL, null=True)
@@ -116,6 +123,9 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         help_text="Last time this feature flag was called (from $feature_flag_called events)",
     )
 
+    objects = FeatureFlagManager()  # type: ignore
+    objects_including_soft_deleted: models.Manager["FeatureFlag"] = RootTeamManager()
+
     class Meta:
         constraints = [models.UniqueConstraint(fields=["team", "key"], name="unique key for team")]
 
@@ -174,6 +184,10 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
         return self.get_filters().get("holdout_groups", []) or []
 
     @property
+    def holdout(self):
+        return self.get_filters().get("holdout", None)
+
+    @property
     def _payloads(self):
         return self.get_filters().get("payloads", {}) or {}
 
@@ -209,35 +223,30 @@ class FeatureFlag(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models
     @property
     def evaluation_tag_names(self) -> list[str] | None:
         """
-        Returns evaluation context tag names for this flag.
+        Returns evaluation context names for this flag.
 
         Preferred source is the cache-populated list from Redis (set on instances
         as `_evaluation_tag_names`). If not present, falls back to the DB relation
-        via `evaluation_tags` → `Tag.name`.
+        via `flag_evaluation_contexts` → `EvaluationContext.name`.
         """
         cached = getattr(self, "_evaluation_tag_names", None)
         if cached is not None:
             return cached
 
         try:
-            return [et.tag.name for et in self.evaluation_tags.select_related("tag").all()]
+            return [
+                ec.evaluation_context.name
+                for ec in self.flag_evaluation_contexts.select_related("evaluation_context").all()
+            ]
         except (AttributeError, DatabaseError):
             return None
 
     def get_filters(self) -> dict:
-        if isinstance(self.filters, dict) and "groups" in self.filters:
-            return self.filters
-        else:
-            # :TRICKY: Keep this backwards compatible.
-            #   We don't want to migrate to avoid /decide endpoint downtime until this code has been deployed
-            return {
-                "groups": [
-                    {
-                        "properties": self.filters.get("properties", []),
-                        "rollout_percentage": self.rollout_percentage,
-                    }
-                ],
-            }
+        if not self.filters:
+            return {"groups": []}
+        if "groups" not in self.filters:
+            return {**self.filters, "groups": []}
+        return self.filters
 
     def transform_cohort_filters_for_easy_evaluation(
         self,
@@ -584,8 +593,7 @@ def get_feature_flags(
         raise ValueError("Either team or project_id must be provided")
 
     # Include disabled flags (active=False) so flag dependencies can reference them
-    # and evaluate them as false, rather than raising DependencyNotFound errors
-    filter_kwargs.update({"deleted": False})
+    # and evaluate them as false, rather than raising DependencyNotFound errors.
 
     # Build queryset with evaluation tags aggregated
     # Single-shot query: flags plus evaluation tag names aggregated to a string array.
@@ -601,8 +609,8 @@ def get_feature_flags(
 
     qs = qs.annotate(
         evaluation_tag_names_agg=ArrayAgg(
-            "evaluation_tags__tag__name",
-            filter=Q(evaluation_tags__isnull=False),
+            "flag_evaluation_contexts__evaluation_context__name",
+            filter=Q(flag_evaluation_contexts__isnull=False),
             distinct=True,
         )
     )
@@ -672,6 +680,7 @@ def get_feature_flags_for_team_in_cache(project_id: int) -> Optional[list[Featur
                 # This avoids N+1 queries when the Rust service needs to access evaluation
                 # tags for many flags at once.
                 evaluation_tags_list = flag_data.pop("evaluation_tags", None)
+                flag_data.pop("evaluation_contexts", None)
                 flag = FeatureFlag(**flag_data)
                 # Store the evaluation tags as a private attribute. The evaluation_tag_names
                 # property will check this first before falling back to a database query.

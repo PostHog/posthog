@@ -4,8 +4,8 @@ import { actionToUrl, urlToAction } from 'kea-router'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { systemStatusLogic } from 'scenes/instance/SystemStatus/systemStatusLogic'
+import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { InstanceSetting } from '~/types'

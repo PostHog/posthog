@@ -45,7 +45,7 @@ jobs:
 
             - name: Checkout
               if: steps.source-check.outputs.changed == 'true'
-              uses: actions/checkout@v4
+              uses: actions/checkout@v6
 
             - name: Setup pnpm
               if: steps.source-check.outputs.changed == 'true'
@@ -53,10 +53,13 @@ jobs:
 
             - name: Setup Node.js
               if: steps.source-check.outputs.changed == 'true'
-              uses: actions/setup-node@v4
+              uses: actions/setup-node@v6
               with:
                   node-version: 24
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-docs-check.yml
 
             - name: Install dependencies
               if: steps.source-check.outputs.changed == 'true'

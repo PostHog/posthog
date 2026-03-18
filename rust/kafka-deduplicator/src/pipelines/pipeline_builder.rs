@@ -3,7 +3,10 @@
 //! This module provides a builder pattern for constructing pipeline-specific
 //! Kafka consumers with all necessary dependencies.
 
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result};
 use common_kafka::kafka_producer::KafkaContext;
@@ -13,8 +16,10 @@ use rdkafka::ClientConfig;
 use tokio::sync::oneshot;
 use tracing::info;
 
+use crate::checkpoint::config::DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS;
 use crate::checkpoint::import::CheckpointImporter;
 use crate::config::PipelineType;
+use crate::kafka::assigner::AssignerConsumer;
 use crate::kafka::batch_consumer::BatchConsumer;
 use crate::kafka::{OffsetTracker, PartitionRouter, PartitionRouterConfig, RoutingProcessor};
 use crate::pipelines::clickhouse_events::{ClickHouseEventsBatchProcessor, ClickHouseEventsConfig};
@@ -23,15 +28,20 @@ use crate::pipelines::ingestion_events::{
 };
 use crate::processor_rebalance_handler::ProcessorRebalanceHandler;
 use crate::rebalance_tracker::RebalanceTracker;
-use crate::store_manager::StoreManager;
+use crate::store_manager::{MetadataCommitCallback, StoreManager};
 
-/// Enum wrapper for different consumer types based on pipeline configuration.
+/// Enum wrapper for different consumer types based on pipeline and mode configuration.
 ///
-/// Each variant wraps a `BatchConsumer` for the appropriate event type,
-/// allowing the service to work with either pipeline through a unified interface.
+/// Each variant wraps a consumer for the appropriate event type,
+/// allowing the service to work with any pipeline/mode through a unified interface.
+///
+/// The `Assigner` variant uses a boxed future to type-erase the `AssignerConsumer`
+/// (which contains `tonic::Streaming<T>`, a `!Sync` type that would otherwise make
+/// the entire service `!Sync` and break `tokio::spawn` compatibility).
 pub enum PipelineConsumer {
     IngestionEvents(BatchConsumer<CapturedEvent>),
     ClickHouseEvents(BatchConsumer<ClickHouseEvent>),
+    Assigner(Pin<Box<dyn Future<Output = Result<()>> + Send>>),
 }
 
 impl PipelineConsumer {
@@ -39,6 +49,7 @@ impl PipelineConsumer {
         match self {
             PipelineConsumer::IngestionEvents(consumer) => consumer.start_consumption().await,
             PipelineConsumer::ClickHouseEvents(consumer) => consumer.start_consumption().await,
+            PipelineConsumer::Assigner(future) => future.await,
         }
     }
 }
@@ -56,6 +67,10 @@ pub struct PipelineBuilder {
     seek_timeout: std::time::Duration,
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
     rebalance_cleanup_parallelism: usize,
+    local_checkpoint_max_staleness: Duration,
+
+    // Fail-open mode: bypass deduplication and forward events directly
+    fail_open: bool,
 
     // Ingestion events specific
     dedup_config: Option<DeduplicationConfig>,
@@ -76,6 +91,7 @@ impl PipelineBuilder {
         commit_interval: std::time::Duration,
         seek_timeout: std::time::Duration,
         rebalance_cleanup_parallelism: usize,
+        fail_open: bool,
     ) -> Self {
         Self {
             pipeline_type,
@@ -89,6 +105,10 @@ impl PipelineBuilder {
             seek_timeout,
             checkpoint_importer: None,
             rebalance_cleanup_parallelism,
+            local_checkpoint_max_staleness: Duration::from_secs(
+                DEFAULT_LOCAL_CHECKPOINT_MAX_STALENESS_SECS,
+            ),
+            fail_open,
             dedup_config: None,
             main_producer: None,
             duplicate_producer: None,
@@ -97,6 +117,11 @@ impl PipelineBuilder {
 
     pub fn with_checkpoint_importer(mut self, importer: Option<Arc<CheckpointImporter>>) -> Self {
         self.checkpoint_importer = importer;
+        self
+    }
+
+    pub fn with_local_checkpoint_staleness(mut self, staleness: Duration) -> Self {
+        self.local_checkpoint_max_staleness = staleness;
         self
     }
 
@@ -113,7 +138,7 @@ impl PipelineBuilder {
         self
     }
 
-    /// Build the pipeline consumer
+    /// Build a group-based pipeline consumer (uses Kafka's consumer group protocol).
     pub fn build(self, shutdown_rx: oneshot::Receiver<()>) -> Result<PipelineConsumer> {
         let rebalance_tracker = self.store_manager.rebalance_tracker().clone();
         let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker.clone()));
@@ -124,6 +149,41 @@ impl PipelineBuilder {
             }
             PipelineType::ClickhouseEvents => {
                 self.build_clickhouse_events(rebalance_tracker, offset_tracker, shutdown_rx)
+            }
+        }
+    }
+
+    /// Build an assigner-driven pipeline consumer (uses kafka-assigner for partition assignment).
+    ///
+    /// The resulting consumer is type-erased into a boxed future to avoid exposing
+    /// `tonic::Streaming<T>` (which is `!Sync`) through `PipelineConsumer`.
+    pub async fn build_assigner(
+        self,
+        assigner_endpoint: &str,
+        consumer_name: String,
+        shutdown_rx: oneshot::Receiver<()>,
+    ) -> Result<PipelineConsumer> {
+        let rebalance_tracker = self.store_manager.rebalance_tracker().clone();
+        let offset_tracker = Arc::new(OffsetTracker::new(rebalance_tracker));
+
+        match self.pipeline_type {
+            PipelineType::IngestionEvents => {
+                self.build_assigner_ingestion_events(
+                    offset_tracker,
+                    assigner_endpoint,
+                    consumer_name,
+                    shutdown_rx,
+                )
+                .await
+            }
+            PipelineType::ClickhouseEvents => {
+                self.build_assigner_clickhouse_events(
+                    offset_tracker,
+                    assigner_endpoint,
+                    consumer_name,
+                    shutdown_rx,
+                )
+                .await
             }
         }
     }
@@ -168,6 +228,12 @@ impl PipelineBuilder {
             offset_tracker.clone(),
             self.checkpoint_importer,
             self.rebalance_cleanup_parallelism,
+            self.local_checkpoint_max_staleness,
+        ));
+
+        let on_commit = Arc::new(MetadataCommitCallback::new(
+            self.store_manager.clone(),
+            offset_tracker.clone(),
         ));
 
         let consumer = BatchConsumer::new(
@@ -175,6 +241,7 @@ impl PipelineBuilder {
             rebalance_handler,
             routing_processor,
             offset_tracker,
+            Some(on_commit),
             shutdown_rx,
             &self.topic,
             self.batch_size,
@@ -197,6 +264,7 @@ impl PipelineBuilder {
 
         let ch_config = ClickHouseEventsConfig {
             store_config: self.store_manager.config().clone(),
+            fail_open: self.fail_open,
         };
 
         let processor = Arc::new(ClickHouseEventsBatchProcessor::new(
@@ -222,6 +290,12 @@ impl PipelineBuilder {
             offset_tracker.clone(),
             self.checkpoint_importer,
             self.rebalance_cleanup_parallelism,
+            self.local_checkpoint_max_staleness,
+        ));
+
+        let on_commit = Arc::new(MetadataCommitCallback::new(
+            self.store_manager.clone(),
+            offset_tracker.clone(),
         ));
 
         let consumer = BatchConsumer::new(
@@ -229,6 +303,7 @@ impl PipelineBuilder {
             rebalance_handler,
             routing_processor,
             offset_tracker,
+            Some(on_commit),
             shutdown_rx,
             &self.topic,
             self.batch_size,
@@ -239,5 +314,111 @@ impl PipelineBuilder {
         .with_context(|| format!("Failed to create consumer for topic '{}'", self.topic))?;
 
         Ok(PipelineConsumer::ClickHouseEvents(consumer))
+    }
+
+    async fn build_assigner_ingestion_events(
+        self,
+        offset_tracker: Arc<OffsetTracker>,
+        assigner_endpoint: &str,
+        consumer_name: String,
+        shutdown_rx: oneshot::Receiver<()>,
+    ) -> Result<PipelineConsumer> {
+        info!("Building assigner ingestion_events pipeline");
+
+        let dedup_config = self
+            .dedup_config
+            .context("DeduplicationConfig required for ingestion_events pipeline")?;
+
+        let processor = Arc::new(
+            IngestionEventsBatchProcessor::new(
+                dedup_config,
+                self.store_manager.clone(),
+                self.main_producer,
+                self.duplicate_producer,
+            )
+            .context("Failed to create ingestion events processor")?,
+        );
+
+        let router = Arc::new(PartitionRouter::new(
+            processor,
+            offset_tracker.clone(),
+            self.router_config,
+        ));
+
+        let routing_processor = Arc::new(RoutingProcessor::new(
+            router.clone(),
+            offset_tracker.clone(),
+        ));
+
+        let consumer = AssignerConsumer::new(
+            &self.consumer_config,
+            assigner_endpoint,
+            consumer_name,
+            self.topic.clone(),
+            self.store_manager,
+            self.checkpoint_importer,
+            offset_tracker,
+            router,
+            routing_processor,
+            self.commit_interval,
+            self.batch_size,
+            self.batch_timeout,
+            shutdown_rx,
+        )
+        .await
+        .context("Failed to create assigner consumer for ingestion events")?;
+
+        Ok(PipelineConsumer::Assigner(Box::pin(consumer.start())))
+    }
+
+    async fn build_assigner_clickhouse_events(
+        self,
+        offset_tracker: Arc<OffsetTracker>,
+        assigner_endpoint: &str,
+        consumer_name: String,
+        shutdown_rx: oneshot::Receiver<()>,
+    ) -> Result<PipelineConsumer> {
+        info!("Building assigner clickhouse_events pipeline");
+
+        let ch_config = ClickHouseEventsConfig {
+            store_config: self.store_manager.config().clone(),
+            fail_open: self.fail_open,
+        };
+
+        let processor = Arc::new(ClickHouseEventsBatchProcessor::new(
+            ch_config,
+            self.store_manager.clone(),
+        ));
+
+        let router = Arc::new(PartitionRouter::new(
+            processor,
+            offset_tracker.clone(),
+            self.router_config,
+        ));
+
+        let routing_processor = Arc::new(RoutingProcessor::new(
+            router.clone(),
+            offset_tracker.clone(),
+        ));
+
+        let consumer = AssignerConsumer::new(
+            &self.consumer_config,
+            assigner_endpoint,
+            consumer_name,
+            self.topic.clone(),
+            self.store_manager,
+            self.checkpoint_importer,
+            offset_tracker,
+            router,
+            routing_processor,
+            self.commit_interval,
+            self.batch_size,
+            self.batch_timeout,
+            shutdown_rx,
+        )
+        .await
+        .context("Failed to create assigner consumer for clickhouse events")?;
+
+        Ok(PipelineConsumer::Assigner(Box::pin(consumer.start())))
     }
 }

@@ -16,7 +16,9 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                 <CalloutBox type="fyi" title="Client-side configuration only">
                     <Markdown>
                         {dedent`
-                            This configuration is client-side only. Support for remote configuration in the [error tracking settings](https://app.posthog.com/settings/project-error-tracking#exception-autocapture) will be added in a future release.
+                            Support for remote configuration 
+                            in the [error tracking settings](https://app.posthog.com/settings/project-error-tracking#exception-autocapture)
+                            requires SDK version 4.35.0 or higher.
                         `}
                     </Markdown>
                 </CalloutBox>
@@ -31,7 +33,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
                             language: 'jsx',
                             file: 'React Native',
                             code: dedent`
-                              export const posthog = new PostHog('<ph_project_api_key>', {
+                              export const posthog = new PostHog('<ph_project_token>', {
                                 errorTracking: {
                                   autocapture: {
                                     uncaughtExceptions: true,
@@ -80,7 +82,7 @@ export const getReactNativeSteps = (ctx: OnboardingComponentsContext): StepDefin
 
                                 const App = () => {
                                   return (
-                                    <PostHogProvider apiKey="<ph_project_api_key>">
+                                    <PostHogProvider apiKey="<ph_project_token>">
                                       <PostHogErrorBoundary
                                         fallback={YourFallbackComponent}
                                         additionalProperties={{ screen: "home" }}

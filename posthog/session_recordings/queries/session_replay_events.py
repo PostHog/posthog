@@ -10,7 +10,7 @@ from posthog.schema import HogQLQuery
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.models.team import Team
-from posthog.session_recordings.models.metadata import RecordingBlockListing, RecordingMetadata
+from posthog.session_recordings.models.metadata import RecordingMetadata
 
 DEFAULT_EVENT_FIELDS = [
     "event",
@@ -112,6 +112,7 @@ class SessionReplayEvents:
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
+                AND max(is_deleted) = 0
             """,
             {
                 "team_id": team.pk,
@@ -180,6 +181,7 @@ class SessionReplayEvents:
                     session_id
                 HAVING
                     expiry_time >= {now}
+                    AND max(is_deleted) = 0
             """,
             values={
                 "session_ids": session_ids,
@@ -268,46 +270,9 @@ class SessionReplayEvents:
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
+                AND max(is_deleted) = 0
             {optional_format_clause}
         """
-        query = query.format(
-            optional_timestamp_clause=(
-                "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
-            ),
-            optional_format_clause=(f"FORMAT {format}" if format else ""),
-        )
-        return query
-
-    @staticmethod
-    def get_block_listing_query(
-        recording_start_time: Optional[datetime] = None,
-        format: Optional[str] = None,
-    ) -> LiteralString:
-        """
-        Helper function to build a query for session metadata, to be able to use
-        both in production and locally (for example, when testing session summary)
-        """
-        query = """
-                SELECT
-                    min(min_first_timestamp) as start_time,
-                    groupArrayArray(block_first_timestamps) as block_first_timestamps,
-                    groupArrayArray(block_last_timestamps) as block_last_timestamps,
-                    groupArrayArray(block_urls) as block_urls,
-                    max(retention_period_days) as retention_period_days,
-                    dateTrunc('DAY', start_time) + toIntervalDay(coalesce(retention_period_days, 30)) as expiry_time
-                FROM
-                    session_replay_events
-                PREWHERE
-                    team_id = %(team_id)s
-                    AND session_id = %(session_id)s
-                    AND min_first_timestamp <= %(python_now)s
-                    {optional_timestamp_clause}
-                GROUP BY
-                    session_id
-                HAVING
-                    expiry_time >= %(python_now)s
-                {optional_format_clause}
-                """
         query = query.format(
             optional_timestamp_clause=(
                 "AND min_first_timestamp >= %(recording_start_time)s" if recording_start_time else ""
@@ -422,6 +387,7 @@ class SessionReplayEvents:
                 session_id
             HAVING
                 expiry_time >= %(python_now)s
+                AND max(is_deleted) = 0
         """
         tag_queries(product=Product.REPLAY, team_id=team.pk)
         replay_response: list[tuple] = sync_execute(
@@ -442,42 +408,6 @@ class SessionReplayEvents:
             if metadata:
                 result[session_id] = metadata
         return result
-
-    @staticmethod
-    def build_recording_block_listing(session_id: str, replay_response: list[tuple]) -> Optional[RecordingBlockListing]:
-        if len(replay_response) == 0:
-            return None
-        if len(replay_response) > 1:
-            raise ValueError("Multiple sessions found for session_id: {}".format(session_id))
-
-        replay = replay_response[0]
-
-        return RecordingBlockListing(
-            start_time=replay[0],
-            block_first_timestamps=replay[1],
-            block_last_timestamps=replay[2],
-            block_urls=replay[3],
-        )
-
-    def list_blocks(
-        self,
-        session_id: str,
-        team: Team,
-        recording_start_time: Optional[datetime] = None,
-    ) -> Optional[RecordingBlockListing]:
-        query = self.get_block_listing_query(recording_start_time)
-        tag_queries(product=Product.REPLAY, team_id=team.pk)
-        replay_response: list[tuple] = sync_execute(
-            query,
-            {
-                "team_id": team.pk,
-                "session_id": session_id,
-                "recording_start_time": recording_start_time,
-                "python_now": datetime.now(pytz.timezone("UTC")),
-            },
-        )
-        recording_metadata = self.build_recording_block_listing(session_id, replay_response)
-        return recording_metadata
 
     def get_events_query(
         self,
@@ -553,11 +483,15 @@ class SessionReplayEvents:
     @staticmethod
     def get_sessions_from_distinct_id_query(
         format: Optional[str] = None,
+        paginated: bool = False,
     ):
         """
-        Helper function to build a query for listing all session IDs for a given set of distinct IDs
+        Helper function to build a query for listing all session IDs for a given set of distinct IDs.
+        When paginated=True, adds keyset pagination (cursor, page_size parameters required).
         """
-        query = """
+        cursor_clause = "AND session_id > %(cursor)s" if paginated else ""
+        pagination_clause = "ORDER BY session_id ASC LIMIT %(page_size)s" if paginated else ""
+        query = f"""
                 SELECT
                     session_id,
                     min(min_first_timestamp) as start_time,
@@ -567,13 +501,16 @@ class SessionReplayEvents:
                     session_replay_events
                 PREWHERE
                     team_id = %(team_id)s
-                    AND distinct_id IN (%(distinct_ids)s)
                     AND min_first_timestamp <= %(python_now)s
+                    {cursor_clause}
                 GROUP BY
                     session_id
                 HAVING
                     expiry_time >= %(python_now)s
-                {optional_format_clause}
+                    AND max(is_deleted) = 0
+                    AND anyIf(distinct_id, notEmpty(distinct_id)) IN (%(distinct_ids)s)
+                {pagination_clause}
+                {{optional_format_clause}}
                 """
         query = query.format(
             optional_format_clause=(f"FORMAT {format}" if format else ""),
@@ -583,11 +520,15 @@ class SessionReplayEvents:
     @staticmethod
     def get_sessions_from_team_id_query(
         format: Optional[str] = None,
+        paginated: bool = False,
     ):
         """
-        Helper function to build a query for listing all session IDs for a given team ID
+        Helper function to build a query for listing all session IDs for a given team ID.
+        When paginated=True, adds keyset pagination (cursor, page_size parameters required).
         """
-        query = """
+        cursor_clause = "AND session_id > %(cursor)s" if paginated else ""
+        pagination_clause = "ORDER BY session_id ASC LIMIT %(page_size)s" if paginated else ""
+        query = f"""
                 SELECT
                     session_id,
                     min(min_first_timestamp) as start_time,
@@ -598,11 +539,14 @@ class SessionReplayEvents:
                 PREWHERE
                     team_id = %(team_id)s
                     AND min_first_timestamp <= %(python_now)s
+                    {cursor_clause}
                 GROUP BY
                     session_id
                 HAVING
                     expiry_time >= %(python_now)s
-                {optional_format_clause}
+                    AND max(is_deleted) = 0
+                {pagination_clause}
+                {{optional_format_clause}}
                 """
         query = query.format(
             optional_format_clause=(f"FORMAT {format}" if format else ""),

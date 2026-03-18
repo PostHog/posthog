@@ -13,8 +13,8 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <Blockquote>
                     <Markdown>
-                        **Note:** LiteLLM can be used as a Python SDK or as a proxy server. PostHog observability requires
-                        LiteLLM version 1.77.3 or higher.
+                        **Note:** LiteLLM can be used as a Python SDK or as a proxy server. PostHog observability
+                        requires LiteLLM version 1.77.3 or higher.
                     </Markdown>
                 </Blockquote>
             ),
@@ -57,7 +57,7 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
             content: (
                 <>
                     <Markdown>
-                        Configure PostHog by setting your project API key and host as well as adding `posthog` to your
+                        Configure PostHog by setting your project token and host as well as adding `posthog` to your
                         LiteLLM callback handlers. You can find your API key in [your project
                         settings](https://app.posthog.com/settings/project).
                     </Markdown>
@@ -72,7 +72,7 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                     import litellm
 
                                     # Set environment variables
-                                    os.environ["POSTHOG_API_KEY"] = "<ph_project_api_key>"
+                                    os.environ["POSTHOG_API_KEY"] = "<ph_project_token>"
                                     os.environ["POSTHOG_API_URL"] = "<ph_client_api_host>"  # Optional, defaults to https://app.posthog.com
 
                                     # Enable PostHog callbacks
@@ -95,7 +95,7 @@ export const getLiteLLMSteps = (ctx: OnboardingComponentsContext): StepDefinitio
                                       failure_callback: ["posthog"]  # Optional: also log failures
 
                                     environment_variables:
-                                      POSTHOG_API_KEY: "<ph_project_api_key>"
+                                      POSTHOG_API_KEY: "<ph_project_token>"
                                       POSTHOG_API_URL: "<ph_client_api_host>"  # Optional
                                 `,
                             },

@@ -1,4 +1,4 @@
-import { ReactNode } from 'react'
+import { isValidElement, ReactNode } from 'react'
 
 import { IconRewindPlay } from '@posthog/icons'
 import { LemonButton, LemonButtonProps, Tooltip } from '@posthog/lemon-ui'
@@ -42,6 +42,7 @@ export default function ViewRecordingsPlaylistButton({
             sideIcon={<IconRewindPlay />}
             disabled={disabled}
             disabledReason={disabledReason}
+            disabledReasonInteractive={isValidElement(disabledReason)}
             {...buttonProps}
         >
             {label}

@@ -23,14 +23,19 @@ use crate::{
     config::Config,
     kafka::{PartitionRouterConfig, PartitionWorkerConfig},
     rebalance_tracker::RebalanceTracker,
+    rocksdb::store::init_shared_resources,
     store::DeduplicationStoreConfig,
     store_manager::{CleanupTaskHandle, StoreManager},
 };
 
-/// The main Kafka Deduplicator service that encapsulates all components
+/// The main Kafka Deduplicator service that encapsulates all components.
+///
+/// Note: `PipelineConsumer` is intentionally NOT stored on this struct. In assigner
+/// mode the consumer contains `tonic::Streaming<T>` which is `!Sync`, and storing it
+/// here would make the service `!Sync` — breaking `tokio::spawn` compatibility.
+/// Instead, `initialize()` returns the consumer and callers pass it to the run methods.
 pub struct KafkaDeduplicatorService {
     config: Config,
-    consumer: Option<PipelineConsumer>,
     store_manager: Arc<StoreManager>,
     checkpoint_manager: Option<CheckpointManager>,
     checkpoint_importer: Option<Arc<CheckpointImporter>>,
@@ -85,12 +90,17 @@ impl KafkaDeduplicatorService {
         // Validate configuration
         config.validate().with_context(|| format!("Configuration validation failed for service with consumer topic '{}' and group '{}'", config.kafka_consumer_topic, config.kafka_consumer_group))?;
 
+        // Build RocksDB config from env overrides and initialize shared resources
+        let rocksdb_config = config.build_rocksdb_config();
+        init_shared_resources(&rocksdb_config);
+
         // Create store configuration
         let store_config = DeduplicationStoreConfig {
             path: config.store_path_buf(),
             max_capacity: config
                 .parse_storage_capacity()
                 .context("Failed to parse max_store_capacity")?,
+            rocksdb: rocksdb_config,
         };
 
         // Create rebalance coordinator first (other components depend on it)
@@ -102,6 +112,42 @@ impl KafkaDeduplicatorService {
             rebalance_tracker.clone(),
         ));
 
+        // In fail-open mode, skip store cleanup and checkpoint infrastructure
+        let (cleanup_task_handle, checkpoint_manager, importer) = if config.fail_open {
+            info!("Fail-open mode enabled — skipping cleanup task, checkpoint export/import");
+            let checkpoint_config = CheckpointConfig::default();
+            let checkpoint_manager =
+                CheckpointManager::new(checkpoint_config, store_manager.clone(), None);
+            (None, checkpoint_manager, None)
+        } else {
+            Self::create_store_infrastructure(&config, &store_config, &store_manager).await?
+        };
+
+        Ok(Self {
+            config,
+            store_manager,
+            checkpoint_manager: Some(checkpoint_manager),
+            checkpoint_importer: importer,
+            cleanup_task_handle,
+            shutdown_tx: None,
+            liveness,
+            service_health: None,
+            health_task_cancellation: CancellationToken::new(),
+            health_task_handles: Vec::new(),
+        })
+    }
+
+    /// Create cleanup task, checkpoint exporter, and checkpoint importer.
+    /// Skipped entirely when fail-open mode is active.
+    async fn create_store_infrastructure(
+        config: &Config,
+        store_config: &DeduplicationStoreConfig,
+        store_manager: &Arc<StoreManager>,
+    ) -> Result<(
+        Option<CleanupTaskHandle>,
+        CheckpointManager,
+        Option<Arc<CheckpointImporter>>,
+    )> {
         // Start periodic cleanup task if max_capacity is configured
         let cleanup_task_handle = if store_config.max_capacity > 0 {
             let cleanup_interval = config.cleanup_interval();
@@ -143,6 +189,7 @@ impl KafkaDeduplicatorService {
                 .max_concurrent_checkpoint_file_downloads,
             max_concurrent_checkpoint_file_uploads: config.max_concurrent_checkpoint_file_uploads,
             checkpoint_partition_import_timeout: config.checkpoint_partition_import_timeout(),
+            local_checkpoint_max_staleness: config.local_checkpoint_max_staleness(),
         };
 
         // Reset local checkpoint directory on startup (it's temporary storage)
@@ -194,28 +241,18 @@ impl KafkaDeduplicatorService {
         let checkpoint_manager =
             CheckpointManager::new(checkpoint_config, store_manager.clone(), exporter);
 
-        Ok(Self {
-            config,
-            consumer: None,
-            store_manager,
-            checkpoint_manager: Some(checkpoint_manager),
-            checkpoint_importer: importer,
-            cleanup_task_handle,
-            shutdown_tx: None,
-            liveness,
-            service_health: None,
-            health_task_cancellation: CancellationToken::new(),
-            health_task_handles: Vec::new(),
-        })
+        Ok((cleanup_task_handle, checkpoint_manager, importer))
     }
 
-    /// Initialize the Kafka consumer and prepare for running
-    pub async fn initialize(&mut self) -> Result<()> {
-        if self.consumer.is_some() {
-            return Err(anyhow::anyhow!("Service already initialized"));
-        }
-
-        let consumer_config = self.config.build_batch_consumer_config();
+    /// Initialize the Kafka consumer and prepare for running.
+    /// Returns the consumer so callers can spawn it without storing a `!Sync` type on `self`.
+    pub async fn initialize(&mut self) -> Result<PipelineConsumer> {
+        let assigner_mode = self.config.kafka_assigner_endpoint.is_some();
+        let consumer_config = if assigner_mode {
+            self.config.build_assigner_consumer_config()
+        } else {
+            self.config.build_batch_consumer_config()
+        };
 
         // Create partition router for parallel processing across partitions
         let router_config = PartitionRouterConfig {
@@ -279,8 +316,10 @@ impl KafkaDeduplicatorService {
             self.config.commit_interval(),
             self.config.kafka_consumer_seek_timeout(),
             self.config.rebalance_cleanup_parallelism,
+            self.config.fail_open,
         )
-        .with_checkpoint_importer(self.checkpoint_importer.clone());
+        .with_checkpoint_importer(self.checkpoint_importer.clone())
+        .with_local_checkpoint_staleness(self.config.local_checkpoint_max_staleness());
 
         // Configure pipeline-specific options for ingestion events
         if self.config.pipeline_type == PipelineType::IngestionEvents {
@@ -309,17 +348,39 @@ impl KafkaDeduplicatorService {
                 store_config: self.store_manager.config().clone(),
                 producer_send_timeout: self.config.producer_send_timeout(),
                 flush_interval: self.config.flush_interval(),
+                fail_open: self.config.fail_open,
             };
 
             builder =
                 builder.with_ingestion_config(dedup_config, main_producer, duplicate_producer);
         }
 
-        let pipeline_consumer = builder.build(shutdown_rx)?;
+        let pipeline_consumer =
+            if let Some(ref assigner_endpoint) = self.config.kafka_assigner_endpoint {
+                let consumer_name = self
+                    .config
+                    .consumer_name
+                    .clone()
+                    .or_else(|| self.config.pod_hostname.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                info!(
+                    assigner_endpoint,
+                    consumer_name, "Building assigner-driven consumer"
+                );
+
+                builder
+                    .build_assigner(assigner_endpoint, consumer_name, shutdown_rx)
+                    .await?
+            } else {
+                builder.build(shutdown_rx)?
+            };
 
         info!(
-            "Initialized {:?} pipeline for topic '{}'",
-            self.config.pipeline_type, self.config.kafka_consumer_topic
+            pipeline_type = ?self.config.pipeline_type,
+            topic = self.config.kafka_consumer_topic,
+            assigner_mode,
+            "Initialized pipeline"
         );
 
         // Register health check for the service
@@ -329,8 +390,7 @@ impl KafkaDeduplicatorService {
                 .await,
         );
 
-        self.consumer = Some(pipeline_consumer);
-        Ok(())
+        Ok(pipeline_consumer)
     }
 
     /// Create Kafka producers for the ingestion events pipeline
@@ -438,15 +498,7 @@ impl KafkaDeduplicatorService {
 
     /// Run the service (blocking until shutdown)
     pub async fn run(mut self) -> Result<()> {
-        // Initialize if not already done
-        if self.consumer.is_none() {
-            self.initialize().await?;
-        }
-
-        let consumer = self
-            .consumer
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("Consumer not initialized"))?;
+        let consumer = self.initialize().await?;
 
         info!("Starting Kafka Deduplicator service");
 
@@ -518,15 +570,7 @@ impl KafkaDeduplicatorService {
         mut self,
         shutdown_signal: impl std::future::Future<Output = ()>,
     ) -> Result<()> {
-        // Initialize if not already done
-        if self.consumer.is_none() {
-            self.initialize().await?;
-        }
-
-        let consumer = self
-            .consumer
-            .take()
-            .ok_or_else(|| anyhow::anyhow!("Consumer not initialized"))?;
+        let consumer = self.initialize().await?;
 
         info!("Starting Kafka Deduplicator service");
 

@@ -633,7 +633,10 @@ export function getUsageLimitConsequence(productName: string): string {
 /**
  * Build a consolidated message for products that have exceeded their usage limits
  */
-export function buildUsageLimitExceededMessage(products: Array<{ name: string; subscribed: boolean | null }>): {
+export function buildUsageLimitExceededMessage(
+    products: Array<{ name: string; subscribed: boolean | null }>,
+    hasBillingAccess: boolean = true
+): {
     title: string
     message: string
 } {
@@ -648,8 +651,16 @@ export function buildUsageLimitExceededMessage(products: Array<{ name: string; s
     const consequences = [...new Set(products.map((p) => getUsageLimitConsequence(p.name)))]
 
     const productListText = formatProductNames(productNames)
-    const actionText = allSubscribed ? 'increase your billing limit' : 'upgrade your plan'
     const consequenceText = consequences.join(' and ')
+
+    let actionText: string
+    if (hasBillingAccess) {
+        actionText = allSubscribed ? 'increase your billing limit' : 'upgrade your plan'
+    } else {
+        actionText = allSubscribed
+            ? 'ask an organization admin to increase the billing limit'
+            : 'ask an organization admin to upgrade the plan'
+    }
 
     return {
         title: products.length === 1 ? 'Usage limit exceeded' : 'Usage limits exceeded',
@@ -661,7 +672,8 @@ export function buildUsageLimitExceededMessage(products: Array<{ name: string; s
  * Build a consolidated message for products approaching their usage limits
  */
 export function buildUsageLimitApproachingMessage(
-    products: Array<{ name: string; percentage_usage: number; usage_key?: string | null }>
+    products: Array<{ name: string; percentage_usage: number; usage_key?: string | null }>,
+    hasBillingAccess: boolean = true
 ): { title: string; message: string } {
     if (products.length === 0) {
         return { title: '', message: '' }
@@ -673,10 +685,12 @@ export function buildUsageLimitApproachingMessage(
         return `${percentage}% of your ${usageKey} allocation`
     })
 
+    const adminSuffix = hasBillingAccess ? '' : ' Please ask an organization admin to increase the billing limit.'
+
     const message =
         products.length === 1
-            ? `You have currently used ${usageDetails[0]}.`
-            : `You are approaching your usage limits: ${usageDetails.join(', ')}.`
+            ? `You have currently used ${usageDetails[0]}.${adminSuffix}`
+            : `You are approaching your usage limits: ${usageDetails.join(', ')}.${adminSuffix}`
 
     return {
         title: products.length === 1 ? 'You will soon hit your usage limit' : 'You will soon hit your usage limits',

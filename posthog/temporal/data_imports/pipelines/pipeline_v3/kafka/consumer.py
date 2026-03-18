@@ -10,6 +10,7 @@ from django.conf import settings
 from django.db import OperationalError
 
 import structlog
+import posthoganalytics
 from confluent_kafka import (
     Consumer as ConfluentConsumer,
     KafkaError,
@@ -17,7 +18,17 @@ from confluent_kafka import (
 
 from posthog.exceptions_capture import capture_exception
 from posthog.kafka_client.client import _KafkaProducer, _KafkaSecurityProtocol
+from posthog.temporal.data_imports.pipelines.pipeline_v3.kafka.metrics import (
+    BATCH_PROCESSING_DURATION_SECONDS,
+    BATCH_RETRY_EXHAUSTED_TOTAL,
+    BATCH_RETRY_TOTAL,
+    BATCH_SIZE,
+    DLQ_MESSAGES_TOTAL,
+    MESSAGES_PROCESSED_TOTAL,
+    OFFSET_COMMITS_TOTAL,
+)
 from posthog.temporal.data_imports.pipelines.pipeline_v3.load.config import ConsumerConfig
+from posthog.utils import get_machine_id
 
 logger = structlog.get_logger(__name__)
 
@@ -138,6 +149,17 @@ class KafkaConsumerService:
                 error_type=type(error).__name__,
                 error_message=str(error),
             )
+
+            posthoganalytics.capture(
+                distinct_id=get_machine_id(),
+                event="warehouse_v3_dlq_message",
+                properties={
+                    "team_id": message.get("team_id") if isinstance(message, dict) else None,
+                    "schema_id": message.get("schema_id") if isinstance(message, dict) else None,
+                    "error_type": type(error).__name__,
+                    "input_topic": self._config.input_topic,
+                },
+            )
         except Exception as dlq_error:
             logger.exception(
                 "dlq_send_failed",
@@ -188,9 +210,11 @@ class KafkaConsumerService:
                 if not messages:
                     continue
 
+                BATCH_SIZE.observe(len(messages))
+
                 logger.debug("batch_received", message_count=len(messages))
 
-                self._process_batch_with_retry(messages)
+                self._process_batch_with_retry(messages, health_reporter=health_reporter)
 
         except Exception as e:
             logger.exception("consumer_error")
@@ -199,7 +223,9 @@ class KafkaConsumerService:
         finally:
             self._cleanup()
 
-    def _process_batch_with_retry(self, messages: list[Any]) -> None:
+    def _process_batch_with_retry(
+        self, messages: list[Any], health_reporter: Optional[Callable[[], None]] = None
+    ) -> None:
         """Process a batch of messages with retry logic for transient errors.
 
         Non-transient errors on individual messages are sent to the DLQ so a
@@ -216,8 +242,16 @@ class KafkaConsumerService:
                 for i, message in enumerate(messages):
                     if i in dlq_indices:
                         continue
+
+                    team_id = str(message.get("team_id") or "unknown")
+                    schema_id = str(message.get("schema_id") or "unknown")
+
                     try:
-                        self._process_message(message)
+                        with BATCH_PROCESSING_DURATION_SECONDS.labels(team_id=team_id, schema_id=schema_id).time():
+                            self._process_message(message)
+                        MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="success").inc()
+                        if health_reporter:
+                            health_reporter()
                     except TRANSIENT_ERRORS:
                         raise
                     except Exception as e:
@@ -229,15 +263,27 @@ class KafkaConsumerService:
                         try:
                             self._send_to_dlq(message, e)
                             dlq_indices.add(i)
+                            MESSAGES_PROCESSED_TOTAL.labels(team_id=team_id, schema_id=schema_id, status="dlq").inc()
+                            DLQ_MESSAGES_TOTAL.labels(
+                                team_id=team_id, schema_id=schema_id, error_type=type(e).__name__
+                            ).inc()
                         except Exception:
                             raise e
 
-                self._consumer.commit()
+                try:
+                    self._consumer.commit()
+                    OFFSET_COMMITS_TOTAL.labels(status="success").inc()
+                except Exception:
+                    OFFSET_COMMITS_TOTAL.labels(status="failure").inc()
+                    raise
                 processed = len(messages) - len(dlq_indices)
                 logger.debug("batch_committed", message_count=processed, dlq_count=len(dlq_indices))
                 return
             except TRANSIENT_ERRORS as e:
+                BATCH_RETRY_TOTAL.labels(attempt=str(attempt + 1), error_type=type(e).__name__).inc()
+
                 if attempt == self._config.max_retries - 1:
+                    BATCH_RETRY_EXHAUSTED_TOTAL.labels(error_type=type(e).__name__).inc()
                     logger.exception(
                         "batch_processing_failed_after_retries",
                         attempts=self._config.max_retries,

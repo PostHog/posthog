@@ -10,7 +10,7 @@ use crate::{
     types::exception_properties::ExceptionProperties,
 };
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct AnyEvent {
     pub uuid: Uuid,
     pub event: String,

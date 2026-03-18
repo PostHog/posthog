@@ -53,6 +53,7 @@ class RecordReplayToFileOptions:
     screenshot_height: Optional[int] = None
     playback_speed: int = 1
     use_puppeteer: bool = False
+    recording_fps: int | None = None
 
     def __post_init__(self) -> None:
         if self.recording_duration <= 0:
@@ -118,6 +119,8 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
             options["screenshot_width"] = self.opts.screenshot_width
         if self.opts.screenshot_height is not None:
             options["screenshot_height"] = self.opts.screenshot_height
+        if self.opts.recording_fps is not None:
+            options["recording_fps"] = self.opts.recording_fps
         ffmpeg_path = shutil.which("ffmpeg")
         if ffmpeg_path:
             options["ffmpeg_path"] = ffmpeg_path
@@ -125,12 +128,14 @@ class PuppeteerRecorder(_ReplayVideoRecorder):
             msg = "ffmpeg not found in PATH"
             logger.exception(msg, signals_type="video_export")
             raise RuntimeError(msg)
+        headless = options["headless"]
         options_json = json.dumps(options)
         # Record the video
         try:
             result = subprocess.run(
                 ["node", script_path, options_json],
-                capture_output=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE if headless else None,
                 text=True,
                 check=False,  # Don't raise on non-zero exit, we'll check the JSON output
                 timeout=60 * 60 * 3,  # 3 hours timeout in case of script hanging, as it has own timeouts
@@ -725,8 +730,14 @@ def record_replay_to_file(
                 record_dir=record_dir,
                 opts=opts,
             ).record()
-            # We use 25 as multiplier when recording with Puppeteer, so it shold be slowed down to 25 FPS in the final video
-            fps_to_render_at = 25
+            temp_output_path = result.video_path
+            # After setpts stretching, the fps filter sets the output frame rate.
+            # custom_fps / playback_speed gives the correct final FPS
+            # (e.g. 24 FPS recorded at 8x -> 3 FPS final, 60 FPS at 4x -> 15 FPS final)
+            if result.custom_fps and result.playback_speed > 1:
+                fps_to_render_at = result.custom_fps // result.playback_speed
+            else:
+                fps_to_render_at = result.custom_fps or 25
         else:
             # ============ Python + Playwright recording ============
             logger.debug("Using Python + Playwright recorder.", options=asdict(opts), signals_type="video_export")

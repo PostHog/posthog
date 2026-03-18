@@ -14,11 +14,12 @@ class IncrementalFieldType(StrEnum):
     ObjectID = "objectid"
 
 
-class IncrementalField(typing.TypedDict):
-    label: str  # Label shown in the UI
-    type: IncrementalFieldType  # Field type shown in the UI
-    field: str  # Actual DB field accessed
-    field_type: IncrementalFieldType  # Actual DB type of the field
+class IncrementalField(typing.TypedDict, total=False):
+    label: typing.Required[str]  # Label shown in the UI
+    type: typing.Required[IncrementalFieldType]  # Field type shown in the UI
+    field: typing.Required[str]  # Actual DB field accessed
+    field_type: typing.Required[IncrementalFieldType]  # Actual DB type of the field
+    nullable: bool  # Whether the field allows null values
 
 
 class PartitionSettings(typing.NamedTuple):

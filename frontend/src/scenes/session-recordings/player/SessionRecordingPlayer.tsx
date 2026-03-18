@@ -6,9 +6,9 @@ import { useRef } from 'react'
 
 import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sessionRecordingsPlaylistLogic'
 
+import { playerSettingsLogic } from './playerSettingsLogic'
 import { PlayerSidebar } from './PlayerSidebar'
 import { PurePlayer } from './PurePlayer'
-import { playerSettingsLogic } from './playerSettingsLogic'
 import {
     SessionRecordingPlayerLogicProps,
     SessionRecordingPlayerMode,

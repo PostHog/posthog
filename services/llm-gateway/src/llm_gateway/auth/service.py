@@ -50,7 +50,7 @@ class AuthService:
             AUTH_CACHE_MISSES.labels(auth_type=auth.auth_type).inc()
 
             user = await auth.authenticate(token_hash, pool)
-            self._cache.set(token_hash, user)
+            self._cache.set(token_hash, user, ttl=auth.cache_ttl)
 
             if user is None:
                 AUTH_INVALID.labels(auth_type=auth.auth_type).inc()

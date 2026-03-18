@@ -2,8 +2,8 @@ import { useActions, useValues } from 'kea'
 
 import { DialogPrimitive, DialogPrimitiveTitle } from 'lib/ui/DialogPrimitive/DialogPrimitive'
 
-import { OrgSwitcher } from './OrgSwitcher'
 import { newAccountMenuLogic } from './newAccountMenuLogic'
+import { OrgSwitcher } from './OrgSwitcher'
 
 export function OrgModal(): JSX.Element {
     const { isOrgSwitcherOpen } = useValues(newAccountMenuLogic)

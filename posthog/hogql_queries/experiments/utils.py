@@ -101,14 +101,15 @@ def get_experiment_stats_method(experiment) -> str:
 
 def split_baseline_and_test_variants(
     variants: list[V],
+    baseline_key: str = CONTROL_VARIANT_KEY,
 ) -> tuple[V, list[V]]:
-    control_variants = [variant for variant in variants if variant.key == CONTROL_VARIANT_KEY]
+    control_variants = [variant for variant in variants if variant.key == baseline_key]
     if not control_variants:
         raise ValueError("No control variant found")
     if len(control_variants) > 1:
         raise ValueError("Multiple control variants found")
     control_variant = control_variants[0]
-    test_variants = [variant for variant in variants if variant.key != CONTROL_VARIANT_KEY]
+    test_variants = [variant for variant in variants if variant.key != baseline_key]
 
     return control_variant, test_variants
 

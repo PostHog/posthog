@@ -4,16 +4,17 @@ import dataclasses
 
 from django.db import close_old_connections
 
-import posthoganalytics
 from structlog.contextvars import bind_contextvars
 from temporalio import activity
 
+from posthog.models.team.team import Team
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.data_imports.signals import EMIT_SIGNALS_FEATURE_FLAG, is_signal_emission_registered
+from posthog.temporal.data_imports.signals.registry import get_signal_source_identity
 
 from products.data_warehouse.backend.data_load.service import delete_external_data_schedule
 from products.data_warehouse.backend.models import ExternalDataJob, ExternalDataSource
 from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
+from products.signals.backend.models import SignalSourceConfig
 
 LOGGER = get_logger(__name__)
 
@@ -87,11 +88,24 @@ def create_external_data_job_model_activity(
             f"Created external data job for external data source {inputs.source_id}",
         )
 
-        # Cheap check if to start signals workflow to avoid spawning it for all teams
-        emit_signals_enabled = (
-            is_signal_emission_registered(source.source_type, schema.name)
-            and posthoganalytics.feature_enabled(EMIT_SIGNALS_FEATURE_FLAG, str(inputs.team_id)) is True
-        )
+        # Check if signals should be emitted: AI consent + SignalSourceConfig enabled for this source
+        signal_identity = get_signal_source_identity(source.source_type, schema.name)
+        emit_signals_enabled = False
+        if signal_identity is not None:
+            signal_source_product, signal_source_type = signal_identity
+            team = (
+                Team.objects.filter(id=inputs.team_id)
+                .select_related("organization")
+                .only("organization__is_ai_data_processing_approved")
+                .first()
+            )
+            if team is not None and team.organization.is_ai_data_processing_approved is True:
+                emit_signals_enabled = SignalSourceConfig.objects.filter(
+                    team_id=inputs.team_id,
+                    source_product=signal_source_product,
+                    source_type=signal_source_type,
+                    enabled=True,
+                ).exists()
 
         return CreateExternalDataJobModelActivityOutputs(
             job_id=str(job.id),

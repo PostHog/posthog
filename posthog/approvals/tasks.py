@@ -1,5 +1,6 @@
 from typing import Any
 
+from django.db import transaction
 from django.utils import timezone
 
 from celery import shared_task
@@ -14,16 +15,19 @@ logger = get_logger(__name__)
 @shared_task(ignore_result=True)
 def validate_pending_change_requests() -> dict[str, Any]:
     """
-    Checks if:
-    1. The underlying data has changed (staleness)
-    2. The validation is still valid (re-run validation)
-    """
+    Periodic staleness check for pending change requests.
 
-    validated_count = 0
-    invalidated_count = 0
+    Compares stored preconditions against the current resource state.
+    Marks CRs as STALE when the underlying resource has been modified,
+    which allows requesters to cancel even after approvals have been given.
+    """
+    stale_count = 0
+    checked_count = 0
     errors: list[str] = []
 
-    pending_requests = ChangeRequest.objects.filter(state=ChangeRequestState.PENDING)
+    pending_requests = ChangeRequest.objects.filter(
+        state=ChangeRequestState.PENDING,
+    ).exclude(validation_status=ValidationStatus.STALE)
 
     for change_request in pending_requests:
         try:
@@ -36,7 +40,8 @@ def validate_pending_change_requests() -> dict[str, Any]:
                 )
                 continue
 
-            # Build context for validation
+            checked_count += 1
+
             base_context = {
                 "team": change_request.team,
                 "team_id": change_request.team_id,
@@ -44,24 +49,18 @@ def validate_pending_change_requests() -> dict[str, Any]:
             }
             context = action_class.prepare_context(change_request, base_context)
 
-            is_valid, validation_errors = action_class.validate_intent(change_request.intent, context)
-
-            if is_valid:
-                change_request.validation_status = ValidationStatus.VALID
-                change_request.validation_errors = None
-                validated_count += 1
-            else:
-                change_request.validation_status = ValidationStatus.INVALID
-                change_request.validation_errors = validation_errors
-                invalidated_count += 1
+            if action_class.check_staleness(change_request.intent, context):
+                change_request.validation_status = ValidationStatus.STALE
+                change_request.validation_errors = {
+                    "staleness": "Resource has been modified since this change request was created"
+                }
+                change_request.validated_at = timezone.now()
+                change_request.save(update_fields=["validation_status", "validation_errors", "validated_at"])
+                stale_count += 1
                 logger.info(
-                    "validate_pending_change_requests.invalidated",
+                    "validate_pending_change_requests.stale",
                     change_request_id=str(change_request.id),
-                    errors=validation_errors,
                 )
-
-            change_request.validated_at = timezone.now()
-            change_request.save(update_fields=["validation_status", "validation_errors", "validated_at"])
 
         except Exception as e:
             error_msg = f"Error validating change request {change_request.id}: {str(e)}"
@@ -73,8 +72,8 @@ def validate_pending_change_requests() -> dict[str, Any]:
             )
 
     result = {
-        "validated_count": validated_count,
-        "invalidated_count": invalidated_count,
+        "checked_count": checked_count,
+        "stale_count": stale_count,
         "errors": errors,
     }
 
@@ -94,14 +93,20 @@ def expire_old_change_requests() -> dict[str, Any]:
     errors: list[str] = []
 
     pending_requests = ChangeRequest.objects.filter(
-        state=ChangeRequestState.PENDING,
+        state__in=[ChangeRequestState.PENDING, ChangeRequestState.APPROVED],
         expires_at__lte=now,
     )
 
     for change_request in pending_requests:
         try:
-            change_request.state = ChangeRequestState.EXPIRED
-            change_request.save(update_fields=["state"])
+            with transaction.atomic():
+                locked_cr = ChangeRequest.objects.select_for_update().get(pk=change_request.pk)
+                if locked_cr.state not in (ChangeRequestState.PENDING, ChangeRequestState.APPROVED):
+                    continue
+
+                locked_cr.state = ChangeRequestState.EXPIRED
+                locked_cr.save(update_fields=["state"])
+
             expired_count += 1
 
             logger.info(
@@ -112,7 +117,7 @@ def expire_old_change_requests() -> dict[str, Any]:
             )
 
             try:
-                send_approval_expired_notification(change_request)
+                send_approval_expired_notification(locked_cr)
             except Exception as notification_error:
                 logger.warning(
                     "expire_old_change_requests.notification_failed",

@@ -8,7 +8,8 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Cohort, Person, Team
 from posthog.models.cohort.sql import GET_COHORTPEOPLE_BY_COHORT_ID
-from posthog.models.property_definition import PropertyDefinition, PropertyType
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
 class TestCohort(BaseTest):

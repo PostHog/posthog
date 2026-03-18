@@ -53,6 +53,8 @@ export interface ExecOptions {
         /** RegEx (RE2) matching. Uses '(?ism)' and '(?-ism)' on the regex as modifiers */
         regex?: {
             match: (regex: string, value: string) => boolean
+            /** Extract first capture group (or whole match if no groups). Returns empty string if no match. */
+            extract?: (regex: string, value: string) => string
         }
         /** NodeJS crypto */
         crypto?: typeof crypto

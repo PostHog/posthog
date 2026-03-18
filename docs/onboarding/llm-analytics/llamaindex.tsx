@@ -52,7 +52,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project
+                        Initialize PostHog with your project token and host from [your project
                         settings](https://app.posthog.com/settings/project), then create a PostHog OpenAI wrapper and
                         pass it to LlamaIndex's `OpenAI` LLM class.
                     </Markdown>
@@ -65,7 +65,7 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                             from posthog import Posthog
 
                             posthog = Posthog(
-                                "<ph_project_api_key>",
+                                "<ph_project_token>",
                                 host="<ph_client_api_host>"
                             )
 
@@ -86,10 +86,9 @@ export const getLlamaIndexSteps = (ctx: OnboardingComponentsContext): StepDefini
                         <Markdown>
                             PostHog's `OpenAI` wrapper is a proper subclass of `openai.OpenAI`, so it can replace the
                             internal client used by LlamaIndex's OpenAI LLM. PostHog captures `$ai_generation` events
-                            automatically without proxying your calls.
-
-                            **Note:** This approach accesses an internal attribute (`_client`) which may change in future
-                            LlamaIndex versions. Check for updates if you encounter issues after upgrading LlamaIndex.
+                            automatically without proxying your calls. **Note:** This approach accesses an internal
+                            attribute (`_client`) which may change in future LlamaIndex versions. Check for updates if
+                            you encounter issues after upgrading LlamaIndex.
                         </Markdown>
                     </CalloutBox>
                 </>

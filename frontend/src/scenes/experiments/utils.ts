@@ -7,6 +7,7 @@ import { uuid } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
+    AnyDataWarehouseNode,
     AnyEntityNode,
     CachedNewExperimentQueryResponse,
     EventsNode,
@@ -44,8 +45,8 @@ import {
     UniversalFiltersGroupValue,
 } from '~/types'
 
-import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 import { EXPERIMENT_VARIANT_MULTIPLE } from './constants'
+import { SharedMetric } from './SharedMetrics/sharedMetricLogic'
 
 const MULTIPLE_VARIANT_WARNING_THRESHOLD = 0.5
 
@@ -122,7 +123,7 @@ export function transformFiltersForWinningVariant(
 }
 
 function seriesToFilterLegacy(
-    series: AnyEntityNode | GroupNode,
+    series: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue | null {

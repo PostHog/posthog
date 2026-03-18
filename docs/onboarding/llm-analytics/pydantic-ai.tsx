@@ -52,7 +52,7 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
             content: (
                 <>
                     <Markdown>
-                        Initialize PostHog with your project API key and host from [your project
+                        Initialize PostHog with your project token and host from [your project
                         settings](https://app.posthog.com/settings/project), then create a PostHog `AsyncOpenAI`
                         wrapper, pass it to an `OpenAIProvider`, and use that with Pydantic AI's `OpenAIChatModel`.
                     </Markdown>
@@ -67,7 +67,7 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                             from posthog import Posthog
 
                             posthog = Posthog(
-                                "<ph_project_api_key>",
+                                "<ph_project_token>",
                                 host="<ph_client_api_host>"
                             )
 
@@ -88,8 +88,8 @@ export const getPydanticAISteps = (ctx: OnboardingComponentsContext): StepDefini
                     <CalloutBox type="fyi" icon="IconInfo" title="How this works">
                         <Markdown>
                             PostHog's `AsyncOpenAI` wrapper is a proper subclass of `openai.AsyncOpenAI`, so it works
-                            directly as the client for Pydantic AI's `OpenAIProvider`. PostHog captures
-                            `$ai_generation` events automatically without proxying your calls.
+                            directly as the client for Pydantic AI's `OpenAIProvider`. PostHog captures `$ai_generation`
+                            events automatically without proxying your calls.
                         </Markdown>
                     </CalloutBox>
                 </>

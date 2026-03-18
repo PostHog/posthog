@@ -1,13 +1,17 @@
 import posthog from 'posthog-js'
-import { ToastOptions, ToastContentProps as ToastifyRenderProps, toast } from 'react-toastify'
+import { toast, type ToastOptions } from 'react-toastify'
 
 import { IconCheckCircle, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
 import { isChristmas } from 'lib/holidays'
+import { hashCodeForString } from 'lib/utils'
 
-import { LemonButton } from '../LemonButton'
-import { Spinner } from '../Spinner'
+import { getIncidentStatus, INCIDENT_IO_STATUS_PAGE_BASE } from '~/layout/navigation-3000/incident/incidentStatus'
+
 import { IconErrorOutline, IconGift } from '../icons'
+import { LemonButton } from '../LemonButton'
+import { Link } from '../Link'
+import { Spinner } from '../Spinner'
 
 export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
     return (
@@ -28,7 +32,7 @@ interface ToastButton {
     className?: string
 }
 
-interface ToastOptionsWithButton extends ToastOptions {
+interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
     button?: ToastButton
     hideButton?: boolean
 }
@@ -69,40 +73,71 @@ export function ToastContent({ type, message, button, id }: ToastContentProps): 
     )
 }
 
-function ensureToastId(toastOptions: ToastOptions): ToastOptions {
-    return toastOptions.toastId
-        ? toastOptions
-        : { ...toastOptions, toastId: `lemon-${Math.round(Math.random() * 10000000)}` }
+function ensureToastId<T>(
+    toastOptions: ToastOptions<T>,
+    type: string,
+    message?: string | JSX.Element
+): ToastOptions<T> {
+    if (toastOptions.toastId) {
+        return toastOptions
+    }
+    // Use a deterministic ID based on type + message so that react-toastify
+    // will skip showing a duplicate toast if one with the same type and message is already visible.
+    const toastId =
+        typeof message === 'string'
+            ? `lemon-${type}-${hashCodeForString(message)}`
+            : `lemon-${Math.round(Math.random() * 10000000)}`
+    return { ...toastOptions, toastId }
+}
+
+function withIncidentNote(message: string | JSX.Element): string | JSX.Element {
+    const status = getIncidentStatus()
+    if (status === 'operational') {
+        return message
+    }
+
+    return (
+        <>
+            <span className="block">{message}</span>
+            <Link className="block text-xs mt-1 opacity-75" to={INCIDENT_IO_STATUS_PAGE_BASE} target="_blank">
+                There is an ongoing incident that may be related.
+            </Link>
+        </>
+    )
+}
+
+interface ToastError {
+    message: string
 }
 
 export const lemonToast = {
-    info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
-        toastOptions = ensureToastId(toastOptions)
-        toast.info(<ToastContent type="info" message={message} button={button} id={toastOptions.toastId} />, {
+    info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
+        const options = ensureToastId(toastOptions, 'info', message)
+        return toast.info(<ToastContent type="info" message={message} button={button} id={options.toastId} />, {
             icon: <IconInfo />,
-            ...toastOptions,
+            ...options,
         })
     },
-    success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
-        toastOptions = ensureToastId(toastOptions)
-        toast.success(<ToastContent type="success" message={message} button={button} id={toastOptions.toastId} />, {
+    success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
+        const options = ensureToastId(toastOptions, 'success', message)
+        return toast.success(<ToastContent type="success" message={message} button={button} id={options.toastId} />, {
             icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
-            ...toastOptions,
+            ...options,
         })
     },
-    warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}): void {
+    warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         posthog.capture('toast warning', {
             message: String(message),
             button: button?.label,
             toastId: toastOptions.toastId,
         })
-        toastOptions = ensureToastId(toastOptions)
-        toast.warning(<ToastContent type="warning" message={message} button={button} id={toastOptions.toastId} />, {
+        const options = ensureToastId(toastOptions, 'warning', message)
+        return toast.warning(<ToastContent type="warning" message={message} button={button} id={options.toastId} />, {
             icon: <IconWarning />,
-            ...toastOptions,
+            ...options,
         })
     },
-    error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}): void {
+    error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}) {
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
         // check if the function is available before calling it.
         if (posthog.capture) {
@@ -113,18 +148,18 @@ export const lemonToast = {
             })
         }
 
-        toastOptions = ensureToastId(toastOptions)
-        toast.error(
+        const options = ensureToastId(toastOptions, 'error', message)
+        return toast.error(
             <ToastContent
                 type="error"
-                message={message}
+                message={withIncidentNote(message)}
                 // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
                 button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
-                id={toastOptions.toastId}
+                id={options.toastId}
             />,
             {
                 icon: <IconErrorOutline />,
-                ...toastOptions,
+                ...options,
             }
         )
     },
@@ -133,9 +168,11 @@ export const lemonToast = {
         messages: { pending: string | JSX.Element; success: string | JSX.Element; error: string | JSX.Element },
         { button, ...toastOptions }: ToastOptionsWithButton = {}
     ): Promise<any> {
-        toastOptions = ensureToastId(toastOptions)
+        // Promise toasts always get random IDs (unless explicitly provided) because
+        // different operations often share identical pending text like "Saving..."
+        const options = ensureToastId(toastOptions, 'promise')
         // see https://fkhadra.github.io/react-toastify/promise
-        return toast.promise(
+        return toast.promise<string | undefined, ToastError>(
             promise,
             {
                 pending: {
@@ -143,19 +180,25 @@ export const lemonToast = {
                     icon: <Spinner />,
                 },
                 success: {
-                    render: (({ data }: ToastifyRenderProps<string>) => {
+                    render: ({ data }) => {
                         return <ToastContent type="success" message={data || messages.success} button={button} />
-                    }) as (props: ToastifyRenderProps<unknown>) => React.ReactNode,
+                    },
                     icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
                 },
                 error: {
-                    render: (({ data }: ToastifyRenderProps<Error>) => {
-                        return <ToastContent type="error" message={data?.message || messages.error} button={button} />
-                    }) as (props: ToastifyRenderProps<unknown>) => React.ReactNode,
+                    render: ({ data }) => {
+                        return (
+                            <ToastContent
+                                type="error"
+                                message={withIncidentNote(data?.message || messages.error)}
+                                button={button}
+                            />
+                        )
+                    },
                     icon: <IconErrorOutline />,
                 },
             },
-            toastOptions
+            options
         )
     },
     dismiss(id?: number | string): void {

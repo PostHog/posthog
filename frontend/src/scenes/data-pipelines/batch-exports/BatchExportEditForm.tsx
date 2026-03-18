@@ -871,7 +871,7 @@ export function BatchExportsEditFields({
                             ]}
                         />
                     </LemonField>
-                    <LemonField name="token" label="Destination project API Key">
+                    <LemonField name="token" label="Destination project token">
                         <LemonInput placeholder="e.g. phc_12345..." />
                     </LemonField>
                 </>

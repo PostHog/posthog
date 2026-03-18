@@ -40,9 +40,13 @@ def create_clickhouse_tables():
     def missing(queries):
         return [q for q in queries if get_table_name(q) not in existing_tables]
 
-    table_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES + CREATE_DISTRIBUTED_TABLE_QUERIES)))
-    if table_queries:
-        run_clickhouse_statement_in_parallel(table_queries)
+    mergetree_queries = list(map(build_query, missing(CREATE_MERGETREE_TABLE_QUERIES)))
+    if mergetree_queries:
+        run_clickhouse_statement_in_parallel(mergetree_queries)
+
+    distributed_queries = list(map(build_query, missing(CREATE_DISTRIBUTED_TABLE_QUERIES)))
+    if distributed_queries:
+        run_clickhouse_statement_in_parallel(distributed_queries)
 
     if settings.IN_EVAL_TESTING:
         kafka_table_queries = list(map(build_query, missing(CREATE_KAFKA_TABLE_QUERIES)))
@@ -280,6 +284,8 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
         cluster=settings.CLICKHOUSE_CLUSTER,
         verify_ssl_cert=settings.CLICKHOUSE_VERIFY,
         randomize_replica_paths=True,
+        # don't use the egress proxy, clickhouse is internal
+        trust_env=False,
     )
 
     if not django_db_keepdb:

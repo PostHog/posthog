@@ -33,9 +33,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                         },
                     ]}
                 />
-
                 Manual capture is very useful if you already use error boundaries to handle errors in your app:
-
                 <Tab.Group tabs={['App router', 'Pages router']}>
                     <Tab.List>
                         <Tab>App router</Tab>
@@ -203,7 +201,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                 />
                 <Markdown>
                     {dedent`
-                        For the backend, we can create a \`lib/posthog-server.js\` file. In it, initialize PostHog from \`posthog-node\` as a singleton with your project API key and host from [your project settings](https://app.posthog.com/settings/project).
+                        For the backend, we can create a \`lib/posthog-server.js\` file. In it, initialize PostHog from \`posthog-node\` as a singleton with your project token and host from [your project settings](https://app.posthog.com/settings/project).
 
                         This looks like this:
                     `}
@@ -219,7 +217,7 @@ export const getNextJSSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 export function getPostHogServer() {
                                   if (!posthogInstance) {
                                     posthogInstance = new PostHog(
-                                      process.env.NEXT_PUBLIC_POSTHOG_KEY,
+                                      process.env.NEXT_PUBLIC_TOKEN,
                                       {
                                         host: process.env.NEXT_PUBLIC_POSTHOG_HOST,
                                         flushAt: 1,

@@ -4,10 +4,29 @@ from posthog.temporal.ai.chat_agent import (
     process_chat_agent_activity,
     process_conversation_activity,
 )
+from posthog.temporal.ai.posthog_code_slack_interactivity import (
+    PostHogCodeSlackTerminateTaskWorkflow,
+    process_posthog_code_terminate_task_activity,
+)
+from posthog.temporal.ai.posthog_code_slack_mention import (
+    PostHogCodeSlackMentionWorkflow,
+    collect_posthog_code_thread_messages_activity,
+    create_posthog_code_routing_rule_activity,
+    create_posthog_code_task_for_repo_activity,
+    forward_posthog_code_followup_activity,
+    handle_posthog_code_rules_command_activity,
+    post_posthog_code_internal_error_activity,
+    post_posthog_code_no_repos_activity,
+    post_posthog_code_picker_timeout_activity,
+    post_posthog_code_repo_picker_activity,
+    resolve_posthog_code_slack_user_activity,
+    select_posthog_code_repository_activity,
+)
 from posthog.temporal.ai.research_agent import ResearchAgentWorkflow, process_research_agent_activity
 from posthog.temporal.ai.session_summary.activities import (
     analyze_video_segment_activity,
     capture_timing_activity,
+    cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     embed_and_store_segments_activity,
     prep_session_video_asset_activity,
@@ -62,11 +81,9 @@ from .sync_vectors import (
 )
 from .video_segment_clustering.activities import (
     cluster_segments_activity,
+    emit_signals_from_clusters_activity,
     fetch_segments_activity,
     get_sessions_to_prime_activity,
-    label_clusters_activity,
-    match_clusters_activity,
-    persist_reports_activity,
 )
 from .video_segment_clustering.clustering_workflow import VideoSegmentClusteringWorkflow
 from .video_segment_clustering.coordinator_workflow import (
@@ -81,6 +98,8 @@ AI_WORKFLOWS = [
     ResearchAgentWorkflow,
     SummarizeLLMTracesWorkflow,
     SlackConversationRunnerWorkflow,
+    PostHogCodeSlackMentionWorkflow,
+    PostHogCodeSlackTerminateTaskWorkflow,
 ]
 
 AI_ACTIVITIES = [
@@ -92,6 +111,18 @@ AI_ACTIVITIES = [
     process_research_agent_activity,
     summarize_llm_traces_activity,
     process_slack_conversation_activity,
+    resolve_posthog_code_slack_user_activity,
+    handle_posthog_code_rules_command_activity,
+    collect_posthog_code_thread_messages_activity,
+    create_posthog_code_routing_rule_activity,
+    select_posthog_code_repository_activity,
+    post_posthog_code_no_repos_activity,
+    post_posthog_code_repo_picker_activity,
+    create_posthog_code_task_for_repo_activity,
+    forward_posthog_code_followup_activity,
+    post_posthog_code_picker_timeout_activity,
+    post_posthog_code_internal_error_activity,
+    process_posthog_code_terminate_task_activity,
 ]
 
 SIGNALS_WORKFLOWS = [
@@ -118,14 +149,13 @@ SIGNALS_ACTIVITIES = [
     analyze_video_segment_activity,
     embed_and_store_segments_activity,
     store_video_session_summary_activity,
+    cleanup_gemini_file_activity,
     consolidate_video_segments_activity,
     capture_timing_activity,
     get_sessions_to_prime_activity,
     fetch_segments_activity,
     cluster_segments_activity,
-    match_clusters_activity,
-    label_clusters_activity,
-    persist_reports_activity,
+    emit_signals_from_clusters_activity,
     get_proactive_tasks_enabled_team_ids_activity,
     *SIGNALS_PRODUCT_ACTIVITIES,
 ]

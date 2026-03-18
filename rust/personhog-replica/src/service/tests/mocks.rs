@@ -124,7 +124,8 @@ impl storage::FeatureFlagStorage for FailingStorage {
     async fn upsert_hash_key_overrides(
         &self,
         _team_id: i64,
-        _overrides: &[storage::HashKeyOverrideInput],
+        _distinct_ids: &[String],
+        _feature_flag_keys: &[String],
         _hash_key: &str,
     ) -> storage::StorageResult<i64> {
         Err(self.error.clone())
@@ -312,7 +313,8 @@ impl storage::FeatureFlagStorage for SuccessStorage {
     async fn upsert_hash_key_overrides(
         &self,
         _team_id: i64,
-        _overrides: &[storage::HashKeyOverrideInput],
+        _distinct_ids: &[String],
+        _feature_flag_keys: &[String],
         _hash_key: &str,
     ) -> storage::StorageResult<i64> {
         Ok(0)
@@ -528,7 +530,8 @@ impl storage::FeatureFlagStorage for ConsistencyTrackingStorage {
     async fn upsert_hash_key_overrides(
         &self,
         _team_id: i64,
-        _overrides: &[storage::HashKeyOverrideInput],
+        _distinct_ids: &[String],
+        _feature_flag_keys: &[String],
         _hash_key: &str,
     ) -> storage::StorageResult<i64> {
         Ok(0)

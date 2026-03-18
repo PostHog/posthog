@@ -4,8 +4,8 @@ import { IconCode, IconWarning, IconX } from '@posthog/icons'
 import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { IconBranch } from 'lib/lemon-ui/icons'
+import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 
 export interface DebugNoticeProps {

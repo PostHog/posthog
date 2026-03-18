@@ -3,6 +3,14 @@
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend/tests backend/services -v --tb=short"
     },
+    "dependencies": {
+        "fast-deep-equal": "catalog:",
+        "kea-subscriptions": "catalog:",
+        "torph": "^0.0.5"
+    },
+    "devDependencies": {
+        "kea-test-utils": "catalog:"
+    },
     "peerDependencies": {
         "@dnd-kit/core": "*",
         "@dnd-kit/modifiers": "*",
@@ -19,13 +27,5 @@
         "kea-router": "catalog:",
         "react": "*",
         "react-dom": "*"
-    },
-    "devDependencies": {
-        "kea-test-utils": "catalog:"
-    },
-    "dependencies": {
-        "fast-deep-equal": "catalog:",
-        "kea-subscriptions": "catalog:",
-        "torph": "^0.0.5"
     }
 }

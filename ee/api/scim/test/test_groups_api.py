@@ -418,6 +418,39 @@ class TestSCIMGroupsAPI(APILicensedTest):
         assert response.status_code == status.HTTP_200_OK
         assert RoleMembership.objects.filter(role=role, user=user1).exists()
 
+    def test_patch_add_does_not_create_membership_for_non_member(self):
+        other_org = Organization.objects.create(name="Other Org")
+        external_user = User.objects.create_user(
+            email="external@other.com", password=None, first_name="External", is_email_verified=True
+        )
+        OrganizationMembership.objects.create(
+            user=external_user, organization=other_org, level=OrganizationMembership.Level.MEMBER
+        )
+
+        role = Role.objects.create(name="TestRole", organization=self.organization)
+
+        for op, description in [
+            ({"op": "add", "value": {"members": [{"value": str(external_user.id)}]}}, "without path"),
+            ({"op": "add", "path": "members", "value": [{"value": str(external_user.id)}]}, "simple path"),
+            ({"op": "add", "path": f'members[value eq "{external_user.id}"]'}, "filtered path"),
+        ]:
+            with self.subTest(description):
+                patch_data = {
+                    "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+                    "Operations": [op],
+                }
+                response = self.client.patch(
+                    f"/scim/v2/{self.domain.id}/Groups/{role.id}",
+                    data=patch_data,
+                    content_type="application/scim+json",
+                )
+
+                assert response.status_code == status.HTTP_200_OK
+                assert not RoleMembership.objects.filter(role=role, user=external_user).exists()
+                assert not OrganizationMembership.objects.filter(
+                    user=external_user, organization=self.organization
+                ).exists()
+
     def test_patch_remove_group_display_name_should_fail(self):
         role = Role.objects.create(name="RemoveName", organization=self.organization)
 

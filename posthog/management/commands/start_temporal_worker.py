@@ -73,6 +73,10 @@ from posthog.temporal.exports_video import (
     ACTIVITIES as VIDEO_EXPORT_ACTIVITIES,
     WORKFLOWS as VIDEO_EXPORT_WORKFLOWS,
 )
+from posthog.temporal.health_checks import (
+    ACTIVITIES as HEALTH_CHECK_ACTIVITIES,
+    WORKFLOWS as HEALTH_CHECK_WORKFLOWS,
+)
 from posthog.temporal.import_recording import (
     ACTIVITIES as IMPORT_RECORDING_ACTIVITIES,
     WORKFLOWS as IMPORT_RECORDING_WORKFLOWS,
@@ -85,6 +89,8 @@ from posthog.temporal.llm_analytics import (
     ACTIVITIES as LLM_ANALYTICS_ACTIVITIES,
     EVAL_ACTIVITIES as LLM_ANALYTICS_EVAL_ACTIVITIES,
     EVAL_WORKFLOWS as LLM_ANALYTICS_EVAL_WORKFLOWS,
+    SENTIMENT_ACTIVITIES as LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
+    SENTIMENT_WORKFLOWS as LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
     WORKFLOWS as LLM_ANALYTICS_WORKFLOWS,
 )
 from posthog.temporal.messaging import (
@@ -196,6 +202,11 @@ _task_queue_specs = [
         + INGESTION_ACCEPTANCE_TEST_ACTIVITIES,
     ),
     (
+        settings.HEALTH_CHECK_TASK_QUEUE,
+        HEALTH_CHECK_WORKFLOWS,
+        HEALTH_CHECK_ACTIVITIES,
+    ),
+    (
         settings.DUCKLAKE_TASK_QUEUE,
         DUCKLAKE_COPY_WORKFLOWS,
         DUCKLAKE_COPY_ACTIVITIES,
@@ -255,6 +266,11 @@ _task_queue_specs = [
         settings.LLMA_EVALS_TASK_QUEUE,
         LLM_ANALYTICS_EVAL_WORKFLOWS,
         LLM_ANALYTICS_EVAL_ACTIVITIES,
+    ),
+    (
+        settings.LLMA_SENTIMENT_TASK_QUEUE,
+        LLM_ANALYTICS_SENTIMENT_WORKFLOWS,
+        LLM_ANALYTICS_SENTIMENT_ACTIVITIES,
     ),
     (
         settings.LLMA_TASK_QUEUE,
@@ -339,16 +355,19 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--graceful-shutdown-timeout-seconds",
+            type=int,
             default=settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
             help="Time that the worker will wait after shutdown before canceling activities, in seconds",
         )
         parser.add_argument(
             "--max-concurrent-workflow-tasks",
+            type=int,
             default=settings.MAX_CONCURRENT_WORKFLOW_TASKS,
             help="Maximum number of concurrent workflow tasks for this worker",
         )
         parser.add_argument(
             "--max-concurrent-activities",
+            type=int,
             default=settings.MAX_CONCURRENT_ACTIVITIES,
             help="Maximum number of concurrent activity tasks for this worker",
         )
@@ -360,11 +379,13 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--target-memory-usage",
+            type=float,
             default=settings.TARGET_MEMORY_USAGE,
             help="Fraction of available memory to use",
         )
         parser.add_argument(
             "--target-cpu-usage",
+            type=float,
             default=settings.TARGET_CPU_USAGE,
             help="Fraction of available CPU to use",
         )

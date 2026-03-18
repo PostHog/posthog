@@ -12,9 +12,9 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { getHogQLValue } from 'scenes/insights/filters/AggregationSelect'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { Query } from '~/queries/Query/Query'
 import { actionsAndEventsToSeries } from '~/queries/nodes/InsightQuery/utils/filtersToQueryNode'
 import { queryNodeToFilter } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
+import { Query } from '~/queries/Query/Query'
 import { AnyEntityNode, ExperimentFunnelsQuery, NodeKind } from '~/queries/schema/schema-general'
 import { BreakdownAttributionType, FilterType } from '~/types'
 
@@ -28,7 +28,7 @@ import {
 
 export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boolean }): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
-    const { experiment, isExperimentRunning, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
+    const { experiment, isExperimentLaunched, editingPrimaryMetricUuid, editingSecondaryMetricUuid } =
         useValues(experimentLogic)
     const { setFunnelsMetric } = useActions(experimentLogic)
     const hasFilters = (currentTeam?.test_account_filters || []).length > 0
@@ -188,7 +188,7 @@ export function FunnelsMetricForm({ isSecondary = false }: { isSecondary?: boole
                     fullWidth
                 />
             </div>
-            {isExperimentRunning && (
+            {isExperimentLaunched && (
                 <LemonBanner type="info" className="mt-3 mb-3">
                     Preview insights are generated based on {EXPERIMENT_DEFAULT_DURATION} days of data. This can cause a
                     mismatch between the preview and the actual results.

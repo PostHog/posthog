@@ -8,12 +8,20 @@ from posthog.schema import (
     EventsNode,
     ExperimentMeanMetric,
     ExperimentMetricMathType,
+    ExperimentQuery,
     ExperimentStatsBase,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
 )
 
-from posthog.hogql_queries.experiments.utils import get_bayesian_experiment_result, get_frequentist_experiment_result
+from posthog.hogql_queries.experiments.experiment_query_runner import ExperimentQueryRunner
+from posthog.hogql_queries.experiments.utils import (
+    get_bayesian_experiment_result,
+    get_frequentist_experiment_result,
+    split_baseline_and_test_variants,
+)
+from posthog.models.experiment import Experiment
+from posthog.models.feature_flag.feature_flag import FeatureFlag
 
 INSUFFICIENT_DATA_CASES = [
     ("very_small_sample", {"control": (1, 0.5, 0.25), "test": (1, 0.3, 0.09)}),
@@ -323,3 +331,71 @@ class TestStatsConfig(APIBaseTest):
         self.assertIsNotNone(variant.chance_to_win)
         self.assertIsNotNone(variant.credible_interval)
         self.assertIsNotNone(variant.significant)
+
+    @parameterized.expand(
+        [
+            ("default_baseline", None, "control", ["test"]),
+            ("custom_baseline", "test", "test", ["control"]),
+        ]
+    )
+    def test_split_baseline_and_test_variants(self, _name, baseline_key, expected_baseline, expected_test_keys):
+        variants = [
+            self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000),
+            self.create_variant("test", sum_val=120.0, sum_squares=14500.0, samples=1000),
+        ]
+
+        kwargs = {"baseline_key": baseline_key} if baseline_key is not None else {}
+        baseline, test_variants = split_baseline_and_test_variants(variants, **kwargs)
+
+        self.assertEqual(baseline.key, expected_baseline)
+        self.assertEqual([v.key for v in test_variants], expected_test_keys)
+
+    def test_split_baseline_and_test_variants_missing_key_raises(self):
+        variants = [
+            self.create_variant("control", sum_val=100.0, sum_squares=10500.0, samples=1000),
+            self.create_variant("test", sum_val=120.0, sum_squares=14500.0, samples=1000),
+        ]
+
+        with self.assertRaises(ValueError):
+            split_baseline_and_test_variants(variants, baseline_key="nonexistent")
+
+    @parameterized.expand(
+        [
+            ("stats_config_none", None, "control"),
+            ("stats_config_empty", {}, "control"),
+            ("stats_config_custom_baseline", {"baseline_variant_key": "test"}, "test"),
+        ]
+    )
+    def test_experiment_query_runner_reads_baseline_from_stats_config(self, _name, stats_config, expected_baseline):
+        feature_flag = FeatureFlag.objects.create(
+            name="Test flag",
+            key="test-flag",
+            team=self.team,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": None}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+            created_by=self.user,
+        )
+        experiment = Experiment.objects.create(
+            name="test-experiment",
+            team=self.team,
+            feature_flag=feature_flag,
+            stats_config=stats_config,
+        )
+
+        metric = self.create_mean_metric()
+        query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        runner = ExperimentQueryRunner(query=query, team=self.team)
+
+        self.assertEqual(runner.baseline_variant_key, expected_baseline)

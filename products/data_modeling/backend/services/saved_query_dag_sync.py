@@ -12,6 +12,7 @@ from posthog.hogql.errors import QueryError
 
 from posthog.exceptions_capture import capture_exception
 
+from products.data_modeling.backend.models.dag import DAG
 from products.data_modeling.backend.models.edge import CycleDetectionError, Edge
 from products.data_modeling.backend.models.node import Node, NodeType
 from products.data_warehouse.backend.models.modeling import UnknownParentError, get_parents_from_model_query
@@ -38,8 +39,8 @@ def get_conflict_dag_id(team_id: int) -> str:
 def resolve_dependency_to_node(
     dependency_name: str,
     team: "Team",
-    dag_id: str,
     database: Database,
+    dag: DAG | None = None,
 ) -> Node:
     """
     Resolve a dependency name to a Node following HogQL's resolution priority.
@@ -64,7 +65,7 @@ def resolve_dependency_to_node(
     # ephemeral view
     if isinstance(table, HogQLSavedQuery):
         saved_query = DataWarehouseSavedQuery.objects.get(team=team, name=dependency_name, deleted=False)
-        return Node.objects.get(team=team, dag_id_text=dag_id, saved_query=saved_query, name=dependency_name)
+        return Node.objects.get(team=team, dag=dag, saved_query=saved_query, name=dependency_name)
 
     # table in s3
     if isinstance(table, HogQLDataWarehouseTable):
@@ -74,9 +75,7 @@ def resolve_dependency_to_node(
             )
             # matview
             if matview_saved_query is not None:
-                return Node.objects.get(
-                    team=team, dag_id_text=dag_id, saved_query=matview_saved_query, name=dependency_name
-                )
+                return Node.objects.get(team=team, dag=dag, saved_query=matview_saved_query, name=dependency_name)
             # warehouse table
             warehouse_table = (
                 DataWarehouseTable.objects.filter(team=team, id=table.table_id).exclude(deleted=True).first()
@@ -89,16 +88,18 @@ def resolve_dependency_to_node(
             raise UnknownParentError(dependency_name, "")
         node, _ = Node.objects.get_or_create(
             team=team,
-            dag_id_text=dag_id,
+            dag=dag,
             name=dependency_name,
             type=NodeType.TABLE,
-            defaults={"properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)}},
+            defaults={
+                "properties": {"origin": "warehouse", "warehouse_table_id": str(warehouse_table.id)},
+            },
         )
         return node
     # system table
     node, _ = Node.objects.get_or_create(
         team=team,
-        dag_id_text=dag_id,
+        dag=dag,
         name=dependency_name,
         type=NodeType.TABLE,
         defaults={"properties": {"origin": "posthog"}},
@@ -125,19 +126,28 @@ def sync_saved_query_to_dag(
 
     Returns the Node for the SavedQuery, or None if query parsing fails.
     """
+    from products.data_warehouse.backend.models import DataWarehouseSavedQuery
+
     extra_properties = extra_properties or {}
     team = saved_query.team
     dag_id = get_dag_id(team.id)
+    dag, _ = DAG.objects.get_or_create(team=team, name=dag_id)
     model_query = saved_query.query.get("query") if saved_query.query else None
     if not model_query:
         raise ValueError(f"DataWarehouseSavedQuery has no query: saved_query_id={saved_query.id}")
 
     # determine node type based on materialization status (fk to datawarehouse table)
-    node_type = NodeType.MAT_VIEW if saved_query.table else NodeType.VIEW
+    if saved_query.origin == DataWarehouseSavedQuery.Origin.ENDPOINT:
+        node_type = NodeType.ENDPOINT
+    elif saved_query.table:
+        node_type = NodeType.MAT_VIEW
+    else:
+        node_type = NodeType.VIEW
+
     target, _ = Node.objects.get_or_create(
         team=team,
         saved_query=saved_query,
-        dag_id_text=dag_id,
+        dag=dag,
         defaults={"name": saved_query.name, "type": node_type, "properties": extra_properties},
     )
     # update type (name is automatically synced from saved_query in Node.save())
@@ -162,8 +172,9 @@ def sync_saved_query_to_dag(
                 error=error_message,
             )
             conflict_dag_id = get_conflict_dag_id(team.id)
-            # update the node to use conflict dag_id and store error info
-            target.dag_id_text = conflict_dag_id
+            conflict_dag, _ = DAG.objects.get_or_create(team=team, name=conflict_dag_id)
+            # update the node to use conflict dag and store error info
+            target.dag = conflict_dag
             target.properties = {
                 **target.properties,
                 **extra_properties,
@@ -176,7 +187,7 @@ def sync_saved_query_to_dag(
             # create conflict edge
             Edge(
                 team=team,
-                dag_id_text=conflict_dag_id,
+                dag=conflict_dag,
                 source=target,
                 target=target,
                 properties={
@@ -200,11 +211,11 @@ def sync_saved_query_to_dag(
     unresolved = []
     for dependency_name in dependencies:
         try:
-            source = resolve_dependency_to_node(dependency_name, team, dag_id, database)
+            source = resolve_dependency_to_node(dependency_name, team, database, dag)
             try:
                 Edge.objects.create(
                     team=team,
-                    dag_id_text=dag_id,
+                    dag=dag,
                     source=source,
                     target=target,
                     properties=extra_properties,
@@ -218,9 +229,11 @@ def sync_saved_query_to_dag(
                     error=str(e),
                 )
                 # creates the edge without validation for DLQ purposes
+                conflict_dag_id = get_conflict_dag_id(team.id)
+                conflict_dag, _ = DAG.objects.get_or_create(team=team, name=conflict_dag_id)
                 Edge(
                     team=team,
-                    dag_id_text=get_conflict_dag_id(team.id),
+                    dag=conflict_dag,
                     source=source,
                     target=target,
                     properties={

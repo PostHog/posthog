@@ -830,7 +830,11 @@ class TestListRepositoriesTool(BaseTaskToolTest):
 
         mock_github_instance = mock_github_class.return_value
         mock_github_instance.organization.return_value = "posthog"
-        mock_github_instance.list_repositories.return_value = ["posthog-js", "posthog-python", "posthog"]
+        mock_github_instance.list_repositories.return_value = [
+            {"id": 1, "name": "posthog-js", "full_name": "posthog/posthog-js"},
+            {"id": 2, "name": "posthog-python", "full_name": "posthog/posthog-python"},
+            {"id": 3, "name": "posthog", "full_name": "posthog/posthog"},
+        ]
 
         tool = self._create_tool(ListRepositoriesTool)
 
@@ -861,7 +865,11 @@ class TestListRepositoriesTool(BaseTaskToolTest):
 
         mock_github_instance = mock_github_class.return_value
         mock_github_instance.organization.return_value = "posthog"
-        mock_github_instance.list_repositories.return_value = ["posthog-js", "posthog-python", "posthog"]
+        mock_github_instance.list_repositories.return_value = [
+            {"id": 1, "name": "posthog-js", "full_name": "posthog/posthog-js"},
+            {"id": 2, "name": "posthog-python", "full_name": "posthog/posthog-python"},
+            {"id": 3, "name": "posthog", "full_name": "posthog/posthog"},
+        ]
 
         tool = self._create_tool(ListRepositoriesTool)
 
@@ -890,7 +898,9 @@ class TestListRepositoriesTool(BaseTaskToolTest):
 
         mock_github_instance = mock_github_class.return_value
         mock_github_instance.organization.return_value = "PostHog"
-        mock_github_instance.list_repositories.return_value = ["PostHog-JS"]
+        mock_github_instance.list_repositories.return_value = [
+            {"id": 1, "name": "PostHog-JS", "full_name": "PostHog/PostHog-JS"},
+        ]
 
         tool = self._create_tool(ListRepositoriesTool)
 
@@ -917,7 +927,10 @@ class TestListRepositoriesTool(BaseTaskToolTest):
 
         mock_github_instance = mock_github_class.return_value
         mock_github_instance.organization.return_value = "posthog"
-        mock_github_instance.list_repositories.return_value = ["posthog-js", "posthog-python"]
+        mock_github_instance.list_repositories.return_value = [
+            {"id": 1, "name": "posthog-js", "full_name": "posthog/posthog-js"},
+            {"id": 2, "name": "posthog-python", "full_name": "posthog/posthog-python"},
+        ]
 
         tool = self._create_tool(ListRepositoriesTool)
 

@@ -11,7 +11,8 @@ from django.utils import timezone
 from rest_framework import status
 
 from posthog.models import ActivityLog, EventProperty, Tag
-from posthog.models.property_definition import PropertyDefinition
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition
 
 from ee.models.license import License, LicenseManager
 from ee.models.property_definition import EnterprisePropertyDefinition

@@ -10,8 +10,8 @@ import { LemonInputSelect } from 'lib/lemon-ui/LemonInputSelect/LemonInputSelect
 
 import { ActivityScope } from '~/types'
 
-import { DetailFilters } from './DetailFilters'
 import { advancedActivityLogsLogic } from './advancedActivityLogsLogic'
+import { DetailFilters } from './DetailFilters'
 
 export const BasicFiltersTab = (): JSX.Element => {
     const { filters, availableFilters, showMoreFilters, activeAdvancedFiltersCount } =

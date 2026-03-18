@@ -31,7 +31,7 @@ def _warm_team_caches(team_api_tokens: Iterable[str], reason: str, log_context: 
     Warm caches for a list of teams.
 
     Args:
-        team_api_tokens: List of project API keys to warm caches for
+        team_api_tokens: List of project tokens to warm caches for
         reason: Description for logging (e.g., "user activation", "PersonalAPIKey deletion")
         log_context: Additional context to include in log messages
 
@@ -241,29 +241,29 @@ def warm_organization_teams_cache_task(self: "Task", organization_id: str, user_
 
 
 @shared_task(bind=True, max_retries=3)
-def warm_team_cache_task(self: "Task", project_api_key: str) -> dict:
+def warm_team_cache_task(self: "Task", project_token: str) -> dict:
     """
     Warm the token cache for a specific team.
 
     Args:
-        project_api_key: The team's project API key
+        project_token: The team's project token
 
     Returns:
         Dictionary with operation results
     """
-    success = warm_team_token_cache(project_api_key)
+    success = warm_team_token_cache(project_token)
 
     if not success:
         # Log a warning, but don't retry. We'll let the next scheduled task pick it up.
-        logger.warning(f"Failed to warm cache for team {project_api_key}")
-        return {"status": "failure", "project_api_key": project_api_key}
+        logger.warning(f"Failed to warm cache for team {project_token}")
+        return {"status": "failure", "project_token": project_token}
 
     logger.info(
-        f"Successfully warmed cache for team {project_api_key}",
-        extra={"project_api_key": project_api_key},
+        f"Successfully warmed cache for team {project_token}",
+        extra={"project_token": project_token},
     )
 
-    return {"status": "success", "project_api_key": project_api_key}
+    return {"status": "success", "project_token": project_token}
 
 
 @shared_task(bind=True, max_retries=1)
@@ -304,16 +304,16 @@ def warm_all_team_access_caches_task(self: "Task") -> dict:
                 batch = teams_page[i : i + CACHE_WARMING_BATCH_SIZE]
 
                 # Schedule warming tasks for this batch
-                for project_api_key in batch:
+                for project_token in batch:
                     try:
-                        warm_team_cache_task.delay(project_api_key)
+                        warm_team_cache_task.delay(project_token)
                         teams_scheduled += 1
                     except Exception as e:
                         # Log individual team scheduling failure but continue with others
                         failed_teams += 1
                         logger.warning(
-                            f"Failed to schedule cache warming for team {project_api_key}: {e}",
-                            extra={"project_api_key": project_api_key, "error": str(e)},
+                            f"Failed to schedule cache warming for team {project_token}: {e}",
+                            extra={"project_token": project_token, "error": str(e)},
                         )
 
                 logger.debug(f"Scheduled cache warming for batch of {len(batch)} teams")

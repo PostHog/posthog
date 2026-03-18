@@ -247,10 +247,22 @@ class LogsQueryRunnerMixin(QueryRunner):
             interval_count=int(interval_count),
             now=dt.datetime.now(),
             timezone_info=ZoneInfo("UTC"),
+            exact_timerange=True,
         )
 
     def where(self) -> ast.Expr:
         exprs: list[ast.Expr] = []
+
+        # add time_bucket to filter so we get part+granule pruning at the primary key level
+        # this is important as it reduces the parts/granules that need to have their skip indexes loaded
+        exprs.append(
+            parse_expr(
+                "toStartOfDay(time_bucket) >= toStartOfDay({date_from}) and toStartOfDay(time_bucket) <= toStartOfDay({date_to})",
+                placeholders={
+                    **self.query_date_range.to_placeholders(),
+                },
+            )
+        )
 
         if self.query.serviceNames:
             exprs.append(
@@ -283,6 +295,16 @@ class LogsQueryRunnerMixin(QueryRunner):
                     exprs.append(property_to_expr(log_filter, team=self.team))
 
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
+
+        if self.query.searchTerm:
+            search_filter = LogPropertyFilter(
+                key="body",
+                operator=PropertyOperator.ICONTAINS,
+                type=LogPropertyFilterType.LOG,
+                value=self.query.searchTerm,
+            )
+            exprs.append(get_lowercase_index_hint(search_filter, team=self.team))
+            exprs.append(property_to_expr(search_filter, team=self.team))
 
         if self.query.severityLevels:
             exprs.append(

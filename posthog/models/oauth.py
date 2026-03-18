@@ -33,10 +33,10 @@ class OAuthApplicationAuthBrand(enum.Enum):
 
 
 def is_loopback_host(hostname: str | None) -> bool:
-    """Check if hostname is a loopback address (localhost or 127.0.0.0/8)."""
+    """Check if hostname is a loopback address (localhost, 127.0.0.0/8, or ::1)."""
     if not hostname:
         return False
-    if hostname == "localhost":
+    if hostname in ("localhost", "::1", "[::1]"):
         return True
     # Check for IPv4 loopback range 127.0.0.0/8
     if hostname.startswith("127.") and hostname.count(".") == 3:
@@ -92,7 +92,7 @@ class OAuthApplication(AbstractApplication):
                 raise ValidationError({"redirect_uris": f"Redirect URI {uri} cannot contain fragments"})
 
             # Custom URL schemes for native apps (RFC 8252 Section 7.1)
-            # These look like: myapp://callback, twig://oauth
+            # These look like: myapp://callback, posthog-code://oauth
             is_custom_scheme = parsed_uri.scheme not in ["http", "https", ""]
 
             if is_custom_scheme:

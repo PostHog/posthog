@@ -26,7 +26,7 @@ describe('RecipientPreferencesService', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         mockRecipientsManager = new RecipientsManagerService(hub.postgres)
         mockRecipientsManagerGet = jest.spyOn(mockRecipientsManager, 'get')
         mockRecipientsManagerGetPreference = jest.spyOn(mockRecipientsManager, 'getPreference')
@@ -444,7 +444,7 @@ describe('RecipientPreferencesService', () => {
         let tokensService: RecipientTokensService
 
         beforeEach(() => {
-            tokensService = new RecipientTokensService(hub)
+            tokensService = new RecipientTokensService(hub.ENCRYPTION_SALT_KEYS, hub.SITE_URL)
         })
 
         it('should generate a preferences URL with a trailing slash', () => {

@@ -7,6 +7,12 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
+/**
+ * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+ * @nullable
+ */
+export type EndpointRequestApiBucketOverrides = { [key: string]: string } | null | null
+
 export interface DateRangeApi {
     /** @nullable */
     date_from?: string | null
@@ -222,7 +228,14 @@ export const GroupPropertyFilterApiType = {
     Group: 'group',
 } as const
 
+/**
+ * @nullable
+ */
+export type GroupPropertyFilterApiGroupKeyNames = { [key: string]: string } | null | null
+
 export interface GroupPropertyFilterApi {
+    /** @nullable */
+    group_key_names?: GroupPropertyFilterApiGroupKeyNames
     /** @nullable */
     group_type_index?: number | null
     key: string
@@ -495,6 +508,14 @@ export const InCohortViaApi = {
     LeftjoinConjoined: 'leftjoin_conjoined',
 } as const
 
+export type InlineCohortCalculationApi = (typeof InlineCohortCalculationApi)[keyof typeof InlineCohortCalculationApi]
+
+export const InlineCohortCalculationApi = {
+    Off: 'off',
+    Auto: 'auto',
+    Always: 'always',
+} as const
+
 export type MaterializationModeApi = (typeof MaterializationModeApi)[keyof typeof MaterializationModeApi]
 
 export const MaterializationModeApi = {
@@ -580,6 +601,7 @@ export interface HogQLQueryModifiersApi {
     /** @nullable */
     formatCsvAllowDoubleQuotes?: boolean | null
     inCohortVia?: InCohortViaApi | null
+    inlineCohortCalculation?: InlineCohortCalculationApi | null
     materializationMode?: MaterializationModeApi | null
     materializedColumnsOptimizationMode?: MaterializedColumnsOptimizationModeApi | null
     /** @nullable */
@@ -806,6 +828,11 @@ export type HogQLQueryApiValues = { [key: string]: unknown } | null | null
 export type HogQLQueryApiVariables = { [key: string]: HogQLVariableApi } | null | null
 
 export interface HogQLQueryApi {
+    /**
+     * Optional direct external data source id for running against a specific source
+     * @nullable
+     */
+    connectionId?: string | null
     /** @nullable */
     explain?: boolean | null
     filters?: HogQLFiltersApi | null
@@ -966,9 +993,29 @@ export interface PropertyGroupFilterApi {
     values: PropertyGroupFilterValueApi[]
 }
 
+export interface BoxPlotDatumApi {
+    day: string
+    label: string
+    max: number
+    mean: number
+    median: number
+    min: number
+    p25: number
+    p75: number
+    /** @nullable */
+    series_index?: number | null
+    /** @nullable */
+    series_label?: string | null
+}
+
 export type TrendsQueryResponseApiResultsItem = { [key: string]: unknown }
 
 export interface TrendsQueryResponseApi {
+    /**
+     * Box plot data when display type is BoxPlot
+     * @nullable
+     */
+    boxplot_data?: BoxPlotDatumApi[] | null
     /**
      * Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.
      * @nullable
@@ -1683,6 +1730,7 @@ export const AggregationAxisFormatApi = {
     Percentage: 'percentage',
     PercentageScaled: 'percentage_scaled',
     Currency: 'currency',
+    Short: 'short',
 } as const
 
 export type DetailedResultsAggregationTypeApi =
@@ -1697,6 +1745,7 @@ export const DetailedResultsAggregationTypeApi = {
 export type ChartDisplayTypeApi = (typeof ChartDisplayTypeApi)[keyof typeof ChartDisplayTypeApi]
 
 export const ChartDisplayTypeApi = {
+    Auto: 'Auto',
     ActionsLineGraph: 'ActionsLineGraph',
     ActionsBar: 'ActionsBar',
     ActionsUnstackedBar: 'ActionsUnstackedBar',
@@ -1710,6 +1759,7 @@ export const ChartDisplayTypeApi = {
     WorldMap: 'WorldMap',
     CalendarHeatmap: 'CalendarHeatmap',
     TwoDimensionalHeatmap: 'TwoDimensionalHeatmap',
+    BoxPlot: 'BoxPlot',
 } as const
 
 export interface TrendsFormulaNodeApi {
@@ -1841,6 +1891,8 @@ export interface TrendsFilterApi {
     goalLines?: GoalLineApi[] | null
     /** @nullable */
     hiddenLegendIndexes?: number[] | null
+    /** @nullable */
+    hideWeekends?: boolean | null
     /** @nullable */
     minDecimalPlaces?: number | null
     /** @nullable */
@@ -2195,6 +2247,7 @@ export const FunnelVizTypeApi = {
     Steps: 'steps',
     TimeToConvert: 'time_to_convert',
     Trends: 'trends',
+    Flow: 'flow',
 } as const
 
 export type FunnelConversionWindowTimeUnitApi =
@@ -2233,6 +2286,11 @@ export interface FunnelsFilterApi {
      * @nullable
      */
     breakdownSorting?: string | null
+    /**
+     * For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups.
+     * @nullable
+     */
+    customAggregationTarget?: boolean | null
     /** @nullable */
     exclusions?: (FunnelExclusionEventsNodeApi | FunnelExclusionActionsNodeApi)[] | null
     /** @nullable */
@@ -2305,6 +2363,115 @@ export interface FunnelsQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
+export type FunnelsDataWarehouseNodeApiKind =
+    (typeof FunnelsDataWarehouseNodeApiKind)[keyof typeof FunnelsDataWarehouseNodeApiKind]
+
+export const FunnelsDataWarehouseNodeApiKind = {
+    FunnelsDataWarehouseNode: 'FunnelsDataWarehouseNode',
+} as const
+
+export const FunnelsDataWarehouseNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type FunnelsDataWarehouseNodeApiResponse = { [key: string]: unknown } | null | null
+
+export interface FunnelsDataWarehouseNodeApi {
+    aggregation_target_field: string
+    /** @nullable */
+    custom_name?: string | null
+    /** @nullable */
+    dw_source_type?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+          )[]
+        | null
+    id: string
+    id_field: string
+    kind?: FunnelsDataWarehouseNodeApiKind
+    math?: (typeof FunnelsDataWarehouseNodeApiMath)[keyof typeof FunnelsDataWarehouseNodeApiMath] | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+          )[]
+        | null
+    /** @nullable */
+    response?: FunnelsDataWarehouseNodeApiResponse
+    table_name: string
+    timestamp_field: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
 export interface FunnelsQueryApi {
     /**
      * Groups aggregation
@@ -2363,7 +2530,7 @@ export interface FunnelsQueryApi {
      */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
+    series: (GroupNodeApi | EventsNodeApi | ActionsNodeApi | FunnelsDataWarehouseNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /**
@@ -2380,6 +2547,8 @@ export const RetentionQueryApiKind = {
 } as const
 
 export interface RetentionValueApi {
+    /** @nullable */
+    aggregation_value?: number | null
     count: number
     /** @nullable */
     label?: string | null
@@ -2417,6 +2586,13 @@ export interface RetentionQueryResponseApi {
      */
     timings?: QueryTimingApi[] | null
 }
+
+export type AggregationPropertyTypeApi = (typeof AggregationPropertyTypeApi)[keyof typeof AggregationPropertyTypeApi]
+
+export const AggregationPropertyTypeApi = {
+    Event: 'event',
+    Person: 'person',
+} as const
 
 export type AggregationTypeApi = (typeof AggregationTypeApi)[keyof typeof AggregationTypeApi]
 
@@ -2537,6 +2713,8 @@ export interface RetentionFilterApi {
      * @nullable
      */
     aggregationProperty?: string | null
+    /** The type of property to aggregate on (event or person). Defaults to event. */
+    aggregationPropertyType?: AggregationPropertyTypeApi | null
     /** The aggregation type to use for retention */
     aggregationType?: AggregationTypeApi | null
     /** @nullable */
@@ -3017,12 +3195,124 @@ export interface LifecycleQueryResponseApi {
     timings?: QueryTimingApi[] | null
 }
 
+export type LifecycleDataWarehouseNodeApiKind =
+    (typeof LifecycleDataWarehouseNodeApiKind)[keyof typeof LifecycleDataWarehouseNodeApiKind]
+
+export const LifecycleDataWarehouseNodeApiKind = {
+    LifecycleDataWarehouseNode: 'LifecycleDataWarehouseNode',
+} as const
+
+export const LifecycleDataWarehouseNodeApiMath = {
+    ...BaseMathTypeApi,
+    ...FunnelMathTypeApi,
+    ...PropertyMathTypeApi,
+    ...CountPerActorMathTypeApi,
+    ...ExperimentMetricMathTypeApi,
+    ...CalendarHeatmapMathTypeApi,
+    unique_group: 'unique_group',
+    hogql: 'hogql',
+} as const
+/**
+ * @nullable
+ */
+export type LifecycleDataWarehouseNodeApiResponse = { [key: string]: unknown } | null | null
+
+export interface LifecycleDataWarehouseNodeApi {
+    aggregation_target_field: string
+    created_at_field: string
+    /** @nullable */
+    custom_name?: string | null
+    /**
+     * Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)
+     * @nullable
+     */
+    fixedProperties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+          )[]
+        | null
+    id: string
+    kind?: LifecycleDataWarehouseNodeApiKind
+    math?: (typeof LifecycleDataWarehouseNodeApiMath)[keyof typeof LifecycleDataWarehouseNodeApiMath] | null
+    math_group_type_index?: MathGroupTypeIndexApi | null
+    /** @nullable */
+    math_hogql?: string | null
+    /** @nullable */
+    math_multiplier?: number | null
+    /** @nullable */
+    math_property?: string | null
+    math_property_revenue_currency?: RevenueCurrencyPropertyConfigApi | null
+    /** @nullable */
+    math_property_type?: string | null
+    /** @nullable */
+    name?: string | null
+    /** @nullable */
+    optionalInFunnel?: boolean | null
+    /**
+     * Properties configurable in the interface
+     * @nullable
+     */
+    properties?:
+        | (
+              | EventPropertyFilterApi
+              | PersonPropertyFilterApi
+              | ElementPropertyFilterApi
+              | EventMetadataPropertyFilterApi
+              | SessionPropertyFilterApi
+              | CohortPropertyFilterApi
+              | RecordingPropertyFilterApi
+              | LogEntryPropertyFilterApi
+              | GroupPropertyFilterApi
+              | FeaturePropertyFilterApi
+              | FlagPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+              | DataWarehousePropertyFilterApi
+              | DataWarehousePersonPropertyFilterApi
+              | ErrorTrackingIssueFilterApi
+              | LogPropertyFilterApi
+              | RevenueAnalyticsPropertyFilterApi
+          )[]
+        | null
+    /** @nullable */
+    response?: LifecycleDataWarehouseNodeApiResponse
+    table_name: string
+    timestamp_field: string
+    /**
+     * version of the node, used for schema migrations
+     * @nullable
+     */
+    version?: number | null
+}
+
 export interface LifecycleQueryApi {
     /**
      * Groups aggregation
      * @nullable
      */
     aggregation_group_type_index?: number | null
+    /**
+     * For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups.
+     * @nullable
+     */
+    customAggregationTarget?: boolean | null
     /**
      * Colors used in the insight's visualization
      * @nullable
@@ -3073,7 +3363,7 @@ export interface LifecycleQueryApi {
      */
     samplingFactor?: number | null
     /** Events and actions to include */
-    series: (EventsNodeApi | ActionsNodeApi | DataWarehouseNodeApi)[]
+    series: (EventsNodeApi | ActionsNodeApi | LifecycleDataWarehouseNodeApi)[]
     /** Tags that will be added to the Query log comment */
     tags?: QueryLogTagsApi | null
     /**
@@ -3094,6 +3384,7 @@ export const WebStatsBreakdownApi = {
     ScreenName: 'ScreenName',
     InitialChannelType: 'InitialChannelType',
     InitialReferringDomain: 'InitialReferringDomain',
+    InitialReferringURL: 'InitialReferringURL',
     InitialUTMSource: 'InitialUTMSource',
     InitialUTMCampaign: 'InitialUTMCampaign',
     InitialUTMMedium: 'InitialUTMMedium',
@@ -3223,6 +3514,8 @@ export interface WebStatsTableQueryApi {
     includeAvgTimeOnPage?: boolean | null
     /** @nullable */
     includeBounceRate?: boolean | null
+    /** @nullable */
+    includeHost?: boolean | null
     /** @nullable */
     includeRevenue?: boolean | null
     /** @nullable */
@@ -3392,6 +3685,11 @@ export const DataWarehouseSyncIntervalApi = {
 } as const
 
 export interface EndpointRequestApi {
+    /**
+     * Per-column bucket function overrides for range variable materialization. Keys are column names, values are bucket keys (hour, day, week, month).
+     * @nullable
+     */
+    bucket_overrides?: EndpointRequestApiBucketOverrides
     /** @nullable */
     cache_age_seconds?: number | null
     /** @nullable */
@@ -3499,6 +3797,11 @@ export interface EndpointRunRequestApi {
      * @nullable
      */
     limit?: number | null
+    /**
+     * Number of results to skip. Must be used together with limit. Only supported for HogQL endpoints.
+     * @nullable
+     */
+    offset?: number | null
     refresh?: EndpointRefreshModeApi | null
     /**
    * Variables to parameterize the endpoint query. The key is the variable name and the value is the variable value.

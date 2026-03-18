@@ -18,6 +18,7 @@ def _get_ticket_base_properties(ticket: Ticket) -> dict:
         "ticket_id": str(ticket.id),
         "ticket_number": ticket.ticket_number,
         "channel_source": ticket.channel_source,
+        "channel_detail": ticket.channel_detail,
         "status": ticket.status,
         "priority": ticket.priority,
     }
@@ -33,7 +34,7 @@ def capture_ticket_created(ticket: Ticket) -> None:
         token=ticket.team.api_token,
         event_name="$conversation_ticket_created",
         event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id,
+        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
     )
@@ -48,7 +49,7 @@ def capture_ticket_status_changed(ticket: Ticket, old_status: str, new_status: s
         token=ticket.team.api_token,
         event_name="$conversation_ticket_status_changed",
         event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id,
+        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
     )
@@ -63,7 +64,7 @@ def capture_ticket_priority_changed(ticket: Ticket, old_priority: str | None, ne
         token=ticket.team.api_token,
         event_name="$conversation_ticket_priority_changed",
         event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id,
+        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
     )
@@ -78,7 +79,7 @@ def capture_ticket_assigned(ticket: Ticket, assignee_type: str | None, assignee_
         token=ticket.team.api_token,
         event_name="$conversation_ticket_assigned",
         event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id,
+        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
     )
@@ -96,7 +97,7 @@ def capture_message_sent(ticket: Ticket, message_id: str, message_content: str, 
         token=ticket.team.api_token,
         event_name="$conversation_message_sent",
         event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id,
+        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
     )
@@ -116,7 +117,7 @@ def capture_message_received(ticket: Ticket, message_id: str, message_content: s
         token=ticket.team.api_token,
         event_name="$conversation_message_received",
         event_source=EVENT_SOURCE,
-        distinct_id=ticket.distinct_id,
+        distinct_id=ticket.distinct_id or ticket.channel_source or "unknown",
         timestamp=None,
         properties=properties,
     )

@@ -44,7 +44,7 @@ export const getElixirSteps = (ctx: OnboardingComponentsContext): StepDefinition
                                 code: dedent`
                                 config :posthog,
                                     api_url: "<ph_client_api_host>",
-                                    api_key: "<ph_project_api_key>"
+                                    api_key: "<ph_project_token>"
                             `,
                             },
                         ]}

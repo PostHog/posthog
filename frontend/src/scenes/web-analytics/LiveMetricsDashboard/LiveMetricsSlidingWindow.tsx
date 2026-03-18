@@ -1,13 +1,14 @@
-import { BrowserBreakdownItem, SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
+import { BrowserBreakdownItem, CountryBreakdownItem, SlidingWindowBucket } from './LiveWebAnalyticsMetricsTypes'
 
 export class LiveMetricsSlidingWindow {
     private buckets = new Map<number, SlidingWindowBucket>()
     private windowSizeSeconds: number
 
-    // Tracks how many buckets each entity appears in
+    // Tracks unique counts across all buckets
     private userBucketCounts = new Map<string, number>()
     private deviceBucketCounts = new Map<string, Map<string, number>>()
     private browserBucketCounts = new Map<string, Map<string, number>>()
+    private countryBucketCounts = new Map<string, Map<string, number>>()
 
     constructor(windowSizeMinutes: number) {
         this.windowSizeSeconds = windowSizeMinutes * 60
@@ -46,6 +47,15 @@ export class LiveMetricsSlidingWindow {
         this.prune()
     }
 
+    addGeoDataPoint(eventTs: number, countryCode: string, distinctId: string): void {
+        if (!countryCode || !distinctId) {
+            return
+        }
+        const bucket = this.getOrCreateBucket(eventTs)
+        this.addCountryToBucket(bucket, countryCode, distinctId)
+        this.prune()
+    }
+
     extendBucketData(eventTs: number, data: SlidingWindowBucket): void {
         const bucket = this.getOrCreateBucket(eventTs)
 
@@ -78,6 +88,14 @@ export class LiveMetricsSlidingWindow {
         if (data.paths) {
             for (const [path, count] of data.paths) {
                 bucket.paths.set(path, (bucket.paths.get(path) || 0) + count)
+            }
+        }
+
+        if (data.countries) {
+            for (const [countryCode, userIds] of data.countries) {
+                for (const userId of userIds) {
+                    this.addCountryToBucket(bucket, countryCode, userId)
+                }
             }
         }
 
@@ -117,6 +135,20 @@ export class LiveMetricsSlidingWindow {
         this.addItemToBucket(bucket.browsers, this.browserBucketCounts, browserType, deviceId)
     }
 
+    private addCountryToBucket(bucket: SlidingWindowBucket, countryCode: string, distinctId: string): void {
+        const bucketUserIds = bucket.countries.get(countryCode) ?? new Set<string>()
+
+        if (!bucketUserIds.has(distinctId)) {
+            bucketUserIds.add(distinctId)
+            bucket.countries.set(countryCode, bucketUserIds)
+
+            // Update global tracking
+            const countryCounts = this.countryBucketCounts.get(countryCode) ?? new Map<string, number>()
+            countryCounts.set(distinctId, (countryCounts.get(distinctId) || 0) + 1)
+            this.countryBucketCounts.set(countryCode, countryCounts)
+        }
+    }
+
     private removeUsersFromTracking(bucket: SlidingWindowBucket): void {
         for (const userId of bucket.uniqueUsers) {
             const count = this.userBucketCounts.get(userId) || 0
@@ -153,6 +185,29 @@ export class LiveMetricsSlidingWindow {
         }
     }
 
+    private removeCountriesFromTracking(bucket: SlidingWindowBucket): void {
+        for (const [countryCode, userIds] of bucket.countries) {
+            const countryCounts = this.countryBucketCounts.get(countryCode)
+            if (!countryCounts) {
+                continue
+            }
+
+            for (const userId of userIds) {
+                const count = countryCounts.get(userId) || 0
+                if (count <= 1) {
+                    countryCounts.delete(userId)
+                } else {
+                    countryCounts.set(userId, count - 1)
+                }
+            }
+
+            // Clean up empty country maps
+            if (countryCounts.size === 0) {
+                this.countryBucketCounts.delete(countryCode)
+            }
+        }
+    }
+
     private prune(): void {
         const nowTs = Date.now() / 1000
         const threshold = nowTs - this.windowSizeSeconds
@@ -161,6 +216,7 @@ export class LiveMetricsSlidingWindow {
                 this.removeUsersFromTracking(bucket)
                 this.removeItemsFromTracking(bucket.devices, this.deviceBucketCounts)
                 this.removeItemsFromTracking(bucket.browsers, this.browserBucketCounts)
+                this.removeCountriesFromTracking(bucket)
                 this.buckets.delete(ts)
             }
         }
@@ -262,6 +318,29 @@ export class LiveMetricsSlidingWindow {
             .slice(0, limit)
     }
 
+    getCountryBreakdown(): CountryBreakdownItem[] {
+        let total = 0
+        const counts: { country: string; count: number }[] = []
+
+        for (const [countryCode, userIdCounts] of this.countryBucketCounts) {
+            const count = userIdCounts.size
+            total += count
+            counts.push({ country: countryCode, count })
+        }
+
+        if (total === 0) {
+            return []
+        }
+
+        return counts
+            .map(({ country, count }) => ({
+                country,
+                count,
+                percentage: (count / total) * 100,
+            }))
+            .sort((a, b) => b.count - a.count)
+    }
+
     getTotalUniqueUsers(): number {
         return this.userBucketCounts.size
     }
@@ -278,6 +357,7 @@ export class LiveMetricsSlidingWindow {
                 browsers: new Map<string, Set<string>>(),
                 paths: new Map<string, number>(),
                 uniqueUsers: new Set<string>(),
+                countries: new Map<string, Set<string>>(),
             }
             this.buckets.set(bucketTs, bucket)
         }

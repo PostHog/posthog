@@ -23,10 +23,6 @@ describe('HogRateLimiter', () => {
             now = 1720000000000
             mockNow.mockReturnValue(now)
 
-            hub.CDP_RATE_LIMITER_BUCKET_SIZE = 100
-            hub.CDP_RATE_LIMITER_REFILL_RATE = 10
-            hub.CDP_RATE_LIMITER_TTL = 60 * 60 * 24
-
             redis = createRedisV2PoolFromConfig({
                 connection: hub.CDP_REDIS_HOST
                     ? {
@@ -39,7 +35,7 @@ describe('HogRateLimiter', () => {
             })
             await deleteKeysWithPrefix(redis, BASE_REDIS_KEY)
 
-            rateLimiter = new HogRateLimiterService(hub, redis)
+            rateLimiter = new HogRateLimiterService({ bucketSize: 100, refillRate: 10, ttl: 60 * 60 * 24 }, redis)
         })
 
         const advanceTime = (ms: number) => {

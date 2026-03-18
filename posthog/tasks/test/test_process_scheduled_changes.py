@@ -4,8 +4,9 @@ from datetime import UTC, datetime, timedelta
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries
 
-from posthog.models import FeatureFlag, ScheduledChange
+from posthog.models import FeatureFlag, Organization, ScheduledChange
 from posthog.models.activity_logging.activity_log import ActivityLog
+from posthog.models.team import Team
 from posthog.tasks.process_scheduled_changes import process_scheduled_changes
 
 
@@ -1365,3 +1366,44 @@ class TestProcessScheduledChanges(APIBaseTest, QueryMatchingTest):
         self.assertEqual(scheduled_change.scheduled_at, datetime(2025, 2, 28, 9, 0, tzinfo=UTC))
         feature_flag.refresh_from_db()
         self.assertEqual(feature_flag.active, False)
+
+    def test_scheduled_change_cannot_modify_another_teams_feature_flag(self) -> None:
+        """A scheduled change whose record_id points to a different team's flag must fail."""
+        other_org = Organization.objects.create(name="Other Org")
+        other_team = Team.objects.create(organization=other_org, name="Other Team")
+
+        victim_flag = FeatureFlag.objects.create(
+            name="Victim Flag",
+            key="victim-flag",
+            active=True,
+            filters={"groups": []},
+            team=other_team,
+            created_by=self.user,
+        )
+
+        # Simulate a scheduled change that targets a flag belonging to a different team
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=victim_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at=(datetime.now(UTC) - timedelta(seconds=30)),
+            created_by=self.user,
+        )
+
+        process_scheduled_changes()
+
+        # The victim flag must remain unchanged
+        victim_flag.refresh_from_db()
+        self.assertTrue(victim_flag.active)
+
+        # The scheduled change should be permanently failed (unrecoverable, no retry)
+        scheduled_change.refresh_from_db()
+        self.assertIsNotNone(scheduled_change.executed_at)
+        self.assertIsNotNone(scheduled_change.failure_reason)
+        self.assertEqual(scheduled_change.failure_count, 1)
+
+        assert scheduled_change.failure_reason is not None
+        failure_data = json.loads(scheduled_change.failure_reason)
+        self.assertFalse(failure_data["will_retry"])
+        self.assertEqual(failure_data["error_classification"], "unrecoverable")

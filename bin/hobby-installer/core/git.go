@@ -140,9 +140,9 @@ func GetCurrentCommit() (string, error) {
 	return strings.TrimSpace(out), nil
 }
 
-func CopyComposeFiles(version string) error {
+func CopyComposeFiles() error {
 	logger := GetLogger()
-	logger.Debug("CopyComposeFiles version=%q", version)
+	logger.Debug("CopyComposeFiles")
 
 	_ = os.Remove("docker-compose.yml") // Ignore error if file doesn't exist
 
@@ -151,51 +151,9 @@ func CopyComposeFiles(version string) error {
 		return err
 	}
 
-	return copyFileWithEnvSubst("posthog/docker-compose.hobby.yml", "docker-compose.yml", version)
-}
-
-func copyFileWithEnvSubst(src, dst, version string) error {
-	logger := GetLogger()
-	data, err := os.ReadFile(src)
-	if err != nil {
-		logger.Debug("Failed to read %s: %v", src, err)
-		return err
-	}
-
-	content := string(data)
-
-	registryURL := os.Getenv("REGISTRY_URL")
-	if registryURL == "" {
-		registryURL = ReadEnvValue("REGISTRY_URL")
-	}
-	if registryURL == "" {
-		registryURL = "posthog/posthog"
-	}
-
-	if version == "" {
-		version = "latest"
-	}
-
-	nodeTag := os.Getenv("POSTHOG_NODE_TAG")
-	if nodeTag == "" {
-		nodeTag = ReadEnvValue("POSTHOG_NODE_TAG")
-	}
-	if nodeTag == "" {
-		nodeTag = "latest"
-	}
-
-	logger.Debug("copyFileWithEnvSubst: REGISTRY_URL=%q, POSTHOG_APP_TAG=%q, POSTHOG_NODE_TAG=%q", registryURL, version, nodeTag)
-
-	content = strings.ReplaceAll(content, "${REGISTRY_URL}", registryURL)
-	content = strings.ReplaceAll(content, "$REGISTRY_URL", registryURL)
-	content = strings.ReplaceAll(content, "${POSTHOG_APP_TAG}", version)
-	content = strings.ReplaceAll(content, "$POSTHOG_APP_TAG", version)
-	// Replace POSTHOG_NODE_TAG, preserving the :-latest default syntax for Docker Compose
-	content = strings.ReplaceAll(content, "${POSTHOG_NODE_TAG:-latest}", nodeTag)
-	content = strings.ReplaceAll(content, "${POSTHOG_NODE_TAG}", nodeTag)
-	content = strings.ReplaceAll(content, "$POSTHOG_NODE_TAG", nodeTag)
-
-	return os.WriteFile(dst, []byte(content), 0644)
+	// Copy as-is — Docker Compose reads REGISTRY_URL, POSTHOG_APP_TAG, and
+	// POSTHOG_NODE_TAG from .env at runtime, so no substitution needed here.
+	return copyFile("posthog/docker-compose.hobby.yml", "docker-compose.yml")
 }
 
 func copyFile(src, dst string) error {

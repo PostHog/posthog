@@ -94,7 +94,7 @@ export const EndpointSceneHeader = ({ tabId }: EndpointSceneHeaderProps): JSX.El
                 canEdit
                 // onNameChange={} - we explicitly disallow this
                 onDescriptionChange={(description) => setEndpointDescription(description)}
-                isLoading={endpointLoading}
+                isLoading={endpointLoading && !endpoint}
                 renameDebounceMs={200}
                 actions={
                     <>

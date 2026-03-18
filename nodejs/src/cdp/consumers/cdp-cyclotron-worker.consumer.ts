@@ -12,35 +12,27 @@ import {
     CyclotronJobQueueKind,
 } from '../types'
 import { isLegacyPluginHogFunction, isNativeHogFunction, isSegmentPluginHogFunction } from '../utils'
-import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
-
-/**
- * Hub type for CdpCyclotronWorker.
- * Extends CdpConsumerBaseHub with cyclotron-specific fields.
- */
-export type CdpCyclotronWorkerHub = CdpConsumerBaseHub &
-    PluginsServerConfig & // For CyclotronJobQueue (to be narrowed later)
-    Pick<PluginsServerConfig, 'CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND'>
+import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 /**
  * The future of the CDP consumer. This will be the main consumer that will handle all hog jobs from Cyclotron
  */
 export class CdpCyclotronWorker<
-    THub extends CdpCyclotronWorkerHub = CdpCyclotronWorkerHub,
-> extends CdpConsumerBase<THub> {
+    TConfig extends PluginsServerConfig = PluginsServerConfig,
+> extends CdpConsumerBase<TConfig> {
     protected name = 'CdpCyclotronWorker'
     protected cyclotronJobQueue: CyclotronJobQueue
     protected queue: CyclotronJobQueueKind
 
-    constructor(hub: THub, queue?: CyclotronJobQueueKind) {
-        super(hub)
-        this.queue = queue ?? hub.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
+    constructor(config: TConfig, deps: CdpConsumerBaseDeps, queue?: CyclotronJobQueueKind) {
+        super(config, deps)
+        this.queue = queue ?? config.CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_KIND
 
         if (!CYCLOTRON_INVOCATION_JOB_QUEUES.includes(this.queue)) {
             throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
         }
 
-        this.cyclotronJobQueue = new CyclotronJobQueue(hub, this.queue, (batch) => this.processBatch(batch))
+        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')
@@ -92,9 +84,24 @@ export class CdpCyclotronWorker<
                     return null
                 }
 
+                const hogFuncState = item.state as CyclotronJobInvocationHogFunction['state']
+
+                await Promise.all([
+                    this.groupsManager.addGroupsToGlobals(hogFuncState.globals),
+                    !hogFuncState.globals.person
+                        ? this.personsManager
+                              .getCyclotronPerson(item.teamId, hogFuncState.globals.event.distinct_id, 'distinct_id')
+                              .then((person) => {
+                                  if (person) {
+                                      hogFuncState.globals.person = person
+                                  }
+                              })
+                        : undefined,
+                ])
+
                 loadedInvocations.push({
                     ...item,
-                    state: item.state as CyclotronJobInvocationHogFunction['state'],
+                    state: hogFuncState,
                     hogFunction,
                 })
             })
@@ -145,7 +152,7 @@ export class CdpCyclotronWorker<
 
     public async start() {
         await super.start()
-        await this.cyclotronJobQueue.start()
+        await this.cyclotronJobQueue.start(this.queue, (batch) => this.processBatch(batch))
     }
 
     public async stop() {

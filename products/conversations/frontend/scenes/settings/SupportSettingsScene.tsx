@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -10,9 +10,11 @@ import {
     LemonInput,
     LemonSelect,
     LemonSwitch,
+    LemonTag,
     Link,
 } from '@posthog/lemon-ui'
 
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -124,6 +126,250 @@ function AuthorizedDomains(): JSX.Element {
     )
 }
 
+function SlackSection(): JSX.Element {
+    return (
+        <SceneSection
+            title="SupportHog Slack bot"
+            description={
+                <>
+                    Add the SupportHog bot to your Slack workspace to create and manage support tickets directly from
+                    Slack messages.{' '}
+                    <Link to="https://posthog.com/docs/support/slack" target="_blank">
+                        Docs
+                    </Link>
+                </>
+            }
+            className="mt-4"
+        >
+            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
+                <SlackChannelSection />
+            </LemonCard>
+        </SceneSection>
+    )
+}
+
+function SlackChannelSection(): JSX.Element {
+    const {
+        slackConnected,
+        slackChannelId,
+        slackChannels,
+        slackChannelsLoading,
+        slackTicketEmoji,
+        slackTicketEmojiValue,
+    } = useValues(supportSettingsLogic)
+    const {
+        connectSlack,
+        setSlackChannel,
+        loadSlackChannelsWithToken,
+        setSlackTicketEmojiValue,
+        saveSlackTicketEmoji,
+        disconnectSlack,
+    } = useActions(supportSettingsLogic)
+
+    return (
+        <div className="flex flex-col gap-y-2">
+            <div>
+                <label className="font-medium">Connection</label>
+                <p className="text-xs text-muted-alt">
+                    Install the SupportHog bot in your Slack workspace to enable support ticket creation from channels,
+                    mentions, and emoji reactions. This is separate from the main PostHog Slack integration.
+                </p>
+                {!slackConnected && (
+                    <LemonButton
+                        className="mt-2"
+                        type="primary"
+                        size="small"
+                        onClick={() => connectSlack(window.location.pathname)}
+                    >
+                        Add SupportHog to Slack
+                    </LemonButton>
+                )}
+            </div>
+            {slackConnected && (
+                <>
+                    <LemonDivider />
+                    <div className="gap-4">
+                        <div>
+                            <label className="font-medium">Support channel</label>
+                            <p className="text-xs text-muted-alt">
+                                Messages posted in this channel will automatically create support tickets. Thread
+                                replies become ticket messages.
+                            </p>
+                        </div>
+                        <div className="flex gap-2 items-center">
+                            <LemonSelect
+                                value={slackChannelId}
+                                options={[
+                                    { value: null, label: 'None' },
+                                    ...slackChannels.map((c: { id: string; name: string }) => ({
+                                        value: c.id,
+                                        label: `#${c.name}`,
+                                    })),
+                                ]}
+                                onChange={(value) => {
+                                    const channel = slackChannels.find((c: { id: string }) => c.id === value)
+                                    setSlackChannel(value, channel?.name ?? null)
+                                }}
+                                loading={slackChannelsLoading}
+                                placeholder="Select channel"
+                            />
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                onClick={loadSlackChannelsWithToken}
+                                disabledReason={slackChannelsLoading ? 'Loading channels...' : undefined}
+                            >
+                                Refresh
+                            </LemonButton>
+                        </div>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex items-center gap-4 justify-between">
+                        <div>
+                            <label className="font-medium">Ticket emoji trigger</label>
+                            <p className="text-xs text-muted-alt">
+                                React with this emoji on any message to create a support ticket from it.
+                            </p>
+                        </div>
+                        <div className="flex gap-2 items-center">
+                            <LemonInput
+                                value={slackTicketEmojiValue ?? slackTicketEmoji}
+                                onChange={setSlackTicketEmojiValue}
+                                placeholder="ticket"
+                                className="max-w-[200px]"
+                            />
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={saveSlackTicketEmoji}
+                                disabledReason={!slackTicketEmojiValue ? 'Enter an emoji name' : undefined}
+                            >
+                                Save
+                            </LemonButton>
+                        </div>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex items-center gap-4 justify-between">
+                        <div>
+                            <label className="font-medium">Bot mention</label>
+                            <p className="text-xs text-muted-alt">
+                                Users can @mention the bot in any channel to create a support ticket.
+                            </p>
+                        </div>
+                        <LemonTag type="success">Active</LemonTag>
+                    </div>
+                    <LemonDivider />
+                    <div className="flex justify-end">
+                        <LemonButton
+                            type="secondary"
+                            status="danger"
+                            size="small"
+                            onClick={() => {
+                                LemonDialog.open({
+                                    title: 'Remove SupportHog bot?',
+                                    description:
+                                        'This will stop creating tickets from Slack messages. Existing tickets will not be affected.',
+                                    primaryButton: {
+                                        status: 'danger',
+                                        children: 'Remove',
+                                        onClick: disconnectSlack,
+                                    },
+                                    secondaryButton: { children: 'Cancel' },
+                                })
+                            }}
+                        >
+                            Remove SupportHog bot
+                        </LemonButton>
+                    </div>
+                </>
+            )}
+        </div>
+    )
+}
+
+function SecretApiKeySection(): JSX.Element {
+    const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
+    const { rotateSecretToken, deleteSecretTokenBackup } = useActions(teamLogic)
+
+    const openRotateDialog = (): void => {
+        const verb = currentTeam?.secret_api_token ? 'Rotate' : 'Generate'
+        const description = currentTeam?.secret_api_token
+            ? 'This will generate a new secret API key and move the existing one to backup. The old key will remain active until you delete it.'
+            : 'This will generate a new secret API key for authenticating external API requests.'
+
+        LemonDialog.open({
+            title: `${verb} secret API key?`,
+            description,
+            primaryButton: {
+                children: verb,
+                onClick: rotateSecretToken,
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
+    return (
+        <SceneSection
+            title="Secret API key"
+            description="Used to authenticate external API requests (e.g. from workflows). This is the same key shown in Feature flags settings."
+            className="mt-4"
+        >
+            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
+                <div>
+                    <h3 className="text-sm font-semibold mb-1">
+                        Primary key{' '}
+                        {currentTeam?.secret_api_token && <span className="text-green-700 text-xs ml-2">(Active)</span>}
+                    </h3>
+                    <CodeSnippet
+                        actions={
+                            <LemonButton
+                                icon={<IconRefresh />}
+                                size="xsmall"
+                                onClick={openRotateDialog}
+                                disabledReason={
+                                    !isTeamTokenResetAvailable
+                                        ? 'You do not have permission to rotate this key'
+                                        : undefined
+                                }
+                                tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
+                            />
+                        }
+                        className={currentTeam?.secret_api_token ? '' : 'text-muted'}
+                        thing="Secret API key"
+                    >
+                        {currentTeam?.secret_api_token || 'Click the generate button on the right to create a new key.'}
+                    </CodeSnippet>
+                </div>
+
+                {currentTeam?.secret_api_token_backup ? (
+                    <div>
+                        <h3 className="text-sm font-semibold mb-1">
+                            Backup key <span className="text-orange-600 text-xs ml-2">(Pending deletion)</span>
+                        </h3>
+                        <CodeSnippet
+                            actions={
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    size="xsmall"
+                                    onClick={() => deleteSecretTokenBackup()}
+                                    tooltip="Delete backup key"
+                                />
+                            }
+                            thing="Backup secret API key"
+                        >
+                            {currentTeam.secret_api_token_backup}
+                        </CodeSnippet>
+                        <p className="text-xs text-muted mt-1">
+                            This key is still active to support services using the previous key. Delete it once you've
+                            fully migrated.
+                        </p>
+                    </div>
+                ) : null}
+            </LemonCard>
+        </SceneSection>
+    )
+}
+
 export function SupportSettingsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -166,7 +412,14 @@ export function SupportSettingsScene(): JSX.Element {
             <ScenesTabs />
             <SceneSection
                 title="Conversations API"
-                description="Turn on conversations API to enable access for tickets and messages."
+                description={
+                    <>
+                        Turn on conversations API to enable access for tickets and messages.{' '}
+                        <Link to="https://posthog.com/docs/support/javascript-api" target="_blank">
+                            Docs
+                        </Link>
+                    </>
+                }
             >
                 <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
                     <div className="flex items-center gap-4 justify-between">
@@ -194,7 +447,11 @@ export function SupportSettingsScene(): JSX.Element {
             </SceneSection>
             {currentTeam?.conversations_enabled && (
                 <>
-                    <SceneSection title="Notifications" className="mt-4">
+                    <SceneSection
+                        title="Notifications"
+                        className="mt-4"
+                        description="We recommend using workflows to set custom notifications, e.g. when a new ticket is created or a new message is received."
+                    >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">
                                 <div>
@@ -213,7 +470,19 @@ export function SupportSettingsScene(): JSX.Element {
                             <BrowserNotificationsSection />
                         </LemonCard>
                     </SceneSection>
-                    <SceneSection title="In-app widget" className="mt-4">
+                    <SlackSection />
+                    <SceneSection
+                        title="In-app widget"
+                        description={
+                            <>
+                                Add a chat widget to your website for customers to reach you.{' '}
+                                <Link to="https://posthog.com/docs/support/widget" target="_blank">
+                                    Docs
+                                </Link>
+                            </>
+                        }
+                        className="mt-4"
+                    >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">
                                 <div>
@@ -518,12 +787,16 @@ export function SupportSettingsScene(): JSX.Element {
                             )}
                         </LemonCard>
                     </SceneSection>
+                    <SecretApiKeySection />
                     <SceneSection
                         title="Workflows"
                         description={
                             <>
                                 Use these events as triggers in <Link to="/workflows">Workflows</Link> to automate
-                                ticket actions.
+                                ticket actions.{' '}
+                                <Link to="https://posthog.com/docs/support/workflows" target="_blank">
+                                    Docs
+                                </Link>
                             </>
                         }
                         className="mt-4"

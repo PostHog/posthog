@@ -6,6 +6,7 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { RestrictionScope } from 'lib/components/RestrictedArea'
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
+import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
@@ -14,7 +15,6 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { LemonTag } from 'lib/lemon-ui/LemonTag/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
-import { IconExclamation, IconOffline } from 'lib/lemon-ui/icons'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
@@ -23,9 +23,10 @@ import { AvailableFeature, OrganizationDomainType } from '~/types'
 import { AddDomainModal } from './AddDomainModal'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 import { ConfigureSCIMModal } from './ConfigureSCIMModal'
+import { ScimLogsModal } from './ScimLogsModal'
 import { SSOSelect } from './SSOSelect'
-import { VerifyDomainModal } from './VerifyDomainModal'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
+import { VerifyDomainModal } from './VerifyDomainModal'
 
 const iconStyle = { marginRight: 4, fontSize: '1.15em', paddingTop: 2 }
 
@@ -68,8 +69,14 @@ function VerifiedDomainsTable(): JSX.Element {
         isSAMLAvailable,
         isSCIMAvailable,
     } = useValues(verifiedDomainsLogic)
-    const { updateDomain, deleteVerifiedDomain, setVerifyModal, setConfigureSAMLModalId, setConfigureSCIMModalId } =
-        useActions(verifiedDomainsLogic)
+    const {
+        updateDomain,
+        deleteVerifiedDomain,
+        setVerifyModal,
+        setConfigureSAMLModalId,
+        setConfigureSCIMModalId,
+        setScimLogsModalId,
+    } = useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
 
     const restrictionReason = useRestrictedArea({
@@ -138,9 +145,7 @@ function VerifiedDomainsTable(): JSX.Element {
                             disabled={updatingDomainLoading || !is_verified}
                             disabledReason={restrictionReason}
                             onChange={(checked) => updateDomain({ id, jit_provisioning_enabled: checked })}
-                            label={
-                                <span className="font-normal">{jit_provisioning_enabled ? 'Enabled' : 'Disabled'}</span>
-                            }
+                            label="Automatic provisioning"
                         />
                     </div>
                 ) : (
@@ -261,6 +266,15 @@ function VerifiedDomainsTable(): JSX.Element {
                                                 Configure SCIM
                                             </LemonButton>
                                         )}
+                                        {isSCIMAvailable && (
+                                            <LemonButton
+                                                onClick={() => setScimLogsModalId(id)}
+                                                fullWidth
+                                                disabledReason={restrictionReason}
+                                            >
+                                                View SCIM logs
+                                            </LemonButton>
+                                        )}
                                     </>
                                 )}
                                 <LemonButton
@@ -305,6 +319,7 @@ function VerifiedDomainsTable(): JSX.Element {
             <AddDomainModal />
             <ConfigureSAMLModal />
             <ConfigureSCIMModal />
+            <ScimLogsModal />
             <VerifyDomainModal />
         </div>
     )

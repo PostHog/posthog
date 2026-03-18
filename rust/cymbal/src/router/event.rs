@@ -30,7 +30,7 @@ impl IntoResponse for UnhandledError {
     }
 }
 
-impl IntoResponse for Batch<AnyEvent> {
+impl IntoResponse for Batch<Option<AnyEvent>> {
     fn into_response(self) -> axum::response::Response {
         match serde_json::to_value(Vec::from(self)) {
             Ok(value) => (StatusCode::OK, Json(value)).into_response(),
@@ -53,7 +53,7 @@ impl IntoResponse for Batch<AnyEvent> {
 pub async fn process_events(
     State(ctx): State<Arc<AppContext>>,
     Json(events): Json<Vec<AnyEvent>>,
-) -> Result<Batch<AnyEvent>, UnhandledError> {
+) -> Result<Batch<Option<AnyEvent>>, UnhandledError> {
     let pipeline = HttpEventPipeline::new(ctx);
     let input = Batch::from(events);
     let output = pipeline.process(input).await?;

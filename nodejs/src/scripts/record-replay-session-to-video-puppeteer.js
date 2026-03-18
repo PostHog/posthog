@@ -32,7 +32,10 @@ const MAX_DIMENSION = 1920
 const DEFAULT_WIDTH = 1920
 const DEFAULT_HEIGHT = 1080
 const RECORDING_BUFFER_SECONDS = 120
-const DEFAULT_FPS = 25 // Both Playwright and ffpmeg use 25 (PAL) as a default
+// Default speed params below are just intended for human consumption of video,
+// but specific uses cases (like AI analysis) may provide their own values
+const DEFAULT_PLAYBACK_SPEED = 4
+const DEFAULT_FPS = 24 // 24 frames per 1 second of original real time, for human consumption
 
 // Log to stderr so it doesn't interfere with JSON output
 function log(...args) {
@@ -230,9 +233,10 @@ async function main() {
         recording_duration: recordingDuration,
         screenshot_width: providedWidth,
         screenshot_height: providedHeight,
-        playback_speed: requestedPlaybackSpeed = 1,
+        playback_speed: requestedPlaybackSpeed = DEFAULT_PLAYBACK_SPEED,
         headless = true,
         ffmpeg_path: ffmpegPath,
+        recording_fps: recordingFps = DEFAULT_FPS,
     } = options
     if (!urlToRender || !outputPath || !waitForCssSelector || !recordingDuration) {
         console.error('Missing required options: url_to_render, output_path, wait_for_css_selector, recording_duration')
@@ -280,7 +284,7 @@ async function main() {
         const recordStarted = Date.now()
         // Videos are recorded at x playspeed, and will be slowed down to 1x later
         // The complication is mostly with CSS animations, as they aren't sped up by rrweb player when running at >1x playback
-        const customFps = DEFAULT_FPS * playbackSpeed
+        const customFps = recordingFps * playbackSpeed
         log('Custom FPS:', customFps)
         const recorderConfig = {
             followNewTab: false, // Always a single tab is recorded

@@ -51,7 +51,6 @@ async def flush_kafka_batch(
     kafka_producer: "_KafkaProducer",
     pending_messages: list,
     team_id: int,
-    cohort_id: int,
     current_offset: int,
     heartbeater,
     logger,
@@ -66,13 +65,11 @@ async def flush_kafka_batch(
 
     batch_size = len(pending_messages)
     batch_type = "final " if is_final else ""
-    heartbeater.details = (
-        f"Flushing {batch_type}{batch_size} messages for cohort {cohort_id} at offset {current_offset}",
-    )
+
+    heartbeater.details = (f"Flushing {batch_type}{batch_size} messages (offset {current_offset})",)
     logger.info(
-        f"Flushing {batch_type}batch of {batch_size} messages for cohort {cohort_id}",
+        f"Flushing {batch_type}batch of {batch_size} messages",
         team_id=team_id,
-        cohort_id=cohort_id,
         offset=current_offset,
         batch_size=batch_size,
     )
@@ -86,9 +83,8 @@ async def flush_kafka_batch(
             send_result.get(timeout=0)  # Non-blocking check
         except Exception as e:
             logger.warning(
-                f"Kafka send result failure for cohort {cohort_id}: {e}",
+                f"Kafka send result failure: {e}",
                 team_id=team_id,
-                cohort_id=cohort_id,
                 offset=current_offset,
                 error=str(e),
                 exception_type=type(e).__name__,
@@ -97,14 +93,13 @@ async def flush_kafka_batch(
 
     if failed_count > 0:
         logger.error(
-            f"Failed to send {failed_count}/{batch_size} Kafka messages for cohort {cohort_id}",
+            f"Failed to send {failed_count}/{batch_size} Kafka messages",
             team_id=team_id,
-            cohort_id=cohort_id,
             offset=current_offset,
             failed_count=failed_count,
             batch_size=batch_size,
         )
-        raise Exception(f"Failed to send {failed_count}/{batch_size} Kafka messages for cohort {cohort_id}")
+        raise Exception(f"Failed to send {failed_count}/{batch_size} Kafka messages")
 
     return batch_size
 
@@ -129,6 +124,15 @@ class PersonPropertyFilter:
 
     condition_hash: str
     bytecode: list[Any]  # HogQL bytecode
+    cohort_ids: list[int]  # Cohorts that use this condition
+
+
+@dataclasses.dataclass
+class CohortFilters:
+    """Filters for a specific cohort."""
+
+    cohort_id: int
+    filters: list[PersonPropertyFilter]
 
 
 @dataclasses.dataclass
@@ -136,18 +140,24 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     """Inputs for the precalculated person properties backfill workflow."""
 
     team_id: int
-    cohort_id: int
-    filters: list[PersonPropertyFilter]  # Person property filters from the cohort
+    filters: list[PersonPropertyFilter]  # Deduplicated filters with cohort mappings
+    cohort_ids: list[int]  # All cohort IDs being processed
     batch_size: int = 1000
     offset: int = 0
     limit: int | None = None  # Total persons to process (None = all)
 
     @property
+    def total_filters(self) -> int:
+        """Total number of unique filters."""
+        return len(self.filters)
+
+    @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "team_id": self.team_id,
-            "cohort_id": self.cohort_id,
-            "filter_count": len(self.filters),
+            "cohort_count": len(self.cohort_ids),
+            "cohort_ids": self.cohort_ids,
+            "filter_count": self.total_filters,
             "batch_size": self.batch_size,
             "offset": self.offset,
             "limit": self.limit,
@@ -159,17 +169,21 @@ async def backfill_precalculated_person_properties_activity(
     inputs: BackfillPrecalculatedPersonPropertiesInputs,
 ) -> None:
     """
-    Backfill precalculated person properties for a batch of persons.
+    Backfill precalculated person properties for a batch of persons across multiple cohorts.
 
     Queries the current state of persons from the persons table and evaluates them
-    against the provided filters, writing results to the precalculated_person_properties table.
+    against all provided filters from multiple cohorts, writing results to the
+    precalculated_person_properties table. Each person is evaluated against all filters
+    from all cohorts in a single pass for efficiency.
     """
     bind_contextvars()
-    logger = LOGGER.bind(team_id=inputs.team_id, cohort_id=inputs.cohort_id)
+    cohort_ids = inputs.cohort_ids
+    total_filters = inputs.total_filters
+    logger = LOGGER.bind(team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=cohort_ids)
 
     logger.info(
-        f"Starting person properties precalculation for cohort {inputs.cohort_id}, "
-        f"processing {inputs.limit or 'all'} persons starting at offset {inputs.offset}"
+        f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids}, "
+        f"processing {total_filters} total filters across {inputs.limit or 'all'} persons starting at offset {inputs.offset}"
     )
 
     async with Heartbeater(
@@ -254,75 +268,76 @@ async def backfill_precalculated_person_properties_activity(
                         person_properties = parse_person_properties(row.get("properties"), person_id)
                         distinct_ids = row["distinct_ids"]
 
-                        for filter_info in inputs.filters:
-                            # Evaluate person against filter using HogQL bytecode
-                            globals_dict = {
-                                "person": {
-                                    "id": person_id,
-                                    "properties": person_properties,
-                                },
-                                "project": {
-                                    "id": inputs.team_id,
-                                },
-                            }
+                        globals_dict = {
+                            "person": {
+                                "id": person_id,
+                                "properties": person_properties,
+                            },
+                            "project": {
+                                "id": inputs.team_id,
+                            },
+                        }
 
+                        # Evaluate each filter once per person and send results to all cohorts that use it
+                        for filter_obj in inputs.filters:
                             try:
                                 result = await asyncio.to_thread(
-                                    execute_bytecode, filter_info.bytecode, globals_dict, timeout=10
+                                    execute_bytecode, filter_obj.bytecode, globals_dict, timeout=10
                                 )
                                 matches = bool(result.result) if result else False
                             except Exception as e:
                                 logger.warning(
-                                    f"Error evaluating person {person_id} against filter {filter_info.condition_hash}: {e}",
+                                    f"Error evaluating person {person_id} against filter {filter_obj.condition_hash}: {e}",
                                     person_id=person_id,
-                                    condition_hash=filter_info.condition_hash,
+                                    condition_hash=filter_obj.condition_hash,
                                     error=str(e),
                                 )
                                 matches = False
 
-                            # ALWAYS emit - both matches and non-matches for EACH distinct_id
-                            for distinct_id in distinct_ids:
-                                event = {
-                                    "distinct_id": distinct_id,
-                                    "person_id": person_id,
-                                    "team_id": inputs.team_id,
-                                    "condition": filter_info.condition_hash,
-                                    "matches": matches,
-                                    "source": f"cohort_backfill_{inputs.cohort_id}",
-                                }
+                            # Send results to all cohorts that use this filter
+                            for cohort_id in filter_obj.cohort_ids:
+                                # ALWAYS emit - both matches and non-matches for EACH distinct_id
+                                for distinct_id in distinct_ids:
+                                    event = {
+                                        "distinct_id": distinct_id,
+                                        "person_id": person_id,
+                                        "team_id": inputs.team_id,
+                                        "condition": filter_obj.condition_hash,
+                                        "matches": matches,
+                                        "source": f"cohort_backfill_{cohort_id}",
+                                    }
 
-                                # Produce to Kafka without blocking - collect send results for later flushing
-                                try:
-                                    send_result = kafka_producer.produce(
-                                        topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
-                                        key=event["distinct_id"],
-                                        data=event,
-                                    )
-                                    pending_kafka_messages.append(send_result)
-                                    total_events_produced += 1
-
-                                    # Flush in batches to allow heartbeats
-                                    if len(pending_kafka_messages) >= FLUSH_BATCH_SIZE:
-                                        flushed = await flush_kafka_batch(
-                                            kafka_producer,
-                                            pending_kafka_messages,
-                                            inputs.team_id,
-                                            inputs.cohort_id,
-                                            current_offset,
-                                            heartbeater,
-                                            logger,
+                                    # Produce to Kafka without blocking - collect send results for later flushing
+                                    try:
+                                        send_result = kafka_producer.produce(
+                                            topic=KAFKA_CDP_CLICKHOUSE_PRECALCULATED_PERSON_PROPERTIES,
+                                            key=event["distinct_id"],
+                                            data=event,
                                         )
-                                        total_flushed += flushed
-                                        pending_kafka_messages.clear()
+                                        pending_kafka_messages.append(send_result)
+                                        total_events_produced += 1
 
-                                except Exception as e:
-                                    logger.warning(
-                                        f"Failed to produce Kafka message for distinct_id {event['distinct_id']}: {e}",
-                                        distinct_id=event["distinct_id"],
-                                        person_id=person_id,
-                                        error=str(e),
-                                    )
-                                    # Continue processing even if Kafka produce fails
+                                        # Flush in batches to allow heartbeats
+                                        if len(pending_kafka_messages) >= FLUSH_BATCH_SIZE:
+                                            flushed = await flush_kafka_batch(
+                                                kafka_producer,
+                                                pending_kafka_messages,
+                                                inputs.team_id,
+                                                current_offset,
+                                                heartbeater,
+                                                logger,
+                                            )
+                                            total_flushed += flushed
+                                            pending_kafka_messages.clear()
+
+                                    except Exception as e:
+                                        logger.warning(
+                                            f"Failed to produce Kafka message for distinct_id {event['distinct_id']}: {e}",
+                                            distinct_id=event["distinct_id"],
+                                            person_id=person_id,
+                                            error=str(e),
+                                        )
+                                        # Continue processing even if Kafka produce fails
 
             # No more persons, we're done
             if batch_count == 0:
@@ -344,11 +359,11 @@ async def backfill_precalculated_person_properties_activity(
 
         # Flush any remaining messages
         if pending_kafka_messages:
+            # Final flush - batch may contain messages from multiple cohorts
             flushed = await flush_kafka_batch(
                 kafka_producer,
                 pending_kafka_messages,
                 inputs.team_id,
-                inputs.cohort_id,
                 current_offset,
                 heartbeater,
                 logger,
@@ -374,7 +389,7 @@ async def backfill_precalculated_person_properties_activity(
 
 @temporalio.workflow.defn(name="backfill-precalculated-person-properties")
 class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
-    """Workflow that backfills precalculated person properties for a cohort."""
+    """Workflow that backfills precalculated person properties for a team's cohorts."""
 
     @staticmethod
     def parse_inputs(inputs: list[str]) -> BackfillPrecalculatedPersonPropertiesInputs:
@@ -386,9 +401,11 @@ class BackfillPrecalculatedPersonPropertiesWorkflow(PostHogWorkflow):
     async def run(self, inputs: BackfillPrecalculatedPersonPropertiesInputs) -> None:
         """Run the workflow to backfill precalculated person properties."""
         workflow_logger = temporalio.workflow.logger
+        cohort_ids = inputs.cohort_ids
+        total_filters = inputs.total_filters
         workflow_logger.info(
-            f"Starting person properties precalculation for cohort {inputs.cohort_id} "
-            f"(team {inputs.team_id}) with {len(inputs.filters)} filters"
+            f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids} "
+            f"(team {inputs.team_id}) with {total_filters} total filters"
         )
 
         # Process the batch of persons

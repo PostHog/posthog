@@ -19,8 +19,9 @@ class Config(BaseSettings):
     project_api_key: str
     project_id: str
     personal_api_key: str
-    event_timeout_seconds: int = Field(default=300)
-    poll_interval_seconds: float = Field(default=30.0)
+    event_timeout_seconds: int = Field(default=3600)
+    poll_interval_seconds: float = Field(default=10.0)
+    activity_timeout_seconds: int = Field(default=3600)
     slack_webhook_url: str | None = Field(default=None)
 
     @field_validator("api_host")
@@ -35,4 +36,5 @@ class Config(BaseSettings):
             "project_id": self.project_id,
             "event_timeout_seconds": str(self.event_timeout_seconds),
             "poll_interval_seconds": str(self.poll_interval_seconds),
+            "activity_timeout_seconds": str(self.activity_timeout_seconds),
         }

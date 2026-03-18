@@ -211,8 +211,6 @@ class TestTeam(BaseTest):
         [
             ("self_hosted", False, "session_recording_retention_period", SessionRecordingRetentionPeriod.FIVE_YEARS),
             ("cloud", True, "session_recording_retention_period", SessionRecordingRetentionPeriod.THIRTY_DAYS),
-            ("self_hosted", False, "session_recording_encryption", False),
-            ("cloud", True, "session_recording_encryption", False),
         ]
     )
     def test_create_team_session_recording_defaults(self, _label, is_cloud, field, expected):

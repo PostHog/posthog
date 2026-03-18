@@ -23,6 +23,44 @@ describe('normalizeEvent()', () => {
         expect(normalizeEvent(event2 as any).properties).toEqual({ a: 1, $sent_at: '2020-02-23T02:15:00.000Z' })
     })
 
+    describe('$session_id normalization', () => {
+        test.each([
+            {
+                name: 'lowercases uppercase UUID session_id',
+                sessionId: 'A1B2C3D4-E5F6-7890-ABCD-EF1234567890',
+                expected: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+            },
+            {
+                name: 'lowercases mixed-case UUID session_id',
+                sessionId: 'a1B2c3D4-e5F6-7890-AbCd-Ef1234567890',
+                expected: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+            },
+            {
+                name: 'leaves already-lowercase UUID unchanged',
+                sessionId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+                expected: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+            },
+            {
+                name: 'leaves non-UUID session_id unchanged',
+                sessionId: 'NOT-A-UUID',
+                expected: 'NOT-A-UUID',
+            },
+            {
+                name: 'leaves numeric session_id unchanged',
+                sessionId: 12345,
+                expected: 12345,
+            },
+        ])('$name', ({ sessionId, expected }) => {
+            const event = { distinct_id: 'user1', properties: { $session_id: sessionId } }
+            expect(normalizeEvent(event as any).properties!['$session_id']).toBe(expected)
+        })
+
+        it('handles missing $session_id', () => {
+            const event = { distinct_id: 'user1', properties: {} }
+            expect(normalizeEvent(event as any).properties!['$session_id']).toBeUndefined()
+        })
+    })
+
     it('combines .properties $set and $set_once with top-level $set and $set_once', () => {
         const event = {
             event: 'some_event',

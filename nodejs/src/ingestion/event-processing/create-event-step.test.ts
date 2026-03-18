@@ -4,10 +4,10 @@ import { Message } from 'node-rdkafka'
 import { createTestEventHeaders } from '../../../tests/helpers/event-headers'
 import { createTestMessage } from '../../../tests/helpers/kafka-message'
 import { Person, PersonMode, PreIngestionEvent, ProjectId, TimestampFormat } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
 import { castTimestampOrNow } from '../../utils/utils'
 import { isOkResult } from '../pipelines/results'
 import { CreateEventStepInput, createCreateEventStep } from './create-event-step'
+import { EVENTS_OUTPUT } from './ingestion-outputs'
 
 describe('create-event-step', () => {
     let mockPerson: Person
@@ -37,14 +37,14 @@ describe('create-event-step', () => {
 
     describe('createCreateEventStep', () => {
         it('should create event with processPerson=true', async () => {
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -53,33 +53,33 @@ describe('create-event-step', () => {
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(value.eventToEmit.uuid).toBe('event-uuid-456')
-                expect(value.eventToEmit.event).toBe('$pageview')
-                expect(value.eventToEmit.team_id).toBe(1)
-                expect(value.eventToEmit.distinct_id).toBe('distinct-id-789')
-                expect(value.eventToEmit.person_id).toBe('person-uuid-123')
-                expect(value.eventToEmit.person_mode).toBe('full')
-                expect(parseJSON(value.eventToEmit.person_properties || '{}')).toEqual({
+                expect(value.eventsToEmit).toHaveLength(1)
+                const event = value.eventsToEmit[0].event
+                expect(value.eventsToEmit[0].output).toBe(EVENTS_OUTPUT)
+                expect(event.uuid).toBe('event-uuid-456')
+                expect(event.event).toBe('$pageview')
+                expect(event.team_id).toBe(1)
+                expect(event.distinct_id).toBe('distinct-id-789')
+                expect(event.person_id).toBe('person-uuid-123')
+                expect(event.person_mode).toBe('full')
+                expect(event.person_properties).toEqual({
                     email: 'test@example.com',
                     name: 'Test User',
                 })
+                expect(value.teamId).toBe(1)
             }
             expect(result.sideEffects).toHaveLength(0)
         })
 
         it('should create event with processPerson=false', async () => {
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
                 processPerson: false,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -88,12 +88,10 @@ describe('create-event-step', () => {
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
                 const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(value.eventToEmit.person_mode).toBe('propertyless')
-                expect(value.eventToEmit.person_properties).toBe('{}')
+                expect(value.eventsToEmit).toHaveLength(1)
+                const event = value.eventsToEmit[0].event
+                expect(event.person_mode).toBe('propertyless')
+                expect(event.person_properties).toEqual({})
             }
             expect(result.sideEffects).toHaveLength(0)
         })
@@ -104,14 +102,14 @@ describe('create-event-step', () => {
                 force_upgrade: true,
             }
 
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: personWithForceUpgrade,
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -119,12 +117,8 @@ describe('create-event-step', () => {
 
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
-                const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(value.eventToEmit.person_mode).toBe('force_upgrade')
+                const event = result.value.eventsToEmit[0].event
+                expect(event.person_mode).toBe('force_upgrade')
             }
         })
 
@@ -137,14 +131,14 @@ describe('create-event-step', () => {
                 },
             }
 
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: eventWithSetProperties,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -152,13 +146,8 @@ describe('create-event-step', () => {
 
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
-                const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                const personProperties = parseJSON(value.eventToEmit.person_properties || '{}')
-                expect(personProperties).toEqual({
+                const event = result.value.eventsToEmit[0].event
+                expect(event.person_properties).toEqual({
                     email: 'test@example.com',
                     name: 'Test User',
                     new_property: 'new_value',
@@ -166,15 +155,15 @@ describe('create-event-step', () => {
             }
         })
 
-        it('should preserve event properties as JSON string', async () => {
-            const step = createCreateEventStep()
+        it('should preserve event properties as native object', async () => {
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -182,13 +171,9 @@ describe('create-event-step', () => {
 
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
-                const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(typeof value.eventToEmit.properties).toBe('string')
-                expect(parseJSON(value.eventToEmit.properties || '{}')).toEqual({
+                const event = result.value.eventsToEmit[0].event
+                expect(typeof event.properties).toBe('object')
+                expect(event.properties).toEqual({
                     $current_url: 'https://example.com',
                 })
             }
@@ -203,14 +188,14 @@ describe('create-event-step', () => {
                 },
             }
 
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: eventWithElements,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -218,12 +203,8 @@ describe('create-event-step', () => {
 
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
-                const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(value.eventToEmit.elements_chain).toBe('button:0;div:1;body:2')
+                const event = result.value.eventsToEmit[0].event
+                expect(event.elements_chain).toBe('button:0;div:1;body:2')
             }
         })
 
@@ -233,14 +214,14 @@ describe('create-event-step', () => {
                 lastStep: string
             }
 
-            const step = createCreateEventStep<CustomInput>()
+            const step = createCreateEventStep<typeof EVENTS_OUTPUT, CustomInput>(EVENTS_OUTPUT)
             const input: CustomInput = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 customProperty: 'test',
                 lastStep: 'prepareEventStep',
             }
@@ -249,19 +230,19 @@ describe('create-event-step', () => {
 
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
-                expect(result.value.eventToEmit).toBeDefined()
+                expect(result.value.eventsToEmit).toHaveLength(1)
             }
         })
 
         it('should set correct timestamps', async () => {
-            const step = createCreateEventStep()
+            const step = createCreateEventStep(EVENTS_OUTPUT)
             const input = {
                 person: mockPerson,
                 preparedEvent: mockPreparedEvent,
                 processPerson: true,
                 historicalMigration: false,
-                inputHeaders: createTestEventHeaders(),
-                inputMessage: mockMessage,
+                headers: createTestEventHeaders(),
+                message: mockMessage,
                 lastStep: 'prepareEventStep',
             }
 
@@ -269,14 +250,10 @@ describe('create-event-step', () => {
 
             expect(isOkResult(result)).toBe(true)
             if (isOkResult(result)) {
-                const value = result.value
-                expect(value.eventToEmit).toBeDefined()
-                if (!value.eventToEmit) {
-                    return
-                }
-                expect(value.eventToEmit.timestamp).toBeTruthy()
-                expect(value.eventToEmit.created_at).toBeTruthy()
-                expect(value.eventToEmit.person_created_at).toBeTruthy()
+                const event = result.value.eventsToEmit[0].event
+                expect(event.timestamp).toBeTruthy()
+                expect(event.created_at).toBeNull()
+                expect(event.person_created_at).toBeTruthy()
             }
         })
 
@@ -289,14 +266,14 @@ describe('create-event-step', () => {
                     event: eventName,
                 }
 
-                const step = createCreateEventStep()
+                const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
                     person: mockPerson,
                     preparedEvent: eventWithType,
                     processPerson: true,
                     historicalMigration: false,
-                    inputHeaders: createTestEventHeaders(),
-                    inputMessage: mockMessage,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 
@@ -304,25 +281,22 @@ describe('create-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value.eventToEmit).toBeDefined()
-                    if (!result.value.eventToEmit) {
-                        return
-                    }
-                    expect(result.value.eventToEmit.event).toBe(eventName)
+                    const event = result.value.eventsToEmit[0].event
+                    expect(event.event).toBe(eventName)
                 }
             }
         })
 
         describe('historicalMigration flag', () => {
             it('should include historical_migration in event when historicalMigration=true', async () => {
-                const step = createCreateEventStep()
+                const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
                     historicalMigration: true,
-                    inputHeaders: createTestEventHeaders(),
-                    inputMessage: mockMessage,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 
@@ -330,23 +304,20 @@ describe('create-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value.eventToEmit).toBeDefined()
-                    if (!result.value.eventToEmit) {
-                        return
-                    }
-                    expect(result.value.eventToEmit.historical_migration).toBe(true)
+                    const event = result.value.eventsToEmit[0].event
+                    expect(event.historical_migration).toBe(true)
                 }
             })
 
             it('should not include historical_migration in event when historicalMigration=false', async () => {
-                const step = createCreateEventStep()
+                const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
                     person: mockPerson,
                     preparedEvent: mockPreparedEvent,
                     processPerson: true,
                     historicalMigration: false,
-                    inputHeaders: createTestEventHeaders(),
-                    inputMessage: mockMessage,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 
@@ -354,11 +325,8 @@ describe('create-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value.eventToEmit).toBeDefined()
-                    if (!result.value.eventToEmit) {
-                        return
-                    }
-                    expect(result.value.eventToEmit.historical_migration).toBeUndefined()
+                    const event = result.value.eventsToEmit[0].event
+                    expect(event.historical_migration).toBeUndefined()
                 }
             })
         })
@@ -374,14 +342,14 @@ describe('create-event-step', () => {
                     force_upgrade: config.force_upgrade,
                 }
 
-                const step = createCreateEventStep()
+                const step = createCreateEventStep(EVENTS_OUTPUT)
                 const input = {
                     person,
                     preparedEvent: mockPreparedEvent,
                     processPerson: config.processPerson,
                     historicalMigration: false,
-                    inputHeaders: createTestEventHeaders(),
-                    inputMessage: mockMessage,
+                    headers: createTestEventHeaders(),
+                    message: mockMessage,
                     lastStep: 'prepareEventStep',
                 }
 
@@ -389,11 +357,8 @@ describe('create-event-step', () => {
 
                 expect(isOkResult(result)).toBe(true)
                 if (isOkResult(result)) {
-                    expect(result.value.eventToEmit).toBeDefined()
-                    if (!result.value.eventToEmit) {
-                        return
-                    }
-                    expect(result.value.eventToEmit.person_mode).toBe(expected)
+                    const event = result.value.eventsToEmit[0].event
+                    expect(event.person_mode).toBe(expected)
                 }
             })
         })

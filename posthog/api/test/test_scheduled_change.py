@@ -1,8 +1,9 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
-from rest_framework import status
+from rest_framework import serializers, status
 
+from posthog.api.scheduled_change import ScheduledChangeSerializer
 from posthog.models import FeatureFlag, ScheduledChange
 
 
@@ -255,3 +256,132 @@ class TestScheduledChange(APIBaseTest):
         result = response_data["results"][0]
         assert result["is_recurring"] is True
         assert result["recurrence_interval"] == "monthly"
+
+    def test_cannot_update_record_id(self):
+        """Updating record_id is rejected to prevent cross-tenant manipulation."""
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="immutable-target-flag", name="Immutable Target Flag"
+        )
+        other_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="other-flag", name="Other Flag"
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at="2024-01-15T09:00:00Z",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
+            data={"record_id": str(other_flag.id)},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "Cannot change the target record" in str(response.json())
+
+        scheduled_change.refresh_from_db()
+        assert str(scheduled_change.record_id) == str(feature_flag.id)
+
+    def test_cannot_update_model_name_to_invalid_value(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="immutable-model-flag", name="Immutable Model Flag"
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at="2024-01-15T09:00:00Z",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
+            data={"model_name": "SomeOtherModel"},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "model_name" in str(response.json())
+
+        scheduled_change.refresh_from_db()
+        assert scheduled_change.model_name == "FeatureFlag"
+
+    def test_validate_rejects_model_name_change_on_update(self):
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="validate-model-flag", name="Validate Model Flag"
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at="2024-01-15T09:00:00Z",
+            created_by=self.user,
+        )
+
+        serializer = ScheduledChangeSerializer(instance=scheduled_change)
+        with self.assertRaises(serializers.ValidationError) as ctx:
+            serializer.validate({"model_name": "SomeFutureModel"})
+        assert "Cannot change the model type" in str(ctx.exception)
+
+    def test_cannot_update_record_id_via_put(self):
+        feature_flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key="put-flag", name="Put Flag")
+        other_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="other-put-flag", name="Other Put Flag"
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at="2024-01-15T09:00:00Z",
+            created_by=self.user,
+        )
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
+            data={
+                "record_id": str(other_flag.id),
+                "model_name": "FeatureFlag",
+                "payload": {"operation": "update_status", "value": False},
+                "scheduled_at": "2024-01-15T09:00:00Z",
+            },
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert "Cannot change the target record" in str(response.json())
+
+        scheduled_change.refresh_from_db()
+        assert str(scheduled_change.record_id) == str(feature_flag.id)
+
+    def test_can_update_other_fields_without_changing_record_id(self):
+        """Non-target fields like payload and scheduled_at can still be updated."""
+        feature_flag = FeatureFlag.objects.create(
+            team=self.team, created_by=self.user, key="updatable-flag", name="Updatable Flag"
+        )
+
+        scheduled_change = ScheduledChange.objects.create(
+            team=self.team,
+            record_id=feature_flag.id,
+            model_name="FeatureFlag",
+            payload={"operation": "update_status", "value": False},
+            scheduled_at="2024-01-15T09:00:00Z",
+            created_by=self.user,
+        )
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/scheduled_changes/{scheduled_change.id}/",
+            data={"payload": {"operation": "update_status", "value": True}},
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+
+        scheduled_change.refresh_from_db()
+        assert scheduled_change.payload == {"operation": "update_status", "value": True}

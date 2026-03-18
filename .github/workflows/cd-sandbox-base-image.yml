@@ -27,9 +27,124 @@ jobs:
                   filters: |
                       sandbox_image:
                         - 'products/tasks/backend/sandbox/images/**'
+                        - 'products/*/skills/**'
+                        - 'products/posthog_ai/scripts/**'
+
+    build_skills:
+        needs: changes
+        name: Build agent skills from source
+        if: |
+            github.repository == 'PostHog/posthog' && (
+                needs.changes.outputs.sandbox_image == 'true' ||
+                github.event_name == 'workflow_dispatch' ||
+                contains(github.event.pull_request.labels.*.name, 'build-tasks-sandbox-image')
+            )
+        runs-on: ubuntu-latest
+        timeout-minutes: 15
+        permissions:
+            contents: read
+
+        steps:
+            - uses: actions/checkout@v6
+
+            - name: Start Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker launch
+
+            - name: Set up Python
+              uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6.2.0
+              with:
+                  python-version-file: 'pyproject.toml'
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@eac588ad8def6316056a12d4907a9d4d84ff7a3b # v7.3.0
+              with:
+                  version: '0.10.2'
+                  enable-cache: true
+                  save-cache: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install python dependencies
+              run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
+
+            - name: Install Rust
+              uses: dtolnay/rust-toolchain@0b1efabc08b657293548b77fb76cc02d26091c7e
+              with:
+                  toolchain: stable
+                  components: cargo
+
+            - name: Cache Rust dependencies
+              uses: Swatinem/rust-cache@779680da715d629ac1d338a641029a2f4372abb5 # v2.8.2
+              with:
+                  shared-key: 'v2-rust-skills'
+                  workspaces: rust
+                  save-if: ${{ github.ref == 'refs/heads/master' }}
+
+            - name: Install sqlx-cli
+              run: cargo install sqlx-cli --version 0.8.0 --features postgres --no-default-features --locked
+
+            - name: Wait for Docker services
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+              run: bin/ci-wait-for-docker wait
+
+            - name: Run migrations
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  OBJECT_STORAGE_ENABLED: 'False'
+                  TEST: 1
+                  DEBUG: 1
+              run: |
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx database create
+                  DATABASE_URL="postgres://posthog:posthog@localhost:5432/posthog_persons" \
+                    sqlx migrate run --source rust/persons_migrations/
+                  python manage.py migrate --noinput
+                  python manage.py setup_dev --no-data
+
+            - name: Build skills
+              env:
+                  SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
+                  DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
+                  REDIS_URL: 'redis://localhost'
+                  OBJECT_STORAGE_ENABLED: 'False'
+                  TEST: 1
+                  DEBUG: 1
+              run: ./bin/hogli build:skills
+
+            - name: Download context-mill skills
+              run: |
+                  CONTEXT_MILL_ZIP_URL="https://github.com/PostHog/context-mill/releases/latest/download/skills-mcp-resources.zip"
+                  TARGET_DIR="products/posthog_ai/dist/skills"
+                  tmp_dir=$(mktemp -d)
+                  trap 'rm -rf "$tmp_dir"' EXIT
+                  echo "Downloading context-mill skills from ${CONTEXT_MILL_ZIP_URL}..."
+                  curl -fsSL --retry 2 --retry-delay 3 -o "$tmp_dir/cm.zip" "$CONTEXT_MILL_ZIP_URL"
+                  unzip -q -o "$tmp_dir/cm.zip" -d "$tmp_dir/outer"
+                  mkdir -p "$TARGET_DIR"
+                  count=0
+                  while read -r inner_zip; do
+                      skill_name="$(basename "$inner_zip" .zip)"
+                      skill_name="${skill_name#omnibus-}"
+                      skill_dir="$TARGET_DIR/$skill_name"
+                      mkdir -p "$skill_dir"
+                      unzip -q -o "$inner_zip" -d "$skill_dir"
+                      find "$skill_dir" -name 'SKILL.md' -type f -exec sed -i 's/^\(name: *\)omnibus-/\1/' {} +
+                      count=$((count + 1))
+                  done < <(find "$tmp_dir/outer" -name 'omnibus-*.zip' -type f)
+                  echo "Installed ${count} context-mill skills into ${TARGET_DIR}"
+
+            - name: Upload built skills
+              uses: actions/upload-artifact@v4
+              with:
+                  name: built-skills
+                  path: products/posthog_ai/dist/skills/
+                  retention-days: 1
 
     sandbox_base_build:
-        needs: changes
+        needs: [changes, build_skills]
         name: Build and push Tasks Sandbox container image
         if: |
             github.repository == 'PostHog/posthog' && (
@@ -49,6 +164,12 @@ jobs:
               with:
                   fetch-depth: 2
 
+            - name: Download built skills
+              uses: actions/download-artifact@v4
+              with:
+                  name: built-skills
+                  path: products/posthog_ai/dist/skills/
+
             - name: Set up Docker Buildx
               uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
@@ -59,7 +180,7 @@ jobs:
               uses: depot/setup-action@b0b1ea4f69e92ebf5dea3f8713a1b0c37b2126a5 # v1.6.0
 
             - name: Login to ghcr.io
-              uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
+              uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
               with:
                   registry: ghcr.io
                   username: ${{ github.actor }}
@@ -70,6 +191,7 @@ jobs:
               id: build
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
+                  context: . # use local checkout (includes downloaded artifact)
                   file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-base
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true
@@ -81,6 +203,7 @@ jobs:
               id: build-notebook
               uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
               with:
+                  context: . # use local checkout (includes downloaded artifact)
                   file: ./products/tasks/backend/sandbox/images/Dockerfile.sandbox-notebook
                   buildx-fallback: false # the fallback is so slow it's better to just fail
                   push: true

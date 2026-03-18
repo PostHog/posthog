@@ -1,15 +1,16 @@
 import './LemonTextArea.scss'
 
-import React, { ReactElement, useEffect, useRef, useState } from 'react'
+import React, { ReactElement, useRef } from 'react'
 import TextareaAutosize from 'react-textarea-autosize'
 
 import { cn } from 'lib/utils/css-classes'
 
-interface LemonTextAreaPropsBase
-    extends Pick<React.TextareaHTMLAttributes<HTMLTextAreaElement>, 'onFocus' | 'onBlur' | 'maxLength' | 'onKeyDown'> {
+interface LemonTextAreaPropsBase extends Pick<
+    React.TextareaHTMLAttributes<HTMLTextAreaElement>,
+    'onFocus' | 'onBlur' | 'maxLength' | 'onKeyDown'
+> {
     id?: string
     value?: string
-    defaultValue?: string
     placeholder?: string
     className?: string
     /** Whether input field is disabled */
@@ -72,10 +73,7 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
 
     const hasFooter = (actions || []).length || textProps.maxLength || rightFooter
 
-    const [textLength, setTextLength] = useState(textProps.value?.length || textProps.defaultValue?.length || 0)
-    useEffect(() => {
-        setTextLength(textProps.value?.length || 0)
-    }, [textProps.value])
+    const textLength = textProps.value?.length ?? 0
 
     return (
         <div className={cn('flex flex-col rounded', !hideFocus && 'input-like', className)}>
@@ -106,7 +104,6 @@ export const LemonTextArea = React.forwardRef<HTMLTextAreaElement, LemonTextArea
                     if (stopPropagation) {
                         event.stopPropagation()
                     }
-                    setTextLength((event.currentTarget.value ?? '').length)
                     return onChange?.(event.currentTarget.value ?? '')
                 }}
                 autoFocus={!!autoFocus}

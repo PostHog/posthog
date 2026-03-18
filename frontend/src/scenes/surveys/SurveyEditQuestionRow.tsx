@@ -21,10 +21,10 @@ import {
     SurveyType,
 } from '~/types'
 
-import { HTMLEditor } from './SurveyAppearanceUtils'
-import { SurveyDragHandle } from './SurveyDragHandle'
 import { ValidationRulesEditor } from './components/ValidationRulesEditor'
 import { NewSurvey, SCALE_OPTIONS, SURVEY_RATING_SCALE, SurveyQuestionLabel } from './constants'
+import { HTMLEditor } from './SurveyAppearanceUtils'
+import { SurveyDragHandle } from './SurveyDragHandle'
 import { surveyLogic } from './surveyLogic'
 import { isThumbQuestion } from './utils'
 

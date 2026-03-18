@@ -65,7 +65,6 @@ export const Template: Story = () => {
                 <TextCard
                     className="react-grid-item react-draggable cssTransforms react-resizable min-h-60 min-w-[15rem]"
                     showResizeHandles={true}
-                    canResizeWidth={true}
                     textTile={makeTextTile('showing handles')}
                     placement={DashboardPlacement.Dashboard}
                 />

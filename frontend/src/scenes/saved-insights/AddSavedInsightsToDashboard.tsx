@@ -5,8 +5,8 @@ import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 
 import { QueryBasedInsightModel } from '~/types'
 
-import { SavedInsightsTable } from './SavedInsightsTable'
 import { insightDashboardModalLogic } from './insightDashboardModalLogic'
+import { SavedInsightsTable } from './SavedInsightsTable'
 
 export function AddSavedInsightsToDashboard(): JSX.Element {
     const { dashboard } = useValues(dashboardLogic)

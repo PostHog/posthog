@@ -24,6 +24,13 @@ from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.functions.recording_button import recording_button
 from posthog.hogql.functions.sparkline import sparkline
 from posthog.hogql.functions.survey import get_survey_response, unique_survey_submissions_filter
+from posthog.hogql.functions.traffic_type import (
+    get_bot_name,
+    get_bot_type,
+    get_traffic_category,
+    get_traffic_type,
+    is_bot,
+)
 from posthog.hogql.hogqlx import HOGQLX_COMPONENTS, HOGQLX_TAGS, convert_to_hx
 from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver_utils import expand_hogqlx_query, lookup_field_by_name, lookup_table_by_name
@@ -180,21 +187,79 @@ class Resolver(CloningVisitor):
                 cte_type=node.cte_type,
                 recursive=True,
                 type=ast.CTETableType(name=node.name, select_query_type=base_select.type),
+                materialized=node.materialized,
+                using_key=node.using_key,
             )
             self.ctes[node.name] = placeholder
 
-            cte_expr = self.visit(cte_expr)
-        else:
-            cte_expr = self.visit(cte_expr)
+        cte_expr = self.visit(cte_expr)
 
+        # If the CTE has a column name list, remap the type's columns
+        if node.columns:
+            if isinstance(cte_expr, ast.SelectQuery):
+                if len(node.columns) != len(cte_expr.select):
+                    raise QueryError(
+                        f"CTE '{node.name}' has {len(cte_expr.select)} column(s) but {len(node.columns)} column name(s) were provided"
+                    )
+
+                # Remap the columns in the CTE's type to use the provided column names instead of the original ones.
+                if cte_expr.type is not None:
+                    cte_expr.type.columns = {
+                        new_name: cte_expr.select[i].type or ast.UnknownType()
+                        for i, new_name in enumerate(node.columns)
+                    }
+            elif isinstance(cte_expr, ast.SelectSetQuery):
+                initial = cte_expr.initial_select_query
+                while isinstance(initial, ast.SelectSetQuery):
+                    initial = initial.initial_select_query
+                if len(node.columns) != len(initial.select):
+                    raise QueryError(
+                        f"CTE '{node.name}' has {len(initial.select)} column(s) but {len(node.columns)} column name(s) were provided"
+                    )
+
+                # Remap the columns in the first type of the set query's type list.
+                if cte_expr.type is not None:
+                    first_type = cte_expr.type.types[0]
+                    while isinstance(first_type, ast.SelectSetQueryType):
+                        first_type = first_type.types[0]
+                    first_type.columns = {
+                        new_name: initial.select[i].type or ast.UnknownType() for i, new_name in enumerate(node.columns)
+                    }
+
+        if node.using_key is not None:
+            if node.columns:
+                valid_columns = set(node.columns)
+            elif isinstance(cte_expr, ast.SelectQuery) and cte_expr.type:
+                valid_columns = set(cte_expr.type.columns.keys())
+            elif isinstance(cte_expr, ast.SelectSetQuery) and cte_expr.type:
+                first_type = cte_expr.type.types[0]
+                while isinstance(first_type, ast.SelectSetQueryType):
+                    first_type = first_type.types[0]
+                valid_columns = set(first_type.columns.keys())
+            else:
+                valid_columns = set()
+
+            if valid_columns:
+                invalid = [k for k in node.using_key if k not in valid_columns]
+                if invalid:
+                    raise QueryError(
+                        f"USING KEY column(s) {', '.join(repr(k) for k in invalid)} not found in CTE '{node.name}'. "
+                        f"Available columns: {', '.join(sorted(valid_columns))}"
+                    )
+
+        # Create a new CTE node instead of modifying the input
+        # This ensures we can resolve CTEs even if they appear multiple times
         new_node = ast.CTE(
             start=node.start,
             end=node.end,
-            type=ast.CTETableType(name=node.name, select_query_type=cte_expr.type),
+            type=ast.CTETableType(name=node.name, select_query_type=cast(ast.SelectQueryType, cte_expr.type)),
             name=node.name,
             expr=cte_expr,
             cte_type=node.cte_type,
             recursive=node.recursive,
+            materialized=node.materialized,
+            using_key=node.using_key,
+            columns=node.columns,
         )
 
         self.cte_counter -= 1
@@ -620,6 +685,16 @@ class Resolver(CloningVisitor):
                 return self.visit(
                     unique_survey_submissions_filter(node=node, args=node.args, team_id=self.context.team_id)
                 )
+            if node.name == "__preview_getTrafficType":
+                return self.visit(get_traffic_type(node=node, args=node.args))
+            if node.name == "__preview_getTrafficCategory":
+                return self.visit(get_traffic_category(node=node, args=node.args))
+            if node.name == "__preview_isBot":
+                return self.visit(is_bot(node=node, args=node.args))
+            if node.name == "__preview_getBotType":
+                return self.visit(get_bot_type(node=node, args=node.args))
+            if node.name == "__preview_getBotName":
+                return self.visit(get_bot_name(node=node, args=node.args))
 
         node = super().visit_call(node)
         arg_types: list[ast.ConstantType] = []

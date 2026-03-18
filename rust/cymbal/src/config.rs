@@ -93,6 +93,9 @@ pub struct Config {
     #[envconfig(default = "symbolsets")]
     pub ss_prefix: String,
 
+    #[envconfig(default = "600")]
+    pub issue_cache_ttl_seconds: u64,
+
     #[envconfig(default = "100000")]
     pub frame_cache_size: u64,
 
@@ -136,6 +139,13 @@ pub struct Config {
     #[envconfig(default = "100000")]
     // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
     pub max_grouping_rule_cache_size: u64,
+
+    #[envconfig(default = "300")]
+    pub suppression_rule_cache_ttl_secs: u64,
+
+    #[envconfig(default = "100000")]
+    // The maximum number of bytecode operations we'll store in the cache, across all rules, across all teams
+    pub max_suppression_rule_cache_size: u64,
 
     #[envconfig(from = "MAXMIND_DB_PATH")]
     pub maxmind_db_path: PathBuf,

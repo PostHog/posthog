@@ -1,10 +1,9 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, LemonTableColumns, LemonTag, LemonTagType, Link } from '@posthog/lemon-ui'
 
 import { sourceWizardLogic } from 'scenes/data-warehouse/new/sourceWizardLogic'
 import { dataWarehouseSettingsLogic } from 'scenes/data-warehouse/settings/dataWarehouseSettingsLogic'
-import { defaultQuery } from 'scenes/data-warehouse/utils'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
@@ -16,8 +15,17 @@ export const SyncProgressStep = (): JSX.Element => {
     const { dataWarehouseSources, dataWarehouseSourcesLoading } = useValues(dataWarehouseSettingsLogic)
     const source = dataWarehouseSources?.results.find((n) => n.id === sourceId)
     const schemas = source?.schemas ?? []
+    const isDirectQuerySource = source?.access_method === 'direct'
+
+    const getPreviewQuery = (tableName: string): string => `SELECT * FROM ${tableName} LIMIT 100`
 
     const getSyncStatus = (schema: ExternalDataSourceSchema): { status: string; tagType: LemonTagType } => {
+        if (isDirectQuerySource) {
+            return schema.should_sync
+                ? { status: 'Enabled', tagType: 'success' }
+                : { status: 'Hidden', tagType: 'default' }
+        }
+
         if (!schema.should_sync) {
             return {
                 status: 'Not synced',
@@ -50,7 +58,18 @@ export const SyncProgressStep = (): JSX.Element => {
             title: 'Table',
             key: 'table',
             render: function RenderTable(_, schema) {
-                return schema.name
+                if (!schema.table) {
+                    return schema.name
+                }
+
+                return (
+                    <Link
+                        to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}
+                        onClick={() => cancelWizard()}
+                    >
+                        {schema.name}
+                    </Link>
+                )
             },
         },
         {
@@ -69,14 +88,13 @@ export const SyncProgressStep = (): JSX.Element => {
             key: 'actions',
             width: 0,
             render: function RenderStatus(_, schema) {
-                if (schema.table && schema.status === 'Completed') {
-                    const query = defaultQuery(schema.table.name, schema.table.columns)
+                if (schema.table && (isDirectQuerySource || schema.status === 'Completed')) {
                     return (
                         <LemonButton
                             className="my-1"
                             type="primary"
                             onClick={cancelWizard}
-                            to={urls.sqlEditor({ query: query.source.query })}
+                            to={urls.sqlEditor({ query: getPreviewQuery(schema.table.name) })}
                         >
                             Query
                         </LemonButton>
@@ -89,7 +107,13 @@ export const SyncProgressStep = (): JSX.Element => {
     }
 
     return (
-        <SceneSection title="You're all set! We'll import the data in the background, and after it's done, you will be able to query it in PostHog.">
+        <SceneSection
+            title={
+                isDirectQuerySource
+                    ? "You're all set! Your enabled tables are now available in the SQL editor."
+                    : "You're all set! We'll import the data in the background, and after it's done, you will be able to query it in PostHog."
+            }
+        >
             <LemonTable
                 emptyState="No schemas selected"
                 dataSource={schemas}

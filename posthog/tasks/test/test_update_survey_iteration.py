@@ -21,7 +21,6 @@ class TestUpdateSurveyIteration(TestCase, ClickhouseTestMixin):
             created_by=self.user,
             key="flag_name",
             filters={},
-            rollout_percentage=100,
         )
 
         self.iteration_frequency_days = 60

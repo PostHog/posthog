@@ -1,12 +1,13 @@
 use core::str;
 use std::sync::Arc;
 
-use axum::async_trait;
+use async_trait::async_trait;
 use common_types::ClickHouseEvent;
 use cymbal::{
     config::Config,
     frames::{Frame, RawFrame},
     symbol_store::{
+        apple::AppleProvider,
         caching::{Caching, SymbolSetCache},
         chunk_id::OrChunkId,
         hermesmap::HermesMapProvider,
@@ -126,11 +127,20 @@ async fn end_to_end_resolver_test() {
         inner: ProguardProvider {},
     };
 
-    let catalog = Catalog::new(Caching::new(wrapped, cache), hmp, pgp);
+    let apple = NoOpChunkIdFetcher {
+        inner: AppleProvider {},
+    };
+
+    let catalog = Catalog::new(Caching::new(wrapped, cache), hmp, pgp, apple);
 
     let mut resolved_frames = Vec::new();
     for frame in test_stack {
-        resolved_frames.push(frame.resolve(exception.team_id, &catalog).await.unwrap());
+        resolved_frames.push(
+            frame
+                .resolve(exception.team_id, &catalog, &[])
+                .await
+                .unwrap(),
+        );
     }
 
     // The use of the caching layer is tested here - we should only have hit the server once

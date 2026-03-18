@@ -97,10 +97,12 @@ class TestActivityTypes:
         expected = {
             "fetch_evaluation_activity",
             "execute_llm_judge_activity",
+            "execute_hog_eval_activity",
             "emit_evaluation_event_activity",
             "emit_internal_telemetry_activity",
             "increment_trial_eval_count_activity",
             "update_key_state_activity",
+            "emit_eval_signal_activity",
         }
         assert EVAL_ACTIVITY_TYPES == expected
 

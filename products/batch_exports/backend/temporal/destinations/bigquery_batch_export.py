@@ -12,7 +12,15 @@ from django.conf import settings
 
 import pyarrow as pa
 import requests
-from google.api_core.exceptions import Forbidden, GoogleAPICallError, NotFound, TooManyRequests
+from google.api_core.exceptions import (
+    Forbidden,
+    GatewayTimeout,
+    GoogleAPICallError,
+    InternalServerError,
+    NotFound,
+    ServiceUnavailable,
+    TooManyRequests,
+)
 from google.cloud import bigquery
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
 from google.oauth2 import service_account
@@ -20,17 +28,17 @@ from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
-from posthog.batch_exports.service import (
+from posthog.temporal.common.base import PostHogWorkflow
+from posthog.temporal.common.heartbeat import Heartbeater
+from posthog.temporal.common.logger import get_logger, get_write_only_logger
+
+from products.batch_exports.backend.service import (
     BatchExportField,
     BatchExportInsertInputs,
     BatchExportModel,
     BatchExportSchema,
     BigQueryBatchExportInputs,
 )
-from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.heartbeat import Heartbeater
-from posthog.temporal.common.logger import get_logger, get_write_only_logger
-
 from products.batch_exports.backend.temporal.batch_exports import (
     OverBillingLimitError,
     StartBatchExportRunInputs,
@@ -275,7 +283,7 @@ class BigQueryTable(Table[BigQueryField]):
         primary_key: collections.abc.Iterable[str],
         version_key: collections.abc.Iterable[str],
     ) -> typing.Self:
-        return cls.from_arrow_schema_with_field_type(
+        self = cls.from_arrow_schema_with_field_type(
             schema,
             BigQueryField,
             table_id,
@@ -283,6 +291,13 @@ class BigQueryTable(Table[BigQueryField]):
             primary_key,
             version_key,
         )
+        if "timestamp" in self:
+            # TODO: Choosing which column and granularity to use as partitioning should be a configuration parameter.
+            # 'timestamp' is used for backwards compatibility.
+            self.time_partitioning = bigquery.TimePartitioning(
+                type_=bigquery.TimePartitioningType.DAY, field="timestamp"
+            )
+        return self
 
     @property
     def project_id(self) -> str:
@@ -346,12 +361,8 @@ class BigQueryClient:
 
         bq_table = bigquery.Table(table.fully_qualified_name, schema=schema)
 
-        if isinstance(table, BigQueryTable) and "timestamp" in table:
-            # TODO: Maybe choosing which column to use as partitioning should be a configuration parameter.
-            # 'timestamp' is used for backwards compatibility.
-            bq_table.time_partitioning = bigquery.TimePartitioning(
-                type_=bigquery.TimePartitioningType.DAY, field="timestamp"
-            )
+        if isinstance(table, BigQueryTable) and table.time_partitioning is not None:
+            bq_table.time_partitioning = table.time_partitioning
 
         created_bq_table = await asyncio.to_thread(self.sync_client.create_table, bq_table, exists_ok=exists_ok)
 
@@ -702,17 +713,6 @@ class BigQueryClient:
 
         self.logger.info("Waiting for BigQuery load job", format=format, table_id=table.name)
 
-        result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
-
-        return result
-
-    def _run_load_job(self, file, bq_table, job_config):
-        """Run a BigQuery LoadJob and return its result.
-
-        This method blocks and should only be run on an executor.
-
-        Ensures we retry on transient ``TooManyRequests`` errors.
-        """
         initial_retry = 1
         backoff_factor = 2
         max_retry = 32
@@ -720,25 +720,55 @@ class BigQueryClient:
 
         while True:
             try:
-                load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
-                result = load_job.result()
-            except Forbidden as err:
-                if err.reason == "quotaExceeded":
-                    self.external_logger.exception(
-                        "BigQuery quota long-term limit exceeded. We will attempt to retry the batch export with an exponential back-off, but it may take several minutes or longer until the quota is restored."
-                    )
-                    raise BigQueryQuotaExceededError(err.message) from err
-
-                raise
-            except TooManyRequests:
+                result = await asyncio.to_thread(self._run_load_job, file, bq_table, job_config=job_config)
+            except (
+                TooManyRequests,
+                ServiceUnavailable,
+                GatewayTimeout,
+                InternalServerError,
+                BigQueryQuotaExceededError,
+            ) as err:
+                backoff = min(max_retry, initial_retry * (backoff_factor**attempt))
                 self.logger.exception(
-                    "LoadJob rate limit exceeded",
-                    attempt=attempt,
+                    "LoadJob transient error encountered", attempt=attempt, backoff=backoff, error_code=err.code
                 )
-                time.sleep(min(max_retry, initial_retry * (backoff_factor**attempt)))
+                self.external_logger.error(  # noqa: TRY400
+                    "Encountered a service-side issue that will be retried in %d seconds, this is attempt number %d."
+                    " These type of errors indicate BigQuery may be under too much load from all sources. You may have"
+                    " to check with BigQuery if it keeps happening consistently."
+                    " Error: %s",
+                    backoff,
+                    attempt,
+                    err,
+                    attempt=attempt,
+                    backoff=backoff,
+                    error_code=err.code,
+                )
+
+                await asyncio.sleep(backoff)
                 attempt += 1
+
             else:
                 return result
+
+    def _run_load_job(self, file, bq_table, job_config):
+        """Run a BigQuery LoadJob and return its result.
+
+        This method blocks and should only be run on an executor.
+        """
+        try:
+            load_job = self.sync_client.load_table_from_file(file, bq_table, job_config=job_config, rewind=True)
+            result = load_job.result()
+        except Forbidden as err:
+            if err.reason == "quotaExceeded":
+                self.external_logger.exception(
+                    "BigQuery quota long-term limit exceeded. We will attempt to retry the batch export with an exponential back-off, but it may take several minutes or longer until the quota is restored."
+                )
+                raise BigQueryQuotaExceededError(err.message) from err
+
+            raise
+        else:
+            return result
 
 
 class MissingRequiredPermissionsError(Exception):
@@ -754,6 +784,8 @@ class BigQueryQuotaExceededError(Exception):
     This error indicates that we have been exporting too much data and need to
     slow down. This error is retryable.
     """
+
+    code = 403  # BigQuery reports quota errors as 403 Forbidden.
 
     def __init__(self, message: str):
         super().__init__(f"A BigQuery quota has been exceeded. Error: {message}")
@@ -1033,6 +1065,8 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                     bigquery_target_table.parents,
                     primary_key=bigquery_target_table.primary_key,
                     version_key=bigquery_target_table.version_key,
+                    # Do not partition the consumer table to avoid running into quota errors.
+                    time_partitioning=None,
                 )
 
                 if inputs.use_json_type:
@@ -1136,7 +1170,9 @@ class BigQueryBatchExportWorkflow(PostHogWorkflow):
         """Workflow implementation to export data to BigQuery."""
         is_backfill = inputs.get_is_backfill()
         is_earliest_backfill = inputs.get_is_earliest_backfill()
-        data_interval_start, data_interval_end = get_data_interval(inputs.interval, inputs.data_interval_end)
+        data_interval_start, data_interval_end = get_data_interval(
+            inputs.interval, inputs.data_interval_end, inputs.timezone
+        )
         should_backfill_from_beginning = is_backfill and is_earliest_backfill
 
         start_batch_export_run_inputs = StartBatchExportRunInputs(

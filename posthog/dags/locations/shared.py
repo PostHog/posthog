@@ -4,6 +4,9 @@ from posthog.clickhouse.cluster import ClickhouseCluster
 from posthog.clickhouse.custom_metrics import MetricsClient
 from posthog.dags import slack_alerts
 
+from products.web_analytics.dags.no_live_events import no_live_events_check
+from products.web_analytics.dags.no_pageleave_events import no_pageleave_events_check
+
 from . import resources
 
 
@@ -22,6 +25,12 @@ def report_job_status_metric(
 # Used for definitions that are shared between locations.
 # Mainly sensors
 defs = dagster.Definitions(
+    jobs=[
+        # Health Checks
+        # Ingestion
+        no_live_events_check.job,
+        no_pageleave_events_check.job,
+    ],
     sensors=[
         slack_alerts.notify_slack_on_failure,
         *[

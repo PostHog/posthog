@@ -24,13 +24,8 @@ jobs:
               with:
                   allowlist: |
                       actions/
-                      aws-actions/
-                      docker/
                       github/
-                      hashicorp/
                       PostHog/
-                      tailscale/
-                      inkeep/
 
     semgrep-python:
         runs-on: ubuntu-latest

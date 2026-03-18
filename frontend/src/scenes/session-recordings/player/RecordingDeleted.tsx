@@ -4,9 +4,10 @@ import { dayjs } from 'lib/dayjs'
 
 interface RecordingDeletedProps {
     deletedAt: number | null
+    deletedBy: string | null
 }
 
-export function RecordingDeleted({ deletedAt }: RecordingDeletedProps): JSX.Element {
+export function RecordingDeleted({ deletedAt, deletedBy }: RecordingDeletedProps): JSX.Element {
     return (
         <div className="flex flex-col items-center justify-center p-8 text-center text-wrap-balance max-w-lg mx-auto">
             <div className="w-16 h-16 rounded-full bg-border-bold/10 flex items-center justify-center mb-4">
@@ -19,6 +20,7 @@ export function RecordingDeleted({ deletedAt }: RecordingDeletedProps): JSX.Elem
                     Deleted {dayjs.unix(deletedAt).fromNow()} ({dayjs.unix(deletedAt).format('MMMM D, YYYY h:mm A')})
                 </p>
             )}
+            {deletedBy && <p className="text-muted-3000 text-xs mt-1 mb-0">Deleted by {deletedBy}</p>}
         </div>
     )
 }

@@ -1,12 +1,12 @@
-# Docker Compose profile overlay for intent-based dev environment
+# Docker Compose profile overlay — gates non-core services behind profiles.
 #
-# This file is ONLY used by hogli dev:start to selectively start Docker services.
+# Used by hogli dev:start and CI workflows to start only what's needed.
 # Running `docker compose -f docker-compose.dev.yml up` without this overlay
 # will start ALL services as before (backward compatible).
 #
-# Usage with intent system:
+# Usage:
 #   docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml \
-#     --profile core --profile temporal up
+#     --profile temporal up
 #
 # Services not listed here have no profile constraint and always start.
 
@@ -48,5 +48,9 @@ services:
         profiles: [localstack]
     objectstorage-azure:
         profiles: [azure]
+
+    # Coordination - etcd for PersonHog and Kafka partition assignment
+    etcd:
+        profiles: [etcd]
 # Core services NOT listed = always start:
-# - proxy, db, redis, redis7, clickhouse, zookeeper, kafka, objectstorage, echo_server, feature-flags
+# - proxy, db, redis7, clickhouse, zookeeper, kafka, objectstorage, echo_server, feature-flags

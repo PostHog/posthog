@@ -5,8 +5,8 @@ import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { BurningMoneyHog } from 'lib/components/hedgehogs'
 
-import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 import { billingLogic } from './billingLogic'
+import { PurchaseCreditsModal } from './PurchaseCreditsModal'
 
 export const DEFAULT_ESTIMATED_MONTHLY_CREDIT_AMOUNT_USD = 500
 
@@ -96,7 +96,7 @@ export const CreditCTAHero = (): JSX.Element | null => {
                                     {estimatedMonthlyCreditAmountUsd === null ? (
                                         <LemonSkeleton className="inline-block h-4 w-18 rounded align-text-bottom" />
                                     ) : (
-                                        <strong>{estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong>
+                                        <strong>${estimatedMonthlyCreditAmountUsd.toFixed(0)}/month</strong>
                                     )}{' '}
                                     over the next year.
                                 </p>

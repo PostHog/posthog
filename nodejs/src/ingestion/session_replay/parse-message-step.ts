@@ -9,8 +9,8 @@ import {
     SnapshotEvent,
     SnapshotEventSchema,
 } from '../../session-recording/kafka/types'
-import { TopTracker } from '../../session-recording/top-tracker'
 import { parseJSON } from '../../utils/json-parse'
+import { normalizeSessionId } from '../../utils/utils'
 import { dlq, drop, ok } from '../pipelines/results'
 import { ProcessingStep } from '../pipelines/steps'
 
@@ -70,23 +70,18 @@ function getValidEvents(events: unknown[]): {
     }
 }
 
-export interface ParseMessageStepConfig {
-    topTracker?: TopTracker
-}
-
 /**
  * Creates a step that parses raw Kafka messages into ParsedMessageData.
+ * This step is additive - it preserves all input properties and adds parsedMessage.
  *
  * This step processes one message at a time since there are no batch-level optimizations.
  * Gzip decompression is done synchronously since the pipeline already runs steps concurrently.
  */
-export function createParseMessageStep(
-    config?: ParseMessageStepConfig
-): ProcessingStep<ParseMessageStepInput, ParseMessageStepOutput> {
-    const topTracker = config?.topTracker
-
+export function createParseMessageStep<T extends ParseMessageStepInput>(): ProcessingStep<
+    T,
+    T & ParseMessageStepOutput
+> {
     return async function parseMessageStep(input) {
-        const parseStartTime = performance.now()
         const { message } = input
 
         if (!message.value || !message.timestamp) {
@@ -131,6 +126,8 @@ export function createParseMessageStep(
             return dlq('received_non_snapshot_message')
         }
 
+        const sessionId = normalizeSessionId($session_id)
+
         const result = getValidEvents($snapshot_items)
         if (!result) {
             return drop(
@@ -149,8 +146,6 @@ export function createParseMessageStep(
         const startDiff = Math.abs(startDateTime.diffNow('day').days)
         const endDiff = Math.abs(endDateTime.diffNow('day').days)
         if (startDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS || endDiff >= MESSAGE_TIMESTAMP_DIFF_THRESHOLD_DAYS) {
-            // TODO: This warning is currently ignored because the pipeline doesn't have team context yet.
-            // Once team filtering is added to the pipeline, wire up IngestionWarningHandlingBatchPipeline.
             return drop(
                 'message_timestamp_diff_too_large',
                 [],
@@ -180,7 +175,7 @@ export function createParseMessageStep(
             },
             headers: message.headers,
             distinct_id: messageResult.data.distinct_id,
-            session_id: $session_id,
+            session_id: sessionId,
             token: token ?? null,
             eventsByWindowId: {
                 [$window_id ?? '']: validEvents,
@@ -193,14 +188,6 @@ export function createParseMessageStep(
             snapshot_library: $lib ?? null,
         }
 
-        // Track parsing time per session_id
-        if (topTracker) {
-            const parseEndTime = performance.now()
-            const parseDurationMs = parseEndTime - parseStartTime
-            const trackingKey = `token:${parsedMessage.token ?? 'unknown'}:session_id:${$session_id}`
-            topTracker.increment('parse_time_ms_by_session_id', trackingKey, parseDurationMs)
-        }
-
-        return Promise.resolve(ok({ parsedMessage }))
+        return Promise.resolve(ok({ ...input, parsedMessage }))
     }
 }

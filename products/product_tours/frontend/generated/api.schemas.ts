@@ -74,6 +74,7 @@ export interface MinimalFeatureFlagApi {
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     readonly evaluation_tags: readonly string[]
+    readonly evaluation_contexts: readonly string[]
 }
 
 /**
@@ -147,6 +148,8 @@ export interface ProductTourApi {
      */
     readonly targeting_flag_filters: ProductTourApiTargetingFlagFilters
     content?: unknown
+    readonly draft_content: unknown | null
+    readonly has_draft: boolean
     auto_launch?: boolean
     /** @nullable */
     start_date?: string | null
@@ -237,6 +240,29 @@ export interface PatchedProductTourSerializerCreateUpdateOnlyApi {
 * `app` - app
 * `toolbar` - toolbar */
     creation_context?: ProductTourSerializerCreateUpdateOnlyCreationContextEnumApi
+}
+
+export interface DraftStatusResponseApi {
+    updated_at: string
+    has_draft: boolean
+}
+
+export type GenerateRequestApiStepsItem = { [key: string]: unknown }
+
+export interface GenerateRequestApi {
+    title?: string
+    goal?: string
+    steps?: GenerateRequestApiStepsItem[]
+}
+
+export interface GenerateStepResponseApi {
+    step_id: string
+    title: string
+    description: string
+}
+
+export interface GenerateResponseApi {
+    steps: GenerateStepResponseApi[]
 }
 
 export type ProductToursListParams = {

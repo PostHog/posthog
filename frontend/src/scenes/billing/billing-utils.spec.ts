@@ -514,6 +514,40 @@ describe('buildUsageLimitExceededMessage', () => {
         ])
         expect(result.message).toContain('upgrade your plan')
     })
+
+    it.each([
+        {
+            hasBillingAccess: true,
+            subscribed: true,
+            expected: 'increase your billing limit',
+        },
+        {
+            hasBillingAccess: true,
+            subscribed: false,
+            expected: 'upgrade your plan',
+        },
+        {
+            hasBillingAccess: false,
+            subscribed: true,
+            expected: 'ask an organization admin to increase the billing limit',
+        },
+        {
+            hasBillingAccess: false,
+            subscribed: false,
+            expected: 'ask an organization admin to upgrade the plan',
+        },
+    ])(
+        'should use "$expected" when hasBillingAccess=$hasBillingAccess and subscribed=$subscribed',
+        ({ hasBillingAccess, subscribed, expected }) => {
+            const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed }], hasBillingAccess)
+            expect(result.message).toContain(expected)
+        }
+    )
+
+    it('should default to admin message when hasBillingAccess is not provided', () => {
+        const result = buildUsageLimitExceededMessage([{ name: 'Session replay', subscribed: true }])
+        expect(result.message).toContain('increase your billing limit')
+    })
 })
 
 describe('buildUsageLimitApproachingMessage', () => {
@@ -550,5 +584,36 @@ describe('buildUsageLimitApproachingMessage', () => {
             { name: 'Session replay', percentage_usage: 0.8567, usage_key: 'recordings' },
         ])
         expect(result.message).toContain('85.67%')
+    })
+
+    it.each([
+        {
+            hasBillingAccess: true,
+            expectedSuffix: false,
+        },
+        {
+            hasBillingAccess: false,
+            expectedSuffix: true,
+        },
+    ])(
+        'should include admin contact message when hasBillingAccess=$hasBillingAccess',
+        ({ hasBillingAccess, expectedSuffix }) => {
+            const result = buildUsageLimitApproachingMessage(
+                [{ name: 'Session replay', percentage_usage: 0.9, usage_key: 'recordings' }],
+                hasBillingAccess
+            )
+            if (expectedSuffix) {
+                expect(result.message).toContain('Please ask an organization admin to increase the billing limit.')
+            } else {
+                expect(result.message).not.toContain('organization admin')
+            }
+        }
+    )
+
+    it('should default to no admin suffix when hasBillingAccess is not provided', () => {
+        const result = buildUsageLimitApproachingMessage([
+            { name: 'Session replay', percentage_usage: 0.9, usage_key: 'recordings' },
+        ])
+        expect(result.message).not.toContain('organization admin')
     })
 })

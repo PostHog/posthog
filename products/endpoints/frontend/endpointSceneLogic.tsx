@@ -251,7 +251,7 @@ export const endpointSceneLogic = kea<endpointSceneLogicType>([
             (endpoint: EndpointType | null): Breadcrumb[] => [
                 {
                     key: Scene.Endpoints,
-                    name: 'Endpoints',
+                    name: 'endpoints',
                     path: urls.endpoints(),
                     iconType: 'endpoints',
                 },

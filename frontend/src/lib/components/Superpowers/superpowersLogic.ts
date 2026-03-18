@@ -1,6 +1,7 @@
 import { actions, connect, kea, path, reducers, selectors } from 'kea'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+// eslint-disable-next-line import/no-cycle
 import { userLogic } from 'scenes/userLogic'
 
 import type { superpowersLogicType } from './superpowersLogicType'

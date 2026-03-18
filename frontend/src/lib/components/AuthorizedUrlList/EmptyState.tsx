@@ -103,7 +103,7 @@ export function EmptyState({
                 {displaySuggestions && (
                     <div className="flex flex-col items-end gap-2">
                         <LemonButton
-                            onClick={loadSuggestions}
+                            onClick={() => loadSuggestions()}
                             disabled={suggestionsLoading}
                             type="secondary"
                             icon={<IconRefresh />}

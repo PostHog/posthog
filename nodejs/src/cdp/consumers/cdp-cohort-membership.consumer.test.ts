@@ -5,6 +5,7 @@ import { Message } from 'node-rdkafka'
 import { resetKafka } from '~/tests/helpers/kafka'
 import { UUIDT } from '~/utils/utils'
 
+import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { resetBehavioralCohortsDatabase } from '../../../tests/helpers/sql'
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER } from '../../config/kafka-topics'
 import { Hub } from '../../types'
@@ -22,7 +23,7 @@ describe('CdpCohortMembershipConsumer', () => {
     beforeEach(async () => {
         await resetKafka()
         hub = await createHub()
-        consumer = new CdpCohortMembershipConsumer(hub)
+        consumer = new CdpCohortMembershipConsumer(hub, createCdpConsumerDeps(hub))
         await consumer.start()
         await resetBehavioralCohortsDatabase(hub.postgres)
     })
@@ -233,6 +234,40 @@ describe('CdpCohortMembershipConsumer', () => {
             )
             expect(kafkaMessages).toHaveLength(1)
             expect(kafkaMessages[0].value).toEqual(reEnterEvent)
+        })
+
+        it('should deduplicate batch entries for the same (team_id, cohort_id, person_id), keeping last in Kafka order', async () => {
+            const testEvents = createCohortMembershipEvents([
+                {
+                    person_id: personId1,
+                    cohort_id: 456,
+                    team_id: 1,
+                    status: 'entered',
+                },
+                {
+                    person_id: personId1,
+                    cohort_id: 456,
+                    team_id: 1,
+                    status: 'left',
+                },
+            ])
+
+            const messages = testEvents.map((event, index) =>
+                createKafkaMessage(event, { topic: KAFKA_COHORT_MEMBERSHIP_CHANGED, offset: index })
+            )
+
+            const cohortMembershipChanges = consumer['_parseAndValidateBatch'](messages)
+            await consumer['persistCohortMembershipChanges'](cohortMembershipChanges)
+
+            const result = await hub.postgres.query(
+                PostgresUse.BEHAVIORAL_COHORTS_RW,
+                'SELECT * FROM cohort_membership WHERE team_id = $1 AND person_id = $2 AND cohort_id = $3',
+                [1, personId1, 456],
+                'testQuery'
+            )
+
+            expect(result.rows).toHaveLength(1)
+            expect(result.rows[0].in_cohort).toBe(false) // Last event was 'left'
         })
 
         it('should reject entire batch when invalid messages are present', async () => {

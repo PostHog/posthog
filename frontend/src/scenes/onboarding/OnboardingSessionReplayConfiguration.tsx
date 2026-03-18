@@ -6,13 +6,14 @@ import { FilmCameraHog } from 'lib/components/hedgehogs'
 
 import { OnboardingStepKey } from '~/types'
 
-import { OnboardingStep } from './OnboardingStep'
 import { OnboardingStepComponentType, onboardingLogic } from './onboardingLogic'
+import { OnboardingStep } from './OnboardingStep'
 
 export const OnboardingSessionReplayConfiguration: OnboardingStepComponentType = () => {
     const { goToNextStep, updateCurrentTeam } = useActions(onboardingLogic)
 
     const handleNext = (enabled: boolean): void => {
+        window.posthog?.capture('onboarding session replay toggled', { enabled })
         updateCurrentTeam({ session_recording_opt_in: enabled })
         goToNextStep()
     }

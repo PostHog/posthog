@@ -19,6 +19,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.error_tracking",
+    "products.event_definitions",
     "products.llm_analytics",
     "products.logs",
 ]
@@ -42,6 +43,7 @@ depends_on = [
     "posthog",
     "products.data_warehouse",
     "products.error_tracking",
+    "products.event_definitions",
     "products.experiments",
     "products.feature_flags",
     "products.llm_analytics",
@@ -65,7 +67,9 @@ depends_on = [
     "products.early_access_features",
     "products.endpoints",
     "products.error_tracking",
+    "products.event_definitions",
     "products.experiments",
+    "products.feature_flags",
     "products.links",
     "products.live_debugger",
     "products.llm_analytics",
@@ -77,7 +81,9 @@ depends_on = [
     "products.slack_app",
     "products.surveys",
     "products.tasks",
+    "products.tracing",
     "products.user_interviews",
+    "products.visual_review",
     "products.web_analytics",
     "products.workflows",
 ]
@@ -146,6 +152,7 @@ layer = "non_isolated"
 path = "products.endpoints"
 depends_on = [
     "posthog",
+    "products.data_modeling",
     "products.data_warehouse",
 ]
 layer = "non_isolated"
@@ -154,6 +161,13 @@ layer = "non_isolated"
 path = "products.error_tracking"
 depends_on = [
     "ee",
+    "posthog",
+]
+layer = "non_isolated"
+
+[[modules]]
+path = "products.event_definitions"
+depends_on = [
     "posthog",
 ]
 layer = "non_isolated"
@@ -252,8 +266,8 @@ layer = "non_isolated"
 path = "products.signals"
 depends_on = [
     "posthog",
+    "products.data_warehouse",
     "products.error_tracking",
-    "products.tasks",
 ]
 layer = "non_isolated"
 
@@ -279,6 +293,7 @@ depends_on = [
     "ee",
     "posthog",
     "products.error_tracking",
+    "products.event_definitions",
     "products.llm_analytics",
     "products.slack_app",
 ]
@@ -291,6 +306,17 @@ depends_on = [
     "posthog",
 ]
 layer = "non_isolated"
+
+[[modules]]
+path = "products.visual_review"
+depends_on = [
+    "posthog",
+]
+layer = "products"
+interfaces = [
+    "products.visual_review.backend.facade",
+    "products.visual_review.backend.presentation.views",
+]
 
 [[modules]]
 path = "products.web_analytics"
@@ -307,3 +333,22 @@ depends_on = [
     "posthog",
 ]
 layer = "non_isolated"
+
+
+[[modules]]
+path = "products.tracing"
+depends_on = ["posthog"]
+layer = "products"
+interfaces = [
+    "products.tracing.backend.facade",
+    "products.tracing.backend.presentation.views",
+]
+
+[[modules]]
+path = "products.metrics"
+depends_on = ["posthog"]
+layer = "products"
+interfaces = [
+    "products.metrics.backend.facade",
+    "products.metrics.backend.presentation.views",
+]

@@ -19,10 +19,10 @@ import { groupsModel } from '~/models/groupsModel'
 import { extractDisplayLabel } from '~/queries/nodes/DataTable/utils'
 import { BreakdownType, GroupTypeIndex } from '~/types'
 
-import { BreakdownTagMenu } from './BreakdownTagMenu'
-import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 import { breakdownTagLogic } from './breakdownTagLogic'
+import { BreakdownTagMenu } from './BreakdownTagMenu'
 import { isAllCohort, isCohort } from './taxonomicBreakdownFilterUtils'
+import { TaxonomicBreakdownPopover } from './TaxonomicBreakdownPopover'
 
 type EditableBreakdownTagProps = {
     breakdown: string | number
@@ -150,6 +150,7 @@ export function BreakdownTag({
             className={clsx('BreakdownTag', `BreakdownTag--${size}`, {
                 'BreakdownTag--clickable': clickable,
             })}
+            data-attr="breakdown-tag"
             type={ButtonComponent === 'button' ? 'button' : undefined}
             title={String(propertyName)}
             onClick={onClick}
@@ -176,6 +177,7 @@ export function BreakdownTag({
                     }}
                     dropdown={popover}
                     className="p-0.5"
+                    data-attr="breakdown-tag-options"
                 />
             )}
 
@@ -188,6 +190,7 @@ export function BreakdownTag({
                         onClose()
                     }}
                     className="p-0.5"
+                    data-attr="breakdown-tag-close"
                 />
             )}
         </ButtonComponent>

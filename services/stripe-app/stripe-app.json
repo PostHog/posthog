@@ -1,0 +1,189 @@
+{
+    "$schema": "https://stripe.com/stripe-app.schema.json",
+    "id": "com.posthog.stripe",
+    "name": "PostHog",
+    "version": "0.1.4",
+    "icon": "./assets/logomark.png",
+    "declarations": {
+        "distribution_type": "public",
+        "stripe_api_access": {
+            "permissions": [
+                {
+                    "permission": "secret_write",
+                    "purpose": "Store PostHog OAuth tokens securely"
+                },
+                {
+                    "permission": "balance_transaction_source_read",
+                    "purpose": "Read balance transactions for data syncing"
+                },
+                {
+                    "permission": "charge_read",
+                    "purpose": "Read charges and refunds for data syncing"
+                },
+                {
+                    "permission": "customer_read",
+                    "purpose": "Read customers for data syncing"
+                },
+                {
+                    "permission": "dispute_read",
+                    "purpose": "Read disputes for data syncing"
+                },
+                {
+                    "permission": "payout_read",
+                    "purpose": "Read payouts for data syncing"
+                },
+                {
+                    "permission": "product_read",
+                    "purpose": "Read products for data syncing"
+                },
+                {
+                    "permission": "credit_note_read",
+                    "purpose": "Read credit notes for data syncing"
+                },
+                {
+                    "permission": "invoice_read",
+                    "purpose": "Read invoices and invoice items for data syncing"
+                },
+                {
+                    "permission": "plan_read",
+                    "purpose": "Read prices/plans for data syncing"
+                },
+                {
+                    "permission": "subscription_read",
+                    "purpose": "Read subscriptions for data syncing"
+                },
+                {
+                    "permission": "application_fee_read",
+                    "purpose": "Read application fees for data syncing"
+                },
+                {
+                    "permission": "transfer_read",
+                    "purpose": "Read transfers for data syncing"
+                },
+                {
+                    "permission": "connected_account_read",
+                    "purpose": "Read connected accounts for data syncing"
+                },
+                {
+                    "permission": "payment_method_read",
+                    "purpose": "Read payment methods for data syncing"
+                },
+                {
+                    "permission": "provisioning_account_request_write",
+                    "purpose": "Allows PostHog Stripe app to create and sign in to PostHog accounts."
+                }
+            ]
+        },
+        "stripe_api_access_type": "oauth"
+    },
+    "provisioning": {
+        "base_url": "https://us.posthog.com/api/agentic/",
+        "oauth_token_endpoint": "https://us.posthog.com/api/agentic/oauth/token",
+        "oauth_client_id": "3pFZtlNOg7UEBtr8t0rBAEbI8E4GBf1YqIC2L4jJ",
+        "oauth_client_secret_secret_store_key": "oauth_client_secret",
+        "account_configuration_schema": "{\"type\":\"object\",\"properties\":{\"region\":{\"type\":\"string\",\"enum\":[\"US\",\"EU\"],\"description\":\"Which PostHog region to connect the Stripe account to\"}},\"required\":[\"region\"],\"additionalProperties\":false}"
+    },
+    "ui_extension": {
+        "views": [
+            {
+                "viewport": "stripe.dashboard.home.overview",
+                "component": "Home"
+            },
+            {
+                "viewport": "settings",
+                "component": "Settings"
+            },
+            {
+                "viewport": "onboarding",
+                "component": "Onboarding"
+            }
+        ],
+        "content_security_policy": {
+            "connect-src": ["https://us.posthog.com/api", "https://eu.posthog.com/api"],
+            "purpose": "Connect to PostHog API to populate the UI with PostHog data"
+        }
+    },
+    "extensions": [],
+    "permissions": [
+        {
+            "permission": "secret_write",
+            "purpose": "Store PostHog OAuth tokens securely"
+        },
+        {
+            "permission": "balance_transaction_source_read",
+            "purpose": "Read balance transactions for data syncing"
+        },
+        {
+            "permission": "charge_read",
+            "purpose": "Read charges and refunds for data syncing"
+        },
+        {
+            "permission": "customer_read",
+            "purpose": "Read customers for data syncing"
+        },
+        {
+            "permission": "dispute_read",
+            "purpose": "Read disputes for data syncing"
+        },
+        {
+            "permission": "payout_read",
+            "purpose": "Read payouts for data syncing"
+        },
+        {
+            "permission": "product_read",
+            "purpose": "Read products for data syncing"
+        },
+        {
+            "permission": "credit_note_read",
+            "purpose": "Read credit notes for data syncing"
+        },
+        {
+            "permission": "invoice_read",
+            "purpose": "Read invoices and invoice items for data syncing"
+        },
+        {
+            "permission": "plan_read",
+            "purpose": "Read prices/plans for data syncing"
+        },
+        {
+            "permission": "subscription_read",
+            "purpose": "Read subscriptions for data syncing"
+        },
+        {
+            "permission": "application_fee_read",
+            "purpose": "Read application fees for data syncing"
+        },
+        {
+            "permission": "transfer_read",
+            "purpose": "Read transfers for data syncing"
+        },
+        {
+            "permission": "connected_account_read",
+            "purpose": "Read connected accounts for data syncing"
+        },
+        {
+            "permission": "payment_method_read",
+            "purpose": "Read payment methods for data syncing"
+        },
+        {
+            "permission": "provisioning_account_request_write",
+            "purpose": "Allows PostHog Stripe app to create and sign in to PostHog accounts."
+        }
+    ],
+    "post_install_action": {
+        "type": "onboarding"
+    },
+    "constants": {
+        "POSTHOG_DASHBOARD_URL": "https://app.posthog.com",
+        "POSTHOG_EU_BASE_URL": "https://eu.posthog.com",
+        "POSTHOG_NEW_SOURCE_URL": "https://app.posthog.com/data-warehouse/new-source?kind=Stripe",
+        "POSTHOG_US_BASE_URL": "https://us.posthog.com"
+    },
+    "allowed_redirect_uris": [
+        "https://us.posthog.com/integrations/stripe/callback",
+        "https://eu.posthog.com/integrations/stripe/callback",
+        "https://app.posthog.com/integrations/stripe/callback"
+    ],
+    "distribution_type": "public",
+    "stripe_api_access_type": "oauth"
+}

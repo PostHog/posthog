@@ -121,6 +121,7 @@ async def upload_video_to_gemini_activity(
 
             uploaded_video = UploadedVideo(
                 file_uri=uploaded_file.uri,
+                gemini_file_name=uploaded_file.name,
                 mime_type=uploaded_file.mime_type or MOMENT_VIDEO_EXPORT_FORMAT,
                 duration=duration,
             )

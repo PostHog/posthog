@@ -1,4 +1,6 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
+import { ClickHouseClient, createClient as createClickHouseClient } from '@clickhouse/client'
+import fs from 'fs'
 import express from 'ultimate-express'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../config/kafka-topics'
@@ -10,8 +12,10 @@ import {
     PluginServerService,
     RedisPool,
 } from '../../types'
+import { PostgresRouter } from '../../utils/db/postgres'
 import { createRedisPoolFromConfig } from '../../utils/db/redis'
-import { logger } from '../../utils/logger'
+import { logger, serializeError } from '../../utils/logger'
+import { captureException } from '../../utils/posthog'
 import { getBlockDecryptor } from '../shared/crypto'
 import { getKeyStore } from '../shared/keystore'
 import { RedisCachedKeyStore } from '../shared/keystore/cache'
@@ -19,10 +23,11 @@ import { SessionMetadataStore } from '../shared/metadata/session-metadata-store'
 import { RetentionService } from '../shared/retention/retention-service'
 import { TeamService } from '../shared/teams/team-service'
 import { RecordingService } from './recording-service'
-import { BulkDeleteBodySchema, GetBlockQuerySchema, RecordingParamsSchema, TeamParamsSchema } from './schemas'
-import { KeyStore, RecordingApiHub, RecordingDecryptor } from './types'
+import { DeleteRecordingsBodySchema, GetBlockQuerySchema, RecordingParamsSchema, TeamParamsSchema } from './schemas'
+import { KeyStore, RecordingApiConfig, RecordingDecryptor } from './types'
 
 export class RecordingApi {
+    private corsOrigin: string | null = null
     private s3Client: S3Client | null = null
     private s3Bucket: string | null = null
     private s3Prefix: string | null = null
@@ -30,9 +35,13 @@ export class RecordingApi {
     private decryptor: RecordingDecryptor | null = null
     private redisPool: RedisPool | null = null
     private kafkaProducer: KafkaProducerWrapper | null = null
+    private clickhouseClient: ClickHouseClient | null = null
     private recordingService: RecordingService | null = null
 
-    constructor(private hub: RecordingApiHub) {}
+    constructor(
+        private config: RecordingApiConfig,
+        private postgres: PostgresRouter
+    ) {}
 
     public get service(): PluginServerService {
         return {
@@ -43,6 +52,8 @@ export class RecordingApi {
     }
 
     async start(recordingService?: RecordingService): Promise<void> {
+        this.corsOrigin = this.config.SITE_URL || null
+
         if (recordingService) {
             this.recordingService = recordingService
             logger.info('[RecordingApi] Started with injected RecordingService')
@@ -50,13 +61,13 @@ export class RecordingApi {
         }
 
         // Load S3 settings
-        const s3Region = this.hub.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
-        const s3Endpoint = this.hub.SESSION_RECORDING_V2_S3_ENDPOINT ?? undefined
-        const s3AccessKeyId = this.hub.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
-        const s3SecretAccessKey = this.hub.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
+        const s3Region = this.config.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
+        const s3Endpoint = this.config.SESSION_RECORDING_V2_S3_ENDPOINT ?? undefined
+        const s3AccessKeyId = this.config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID
+        const s3SecretAccessKey = this.config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY
 
-        this.s3Bucket = this.hub.SESSION_RECORDING_V2_S3_BUCKET
-        this.s3Prefix = this.hub.SESSION_RECORDING_V2_S3_PREFIX
+        this.s3Bucket = this.config.SESSION_RECORDING_V2_S3_BUCKET
+        this.s3Prefix = this.config.SESSION_RECORDING_V2_S3_PREFIX
 
         logger.info('[RecordingApi] Starting with S3 config', {
             region: s3Region,
@@ -81,21 +92,21 @@ export class RecordingApi {
 
         this.s3Client = new S3Client(s3Config)
 
-        const teamService = new TeamService(this.hub.postgres)
+        const teamService = new TeamService(this.postgres)
         this.redisPool = createRedisPoolFromConfig({
             connection: {
-                url: this.hub.SESSION_RECORDING_API_REDIS_HOST,
-                options: { port: this.hub.SESSION_RECORDING_API_REDIS_PORT },
+                url: this.config.SESSION_RECORDING_API_REDIS_HOST,
+                options: { port: this.config.SESSION_RECORDING_API_REDIS_PORT },
                 name: 'recording-api',
             },
-            poolMinSize: this.hub.REDIS_POOL_MIN_SIZE,
-            poolMaxSize: this.hub.REDIS_POOL_MAX_SIZE,
+            poolMinSize: this.config.REDIS_POOL_MIN_SIZE,
+            poolMaxSize: this.config.REDIS_POOL_MAX_SIZE,
         })
         const retentionService = new RetentionService(this.redisPool, teamService)
 
-        const keyStore: KeyStore = getKeyStore(teamService, retentionService, s3Region, {
-            kmsEndpoint: this.hub.SESSION_RECORDING_KMS_ENDPOINT,
-            dynamoDBEndpoint: this.hub.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+        const keyStore: KeyStore = getKeyStore(retentionService, s3Region, {
+            kmsEndpoint: this.config.SESSION_RECORDING_KMS_ENDPOINT,
+            dynamoDBEndpoint: this.config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
         })
         // In-memory caching is intentionally omitted here — a stale in-memory cache on
         // another instance would allow serving a deleted recording's data.
@@ -106,8 +117,22 @@ export class RecordingApi {
         await this.decryptor.start()
 
         // Initialize Kafka producer for emitting deletion events
-        this.kafkaProducer = await KafkaProducerWrapper.create(this.hub.KAFKA_CLIENT_RACK)
+        this.kafkaProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK)
         const metadataStore = new SessionMetadataStore(this.kafkaProducer, KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS)
+
+        // Initialize ClickHouse client for block listing queries
+        const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
+        const chPort = this.config.CLICKHOUSE_SECURE ? 8443 : 8123
+        const chCaCert = this.config.CLICKHOUSE_CA ? await fs.promises.readFile(this.config.CLICKHOUSE_CA) : undefined
+        this.clickhouseClient = createClickHouseClient({
+            url: `${chScheme}://${this.config.CLICKHOUSE_HOST}:${chPort}`,
+            username: this.config.CLICKHOUSE_USER,
+            password: this.config.CLICKHOUSE_PASSWORD || undefined,
+            database: this.config.CLICKHOUSE_DATABASE,
+            request_timeout: 30_000,
+            max_open_connections: 10,
+            ...(chCaCert ? { tls: { ca_cert: chCaCert } } : {}),
+        })
 
         // Create the service layer
         this.recordingService = new RecordingService(
@@ -117,7 +142,8 @@ export class RecordingApi {
             this.keyStore,
             this.decryptor,
             metadataStore,
-            this.hub.postgres
+            this.postgres,
+            this.clickhouseClient
         )
 
         logger.info('[RecordingApi] Started successfully')
@@ -132,6 +158,9 @@ export class RecordingApi {
         }
         if (this.kafkaProducer) {
             await this.kafkaProducer.disconnect()
+        }
+        if (this.clickhouseClient) {
+            await this.clickhouseClient.close()
         }
     }
 
@@ -168,14 +197,37 @@ export class RecordingApi {
             (req: express.Request, res: express.Response, next: express.NextFunction): Promise<void> =>
                 fn(req, res).catch(next)
 
-        router.get('/api/projects/:team_id/recordings/:session_id/block', asyncHandler(this.getBlock))
-        router.delete('/api/projects/:team_id/recordings/:session_id', asyncHandler(this.deleteRecording))
-        router.post('/api/projects/:team_id/recordings/bulk_delete', asyncHandler(this.bulkDeleteRecordings))
+        const blockPath = '/api/projects/:team_id/recordings/:session_id/block'
+
+        const blocksPath = '/api/projects/:team_id/recordings/:session_id/blocks'
+
+        router.options(blockPath, this.handleCorsPreflightForBlock)
+        router.options(blocksPath, this.handleCorsPreflightForBlock)
+        router.get(blockPath, asyncHandler(this.getBlock))
+        router.get(blocksPath, asyncHandler(this.listBlocks))
+        router.post('/api/projects/:team_id/recordings/delete', asyncHandler(this.deleteRecordings))
 
         return router
     }
 
+    private setCorsHeaders(req: express.Request, res: express.Response): void {
+        if (this.corsOrigin && req.headers.origin === this.corsOrigin) {
+            res.set('Access-Control-Allow-Origin', this.corsOrigin)
+            res.set('Vary', 'Origin')
+        }
+    }
+
+    private handleCorsPreflightForBlock = (req: express.Request, res: express.Response): void => {
+        this.setCorsHeaders(req, res)
+        res.set('Access-Control-Allow-Methods', 'GET')
+        res.set('Access-Control-Allow-Headers', 'X-Internal-Api-Secret')
+        res.set('Access-Control-Max-Age', '86400')
+        res.status(204).end()
+    }
+
     private getBlock = async (req: express.Request, res: express.Response): Promise<void> => {
+        this.setCorsHeaders(req, res)
+
         // Parse and validate request
         const paramsResult = RecordingParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
@@ -196,7 +248,7 @@ export class RecordingApi {
         }
 
         const { team_id: teamId, session_id: sessionId } = paramsResult.data
-        const { key, start: startByte, end: endByte } = queryResult.data
+        const { key, start_byte: startByte, end_byte: endByte, decompress } = queryResult.data
 
         // Validate S3 key format
         if (!this.recordingService.validateS3Key(key)) {
@@ -212,14 +264,16 @@ export class RecordingApi {
                 key,
                 startByte,
                 endByte,
+                decompress,
             })
 
             // Serialize response
             if (!result.ok) {
                 if (result.error === 'deleted') {
                     res.status(410).json({
-                        error: 'Recording has been deleted',
+                        error: 'recording_deleted',
                         deleted_at: result.deletedAt,
+                        deleted_by: result.deletedBy,
                     })
                     return
                 }
@@ -227,31 +281,63 @@ export class RecordingApi {
                 return
             }
 
-            res.set('Content-Type', 'application/octet-stream')
-            res.set('Content-Length', String(result.data.length))
+            const contentType = decompress ? 'application/jsonl' : 'application/octet-stream'
+            res.set('Content-Type', contentType)
+            res.set('Content-Length', String(Buffer.byteLength(result.data)))
             res.set('Cache-Control', 'public, max-age=2592000, immutable')
             res.send(result.data)
         } catch (error) {
             logger.error('[RecordingApi] Error fetching block from S3', {
-                error,
+                error: serializeError(error),
                 key,
                 start: startByte,
                 end: endByte,
                 teamId,
                 sessionId,
             })
+            captureException(error)
             res.status(500).json({ error: 'Failed to fetch block from S3' })
         }
     }
 
-    private bulkDeleteRecordings = async (req: express.Request, res: express.Response): Promise<void> => {
+    private listBlocks = async (req: express.Request, res: express.Response): Promise<void> => {
+        this.setCorsHeaders(req, res)
+
+        const paramsResult = RecordingParamsSchema.safeParse(req.params)
+        if (!paramsResult.success) {
+            res.status(400).json({ error: paramsResult.error.issues[0].message })
+            return
+        }
+
+        if (!this.recordingService) {
+            res.status(503).json({ error: 'Service not initialized' })
+            return
+        }
+
+        const { team_id: teamId, session_id: sessionId } = paramsResult.data
+
+        try {
+            const blocks = await this.recordingService.listBlocks(sessionId, teamId)
+            res.json({ blocks })
+        } catch (error) {
+            logger.error('[RecordingApi] Error listing blocks', {
+                error: serializeError(error),
+                teamId,
+                sessionId,
+            })
+            captureException(error)
+            res.status(500).json({ error: 'Failed to list blocks' })
+        }
+    }
+
+    private deleteRecordings = async (req: express.Request, res: express.Response): Promise<void> => {
         const paramsResult = TeamParamsSchema.safeParse(req.params)
         if (!paramsResult.success) {
             res.status(400).json({ error: paramsResult.error.issues[0].message })
             return
         }
 
-        const bodyResult = BulkDeleteBodySchema.safeParse(req.body)
+        const bodyResult = DeleteRecordingsBodySchema.safeParse(req.body)
         if (!bodyResult.success) {
             res.status(400).json({ error: bodyResult.error.issues[0].message })
             return
@@ -263,47 +349,18 @@ export class RecordingApi {
         }
 
         const { team_id: teamId } = paramsResult.data
-        const { session_ids: sessionIds } = bodyResult.data
+        const { session_ids: sessionIds, deleted_by: deletedBy } = bodyResult.data
 
         try {
-            const result = await this.recordingService.bulkDeleteRecordings(sessionIds, teamId)
+            const result = await this.recordingService.deleteRecordings(sessionIds, teamId, deletedBy)
             res.json(result)
         } catch (error) {
-            logger.error('[RecordingApi] Error in bulk delete', { error, teamId })
-            res.status(500).json({ error: 'Failed to bulk delete recordings' })
-        }
-    }
-
-    private deleteRecording = async (req: express.Request, res: express.Response): Promise<void> => {
-        // Parse and validate request
-        const paramsResult = RecordingParamsSchema.safeParse(req.params)
-        if (!paramsResult.success) {
-            res.status(400).json({ error: paramsResult.error.issues[0].message })
-            return
-        }
-
-        // Check service initialization
-        if (!this.recordingService) {
-            res.status(503).json({ error: 'KeyStore not initialized' })
-            return
-        }
-
-        const { team_id: teamId, session_id: sessionId } = paramsResult.data
-
-        // Call service
-        try {
-            const result = await this.recordingService.deleteRecording(sessionId, teamId)
-
-            // Serialize response
-            if (!result.ok) {
-                res.status(500).json({ error: 'Recording key deleted but post-deletion cleanup failed' })
-                return
-            }
-
-            res.json({ team_id: teamId, session_id: sessionId, status: 'deleted', deleted_at: result.deletedAt })
-        } catch (error) {
-            logger.error('[RecordingApi] Error deleting recording key', { error, teamId, sessionId })
-            res.status(500).json({ error: 'Failed to delete recording key' })
+            logger.error('[RecordingApi] Error in delete recordings', {
+                error: serializeError(error),
+                teamId,
+            })
+            captureException(error)
+            res.status(500).json({ error: 'Failed to delete recordings' })
         }
     }
 }

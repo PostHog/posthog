@@ -78,7 +78,7 @@ class RevenueAnalyticsTaxonomyViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
     def values(self, request: Request, **kwargs):
         key = request.GET.get("key")
         if key is None:
-            return Response([])
+            return Response({"results": [], "refreshing": False})
 
         values = find_values_for_revenue_analytics_property(key, self.team)
-        return Response([{"name": value} for value in values])
+        return Response({"results": [{"name": value} for value in values], "refreshing": False})

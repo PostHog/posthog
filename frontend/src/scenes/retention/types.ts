@@ -11,6 +11,7 @@ export interface ProcessedRetentionValue {
     cellDate: Dayjs
     isCurrentPeriod: boolean
     isFuture: boolean
+    aggregation_value?: number
 }
 
 export interface ProcessedRetentionPayload {

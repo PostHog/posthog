@@ -1,0 +1,15 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+# Args: $1=prev_ref, $2=new_ref, $3=1 if branch checkout, 0 if file checkout
+[ "$3" = "1" ] || exit 0
+
+# Detect worktree: .git is a file (not a directory) pointing to the main repo
+[ -f .git ] || exit 0
+
+# Bootstrap husky + lint-staged so pre-commit hooks work in worktrees
+# pnpm is expected to be globally available (corepack, brew, etc.)
+if [ ! -d node_modules/.pnpm ]; then
+    echo "husky: worktree detected, bootstrapping with pnpm install ..."
+    pnpm install --frozen-lockfile --filter=.
+fi

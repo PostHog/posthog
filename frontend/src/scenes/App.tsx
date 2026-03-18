@@ -1,11 +1,11 @@
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import { Slide, ToastContainer } from 'react-toastify'
 
-import { KeaDevtools } from 'lib/KeaDevTools'
 import { Command } from 'lib/components/Command/Command'
 import { globalSetupLogic, useSetupHighlight } from 'lib/components/ProductSetup'
 import { FEATURE_FLAGS, MOCK_NODE_PROCESS } from 'lib/constants'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
+import { KeaDevtools } from 'lib/KeaDevTools'
 import { ToastCloseButton } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { apiStatusLogic } from 'lib/logic/apiStatusLogic'
@@ -72,8 +72,6 @@ function AppScene(): JSX.Element | null {
         <ToastContainer
             autoClose={6000}
             transition={Slide}
-            closeOnClick={false}
-            draggable={false}
             closeButton={<ToastCloseButton />}
             position="bottom-right"
             theme={isDarkModeOn ? 'dark' : 'light'}

@@ -1,0 +1,13 @@
+{% extends "email/base.html" %} {% load posthog_assets %} {% block section %}
+    <p>
+        The <a href="{% absolute_uri alert_url %}">{{ alert_name }}</a> alert for insight <a
+            href="{% absolute_uri insight_url %}">{{ insight_name }}</a> has been <strong>automatically disabled</strong> because its configuration is no longer valid:
+    </p>
+    <p><i>{{ alert_error }}</i></p>
+    <p>
+        To resume monitoring, fix the issue above and re-enable the alert.
+    </p>
+    <div class="mb mt text-center">
+        <a class="button" href="{% absolute_uri alert_url %}">Manage alert</a>
+    </div>
+{% endblock %}{% load posthog_filters %}

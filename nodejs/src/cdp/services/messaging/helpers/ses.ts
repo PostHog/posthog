@@ -205,6 +205,25 @@ export class SesWebhookHandler {
         }
     }
 
+    private isValidSnsSubscribeUrl(url: string): boolean {
+        try {
+            const parsedUrl = new URL(url)
+
+            if (parsedUrl.protocol !== 'https:') {
+                return false
+            }
+
+            // Must be from sns.{region}.amazonaws.com
+            if (!parsedUrl.hostname.match(/^sns\.[a-z0-9-]+\.amazonaws\.com$/)) {
+                return false
+            }
+
+            return true
+        } catch {
+            return false
+        }
+    }
+
     /**
      * Parse incoming body accounting for SNS raw vs envelope
      */
@@ -295,6 +314,10 @@ export class SesWebhookHandler {
             invocationId?: string
             metricName: MinimalAppMetric['metric_name']
         }[]
+        optOutRecipients?: {
+            teamId?: string
+            emailAddresses: string[]
+        }[]
     }> {
         logger.info('[SesWebhookHandler] handleWebhook', { body: opts.body, headers: opts.headers })
         const parsed = this.parseIncomingBody(opts.body)
@@ -320,6 +343,12 @@ export class SesWebhookHandler {
             const inner = parseJSON(env.Message) as { SubscribeURL?: string }
             logger.info('[SesWebhookHandler] confirming subscription', { inner })
             if (inner.SubscribeURL) {
+                if (!this.isValidSnsSubscribeUrl(inner.SubscribeURL)) {
+                    logger.warn('[SesWebhookHandler] Invalid SubscribeURL, rejecting', {
+                        url: inner.SubscribeURL,
+                    })
+                    return { status: 403, body: { error: 'Invalid SubscribeURL' } }
+                }
                 await this.fetchText(inner.SubscribeURL)
             }
             return { status: 200, body: { ok: true } }
@@ -337,11 +366,15 @@ export class SesWebhookHandler {
             invocationId?: string
             metricName: MinimalAppMetric['metric_name']
         }[] = []
+        const optOutRecipients: {
+            teamId?: string
+            emailAddresses: string[]
+        }[] = []
 
         for (const rec of records) {
             logger.info('[SesWebhookHandler] processing record', { rec })
             const tags = rec.mail.tags
-            const { functionId, invocationId } = parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
+            const { functionId, invocationId, teamId } = parseEmailTrackingCode(tags?.ph_id?.[0] || '') || {}
 
             if (!functionId && !invocationId) {
                 logger.error('[SesWebhookHandler] handleWebhook: No functionId or invocationId found', { rec })
@@ -350,8 +383,14 @@ export class SesWebhookHandler {
 
             const metricName = EVENT_TYPE_TO_METRIC_NAME[rec.eventType]
             metrics.push({ functionId, invocationId, metricName })
+
+            // Opt out recipients on permanent bounces
+            if (teamId && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
+                const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
+                optOutRecipients.push({ teamId, emailAddresses: emails })
+            }
         }
 
-        return { status: 200, body: { ok: true }, metrics }
+        return { status: 200, body: { ok: true }, metrics, optOutRecipients }
     }
 }

@@ -40,8 +40,9 @@ from posthog.hogql_queries.insights.trends.breakdown import BREAKDOWN_NULL_STRIN
 from posthog.models import Cohort, Team
 from posthog.models.action.action import Action
 from posthog.models.group.util import create_group
-from posthog.models.property_definition import PropertyDefinition, PropertyType
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
+
+from products.event_definitions.backend.models.property_definition import PropertyDefinition, PropertyType
 
 
 def get_actors(

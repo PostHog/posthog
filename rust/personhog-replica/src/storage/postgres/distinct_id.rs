@@ -1,22 +1,9 @@
 use async_trait::async_trait;
-use sqlx::FromRow;
 
-use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
+use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::DistinctIdLookup;
 use crate::storage::types::{DistinctIdMapping, DistinctIdWithVersion};
-
-#[derive(Debug, Clone, FromRow)]
-struct DistinctIdRow {
-    person_id: i64,
-    distinct_id: String,
-}
-
-#[derive(Debug, Clone, FromRow)]
-struct DistinctIdWithVersionRow {
-    distinct_id: String,
-    version: Option<i64>,
-}
 
 #[async_trait]
 impl DistinctIdLookup for PostgresStorage {
@@ -26,33 +13,42 @@ impl DistinctIdLookup for PostgresStorage {
         person_id: i64,
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<DistinctIdWithVersion>> {
-        let labels = [(
-            "operation".to_string(),
-            "get_distinct_ids_for_person".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_distinct_ids_for_person".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let rows = sqlx::query_as::<_, DistinctIdWithVersionRow>(
+        let rows = sqlx::query_as!(
+            DistinctIdWithVersion,
             r#"
             SELECT distinct_id, version
             FROM posthog_persondistinctid
             WHERE team_id = $1 AND person_id = $2
             "#,
+            team_id as i32,
+            person_id
         )
-        .bind(team_id)
-        .bind(person_id)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| DistinctIdWithVersion {
-                distinct_id: r.distinct_id,
-                version: r.version,
-            })
-            .collect())
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_distinct_ids_for_person".to_string(),
+            )],
+            rows.len() as f64,
+        );
+
+        Ok(rows)
     }
 
     async fn get_distinct_ids_for_persons(
@@ -65,32 +61,41 @@ impl DistinctIdLookup for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "get_distinct_ids_for_persons".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_distinct_ids_for_persons".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
-        let rows = sqlx::query_as::<_, DistinctIdRow>(
+        let rows = sqlx::query_as!(
+            DistinctIdMapping,
             r#"
             SELECT person_id, distinct_id
             FROM posthog_persondistinctid
             WHERE team_id = $1 AND person_id = ANY($2)
             "#,
+            team_id as i32,
+            person_ids
         )
-        .bind(team_id)
-        .bind(person_ids)
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
 
-        Ok(rows
-            .into_iter()
-            .map(|r| DistinctIdMapping {
-                person_id: r.person_id,
-                distinct_id: r.distinct_id,
-            })
-            .collect())
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_distinct_ids_for_persons".to_string(),
+            )],
+            rows.len() as f64,
+        );
+
+        Ok(rows)
     }
 }

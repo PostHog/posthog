@@ -58,6 +58,10 @@ class MinimalEarlyAccessFeatureSerializer(serializers.ModelSerializer):
 
 class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
     feature_flag = MinimalFeatureFlagSerializer(read_only=True)
+    name = serializers.CharField(
+        max_length=200,
+        help_text="The name of the early access feature.",
+    )
     payload = serializers.SerializerMethodField()
 
     class Meta:
@@ -83,6 +87,7 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
             payload_value = self.initial_data.get("payload")
             validated_data["payload"] = payload_value if payload_value else {}
         stage = validated_data.get("stage", None)
+        rollout_to_all = self.initial_data.get("rollout_to_all", False)
 
         request = self.context["request"]
         user_data = UserBasicSerializer(request.user).data if request.user else None
@@ -91,7 +96,27 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
         if instance.stage != stage:
             send_events_for_early_access_feature_stage_change.delay(str(instance.id), instance.stage, stage)
 
-        if instance.stage not in EarlyAccessFeature.ReleaseStage and stage in EarlyAccessFeature.ReleaseStage:
+        if instance.stage != stage and stage == EarlyAccessFeature.Stage.GENERAL_AVAILABILITY and rollout_to_all:
+            # When promoting to GA with rollout_to_all, clear super_groups (removing opt-in/opt-out
+            # conditions) and set the flag to 100% rollout so all users see the feature regardless
+            # of their previous enrollment status.
+            related_feature_flag = instance.feature_flag
+            if related_feature_flag:
+                serialized_data_filters = {
+                    **related_feature_flag.filters,
+                    "super_groups": None,
+                    "groups": [{"properties": [], "rollout_percentage": 100}],
+                }
+
+                serializer = FeatureFlagSerializer(
+                    related_feature_flag,
+                    data={"filters": serialized_data_filters},
+                    context=self.context,
+                    partial=True,
+                )
+                serializer.is_valid(raise_exception=True)
+                serializer.save()
+        elif instance.stage not in EarlyAccessFeature.ActiveStage and stage in EarlyAccessFeature.ActiveStage:
             super_conditions = lambda feature_flag_key: [
                 {
                     "properties": [
@@ -122,7 +147,8 @@ class EarlyAccessFeatureSerializer(serializers.ModelSerializer):
                 )
                 serializer.is_valid(raise_exception=True)
                 serializer.save()
-        elif stage is not None and (stage not in EarlyAccessFeature.ReleaseStage):
+        elif stage is not None and (stage not in EarlyAccessFeature.ActiveStage):
+            # Remove super_groups when leaving an active stage (including moving to CONCEPT)
             related_feature_flag = instance.feature_flag
             if related_feature_flag:
                 related_feature_flag.filters = {
@@ -234,7 +260,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
             feature_flag = FeatureFlag.objects.get(pk=feature_flag_id, team_id=self.context["team_id"])
             feature_flag_key = feature_flag.key
 
-            if validated_data.get("stage") in EarlyAccessFeature.ReleaseStage:
+            if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
                 serialized_data_filters = {
                     **feature_flag.filters,
                     "super_groups": super_conditions(feature_flag_key),
@@ -255,7 +281,7 @@ class EarlyAccessFeatureSerializerCreateOnly(EarlyAccessFeatureSerializer):
                 "groups": default_condition,
             }
 
-            if validated_data.get("stage") in EarlyAccessFeature.ReleaseStage:
+            if validated_data.get("stage") in EarlyAccessFeature.ActiveStage:
                 filters["super_groups"] = super_conditions(feature_flag_key)
 
             feature_flag_serializer = FeatureFlagSerializer(
@@ -311,7 +337,7 @@ def early_access_features(request: Request):
             request,
             generate_exception_response(
                 "early_access_features",
-                "API key not provided. You can find your project API key in PostHog project settings.",
+                "Project token not provided. You can find your project token in PostHog project settings.",
                 type="authentication_error",
                 code="missing_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -324,7 +350,7 @@ def early_access_features(request: Request):
             request,
             generate_exception_response(
                 "decide",
-                "Project API key invalid. You can find your project API key in PostHog project settings.",
+                "Project token invalid. You can find your project token in PostHog project settings.",
                 type="authentication_error",
                 code="invalid_api_key",
                 status_code=status.HTTP_401_UNAUTHORIZED,

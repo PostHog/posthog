@@ -5,6 +5,8 @@ import { IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSwitch, LemonTextArea } from '@posthog/lemon-ui'
 
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -13,6 +15,10 @@ import { featureFlagConfirmationSettingsLogic } from './featureFlagConfirmationS
 export function FlagPersistenceSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <LemonSwitch
@@ -25,6 +31,7 @@ export function FlagPersistenceSettings(): JSX.Element {
             label="Enable flag persistence by default"
             bordered
             checked={!!currentTeam?.flags_persistence_default}
+            disabledReason={restrictedReason}
         />
     )
 }
@@ -33,6 +40,10 @@ export function FlagChangeConfirmationSettings(): JSX.Element {
     const { updateCurrentTeam } = useActions(teamLogic)
     const { currentTeam } = useValues(teamLogic)
     const { confirmationMessageLoading } = useValues(featureFlagConfirmationSettingsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     return (
         <div className="space-y-2">
@@ -46,6 +57,7 @@ export function FlagChangeConfirmationSettings(): JSX.Element {
                 label="Require confirmation for feature flag changes"
                 bordered
                 checked={!!currentTeam?.feature_flag_confirmation_enabled}
+                disabledReason={restrictedReason}
             />
 
             {currentTeam?.feature_flag_confirmation_enabled && (
@@ -61,12 +73,13 @@ export function FlagChangeConfirmationSettings(): JSX.Element {
                                 placeholder="Optional custom message. Default: '⚠️ These changes will immediately affect users matching the release conditions. Please ensure you understand the consequences before proceeding.'"
                                 maxLength={500}
                                 maxRows={3}
+                                disabled={!!restrictedReason}
                             />
                         </LemonField>
                         <LemonButton
                             type="primary"
                             htmlType="submit"
-                            disabledReason={!currentTeam ? 'Loading team...' : undefined}
+                            disabledReason={!currentTeam ? 'Loading team...' : restrictedReason}
                             loading={confirmationMessageLoading}
                         >
                             Save message

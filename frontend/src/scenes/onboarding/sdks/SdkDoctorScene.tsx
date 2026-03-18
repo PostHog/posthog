@@ -9,8 +9,12 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { SdkSection } from '~/layout/navigation-3000/sidepanel/panels/SidePanelSdkDoctor'
-import { SdkType, sidePanelSdkDoctorLogic } from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
+import { SDK_TYPE_READABLE_NAME, SdkSection } from '~/layout/navigation-3000/sidepanel/panels/SidePanelSdkDoctor'
+import {
+    type OutdatedTrafficAlert,
+    SdkType,
+    sidePanelSdkDoctorLogic,
+} from '~/layout/navigation-3000/sidepanel/panels/sidePanelSdkDoctorLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
@@ -75,7 +79,7 @@ export function SdkDoctorScene(): JSX.Element {
                 <div>
                     <LemonBanner type="info">
                         <strong>DEVELOPMENT WARNING!</strong> When running in development, make sure you've run the
-                        appropriate Dasgter jobs: <LemonTag>cache_all_team_sdk_versions_job</LemonTag> and{' '}
+                        appropriate Dagster jobs: <LemonTag>cache_all_team_sdk_versions_job</LemonTag> and{' '}
                         <LemonTag>cache_github_sdk_versions_job</LemonTag>. Data won't be available otherwise.
                     </LemonBanner>
                 </div>
@@ -117,10 +121,25 @@ export function SdkDoctorScene(): JSX.Element {
                                 onClick: snoozeWarning,
                             }}
                         >
+                            {Object.entries(augmentedData).flatMap(([sdkType, sdk]) =>
+                                sdk.outdatedTrafficAlerts.map((alert: OutdatedTrafficAlert) => (
+                                    <p key={`${sdkType}-${alert.version}`} className="text-sm mb-1">
+                                        Version <code className="text-xs font-mono">{alert.version}</code> of the{' '}
+                                        {SDK_TYPE_READABLE_NAME[sdkType as SdkType]} SDK has captured more than{' '}
+                                        {alert.thresholdPercent}% of events in the last 7 days.
+                                    </p>
+                                ))
+                            )}
                             <p className="font-semibold">
                                 An outdated SDK means you're missing out on bug fixes and enhancements.
                             </p>
-                            <p className="text-sm mt-1">Check the links below to get caught up.</p>
+                            <p className="text-sm mt-1">
+                                <Link to="https://posthog.com/docs/sdk-doctor/keeping-sdks-current" target="_blank">
+                                    Learn how
+                                </Link>{' '}
+                                to keep your SDK versions current.
+                            </p>
+                            <p className="text-sm mt-1">See the 'Releases' and 'Docs' links below for more info.</p>
                         </LemonBanner>
                     </section>
                 )}

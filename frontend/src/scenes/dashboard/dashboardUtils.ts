@@ -1,4 +1,4 @@
-import { Layouts } from 'react-grid-layout'
+import { ResponsiveLayouts } from 'react-grid-layout'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -20,7 +20,7 @@ import {
 } from '~/types'
 
 export const BREAKPOINTS: Record<DashboardLayoutSize, number> = {
-    sm: 1024,
+    sm: 768,
     xs: 0,
 }
 export const BREAKPOINT_COLUMN_COUNTS: Record<DashboardLayoutSize, number> = { sm: 12, xs: 1 }
@@ -36,16 +36,12 @@ export const IS_TEST_MODE = process.env.NODE_ENV === 'test'
 export const SEARCH_PARAM_QUERY_VARIABLES_KEY = 'query_variables'
 export const SEARCH_PARAM_FILTERS_KEY = 'query_filters'
 
-/**
- * Once a dashboard has more tiles than this,
- * we don't automatically preview dashboard date/filter/breakdown changes.
- * Users will need to click the 'Apply and preview filters' button.
- */
-export const MAX_TILES_FOR_AUTOPREVIEW = 5
+export const DEFAULT_AUTO_PREVIEW_TILE_LIMIT = 10
 
 const RATE_LIMIT_ERROR_MESSAGE = 'concurrency_limit_exceeded'
 
 export const AUTO_REFRESH_INITIAL_INTERVAL_SECONDS = 1800
+export const QUICK_FILTER_DEBOUNCE_MS = 1500
 
 // Helper function for exponential backoff
 const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
@@ -90,11 +86,11 @@ export async function runWithLimit<T>(tasks: (() => Promise<T>)[], limit: number
     return results
 }
 
-export const layoutsByTile = (layouts: Layouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
+export const layoutsByTile = (layouts: ResponsiveLayouts): Record<string, Record<DashboardLayoutSize, TileLayout>> => {
     const itemLayouts: Record<string, Record<DashboardLayoutSize, TileLayout>> = {}
 
     Object.entries(layouts).forEach(([col, layout]) => {
-        layout.forEach((layoutItem) => {
+        layout?.forEach((layoutItem) => {
             const i = String(layoutItem.i)
             if (!itemLayouts[i]) {
                 itemLayouts[i] = {} as Record<DashboardLayoutSize, TileLayout>

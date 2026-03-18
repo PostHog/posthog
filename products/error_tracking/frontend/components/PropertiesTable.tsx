@@ -1,19 +1,40 @@
-import { IconCopy, IconInfo } from '@posthog/icons'
+import { IconCopy, IconFilter, IconInfo } from '@posthog/icons'
 import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-export type PropertiesTableProps = {
-    entries: [string, unknown][]
-    alternatingColors?: boolean
+type PropertyTableRow = {
+    key: string
+    value: unknown
+    filterKey?: string
+    filterValue?: unknown
 }
 
-export function PropertiesTable({ entries, alternatingColors = true }: PropertiesTableProps): JSX.Element {
+export type PropertiesTableProps = {
+    entries: ([string, unknown] | PropertyTableRow)[]
+    alternatingColors?: boolean
+    onFilterValue?: (key: string, value: string | number | boolean) => void
+}
+
+export function PropertiesTable({
+    entries,
+    alternatingColors = true,
+    onFilterValue,
+}: PropertiesTableProps): JSX.Element {
+    const rows: PropertyTableRow[] = entries
+        .map((entry) => {
+            if (Array.isArray(entry)) {
+                return { key: entry[0], value: entry[1], filterKey: entry[0], filterValue: entry[1] }
+            }
+            return entry
+        })
+        .filter((entry) => entry.value !== undefined)
+
     return (
         <LemonTable
             embedded
             size="small"
-            dataSource={entries.filter(([, value]) => value !== undefined).map(([key, value]) => ({ key, value }))}
+            dataSource={rows}
             showHeader={false}
             columns={[
                 {
@@ -25,18 +46,39 @@ export function PropertiesTable({ entries, alternatingColors = true }: Propertie
                     render: (dataValue, record) => (
                         <div className="flex gap-x-2 justify-between items-center">
                             <div>{String(dataValue)}</div>
-                            <LemonButton
-                                size="xsmall"
-                                tooltip="Copy value"
-                                className="invisible group-hover:visible"
-                                onClick={() =>
-                                    copyToClipboard(copyValue(record.value)).catch((error) => {
-                                        console.error('Failed to copy to clipboard:', error)
-                                    })
-                                }
-                            >
-                                <IconCopy />
-                            </LemonButton>
+                            <div className="flex items-center gap-1">
+                                {onFilterValue &&
+                                    record.filterKey &&
+                                    getFilterableValue(record.filterValue ?? record.value) !== null && (
+                                        <LemonButton
+                                            size="xsmall"
+                                            tooltip="Filter by this value"
+                                            className="invisible group-hover:visible"
+                                            onClick={() => {
+                                                const filterableValue = getFilterableValue(
+                                                    record.filterValue ?? record.value
+                                                )
+                                                if (filterableValue !== null) {
+                                                    onFilterValue(record.filterKey as string, filterableValue)
+                                                }
+                                            }}
+                                        >
+                                            <IconFilter />
+                                        </LemonButton>
+                                    )}
+                                <LemonButton
+                                    size="xsmall"
+                                    tooltip="Copy value"
+                                    className="invisible group-hover:visible"
+                                    onClick={() =>
+                                        copyToClipboard(copyValue(record.value)).catch((error) => {
+                                            console.error('Failed to copy to clipboard:', error)
+                                        })
+                                    }
+                                >
+                                    <IconCopy />
+                                </LemonButton>
+                            </div>
                         </div>
                     ),
                 },
@@ -82,6 +124,13 @@ function copyValue(value: unknown): string {
         return normalizeSentinels(JSON.stringify(value))
     }
     return normalizeSentinels(String(value))
+}
+
+function getFilterableValue(value: unknown): string | number | boolean | null {
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+        return value
+    }
+    return null
 }
 
 function renderValue(value: unknown): React.ReactNode {

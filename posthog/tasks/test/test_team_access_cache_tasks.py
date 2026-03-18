@@ -261,28 +261,28 @@ class TestWarmTeamCacheTask(TestCase):
         """Test successful cache warming for a team."""
         mock_warm.return_value = True
 
-        project_api_key = "phs_test_team_123"
+        project_token = "phs_test_team_123"
 
-        result = warm_team_cache_task(project_api_key)
+        result = warm_team_cache_task(project_token)
 
-        mock_warm.assert_called_once_with(project_api_key)
+        mock_warm.assert_called_once_with(project_token)
 
         assert result["status"] == "success"
-        assert result["project_api_key"] == project_api_key
+        assert result["project_token"] == project_token
 
     @patch("posthog.tasks.team_access_cache_tasks.warm_team_token_cache")
     def test_warm_team_cache_task_failure(self, mock_warm: MagicMock) -> None:
         """Test that cache warming failure does not trigger retry."""
         mock_warm.return_value = False
 
-        project_api_key = "phs_test_team_123"
+        project_token = "phs_test_team_123"
 
-        result = warm_team_cache_task(project_api_key)
+        result = warm_team_cache_task(project_token)
 
-        mock_warm.assert_called_once_with(project_api_key)
+        mock_warm.assert_called_once_with(project_token)
 
         assert result["status"] == "failure"
-        assert result["project_api_key"] == project_api_key
+        assert result["project_token"] == project_token
 
 
 class TestWarmAllTeamsCachesTask(TestCase):
@@ -408,4 +408,4 @@ class TestTaskIntegration(TestCase):
         assert batch_result["failed_teams"] == 0
 
         assert individual_result["status"] == "success"
-        assert individual_result["project_api_key"] == "phs_team1_123"
+        assert individual_result["project_token"] == "phs_team1_123"

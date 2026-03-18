@@ -12,8 +12,9 @@ import { FunnelPathsFilter } from '~/queries/schema/schema-general'
 import { shouldQueryBeAsync } from '~/queries/utils'
 
 import { PathNodeCard } from './PathNodeCard'
-import type { PathNodeData } from './pathUtils'
 import { pathsDataLogic } from './pathsDataLogic'
+import type { PathNodeData } from './pathUtils'
+// eslint-disable-next-line import/no-cycle
 import { renderPaths } from './renderPaths'
 
 const DEFAULT_PATHS_ID = 'default_paths'

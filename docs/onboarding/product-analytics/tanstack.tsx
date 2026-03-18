@@ -54,7 +54,7 @@ export const getTanStackSteps = (ctx: OnboardingComponentsContext): StepDefiniti
                                 language: 'bash',
                                 file: '.env',
                                 code: dedent`
-                                    VITE_PUBLIC_POSTHOG_KEY=<ph_project_api_key>
+                                    VITE_PUBLIC_POSTHOG_KEY=<ph_project_token>
                                     VITE_PUBLIC_POSTHOG_HOST=<ph_client_api_host>
                                 `,
                             },

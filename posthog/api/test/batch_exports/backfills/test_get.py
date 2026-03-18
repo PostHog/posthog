@@ -172,6 +172,8 @@ def test_can_get_backfills_for_your_organizations(
         "status": status.value,
         "finished_at": finished_at.strftime("%Y-%m-%dT%H:%M:%SZ") if finished_at else None,
         "progress": expected_progress,
+        "adjusted_start_at": None,
+        "total_records_count": None,
     }
 
 

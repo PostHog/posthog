@@ -4,16 +4,8 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import {
-    AccessControlLevel,
-    Survey,
-    SurveyQuestionDescriptionContentType,
-    SurveyQuestionType,
-    SurveySchedule,
-    SurveyType,
-} from '~/types'
+import { AccessControlLevel, Survey, SurveySchedule, SurveyType } from '~/types'
 
-import { SURVEY_CREATED_SOURCE, SURVEY_RATING_SCALE, SurveyTemplate, SurveyTemplateType } from './constants'
 import { surveysLogic } from './surveysLogic'
 
 const createTestSurvey = (id: string, name: string): Survey => ({
@@ -230,50 +222,6 @@ describe('surveysLogic', () => {
             expect(capturedIntentRequests[0]).toEqual({
                 product_type: ProductKey.SURVEYS,
                 intent_context: ProductIntentContext.SURVEYS_VIEWED,
-            })
-        })
-
-        it('should track SURVEY_CREATED intent when creating survey from template', async () => {
-            const mockTemplate: SurveyTemplate = {
-                templateType: SurveyTemplateType.NPS,
-                questions: [
-                    {
-                        type: SurveyQuestionType.Rating,
-                        question: 'How likely are you to recommend us?',
-                        description: '',
-                        descriptionContentType: 'text' as SurveyQuestionDescriptionContentType,
-                        display: 'number',
-                        scale: SURVEY_RATING_SCALE.NPS_10_POINT,
-                        lowerBoundLabel: 'Not likely',
-                        upperBoundLabel: 'Very likely',
-                    },
-                ],
-                description: 'NPS survey',
-                type: SurveyType.Popover,
-            }
-
-            useMocks({
-                post: {
-                    '/api/projects/:team/surveys/': () => [200, { id: 'new-survey-123' }],
-                },
-            })
-
-            await expectLogic(logic, () => {
-                logic.actions.createSurveyFromTemplate(mockTemplate)
-            }).toFinishAllListeners()
-
-            const createIntent = capturedIntentRequests.find(
-                (req) => req.intent_context === ProductIntentContext.SURVEY_CREATED
-            )
-            expect(createIntent).toBeTruthy()
-            expect(createIntent).toMatchObject({
-                product_type: ProductKey.SURVEYS,
-                intent_context: ProductIntentContext.SURVEY_CREATED,
-                metadata: {
-                    survey_id: 'new-survey-123',
-                    source: SURVEY_CREATED_SOURCE.SURVEY_EMPTY_STATE,
-                    template_type: 'Net promoter score (NPS)',
-                },
             })
         })
 

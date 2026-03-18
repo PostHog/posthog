@@ -7,9 +7,9 @@ import { urls } from 'scenes/urls'
 import { useStorybookMocks } from '~/mocks/browser'
 import { LLMTrace } from '~/queries/schema/schema-general'
 
-import { LLMAnalyticsTraceScene } from './LLMAnalyticsTraceScene'
 import fullTrace from './__mocks__/fullTrace.json'
 import traceWithoutContent from './__mocks__/traceWithoutContent.json'
+import { LLMAnalyticsTraceScene } from './LLMAnalyticsTraceScene'
 
 const meta: Meta = {
     title: 'Scenes-App/LLM Analytics/Trace',

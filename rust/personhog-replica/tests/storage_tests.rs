@@ -2,7 +2,7 @@ mod common;
 
 use common::TestContext;
 use personhog_replica::storage::postgres::ConsistencyLevel;
-use personhog_replica::storage::{GroupKey, HashKeyOverrideInput};
+use personhog_replica::storage::GroupKey;
 
 #[tokio::test]
 async fn test_get_person_by_id() {
@@ -565,19 +565,18 @@ async fn test_get_hash_key_override_context_with_check_person_exists() {
 async fn test_upsert_hash_key_overrides_single_override() {
     let ctx = TestContext::new().await;
 
-    let person = ctx
-        .insert_person("upsert_single_user", None)
+    ctx.insert_person("upsert_single_user", None)
         .await
         .expect("Failed to insert person");
 
-    let overrides = vec![HashKeyOverrideInput {
-        person_id: person.id,
-        feature_flag_key: "test-flag".to_string(),
-    }];
-
     let inserted_count = ctx
         .storage
-        .upsert_hash_key_overrides(ctx.team_id, &overrides, "my_hash_key")
+        .upsert_hash_key_overrides(
+            ctx.team_id,
+            &["upsert_single_user".to_string()],
+            &["test-flag".to_string()],
+            "my_hash_key",
+        )
         .await
         .expect("Failed to upsert hash key overrides");
 
@@ -604,7 +603,7 @@ async fn test_upsert_hash_key_overrides_single_override() {
 }
 
 #[tokio::test]
-async fn test_upsert_hash_key_overrides_multiple_overrides_same_hash_key() {
+async fn test_upsert_hash_key_overrides_multiple_distinct_ids_and_flags() {
     let ctx = TestContext::new().await;
 
     let person1 = ctx
@@ -616,29 +615,22 @@ async fn test_upsert_hash_key_overrides_multiple_overrides_same_hash_key() {
         .await
         .expect("Failed to insert person 2");
 
-    // Multiple overrides for different persons and flags, all sharing the same hash_key
-    let overrides = vec![
-        HashKeyOverrideInput {
-            person_id: person1.id,
-            feature_flag_key: "flag-a".to_string(),
-        },
-        HashKeyOverrideInput {
-            person_id: person1.id,
-            feature_flag_key: "flag-b".to_string(),
-        },
-        HashKeyOverrideInput {
-            person_id: person2.id,
-            feature_flag_key: "flag-a".to_string(),
-        },
-    ];
-
+    // Two distinct_ids × two flag keys = 4 overrides
     let inserted_count = ctx
         .storage
-        .upsert_hash_key_overrides(ctx.team_id, &overrides, "shared_anon_id")
+        .upsert_hash_key_overrides(
+            ctx.team_id,
+            &[
+                "upsert_multi_user1".to_string(),
+                "upsert_multi_user2".to_string(),
+            ],
+            &["flag-a".to_string(), "flag-b".to_string()],
+            "shared_anon_id",
+        )
         .await
         .expect("Failed to upsert hash key overrides");
 
-    assert_eq!(inserted_count, 3);
+    assert_eq!(inserted_count, 4);
 
     // Verify all overrides have the same hash_key
     let result = ctx
@@ -657,33 +649,55 @@ async fn test_upsert_hash_key_overrides_multiple_overrides_same_hash_key() {
 
     assert_eq!(result.len(), 2);
 
-    // All overrides should have the same hash_key
     for person_result in &result {
+        assert_eq!(person_result.overrides.len(), 2);
         for override_entry in &person_result.overrides {
             assert_eq!(override_entry.hash_key, "shared_anon_id");
         }
     }
 
-    // Person 1 should have 2 overrides
+    // Each person should have 2 overrides (one per flag key)
     let person1_result = result.iter().find(|r| r.person_id == person1.id).unwrap();
     assert_eq!(person1_result.overrides.len(), 2);
 
-    // Person 2 should have 1 override
     let person2_result = result.iter().find(|r| r.person_id == person2.id).unwrap();
-    assert_eq!(person2_result.overrides.len(), 1);
+    assert_eq!(person2_result.overrides.len(), 2);
 
     ctx.cleanup().await.ok();
 }
 
 #[tokio::test]
-async fn test_upsert_hash_key_overrides_empty_returns_zero() {
+async fn test_upsert_hash_key_overrides_empty_distinct_ids_returns_zero() {
     let ctx = TestContext::new().await;
-
-    let overrides: Vec<HashKeyOverrideInput> = vec![];
 
     let inserted_count = ctx
         .storage
-        .upsert_hash_key_overrides(ctx.team_id, &overrides, "unused_hash_key")
+        .upsert_hash_key_overrides(
+            ctx.team_id,
+            &[],
+            &["some-flag".to_string()],
+            "unused_hash_key",
+        )
+        .await
+        .expect("Failed to upsert hash key overrides");
+
+    assert_eq!(inserted_count, 0);
+
+    ctx.cleanup().await.ok();
+}
+
+#[tokio::test]
+async fn test_upsert_hash_key_overrides_empty_flag_keys_returns_zero() {
+    let ctx = TestContext::new().await;
+
+    let inserted_count = ctx
+        .storage
+        .upsert_hash_key_overrides(
+            ctx.team_id,
+            &["some-distinct-id".to_string()],
+            &[],
+            "unused_hash_key",
+        )
         .await
         .expect("Failed to upsert hash key overrides");
 
@@ -696,30 +710,27 @@ async fn test_upsert_hash_key_overrides_empty_returns_zero() {
 async fn test_upsert_hash_key_overrides_on_conflict_do_nothing() {
     let ctx = TestContext::new().await;
 
-    let person = ctx
-        .insert_person("upsert_conflict_user", None)
+    ctx.insert_person("upsert_conflict_user", None)
         .await
         .expect("Failed to insert person");
 
-    let overrides = vec![HashKeyOverrideInput {
-        person_id: person.id,
-        feature_flag_key: "conflict-flag".to_string(),
-    }];
+    let distinct_ids = ["upsert_conflict_user".to_string()];
+    let flag_keys = ["conflict-flag".to_string()];
 
     // First insert
     let first_count = ctx
         .storage
-        .upsert_hash_key_overrides(ctx.team_id, &overrides, "first_hash")
+        .upsert_hash_key_overrides(ctx.team_id, &distinct_ids, &flag_keys, "first_hash")
         .await
         .expect("Failed to upsert hash key overrides");
 
     assert_eq!(first_count, 1);
 
-    // Second insert with same person_id and feature_flag_key should do nothing
+    // Second insert with same distinct_id and feature_flag_key should do nothing
     // (ON CONFLICT DO NOTHING)
     let second_count = ctx
         .storage
-        .upsert_hash_key_overrides(ctx.team_id, &overrides, "second_hash")
+        .upsert_hash_key_overrides(ctx.team_id, &distinct_ids, &flag_keys, "second_hash")
         .await
         .expect("Failed to upsert hash key overrides");
 

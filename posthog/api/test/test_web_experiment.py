@@ -33,7 +33,7 @@ class TestWebExperiment(APIBaseTest):
         )
 
     @patch("posthog.api.feature_flag.report_user_action")
-    def test_can_create_basic_web_experiment(self, mock_capture):
+    def test_can_create_basic_web_experiment(self, mock_report_user_action):
         response = self._create_web_experiment()
         response_data = response.json()
         assert response.status_code == status.HTTP_201_CREATED, response_data
@@ -58,7 +58,7 @@ class TestWebExperiment(APIBaseTest):
         assert web_experiment.type == "web"
         assert web_experiment.variants.get("control") is not None
         assert web_experiment.variants.get("test") is not None
-        mock_capture.assert_called_once_with(
+        mock_report_user_action.assert_called_once_with(
             ANY,
             "feature flag created",
             {
@@ -72,8 +72,36 @@ class TestWebExperiment(APIBaseTest):
                 "aggregating_by_groups": False,
                 "payload_count": 0,
                 "creation_context": "web_experiments",
-                "source": "web",
             },
+            team=ANY,
+            request=ANY,
+        )
+
+    @patch("posthog.api.web_experiment.report_user_action")
+    def test_web_experiment_creation_reports_experiment_created(self, mock_report_user_action):
+        response = self._create_web_experiment()
+        response_data = response.json()
+        assert response.status_code == status.HTTP_201_CREATED, response_data
+
+        web_experiment = WebExperiment.objects.get(id=response_data["id"])
+
+        mock_report_user_action.assert_called_once_with(
+            ANY,
+            "experiment created",
+            {
+                "experiment_id": web_experiment.id,
+                "experiment_name": web_experiment.name,
+                "feature_flag_key": web_experiment.feature_flag.key,
+                "type": "web",
+                "status": "draft",
+                "metrics_count": 0,
+                "secondary_metrics_count": 0,
+                "has_description": False,
+                "variant_count": 2,
+                "created_at": web_experiment.created_at,
+            },
+            team=ANY,
+            request=ANY,
         )
 
     def test_can_list_active_web_experiments(self):

@@ -366,6 +366,15 @@ runcmd:
 
         print(f"🔄 Updating existing deployment to SHA: {new_sha}")
 
+        # Update repo checkout so compose files and other configs are current
+        print("📦 Updating repo checkout...")
+        update_repo_cmd = f"cd /hobby/posthog && git fetch origin {new_sha} && git checkout {new_sha}"
+        result = self.run_ssh_command(update_repo_cmd, timeout=120)
+        if result["exit_code"] != 0:
+            print(f"⚠️ Failed to update repo checkout: {result['stderr']}")
+        else:
+            print("✅ Repo checkout updated")
+
         # Update .env file with new image tag
         update_env_cmd = (
             f"cd /hobby && sed -i 's/^POSTHOG_APP_TAG=.*/POSTHOG_APP_TAG={new_sha}/' .env && grep POSTHOG_APP_TAG .env"
@@ -401,6 +410,30 @@ runcmd:
         if result["exit_code"] != 0:
             raise RuntimeError(f"Failed to update POSTHOG_NODE_TAG: {result['stderr']}")
         print(f"✅ Updated POSTHOG_NODE_TAG to {node_tag}")
+
+        # Update the baked-in image tags in docker-compose.yml.
+        # The hobby-installer substitutes $POSTHOG_APP_TAG and $POSTHOG_NODE_TAG literally
+        # into docker-compose.yml at install time, so updating .env alone has no effect on
+        # which image docker-compose pull/up uses.
+        print("📝 Updating baked-in image tags in docker-compose.yml...")
+        update_compose_cmd = (
+            f"cd /hobby && "
+            f"sed -i 's|posthog/posthog:[a-f0-9]\\{{40\\}}|posthog/posthog:{new_sha}|g' docker-compose.yml && "
+            f"sed -i 's|posthog/posthog-node:[^[:space:]]*|posthog/posthog-node:{node_tag}|g' docker-compose.yml"
+        )
+        result = self.run_ssh_command(update_compose_cmd, timeout=30)
+        if result["exit_code"] != 0:
+            raise RuntimeError(f"Failed to update docker-compose.yml: {result['stderr']}")
+        print("✅ Updated docker-compose.yml image tags")
+
+        # Sync docker-compose.base.yml from repo checkout so proxy config stays current
+        print("📝 Syncing docker-compose.base.yml from repo...")
+        sync_base_cmd = "cp /hobby/posthog/docker-compose.base.yml /hobby/docker-compose.base.yml"
+        result = self.run_ssh_command(sync_base_cmd, timeout=30)
+        if result["exit_code"] != 0:
+            print(f"⚠️ Failed to sync docker-compose.base.yml: {result['stderr']}")
+        else:
+            print("✅ docker-compose.base.yml synced")
 
         # Pull new images with retry logic
         print("🐋 Pulling new Docker images...")

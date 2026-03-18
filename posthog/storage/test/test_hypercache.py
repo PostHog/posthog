@@ -7,6 +7,8 @@ from unittest.mock import Mock, patch
 from django.core.cache import cache
 from django.test import override_settings
 
+from parameterized import parameterized
+
 from posthog.storage import object_storage
 from posthog.storage.hypercache import DEFAULT_CACHE_MISS_TTL, DEFAULT_CACHE_TTL, HyperCache, HyperCacheStoreMissing
 
@@ -837,3 +839,105 @@ class TestHyperCacheETag(HyperCacheTestBase):
             # The caller (API endpoint) should handle None data appropriately
             assert etag is None  # Can't get ETag when Redis fails
             assert modified is True  # Signal that client should treat as modified
+
+
+class TestHyperCacheRemoveExpiryTracking(BaseTest):
+    """Tests for expiry tracking removal via clear_cache."""
+
+    SORTED_SET_KEY = "test_expiry_sorted_set"
+
+    def _make_hypercache(self, token_based: bool = False) -> HyperCache:
+        return HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=lambda key: {"data": "test"},
+            token_based=token_based,
+            expiry_sorted_set_key=self.SORTED_SET_KEY,
+        )
+
+    @parameterized.expand(
+        [
+            ("team_id_based", False, lambda self: self.team, lambda self: str(self.team.id)),
+            ("team_token_based", True, lambda self: self.team, lambda self: str(self.team.api_token)),
+            ("int_id_based", False, lambda self: 42, lambda self: "42"),
+            ("str_token_based", True, lambda self: "phc_test_token", lambda self: "phc_test_token"),
+        ]
+    )
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_removes_expiry_tracking(self, _name, token_based, key_fn, expected_id_fn, mock_get_client):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache(token_based=token_based)
+        key = key_fn(self)
+        expected_id = expected_id_fn(self)
+
+        hc.clear_cache(key)
+
+        mock_redis.zrem.assert_called_once_with(self.SORTED_SET_KEY, expected_id)
+
+    @parameterized.expand(
+        [
+            ("int_token_based", True, 42),
+            ("str_id_based", False, "some_string"),
+        ]
+    )
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_skips_expiry_tracking_for_mismatched_types(self, _name, token_based, key, mock_get_client):
+        hc = self._make_hypercache(token_based=token_based)
+
+        hc.clear_cache(key)
+
+        mock_get_client.assert_not_called()
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_skips_expiry_tracking_when_no_sorted_set_key(self, mock_get_client):
+        hc = HyperCache(
+            namespace="test",
+            value="value",
+            load_fn=lambda key: {"data": "test"},
+            expiry_sorted_set_key=None,
+        )
+
+        hc.clear_cache(42)
+
+        mock_get_client.assert_not_called()
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_logs_warning_on_redis_failure(self, mock_get_client):
+        mock_redis = Mock()
+        mock_redis.zrem.side_effect = ConnectionError("Redis unavailable")
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache(token_based=False)
+
+        with patch("posthog.storage.hypercache.logger") as mock_logger:
+            hc.clear_cache(42)
+
+            args, kwargs = mock_logger.warning.call_args
+            assert args[0] == "Failed to remove cache expiry tracking"
+            assert kwargs["error_type"] == "ConnectionError"
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_removes_expiry_tracking_regardless_of_kinds(self, mock_get_client):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache(token_based=False)
+        hc.clear_cache(42, kinds=["redis"])
+
+        mock_redis.zrem.assert_called_once_with(self.SORTED_SET_KEY, "42")
+
+    @patch("posthog.storage.hypercache.get_client")
+    def test_clear_cache_removes_expiry_tracking_despite_cache_deletion_failure(self, mock_get_client):
+        mock_redis = Mock()
+        mock_get_client.return_value = mock_redis
+
+        hc = self._make_hypercache(token_based=False)
+        hc.cache_client = Mock()
+        hc.cache_client.delete.side_effect = ConnectionError("Redis unavailable")
+
+        with pytest.raises(ConnectionError):
+            hc.clear_cache(42)
+
+        mock_redis.zrem.assert_called_once_with(self.SORTED_SET_KEY, "42")

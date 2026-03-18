@@ -5,11 +5,12 @@ import { instrumentFn } from '~/common/tracing/tracing-utils'
 
 import { KAFKA_COHORT_MEMBERSHIP_CHANGED, KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER } from '../../config/kafka-topics'
 import { KafkaConsumer } from '../../kafka/consumer'
-import { HealthCheckResult, Hub } from '../../types'
+import { KafkaProducerWrapper } from '../../kafka/producer'
+import { HealthCheckResult } from '../../types'
 import { PostgresUse } from '../../utils/db/postgres'
 import { parseJSON } from '../../utils/json-parse'
 import { logger } from '../../utils/logger'
-import { CdpConsumerBase, CdpConsumerBaseHub } from './cdp-base.consumer'
+import { CdpConsumerBase, CdpConsumerBaseConfig, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 // Zod schema for validation
 const CohortMembershipChangeSchema = z.object({
@@ -22,18 +23,13 @@ const CohortMembershipChangeSchema = z.object({
 
 export type CohortMembershipChange = z.infer<typeof CohortMembershipChangeSchema>
 
-/**
- * Hub type for CdpCohortMembershipConsumer.
- * Extends CdpConsumerBaseHub with postgres for cohort membership persistence.
- */
-export type CdpCohortMembershipConsumerHub = CdpConsumerBaseHub & Pick<Hub, 'postgres'>
-
-export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMembershipConsumerHub> {
+export class CdpCohortMembershipConsumer extends CdpConsumerBase {
     protected name = 'CdpCohortMembershipConsumer'
     private kafkaConsumer: KafkaConsumer
+    private warpstreamProducer?: KafkaProducerWrapper
 
-    constructor(hub: CdpCohortMembershipConsumerHub) {
-        super(hub)
+    constructor(config: CdpConsumerBaseConfig, deps: CdpConsumerBaseDeps) {
+        super(config, deps)
         this.kafkaConsumer = new KafkaConsumer({
             groupId: 'cdp-cohort-membership-consumer',
             topic: KAFKA_COHORT_MEMBERSHIP_CHANGED,
@@ -41,7 +37,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
     }
 
     private async publishCohortMembershipTriggers(changes: CohortMembershipChange[]): Promise<void> {
-        if (!this.kafkaProducer || changes.length === 0) {
+        if (!this.warpstreamProducer || changes.length === 0) {
             return
         }
 
@@ -50,7 +46,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
             key: change.person_id,
         }))
 
-        await this.kafkaProducer.queueMessages({
+        await this.warpstreamProducer.queueMessages({
             topic: KAFKA_COHORT_MEMBERSHIP_CHANGED_TRIGGER,
             messages,
         })
@@ -62,12 +58,18 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
         }
 
         try {
+            // Deduplicate by (team_id, cohort_id, person_id), keeping last in Kafka order
+            const deduped = new Map<string, CohortMembershipChange>()
+            for (const change of changes) {
+                deduped.set(`${change.team_id}:${change.cohort_id}:${change.person_id}`, change)
+            }
+
             // Build the VALUES clause for batch upsert
             const values: any[] = []
             const placeholders: string[] = []
             let paramIndex = 1
 
-            for (const change of changes) {
+            for (const change of deduped.values()) {
                 const inCohort = change.status === 'entered'
                 placeholders.push(
                     `($${paramIndex}, $${paramIndex + 1}, $${paramIndex + 2}, $${paramIndex + 3}, CURRENT_TIMESTAMP)`
@@ -86,7 +88,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
                     last_updated = CURRENT_TIMESTAMP
             `
 
-            await this.hub.postgres.query(
+            await this.deps.postgres.query(
                 PostgresUse.BEHAVIORAL_COHORTS_RW,
                 query,
                 values,
@@ -142,6 +144,8 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
     public async start(): Promise<void> {
         await super.start()
 
+        this.warpstreamProducer = await KafkaProducerWrapper.create(this.config.KAFKA_CLIENT_RACK, 'CDP_PRODUCER')
+
         logger.info('🚀', `${this.name} starting...`)
 
         await this.kafkaConsumer.connect(async (messages) => {
@@ -168,6 +172,7 @@ export class CdpCohortMembershipConsumer extends CdpConsumerBase<CdpCohortMember
     public async stop(): Promise<void> {
         logger.info('💤', `Stopping ${this.name}...`)
         await this.kafkaConsumer.disconnect()
+        await this.warpstreamProducer?.disconnect()
 
         // IMPORTANT: super always comes last
         await super.stop()

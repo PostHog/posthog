@@ -131,6 +131,7 @@ export interface ConversationApi {
     readonly has_unsupported_content: boolean
     /** @nullable */
     readonly agent_mode: string | null
+    readonly is_sandbox: boolean
     /** Return pending approval cards as structured data.
 
 Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -160,6 +161,8 @@ export type MessageApiContextualTools = { [key: string]: unknown }
  * `onboarding` - onboarding
  * `research` - research
  * `flags` - flags
+ * `llm_analytics` - llm_analytics
+ * `sandbox` - sandbox
  */
 export type AgentModeEnumApi = (typeof AgentModeEnumApi)[keyof typeof AgentModeEnumApi]
 
@@ -174,6 +177,8 @@ export const AgentModeEnumApi = {
     Onboarding: 'onboarding',
     Research: 'research',
     Flags: 'flags',
+    LlmAnalytics: 'llm_analytics',
+    Sandbox: 'sandbox',
 } as const
 
 /**
@@ -192,6 +197,7 @@ export interface MessageApi {
     trace_id: string
     session_id?: string
     agent_mode?: AgentModeEnumApi
+    is_sandbox?: boolean
     resume_payload?: unknown | null
 }
 
@@ -240,6 +246,7 @@ export interface PatchedConversationApi {
     readonly has_unsupported_content?: boolean
     /** @nullable */
     readonly agent_mode?: string | null
+    readonly is_sandbox?: boolean
     /** Return pending approval cards as structured data.
 
 Combines metadata from conversation.approval_decisions with payload from checkpoint
@@ -258,6 +265,23 @@ export const ChannelSourceEnumApi = {
     Widget: 'widget',
     Email: 'email',
     Slack: 'slack',
+} as const
+
+/**
+ * * `slack_channel_message` - Channel message
+ * `slack_bot_mention` - Bot mention
+ * `slack_emoji_reaction` - Emoji reaction
+ * `widget_embedded` - Widget
+ * `widget_api` - API
+ */
+export type ChannelDetailEnumApi = (typeof ChannelDetailEnumApi)[keyof typeof ChannelDetailEnumApi]
+
+export const ChannelDetailEnumApi = {
+    SlackChannelMessage: 'slack_channel_message',
+    SlackBotMention: 'slack_bot_mention',
+    SlackEmojiReaction: 'slack_emoji_reaction',
+    WidgetEmbedded: 'widget_embedded',
+    WidgetApi: 'widget_api',
 } as const
 
 /**
@@ -296,6 +320,8 @@ export const PriorityEnumApi = {
 export interface TicketAssignmentApi {
     readonly id: string
     readonly type: string
+    readonly user: string
+    readonly role: string
 }
 
 export type TicketPersonApiProperties = { [key: string]: unknown }
@@ -312,10 +338,14 @@ export interface TicketPersonApi {
     readonly is_identified: boolean
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface TicketApi {
     readonly id: string
     readonly ticket_number: number
     readonly channel_source: ChannelSourceEnumApi
+    readonly channel_detail: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id: string
     status?: TicketStatusEnumApi
     priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
@@ -336,7 +366,16 @@ export interface TicketApi {
     /** @nullable */
     readonly session_id: string | null
     readonly session_context: unknown
+    /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
+    readonly slack_channel_id: string | null
+    /** @nullable */
+    readonly slack_thread_ts: string | null
+    /** @nullable */
+    readonly slack_team_id: string | null
     readonly person: TicketPersonApi | null
+    tags?: unknown[]
 }
 
 export interface PaginatedTicketListApi {
@@ -348,10 +387,14 @@ export interface PaginatedTicketListApi {
     results: TicketApi[]
 }
 
+/**
+ * Serializer mixin that handles tags for objects.
+ */
 export interface PatchedTicketApi {
     readonly id?: string
     readonly ticket_number?: number
     readonly channel_source?: ChannelSourceEnumApi
+    readonly channel_detail?: ChannelDetailEnumApi | NullEnumApi | null
     readonly distinct_id?: string
     status?: TicketStatusEnumApi
     priority?: PriorityEnumApi | BlankEnumApi | NullEnumApi | null
@@ -372,7 +415,25 @@ export interface PatchedTicketApi {
     /** @nullable */
     readonly session_id?: string | null
     readonly session_context?: unknown
+    /** @nullable */
+    sla_due_at?: string | null
+    /** @nullable */
+    readonly slack_channel_id?: string | null
+    /** @nullable */
+    readonly slack_thread_ts?: string | null
+    /** @nullable */
+    readonly slack_team_id?: string | null
     readonly person?: TicketPersonApi | null
+    tags?: unknown[]
+}
+
+export interface SuggestReplyResponseApi {
+    suggestion: string
+}
+
+export interface SuggestReplyErrorApi {
+    detail: string
+    error_type?: string
 }
 
 export type ConversationsListParams = {

@@ -74,7 +74,7 @@ class TestExample(AcceptanceTest):
 - `merge_dangerously(into_id, from_id)` - Merge two persons
 - `query_event_by_uuid(uuid)` - Poll for an event by UUID
 - `query_person_by_distinct_id(distinct_id)` - Poll for a person
-- `query_events_by_person_id(person_id, expected_count)` - Poll for events by person
+- `query_events_by_person_id(person_id, expected_event_uuids)` - Poll for events by person
 
 **Available assertion methods:**
 
@@ -88,7 +88,7 @@ All configuration is loaded from environment variables with the `INGESTION_ACCEP
 | Variable                | Required | Default | Description                                       |
 | ----------------------- | -------- | ------- | ------------------------------------------------- |
 | `API_HOST`              | Yes      | -       | PostHog API host (e.g., `https://us.posthog.com`) |
-| `PROJECT_API_KEY`       | Yes      | -       | Project API key for capturing events              |
+| `PROJECT_API_KEY`       | Yes      | -       | Project token for capturing events                |
 | `PROJECT_ID`            | Yes      | -       | Project ID for querying events                    |
 | `PERSONAL_API_KEY`      | Yes      | -       | Personal API key for HogQL queries                |
 | `EVENT_TIMEOUT_SECONDS` | No       | 90      | Max time to wait for events to appear             |

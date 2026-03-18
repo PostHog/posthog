@@ -25,9 +25,19 @@ from posthog.test.test_journeys import journeys_for
 
 @override_settings(IN_UNIT_TESTING=True)
 class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
+    snapshot_replace_all_numbers = True
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2020-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_basic_retention_calculation(self):
+    def test_basic_retention_calculation(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         """
         Test basic retention metric: users who signed up and returned within 7 days.
 
@@ -64,7 +74,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         feature_flag_property = f"$feature/{feature_flag.key}"
 
@@ -142,7 +152,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -172,9 +184,17 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum_squares, 8)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 6)  # 6 completed
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_window_boundaries(self):
+    def test_retention_window_boundaries(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         """
         Test that retention window boundaries are enforced correctly.
 
@@ -213,7 +233,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(variant: str, user_id: str, completion_day_offset: int | None) -> list[dict]:
             """
@@ -273,7 +293,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -299,9 +321,17 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum_squares, 7)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 5)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_first_seen_vs_last_seen(self):
+    def test_retention_first_seen_vs_last_seen(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         """
         Test start_handling: FIRST_SEEN vs LAST_SEEN for recurring start events.
 
@@ -460,9 +490,17 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_last.denominator_sum_squares, 2)
         self.assertEqual(test_last.numerator_denominator_sum_product, 2)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_with_conversion_window(self):
+    def test_retention_with_conversion_window(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         """
         Test retention metric with conversion window limiting start event search.
 
@@ -501,7 +539,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(
             variant: str, user_id: str, signup_hours_after_exposure: float, return_days_after_signup: int | None
@@ -565,7 +603,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -593,9 +633,17 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum_squares, 2)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_no_completion_events(self):
+    def test_retention_no_completion_events(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         """
         Test retention when users never complete (0% retention rate).
         """
@@ -628,7 +676,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(variant: str, user_id: str) -> list[dict]:
             # Only exposure and start event, no completion event
@@ -664,7 +712,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -693,9 +743,17 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum_squares, 4)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 0)  # 0 completed
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_multiple_variants(self):
+    def test_retention_multiple_variants(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         """
         Test retention metric with multiple experiment variants (control + multiple tests).
         """
@@ -745,7 +803,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(variant: str, user_id: str, completes: bool) -> list[dict]:
             events = [
@@ -802,7 +860,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -836,9 +896,17 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_b_variant.denominator_sum_squares, 6)
         self.assertEqual(test_b_variant.numerator_denominator_sum_product, 5)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_day_zero_same_day_as_start(self):
+    def test_retention_day_zero_same_day_as_start(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         """
         Test Day 0 retention (same day as start event).
 
@@ -875,7 +943,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(variant: str, user_id: str, completion_hours_after_start: int | None) -> list[dict]:
             """
@@ -941,7 +1009,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -969,9 +1039,17 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum_squares, 4)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_hour_based_same_hour(self):
+    def test_retention_hour_based_same_hour(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         """
         Test Hour-based retention with [0, 0] window (same hour as start).
 
@@ -1012,7 +1090,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(
             variant: str, user_id: str, start_minute: int, completion_minute_offset: int | None
@@ -1088,7 +1166,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1116,9 +1196,17 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum_squares, 3)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 2)
 
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
     @freeze_time("2024-01-01T12:00:00Z")
     @snapshot_clickhouse_queries
-    def test_retention_multiple_completions_in_window(self):
+    def test_retention_multiple_completions_in_window(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
         """
         Test that multiple completion events within the retention window are handled correctly.
 
@@ -1158,7 +1246,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         )
 
         experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         def _create_events_for_user(variant: str, user_id: str, completion_days: list[int] | None) -> list[dict]:
             """
@@ -1215,7 +1303,9 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        query_runner = ExperimentQueryRunner(
+            query=experiment_query, team=self.team, force_precomputation=use_precomputation
+        )
         result = cast(ExperimentQueryResponse, query_runner.calculate())
 
         assert result.baseline is not None
@@ -1381,7 +1471,7 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
 
         flush_persons_and_events()
 
-        runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
+        runner = ExperimentQueryRunner(query=experiment_query, team=self.team, force_precomputation=False)
         result = runner.calculate()
 
         assert isinstance(result, ExperimentQueryResponse)
@@ -1407,3 +1497,159 @@ class TestExperimentRetentionMetric(ExperimentQueryRunnerBaseTest):
         self.assertEqual(test_variant.denominator_sum, 3)
         self.assertEqual(test_variant.denominator_sum_squares, 3)
         self.assertEqual(test_variant.numerator_denominator_sum_product, 3)
+
+    @parameterized.expand(
+        [
+            ("direct", False),
+            ("precomputed", True),
+        ]
+    )
+    @freeze_time("2020-01-01T12:00:00Z")
+    @snapshot_clickhouse_queries
+    def test_retention_start_event_before_exposure_not_excluded(self, name, use_precomputation):
+        self._setup_precomputation_test(use_precomputation)
+
+        feature_flag = self.create_feature_flag()
+        experiment = self.create_experiment(feature_flag=feature_flag)
+        experiment.stats_config = {"method": "frequentist"}
+        experiment.save()
+
+        metric = ExperimentRetentionMetric(
+            start_event=EventsNode(
+                event="action_performed",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            completion_event=EventsNode(
+                event="action_performed",
+                math=ExperimentMetricMathType.TOTAL,
+            ),
+            retention_window_start=1,
+            retention_window_end=7,
+            retention_window_unit=FunnelConversionWindowTimeUnit.DAY,
+            start_handling=StartHandling.FIRST_SEEN,
+        )
+
+        experiment_query = ExperimentQuery(
+            experiment_id=experiment.id,
+            kind="ExperimentQuery",
+            metric=metric,
+        )
+
+        experiment.metrics = [metric.model_dump(mode="json")]
+        self._save_experiment_with_precomputation(experiment, use_precomputation)
+
+        feature_flag_property = f"$feature/{feature_flag.key}"
+
+        # Control: 3 users who have action_performed BEFORE exposure, and also after
+        # Without the fix, these users would be excluded because min(timestamp)
+        # would pick the pre-exposure event
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
+
+            # Pre-exposure start event (should be ignored by the fix)
+            _create_event(
+                team=self.team,
+                event="action_performed",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-01T10:00:00Z",
+                properties={},
+            )
+
+            # Exposure event
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "control",
+                    "$feature_flag_response": "control",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+
+            # Post-exposure start event (should be used as start_timestamp)
+            _create_event(
+                team=self.team,
+                event="action_performed",
+                distinct_id=f"user_control_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "control"},
+            )
+
+            # Completion event within retention window (day 3 after post-exposure start)
+            if i < 2:
+                _create_event(
+                    team=self.team,
+                    event="action_performed",
+                    distinct_id=f"user_control_{i}",
+                    timestamp="2020-01-05T12:00:00Z",
+                    properties={feature_flag_property: "control"},
+                )
+
+        # Test: 3 users, same pattern
+        for i in range(3):
+            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
+
+            # Pre-exposure start event
+            _create_event(
+                team=self.team,
+                event="action_performed",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-01T10:00:00Z",
+                properties={},
+            )
+
+            # Exposure event
+            _create_event(
+                team=self.team,
+                event="$feature_flag_called",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:00:00Z",
+                properties={
+                    feature_flag_property: "test",
+                    "$feature_flag_response": "test",
+                    "$feature_flag": feature_flag.key,
+                },
+            )
+
+            # Post-exposure start event
+            _create_event(
+                team=self.team,
+                event="action_performed",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-02T12:01:00Z",
+                properties={feature_flag_property: "test"},
+            )
+
+            # All 3 test users have completion events
+            _create_event(
+                team=self.team,
+                event="action_performed",
+                distinct_id=f"user_test_{i}",
+                timestamp="2020-01-05T12:00:00Z",
+                properties={feature_flag_property: "test"},
+            )
+
+        flush_persons_and_events()
+
+        runner = ExperimentQueryRunner(query=experiment_query, team=self.team, force_precomputation=use_precomputation)
+        result = runner.calculate()
+
+        assert isinstance(result, ExperimentQueryResponse)
+        assert result.baseline is not None
+        assert result.variant_results is not None
+        assert len(result.variant_results) == 1
+
+        control_variant = result.baseline
+        test_variant = result.variant_results[0]
+
+        # All 3 control users should be in the denominator (not excluded by pre-exposure events)
+        self.assertEqual(control_variant.number_of_samples, 3)
+        # 2 of 3 retained
+        self.assertEqual(control_variant.sum, 2)
+
+        # All 3 test users should be in the denominator
+        self.assertEqual(test_variant.number_of_samples, 3)
+        # 3 of 3 retained
+        self.assertEqual(test_variant.sum, 3)

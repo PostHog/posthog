@@ -1,4 +1,4 @@
-import { PluginEvent } from '@posthog/plugin-scaffold'
+import { PluginEvent } from '~/plugin-scaffold'
 
 import { PipelineResult, dlq, ok, redirect } from '../../../ingestion/pipelines/results'
 import { InternalPerson, Person } from '../../../types'
@@ -20,7 +20,7 @@ export class PersonEventProcessor {
         private mergeService: PersonMergeService
     ) {}
 
-    async processEvent(): Promise<[PipelineResult<Person>, Promise<void>]> {
+    async processEvent(): Promise<PipelineResult<Person>> {
         // First, handle any identify/alias/merge operations
         const mergeResult = await this.mergeService.handleIdentifyOrAlias()
 
@@ -35,7 +35,7 @@ export class PersonEventProcessor {
         } else {
             const errorResult = this.handleMergeError(mergeResult.error, this.context.event)
             if (errorResult) {
-                return [errorResult, Promise.resolve()]
+                return errorResult
             }
             logger.warn('Merge operation failed, continuing with normal property updates', {
                 error: mergeResult.error.message,
@@ -48,7 +48,7 @@ export class PersonEventProcessor {
             try {
                 const [updatedPerson, updateKafkaAck] =
                     await this.propertyService.updatePersonProperties(personFromMerge)
-                return [ok(updatedPerson), Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
+                return ok(updatedPerson, [identifyOrAliasKafkaAck, updateKafkaAck])
             } catch (error) {
                 // Shortcut didn't work, swallow the error and try normal retry loop below
                 logger.debug('🔁', `failed update after adding distinct IDs, retrying`, { error })
@@ -56,12 +56,12 @@ export class PersonEventProcessor {
         }
 
         if (personFromMerge && !needsPersonUpdate) {
-            return [ok(personFromMerge), identifyOrAliasKafkaAck]
+            return ok(personFromMerge, [identifyOrAliasKafkaAck])
         }
 
         // Handle regular property updates
         const [updatedPerson, updateKafkaAck] = await this.propertyService.handleUpdate()
-        return [ok(updatedPerson), Promise.all([identifyOrAliasKafkaAck, updateKafkaAck]).then(() => undefined)]
+        return ok(updatedPerson, [identifyOrAliasKafkaAck, updateKafkaAck])
     }
 
     getContext(): PersonContext {

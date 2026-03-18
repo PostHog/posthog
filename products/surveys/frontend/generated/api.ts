@@ -1,3 +1,4 @@
+import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 /**
  * Auto-generated from the Django backend OpenAPI schema.
  * To modify these types, update the Django serializers or views, then run:
@@ -7,12 +8,12 @@
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     PaginatedSurveyListApi,
-    PatchedSurveySerializerCreateUpdateOnlyApi,
+    PatchedSurveySerializerCreateUpdateOnlySchemaApi,
     SurveyApi,
     SurveySerializerCreateUpdateOnlyApi,
+    SurveySerializerCreateUpdateOnlySchemaApi,
     SurveysListParams,
 } from './api.schemas'
 
@@ -66,14 +67,14 @@ export const getSurveysCreateUrl = (projectId: string) => {
 
 export const surveysCreate = async (
     projectId: string,
-    surveySerializerCreateUpdateOnlyApi: NonReadonly<SurveySerializerCreateUpdateOnlyApi>,
+    surveySerializerCreateUpdateOnlySchemaApi: NonReadonly<SurveySerializerCreateUpdateOnlySchemaApi>,
     options?: RequestInit
 ): Promise<SurveySerializerCreateUpdateOnlyApi> => {
     return apiMutator<SurveySerializerCreateUpdateOnlyApi>(getSurveysCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(surveySerializerCreateUpdateOnlyApi),
+        body: JSON.stringify(surveySerializerCreateUpdateOnlySchemaApi),
     })
 }
 
@@ -113,14 +114,14 @@ export const getSurveysPartialUpdateUrl = (projectId: string, id: string) => {
 export const surveysPartialUpdate = async (
     projectId: string,
     id: string,
-    patchedSurveySerializerCreateUpdateOnlyApi: NonReadonly<PatchedSurveySerializerCreateUpdateOnlyApi>,
+    patchedSurveySerializerCreateUpdateOnlySchemaApi: NonReadonly<PatchedSurveySerializerCreateUpdateOnlySchemaApi>,
     options?: RequestInit
 ): Promise<SurveySerializerCreateUpdateOnlyApi> => {
     return apiMutator<SurveySerializerCreateUpdateOnlyApi>(getSurveysPartialUpdateUrl(projectId, id), {
         ...options,
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(patchedSurveySerializerCreateUpdateOnlyApi),
+        body: JSON.stringify(patchedSurveySerializerCreateUpdateOnlySchemaApi),
     })
 }
 

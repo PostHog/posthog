@@ -33,6 +33,7 @@ class Product(StrEnum):
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
     WAREHOUSE = "warehouse"
+    WEB_ANALYTICS = "web_analytics"
     WORKFLOWS = "workflows"
 
 
@@ -44,6 +45,7 @@ class Feature(StrEnum):
     DASHBOARD = "dashboard"
     CACHE_WARMUP = "cache_warmup"
     DATA_MODELING = "data_modeling"
+    HEALTH_CHECK = "health_check"
     IMPORT_PIPELINE = "import_pipeline"
 
 
@@ -108,6 +110,7 @@ class QueryTags(BaseModel):
 
     rate_limit_bypass: Optional[int] = None
     rate_limit_wait_ms: Optional[int] = None
+    kill_switch: Optional[str] = None
 
     route_id: Optional[str] = None
     workload: Optional[str] = None  # enum connection.Workload
@@ -164,6 +167,7 @@ class QueryTags(BaseModel):
     person_on_events_mode: Optional[str] = None  # PersonsOnEventsMode
 
     timings: Optional[dict[str, float]] = None
+    execution_mode: Optional[str] = None
     trigger: Optional[str] = None
 
     # used by billing
@@ -172,6 +176,14 @@ class QueryTags(BaseModel):
     user_email: Optional[str] = None
 
     is_impersonated: Optional[bool] = None
+
+    # request source and MCP metadata
+    source: Optional[str] = None
+    mcp_user_agent: Optional[str] = None
+    mcp_client_name: Optional[str] = None
+    mcp_client_version: Optional[str] = None
+    mcp_protocol_version: Optional[str] = None
+    mcp_oauth_client_name: Optional[str] = None
 
     # constant query tags
     git_commit: Optional[str] = None

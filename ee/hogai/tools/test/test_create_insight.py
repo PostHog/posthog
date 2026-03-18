@@ -333,7 +333,9 @@ class TestCreateInsightTool(ClickhouseTestMixin, NonAtomicBaseTest):
         self.assertIsInstance(returned_tool_call_message, AssistantToolCallMessage)
         self.assertIsNotNone(returned_tool_call_message.ui_payload)
         self.assertIn("create_insight", returned_tool_call_message.ui_payload)
-        self.assertEqual(returned_tool_call_message.ui_payload["create_insight"], query.model_dump(exclude_none=True))
+        self.assertEqual(
+            returned_tool_call_message.ui_payload["create_insight"], query.model_dump(mode="json", exclude_none=True)
+        )
 
     async def test_state_updates_include_tool_call_metadata(self):
         """Test that the state passed to graph includes root_tool_call_id and plan."""

@@ -1,12 +1,12 @@
 import { useActions, useValues } from 'kea'
 
-import { InlineSourceSetup } from 'scenes/data-warehouse/new/InlineSourceSetup'
 import { availableSourcesDataLogic } from 'scenes/data-warehouse/new/availableSourcesDataLogic'
+import { InlineSourceSetup } from 'scenes/data-warehouse/new/InlineSourceSetup'
 
 import { OnboardingStepKey } from '~/types'
 
-import { OnboardingStep } from '../OnboardingStep'
 import { OnboardingStepComponentType, onboardingLogic } from '../onboardingLogic'
+import { OnboardingStep } from '../OnboardingStep'
 
 export const OnboardingDataWarehouseSourcesStep: OnboardingStepComponentType = () => {
     const { goToNextStep } = useActions(onboardingLogic)

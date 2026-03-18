@@ -9,10 +9,11 @@ import {
 import { ExperimentStatsMethod, InsightType } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'
+import { isLaunched } from '../../experimentsLogic'
 import { type ExperimentVariantResult, getVariantInterval } from '../shared/utils'
+import { MAX_AXIS_RANGE } from './constants'
 import { MetricRowGroup } from './MetricRowGroup'
 import { TableHeader } from './TableHeader'
-import { MAX_AXIS_RANGE } from './constants'
 
 interface MetricsTableProps {
     metrics: ExperimentMetric[]
@@ -99,7 +100,7 @@ export function MetricsTable({
                         const error = errors[index]
                         const metricIndex = metricIndexes[index]
 
-                        const isLoading = !result && !error && !!experiment.start_date
+                        const isLoading = !result && !error && isLaunched(experiment)
 
                         return (
                             <MetricRowGroup

@@ -39,6 +39,7 @@ from posthog.models.exported_asset import ExportedAsset, asset_for_token, get_co
 from posthog.models.insight import Insight
 from posthog.models.user import User
 from posthog.rbac.user_access_control import UserAccessControl, access_level_satisfied_for_resource
+from posthog.security.url_validation import is_url_allowed
 from posthog.session_recordings.session_recording_api import SessionRecordingSerializer
 from posthog.user_permissions import UserPermissions
 from posthog.utils import get_ip_address, render_template
@@ -813,6 +814,10 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             if not heatmap_url:
                 raise NotFound("Invalid heatmap export - missing heatmap_url")
 
+            ok, err = is_url_allowed(heatmap_url)
+            if not ok:
+                raise ValidationError("heatmap_url not allowed")
+
             heatmap_data_url = resource.export_context.get("heatmap_data_url")
             if not heatmap_data_url:
                 raise NotFound("Invalid heatmap export - missing heatmap_data_url")
@@ -848,7 +853,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
 
             except Exception:
                 raise NotFound("No heatmap found")
-        elif isinstance(resource, SharingConfiguration) and resource.recording and not resource.recording.deleted:
+        elif isinstance(resource, SharingConfiguration) and resource.recording:
             asset_title = "Session Recording"
             recording_data = SessionRecordingSerializer(resource.recording, context=context).data
             exported_data.update({"recording": recording_data})
@@ -915,7 +920,7 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
         if request.GET.get("force_type"):
             exported_data["type"] = request.GET.get("force_type")
 
-        exported_data["rootClassName"] = f"export-type-'{exported_data.get('type', 'unknown')}"
+        exported_data["rootClassName"] = f"export-type-{exported_data.get('type', 'unknown')}"
         # Check if this is a JWT authenticated request with JSON Accept header
         if (
             isinstance(resource, SharingConfiguration)

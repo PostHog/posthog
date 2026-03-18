@@ -28,7 +28,7 @@ class TestTeamAccessTokenCache(TestCase):
     def setUp(self):
         """Set up test data."""
         self.cache = TeamAccessTokenCache(ttl=300)
-        self.project_api_key = "phs_test_project_key_123"
+        self.api_token = "phs_test_project_key_123"
         self.team_id = 42
         self.access_token = "phx_test_access_token_456"
         self.hashed_token = hash_key_value(self.access_token, mode="sha256")
@@ -36,13 +36,13 @@ class TestTeamAccessTokenCache(TestCase):
         # Clear cache before each test
         cache.clear()
         # Also clear HyperCache
-        team_access_tokens_hypercache.clear_cache(self.project_api_key)
+        team_access_tokens_hypercache.clear_cache(self.api_token)
 
     def tearDown(self):
         """Clean up after tests."""
         cache.clear()
         # Also clear HyperCache
-        team_access_tokens_hypercache.clear_cache(self.project_api_key)
+        team_access_tokens_hypercache.clear_cache(self.api_token)
 
     def test_update_team_tokens(self):
         """Test updating team token list using HyperCache."""
@@ -51,10 +51,10 @@ class TestTeamAccessTokenCache(TestCase):
             hash_key_value("phx_token_two_456", mode="sha256"),
         ]
 
-        self.cache.update_team_tokens(self.project_api_key, self.team_id, tokens)
+        self.cache.update_team_tokens(self.api_token, self.team_id, tokens)
 
         # Verify tokens are cached in JSON format
-        cached_data = team_access_tokens_hypercache.get_from_cache(self.project_api_key)
+        cached_data = team_access_tokens_hypercache.get_from_cache(self.api_token)
 
         assert cached_data is not None
         assert cached_data["hashed_tokens"] == tokens
@@ -64,18 +64,18 @@ class TestTeamAccessTokenCache(TestCase):
     def test_invalidate_team(self):
         """Test invalidating team cache."""
         # Set up cache
-        self.cache.update_team_tokens(self.project_api_key, self.team_id, [self.hashed_token])
+        self.cache.update_team_tokens(self.api_token, self.team_id, [self.hashed_token])
 
         # Verify token is cached
-        cached_data = team_access_tokens_hypercache.get_from_cache(self.project_api_key)
+        cached_data = team_access_tokens_hypercache.get_from_cache(self.api_token)
         assert cached_data is not None
         assert self.hashed_token in cached_data.get("hashed_tokens", [])
 
         # Invalidate cache
-        self.cache.invalidate_team(self.project_api_key)
+        self.cache.invalidate_team(self.api_token)
 
         # Verify token is no longer cached
-        cached_data = team_access_tokens_hypercache.get_from_cache(self.project_api_key)
+        cached_data = team_access_tokens_hypercache.get_from_cache(self.api_token)
         assert cached_data is None
 
 
@@ -1310,6 +1310,7 @@ class TestWarmUserTeamsCacheTask(TestCase):
             user=user,
             secure_value=hash_key_value(token),
             mask_value=mask_key_value(token),
+            scopes=["*"],
         )
 
         # Clear any calls from the initial creation
@@ -2202,7 +2203,7 @@ class TestUserPersonalAPIKeyTeamLookup(TestCase):
             label="Unscoped Key 2",
             user=user,
             scoped_teams=[],  # Empty list = unscoped
-            scopes=None,  # No scopes = access to everything
+            scopes=["*"],  # All scopes
             secure_value=hash_key_value(token_value2),
             mask_value=mask_key_value(token_value2),
         )

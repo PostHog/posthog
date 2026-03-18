@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 from rest_framework import status
+from rest_framework.test import APIRequestFactory
 
 from posthog.api.project import ProjectViewSet
 from posthog.api.test.test_team import EnvironmentToProjectRewriteClient, team_api_test_factory
@@ -30,6 +31,7 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
             last_used_at="2021-08-25T21:09:14",
             secure_value=hash_key_value(personal_api_key),
             scoped_organizations=[other_org.id],
+            scopes=["*"],
         )
 
         response = self.client.get("/api/projects/", headers={"authorization": f"Bearer {personal_api_key}"})
@@ -195,7 +197,8 @@ class TestProjectAPI(team_api_test_factory()):  # type: ignore
     def test_project_deletion_queues_async_task(self, mock_delete_task):
         """Verify that project deletion queues async task for full deletion."""
         viewset = ProjectViewSet()
-        request = MagicMock()
+        factory = APIRequestFactory()
+        request = factory.delete("/fake")
         request.user = self.user
         viewset.request = request
 

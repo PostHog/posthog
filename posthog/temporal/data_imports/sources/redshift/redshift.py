@@ -31,23 +31,25 @@ from posthog.temporal.data_imports.sources.common.sql import Column, Table
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
 
 
-def filter_redshift_incremental_fields(columns: list[tuple[str, str]]) -> list[tuple[str, IncrementalFieldType]]:
+def filter_redshift_incremental_fields(
+    columns: list[tuple[str, str, bool]],
+) -> list[tuple[str, IncrementalFieldType, bool]]:
     """Filter columns that can be used as incremental fields for Redshift."""
-    results: list[tuple[str, IncrementalFieldType]] = []
-    for column_name, type in columns:
+    results: list[tuple[str, IncrementalFieldType, bool]] = []
+    for column_name, type, nullable in columns:
         type = type.lower()
         if type.startswith("timestamp"):
-            results.append((column_name, IncrementalFieldType.Timestamp))
+            results.append((column_name, IncrementalFieldType.Timestamp, nullable))
         elif type == "date":
-            results.append((column_name, IncrementalFieldType.Date))
+            results.append((column_name, IncrementalFieldType.Date, nullable))
         elif type in ("integer", "smallint", "bigint", "int", "int2", "int4", "int8"):
-            results.append((column_name, IncrementalFieldType.Integer))
+            results.append((column_name, IncrementalFieldType.Integer, nullable))
 
     return results
 
 
 def get_redshift_row_count(
-    host: str, port: int, database: str, user: str, password: str, schema: str
+    host: str, port: int, database: str, user: str, password: str, schema: str, names: list[str] | None = None
 ) -> dict[str, int]:
     """Get row counts for all tables in a Redshift schema."""
     connection = psycopg.connect(
@@ -70,20 +72,32 @@ def get_redshift_row_count(
                 sql.SQL("SET statement_timeout = {timeout}").format(timeout=sql.Literal(1000 * 30))  # 30 secs
             )
 
+            params: dict = {"schema": schema}
+            names_filter = ""
+            if names:
+                params["names"] = names
+                names_filter = 'AND "table" = ANY(%(names)s)'
+
             cursor.execute(
-                """
+                f"""
                 SELECT "table" AS table_name, tbl_rows AS row_count
                 FROM svv_table_info
-                WHERE schema = %(schema)s
+                WHERE schema = %(schema)s {names_filter}
                 """,
-                {"schema": schema},
+                params,
             )
             row_count_result = cursor.fetchall()
             row_counts = {row[0]: int(row[1]) for row in row_count_result}
 
+            views_params: dict = {"schema": schema}
+            views_names_filter = ""
+            if names is not None:
+                views_params["names"] = names
+                views_names_filter = "AND viewname = ANY(%(names)s)"
+
             cursor.execute(
-                "SELECT viewname FROM pg_views WHERE schemaname = %(schema)s",
-                {"schema": schema},
+                f"SELECT viewname FROM pg_views WHERE schemaname = %(schema)s {views_names_filter}",
+                views_params,
             )
             views = cursor.fetchall()
 
@@ -108,8 +122,8 @@ def get_redshift_row_count(
 
 
 def get_schemas(
-    host: str, database: str, user: str, password: str, schema: str, port: int
-) -> dict[str, list[tuple[str, str]]]:
+    host: str, database: str, user: str, password: str, schema: str, port: int, names: list[str] | None = None
+) -> dict[str, list[tuple[str, str, bool]]]:
     """Get all tables from Redshift source schemas to sync."""
     connection = psycopg.connect(
         host=host,
@@ -126,20 +140,26 @@ def get_schemas(
     )
 
     with connection.cursor() as cursor:
+        params: dict = {"schema": schema}
+        names_filter = ""
+        if names:
+            params["names"] = names
+            names_filter = "AND table_name = ANY(%(names)s)"
+
         cursor.execute(
-            """
-            SELECT table_name, column_name, data_type
+            f"""
+            SELECT table_name, column_name, data_type, is_nullable
             FROM information_schema.columns
-            WHERE table_schema = %(schema)s
+            WHERE table_schema = %(schema)s {names_filter}
             ORDER BY table_name ASC
             """,
-            {"schema": schema},
+            params,
         )
         result = cursor.fetchall()
 
-        schema_list = collections.defaultdict(list)
+        schema_list: dict[str, list[tuple[str, str, bool]]] = collections.defaultdict(list)
         for row in result:
-            schema_list[row[0]].append((row[1], row[2]))
+            schema_list[row[0]].append((row[1], row[2], row[3] == "YES"))
 
     connection.close()
 

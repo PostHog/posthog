@@ -5,7 +5,7 @@ Handles injecting breakdown columns into various metric type queries (funnel, me
 Breakdown columns are used to segment experiment results by property values.
 """
 
-from typing import Union
+from typing import Union, cast
 
 from posthog.schema import (
     Breakdown,
@@ -14,10 +14,13 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    MultipleBreakdownType,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
+
+from posthog.hogql_queries.insights.trends.utils import get_properties_chain
 
 # Constant for representing NULL breakdown values
 BREAKDOWN_NULL_STRING_LABEL = "$$_posthog_breakdown_null_$$"
@@ -64,11 +67,27 @@ class BreakdownInjector:
 
         result = []
         for i, breakdown in enumerate(self.breakdowns):
-            # Build the property chain - if table_alias is empty, just use properties.breakdown
-            if table_alias:
-                property_expr = ast.Field(chain=[table_alias, "properties", breakdown.property])
+            # Default to event type for backward compatibility
+            breakdown_type = breakdown.type or cast(MultipleBreakdownType, "event")
+
+            # Convert property to string (it can be str | int in schema)
+            breakdown_field = str(breakdown.property)
+
+            # Get the correct property chain based on type
+            properties_chain = get_properties_chain(
+                breakdown_type=breakdown_type,
+                breakdown_field=breakdown_field,
+                group_type_index=breakdown.group_type_index,
+            )
+
+            # For event properties, prepend table_alias if provided
+            # For person/group/session, use chain as-is (they reference other tables)
+            if table_alias and properties_chain[0] == "properties":
+                # Event property: prepend table alias
+                property_expr = ast.Field(chain=[table_alias, *properties_chain])
             else:
-                property_expr = ast.Field(chain=["properties", breakdown.property])
+                # Person/group/session property or no table alias: use chain directly
+                property_expr = ast.Field(chain=properties_chain)
 
             expr = parse_expr(
                 "coalesce(toString({property_expr}), {null_label})",

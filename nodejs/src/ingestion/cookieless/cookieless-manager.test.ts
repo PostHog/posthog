@@ -2,8 +2,7 @@ import fs from 'fs'
 import { Message } from 'node-rdkafka'
 import path from 'path'
 
-import type { PluginEvent } from '@posthog/plugin-scaffold'
-
+import type { PluginEvent } from '~/plugin-scaffold'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createOrganization, createTeam, getTeam } from '~/tests/helpers/sql'
 
@@ -217,7 +216,7 @@ describe('CookielessManager', () => {
                 [mode, teamId],
                 'set team to cookieless'
             )
-            team = (await getTeam(hub, teamId))!
+            team = (await getTeam(hub.postgres, teamId))!
         }
 
         const clearRedis = async () => {
@@ -230,7 +229,7 @@ describe('CookielessManager', () => {
             await clearRedis()
             hub.cookielessManager.deleteAllLocalSalts()
             teamId = await createTeam(hub.postgres, organizationId)
-            team = (await getTeam(hub, teamId))!
+            team = (await getTeam(hub.postgres, teamId))!
             event = deepFreeze({
                 event: 'test event',
                 distinct_id: COOKIELESS_SENTINEL_VALUE,

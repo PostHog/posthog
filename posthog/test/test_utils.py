@@ -23,6 +23,7 @@ from posthog.utils import (
     PotentialSecurityProblemException,
     absolute_uri,
     base64_decode,
+    filters_override_requested_by_client,
     flatten,
     format_query_params_absolute_url,
     get_available_timezones_with_offsets,
@@ -35,6 +36,8 @@ from posthog.utils import (
     refresh_requested_by_client,
     relative_date_parse,
     str_to_int_set,
+    tile_filters_override_requested_by_client,
+    variables_override_requested_by_client,
 )
 
 
@@ -706,3 +709,109 @@ class TestGetIpAddress(TestCase):
         if x_forwarded_for is not None:
             request.META["HTTP_X_FORWARDED_FOR"] = x_forwarded_for
         assert get_ip_address(request) == expected
+
+
+class TestSharingOverrideProtection(TestCase):
+    """Sharing token authenticators must block query param overrides on shared dashboards."""
+
+    def _make_request(self, authenticator, query_params=None):
+        factory = RequestFactory()
+        django_request = factory.get("/", data=query_params or {})
+        request = Request(django_request)
+        request._authenticator = authenticator
+        return request
+
+    @parameterized.expand(
+        [
+            ("access_token_auth",),
+            ("password_protected_auth",),
+        ]
+    )
+    def test_filters_override_blocked_for_sharing_authenticators(self, auth_type):
+        from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+
+        authenticator = (
+            SharingAccessTokenAuthentication()
+            if auth_type == "access_token_auth"
+            else SharingPasswordProtectedAuthentication()
+        )
+        request = self._make_request(authenticator, query_params={"filters_override": json.dumps({"date_from": "-7d"})})
+        dashboard = type("Dashboard", (), {"filters": {"date_from": "-30d"}})()
+
+        result = filters_override_requested_by_client(request, dashboard)
+
+        assert result == {"date_from": "-30d"}
+
+    def test_filters_override_allowed_for_normal_auth(self):
+        request = self._make_request(None, query_params={"filters_override": json.dumps({"date_from": "-7d"})})
+        dashboard = type("Dashboard", (), {"filters": {"date_from": "-30d"}})()
+
+        result = filters_override_requested_by_client(request, dashboard)
+
+        assert result == {"date_from": "-7d"}
+
+    @parameterized.expand(
+        [
+            ("access_token_auth",),
+            ("password_protected_auth",),
+        ]
+    )
+    @patch("posthog.api.insight_variable.map_stale_to_latest", side_effect=lambda variables, _: variables)
+    def test_variables_override_blocked_for_sharing_authenticators(self, auth_type, _mock):
+        from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+
+        authenticator = (
+            SharingAccessTokenAuthentication()
+            if auth_type == "access_token_auth"
+            else SharingPasswordProtectedAuthentication()
+        )
+        request = self._make_request(
+            authenticator, query_params={"variables_override": json.dumps({"injected": {"value": "evil"}})}
+        )
+        dashboard = type("Dashboard", (), {"variables": {"var1": {"value": "safe"}}})()
+
+        result = variables_override_requested_by_client(request, dashboard, variables=[])
+
+        assert result == {"var1": {"value": "safe"}}
+
+    @patch("posthog.api.insight_variable.map_stale_to_latest", side_effect=lambda variables, _: variables)
+    def test_variables_override_allowed_for_normal_auth(self, _mock):
+        request = self._make_request(
+            None, query_params={"variables_override": json.dumps({"var1": {"value": "custom"}})}
+        )
+        dashboard = type("Dashboard", (), {"variables": {"var1": {"value": "default"}}})()
+
+        result = variables_override_requested_by_client(request, dashboard, variables=[])
+
+        assert result == {"var1": {"value": "custom"}}
+
+    @parameterized.expand(
+        [
+            ("access_token_auth",),
+            ("password_protected_auth",),
+        ]
+    )
+    def test_tile_filters_override_blocked_for_sharing_authenticators(self, auth_type):
+        from posthog.auth import SharingAccessTokenAuthentication, SharingPasswordProtectedAuthentication
+
+        authenticator = (
+            SharingAccessTokenAuthentication()
+            if auth_type == "access_token_auth"
+            else SharingPasswordProtectedAuthentication()
+        )
+        request = self._make_request(
+            authenticator, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})}
+        )
+        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
+
+        result = tile_filters_override_requested_by_client(request, tile)
+
+        assert result == {"breakdown": "country"}
+
+    def test_tile_filters_override_allowed_for_normal_auth(self):
+        request = self._make_request(None, query_params={"tile_filters_override": json.dumps({"breakdown": "region"})})
+        tile = type("DashboardTile", (), {"filters_overrides": {"breakdown": "country"}})()
+
+        result = tile_filters_override_requested_by_client(request, tile)
+
+        assert result == {"breakdown": "region"}

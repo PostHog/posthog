@@ -27,7 +27,6 @@ def use_cluster_cache(team_id: int) -> bool:
     return posthoganalytics.feature_enabled(
         "query-cache-cluster-migration",
         str(team_id),
-        only_evaluate_locally=True,
         send_feature_flag_events=False,
     )
 

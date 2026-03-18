@@ -7,12 +7,12 @@ import {
     authorizedUrlListLogic,
     defaultAuthorizedUrlProperties,
 } from 'lib/components/AuthorizedUrlList/authorizedUrlListLogic'
+import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import {
     DEFAULT_HEATMAP_FILTERS,
     PostHogAppToolbarEvent,
     calculateViewportRange,
 } from 'lib/components/IframedToolbarBrowser/utils'
-import { CommonFilters, HeatmapFixedPositionMode } from 'lib/components/heatmaps/types'
 import { LemonBannerProps } from 'lib/lemon-ui/LemonBanner'
 import { teamLogic } from 'scenes/teamLogic'
 

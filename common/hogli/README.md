@@ -66,6 +66,12 @@ To see all available commands run:
 hogli --help
 ```
 
+A `man` page is generated from `--help` output automatically during `flox activate`:
+
+```bash
+man hogli
+```
+
 Every subcommand is self-documented. You can append `--help` to any command for detailed options, for example `hogli test:python --help`.
 
 ### Design philosophy

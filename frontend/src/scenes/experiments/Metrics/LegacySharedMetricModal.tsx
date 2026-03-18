@@ -4,16 +4,16 @@ import { useState } from 'react'
 import { LemonBanner, LemonButton, LemonLabel, LemonModal, Link } from '@posthog/lemon-ui'
 
 import { ObjectTags } from 'lib/components/ObjectTags/ObjectTags'
-import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonTable } from 'lib/lemon-ui/LemonTable'
 import { urls } from 'scenes/urls'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 
-import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
-import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 import { experimentLogic } from '../experimentLogic'
+import { MetricDisplayFunnels, MetricDisplayTrends } from '../ExperimentView/components'
 import { modalsLogic } from '../modalsLogic'
+import { SharedMetric } from '../SharedMetrics/sharedMetricLogic'
 
 /**
  * @deprecated

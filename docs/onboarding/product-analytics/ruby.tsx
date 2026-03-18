@@ -41,7 +41,7 @@ export const getRubySteps = (ctx: OnboardingComponentsContext): StepDefinition[]
                                 require 'posthog'
                                 
                                 posthog = PostHog::Client.new({
-                                    api_key: "<ph_project_api_key>",
+                                    api_key: "<ph_project_token>",
                                     host: "<ph_client_api_host>",
                                     on_error: Proc.new { |status, msg| print msg }
                                 })

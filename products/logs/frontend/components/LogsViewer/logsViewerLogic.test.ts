@@ -6,9 +6,9 @@ import { initKeaTests } from '~/test/init'
 
 import { ParsedLogMessage } from 'products/logs/frontend/types'
 
-import { logsViewerFiltersLogic } from './Filters/logsViewerFiltersLogic'
 import { logsViewerConfigLogic } from './config/logsViewerConfigLogic'
 import { logsViewerDataLogic } from './data/logsViewerDataLogic'
+import { logsViewerFiltersLogic } from './Filters/logsViewerFiltersLogic'
 import { logsViewerLogic } from './logsViewerLogic'
 
 const createMockRawLog = (uuid: string): LogMessage => ({

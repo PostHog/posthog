@@ -59,9 +59,7 @@ class RestoreRequestSerializer(serializers.Serializer):
 
 class RestoreRedeemSerializer(serializers.Serializer):
     restore_token = serializers.CharField(min_length=40, max_length=50)  # 43 chars expected
-    widget_session_id = serializers.CharField(min_length=1, max_length=64)
-    distinct_id = serializers.CharField(max_length=400, required=False)
-    current_url = serializers.URLField(max_length=2048, required=False)
+    widget_session_id = serializers.UUIDField()
 
 
 class WidgetRestoreRequestView(APIView):
@@ -148,7 +146,7 @@ class WidgetRestoreRedeemView(APIView):
             )
 
         raw_token = serializer.validated_data["restore_token"]
-        widget_session_id = serializer.validated_data["widget_session_id"]
+        widget_session_id = str(serializer.validated_data["widget_session_id"])
 
         # Redeem token
         result = RestoreService.redeem_token(

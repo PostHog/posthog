@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { LemonBanner, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonBanner, Link, Spinner } from '@posthog/lemon-ui'
 
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
@@ -22,18 +22,16 @@ import { userLogic } from 'scenes/userLogic'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AvailableFeature, type SessionRecordingMaskingLevel, TeamPublicType, TeamType } from '~/types'
 
-import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
-import { OnboardingMax } from './OnboardingMax'
-import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
-import { OnboardingReverseProxy } from './OnboardingReverseProxy'
-import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { OnboardingUpgradeStep } from './billing/OnboardingUpgradeStep'
 import { OnboardingDataWarehouseSourcesStep } from './data-warehouse/OnboardingDataWarehouseSourcesStep'
 import { OnboardingErrorTrackingAlertsStep } from './error-tracking/OnboardingErrorTrackingAlertsStep'
 import { OnboardingErrorTrackingSourceMapsStep } from './error-tracking/OnboardingErrorTrackingSourceMapsStep'
+import { OnboardingInviteTeammates } from './OnboardingInviteTeammates'
 import { OnboardingLogicProps, OnboardingStepElement, onboardingLogic } from './onboardingLogic'
+import { OnboardingMax } from './OnboardingMax'
+import { OnboardingProductConfiguration } from './OnboardingProductConfiguration'
 import { ProductConfigOption } from './onboardingProductConfigurationLogic'
-import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
+import { OnboardingSessionReplayConfiguration } from './OnboardingSessionReplayConfiguration'
 import { ErrorTrackingSDKInstructions } from './sdks/error-tracking/ErrorTrackingSDKInstructions'
 import { ExperimentsSDKInstructions } from './sdks/experiments/ExperimentsSDKInstructions'
 import { FeatureFlagsSDKInstructions } from './sdks/feature-flags/FeatureFlagsSDKInstructions'
@@ -41,6 +39,7 @@ import {
     LLMAnalyticsSDKInstructions,
     LLMAnalyticsSDKTagOverrides,
 } from './sdks/llm-analytics/LLMAnalyticsSDKInstructions'
+import { OnboardingInstallStep } from './sdks/OnboardingInstallStep'
 import {
     ProductAnalyticsSDKInstructions,
     ProductAnalyticsSDKTagOverrides,
@@ -66,7 +65,6 @@ const OnboardingWrapper = ({
     const {
         currentOnboardingStep,
         shouldShowBillingStep,
-        shouldShowReverseProxyStep,
         shouldShowDataWarehouseStep,
         product,
         billingProduct,
@@ -96,11 +94,6 @@ const OnboardingWrapper = ({
         if (shouldShowDataWarehouseStep) {
             const DataWarehouseStep = <OnboardingDataWarehouseSourcesStep />
             steps = [...steps, DataWarehouseStep]
-        }
-
-        if (shouldShowReverseProxyStep) {
-            const ReverseProxyStep = <OnboardingReverseProxy />
-            steps = [...steps, ReverseProxyStep]
         }
 
         if (shouldShowBillingStep && billingProduct) {
@@ -445,9 +438,7 @@ const WorkflowsInstallHeader = (): JSX.Element => {
             {isCloudOrDev && (
                 <>
                     <LemonBanner type="info" hideIcon>
-                        <h3 className="flex items-center gap-2 pb-1">
-                            <LemonTag type="warning">BETA</LemonTag> AI setup wizard
-                        </h3>
+                        <h3 className="pb-1">AI setup wizard</h3>
                         <div className="flex flex-col p-2">
                             <p className="font-normal pb-1">
                                 The fastest way to get started. Run this command from your project root — it

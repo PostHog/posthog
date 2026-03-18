@@ -26,7 +26,6 @@ class TestStopSurveysReachedTarget(TestCase, ClickhouseTestMixin):
             created_by=self.user,
             key="flag_name",
             filters={},
-            rollout_percentage=100,
         )
 
     def _create_event_for_survey(

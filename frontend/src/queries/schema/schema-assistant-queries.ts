@@ -180,37 +180,35 @@ export interface AssistantInsightsQueryBase {
 /**
  * Defines the event series.
  */
-export interface AssistantTrendsEventsNode
-    extends Omit<
-        EventsNode,
-        | 'fixedProperties'
-        | 'properties'
-        | 'math_hogql'
-        | 'limit'
-        | 'groupBy'
-        | 'orderBy'
-        | 'response'
-        | 'math_property_revenue_currency'
-    > {
+export interface AssistantTrendsEventsNode extends Omit<
+    EventsNode,
+    | 'fixedProperties'
+    | 'properties'
+    | 'math_hogql'
+    | 'limit'
+    | 'groupBy'
+    | 'orderBy'
+    | 'response'
+    | 'math_property_revenue_currency'
+> {
     properties?: AssistantPropertyFilter[]
 }
 
 /**
  * Defines the action series. You must provide the action ID in the `id` field and the name in the `name` field.
  */
-export interface AssistantTrendsActionsNode
-    extends Omit<
-        ActionsNode,
-        | 'fixedProperties'
-        | 'properties'
-        | 'math_hogql'
-        | 'limit'
-        | 'groupBy'
-        | 'orderBy'
-        | 'response'
-        | 'name'
-        | 'math_property_revenue_currency'
-    > {
+export interface AssistantTrendsActionsNode extends Omit<
+    ActionsNode,
+    | 'fixedProperties'
+    | 'properties'
+    | 'math_hogql'
+    | 'limit'
+    | 'groupBy'
+    | 'orderBy'
+    | 'response'
+    | 'name'
+    | 'math_property_revenue_currency'
+> {
     properties?: AssistantPropertyFilter[]
     /**
      * Action name from the plan.

@@ -5,8 +5,8 @@ import { tryDecodeURIComponent } from 'lib/utils'
 import { FunnelPathsFilter, PathsFilter } from '~/queries/schema/schema-general'
 import { FunnelPathType } from '~/types'
 
-import { HIDE_PATH_CARD_HEIGHT } from './Paths'
 import { PATH_NODE_CARD_TOP_OFFSET } from './constants'
+import { HIDE_PATH_CARD_HEIGHT } from './Paths'
 
 const PATH_NODE_CARD_TOP_ADJUSTMENTS = 33
 

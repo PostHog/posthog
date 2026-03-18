@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
-import { Query } from '~/queries/Query/Query'
 import { insightVizDataNodeKey } from '~/queries/nodes/InsightViz/InsightViz'
+import { Query } from '~/queries/Query/Query'
 import { DataTableNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { isWebOverviewQuery, isWebStatsTableQuery } from '~/queries/utils'

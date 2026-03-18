@@ -1,5 +1,6 @@
 import dataclasses
-from collections.abc import Callable
+from collections import defaultdict
+from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -29,6 +30,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.models import (
     BooleanDatabaseField,
     DatabaseField,
@@ -51,6 +53,9 @@ from posthog.hogql.database.models import (
     UnknownDatabaseField,
     VirtualTable,
 )
+from posthog.hogql.database.postgres_table import PostgresTable
+from posthog.hogql.database.postgres_utils import add_postgres_foreign_key_lazy_joins
+from posthog.hogql.database.s3_table import S3Table
 from posthog.hogql.database.schema.app_metrics2 import AppMetrics2Table
 from posthog.hogql.database.schema.channel_type import create_initial_channel_type, create_initial_domain_type
 from posthog.hogql.database.schema.cohort_membership import CohortMembershipTable
@@ -114,24 +119,25 @@ from posthog.hogql.database.schema.web_analytics_preaggregated import (
     WebPreAggregatedBouncesTable,
     WebPreAggregatedStatsTable,
 )
-from posthog.hogql.database.utils import get_join_field_chain
+from posthog.hogql.database.utils import get_join_field_chain, qualify_join_key_expr
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.timings import HogQLTimings
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.group_type_mapping import GroupTypeMapping
+from posthog.models.group_type_mapping import get_group_types_for_project
 from posthog.models.team.team import WeekStartDay
-from posthog.person_db_router import PERSONS_DB_FOR_READ
 
 from products.data_warehouse.backend.models.external_data_job import ExternalDataJob
+from products.data_warehouse.backend.models.external_data_schema import ExternalDataSchema
 from products.data_warehouse.backend.models.external_data_source import ExternalDataSource
 from products.data_warehouse.backend.models.table import DataWarehouseTable, DataWarehouseTableColumns
 from products.revenue_analytics.backend.views import RevenueAnalyticsBaseView
 from products.revenue_analytics.backend.views.orchestrator import build_all_revenue_analytics_views
 
 if TYPE_CHECKING:
-    from posthog.models import Team
+    from posthog.models import Team, User
+    from posthog.rbac.user_access_control import UserAccessControl
 
 tracer = trace.get_tracer(__name__)
 
@@ -228,40 +234,69 @@ ROOT_TABLES__DO_NOT_ADD_ANY_MORE: dict[str, TableNode] = {
 # --------------------
 
 
+def build_database_root_node(*, include_posthog_tables: bool = True) -> TableNode:
+    def clone_root_tables() -> dict[str, TableNode]:
+        return {name: table_node.model_copy(deep=True) for name, table_node in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.items()}
+
+    children: dict[str, TableNode] = {
+        "numbers": TableNode(name="numbers", table=NumbersTable()),
+    }
+
+    if include_posthog_tables:
+        root_tables = clone_root_tables()
+        children = {
+            **root_tables,
+            "posthog": TableNode(
+                name="posthog",
+                children={
+                    **clone_root_tables()
+                    # Add new tables here
+                },
+            ),
+            "system": SystemTables(),
+            **children,
+        }
+
+    return TableNode(children=children)
+
+
 class Database(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     # Users can query from the tables below
-    tables: TableNode = TableNode(
-        children={
-            **ROOT_TABLES__DO_NOT_ADD_ANY_MORE,
-            "posthog": TableNode(
-                children={
-                    **ROOT_TABLES__DO_NOT_ADD_ANY_MORE
-                    # Add new tables here
-                }
-            ),
-            "system": SystemTables(),
-            "numbers": TableNode(name="numbers", table=NumbersTable()),
-        }
-    )
+    tables: TableNode
 
     _warehouse_table_names: list[str] = []
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
+    _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
+    _connection_id: str | None = None
+    _direct_access_warehouse_table_names: set[str] = set()
 
     _timezone: str | None
     _week_start_day: WeekStartDay | None
 
-    def __init__(self, timezone: str | None = None, week_start_day: WeekStartDay | None = None):
-        super().__init__()
+    def __init__(
+        self,
+        timezone: str | None = None,
+        week_start_day: WeekStartDay | None = None,
+        include_posthog_tables: bool = True,
+    ):
+        super().__init__(tables=build_database_root_node(include_posthog_tables=include_posthog_tables))
         try:
             self._timezone = str(ZoneInfo(timezone)) if timezone else None
         except ZoneInfoNotFoundError:
             raise ValueError(f"Unknown timezone: '{str(timezone)}'")
 
         self._week_start_day = week_start_day
+        self._warehouse_table_names = []
+        self._warehouse_self_managed_table_names = []
+        self._view_table_names = []
+        self._denied_tables = set()
+        self._connection_id = None
+        self._direct_access_warehouse_table_names = set()
         self._serialization_errors: dict[str, str] = {}  # table_key -> error_message
+        self.user_access_control: Optional[UserAccessControl] = None
 
     def get_timezone(self) -> str:
         return self._timezone or "UTC"
@@ -293,14 +328,27 @@ class Database(BaseModel):
         except ResolutionError as e:
             if isinstance(table_name, list):
                 table_name = ".".join(table_name)
+            if table_name in self._denied_tables:
+                raise QueryError(f"You don't have access to table `{table_name}`.") from e
             raise QueryError(f"Unknown table `{table_name}`.") from e
 
     def get_all_table_names(self) -> list[str]:
-        warehouse_table_names = list(filter(lambda x: "." in x, self._warehouse_table_names))
+        warehouse_table_names: list[str] = []
+        for table_name in self._warehouse_table_names:
+            try:
+                table = self.get_table(table_name)
+            except QueryError:
+                continue
+
+            if table.name == table_name:
+                warehouse_table_names.append(table_name)
+
+        if self._is_direct_query():
+            return sorted(set(warehouse_table_names))
 
         return (
             self.get_posthog_table_names()
-            + warehouse_table_names
+            + sorted(set(warehouse_table_names))
             + self._warehouse_self_managed_table_names
             + self._view_table_names
         )
@@ -320,7 +368,11 @@ class Database(BaseModel):
         ]
 
     def get_system_table_names(self) -> list[str]:
-        return ["query_log", *cast(SystemTables, self.tables.children["system"]).resolve_all_table_names()]
+        system_tables = self.tables.children.get("system")
+        if not isinstance(system_tables, SystemTables):
+            return []
+
+        return ["query_log", *system_tables.resolve_all_table_names()]
 
     def get_warehouse_table_names(self) -> list[str]:
         return self._warehouse_table_names + self._warehouse_self_managed_table_names
@@ -329,7 +381,7 @@ class Database(BaseModel):
         return self._view_table_names
 
     def _add_warehouse_tables(self, node: TableNode):
-        self.tables.merge_with(node)
+        self.tables.merge_with(node, table_conflict_mode="override" if self._is_direct_query() else "ignore")
         for name in sorted(node.resolve_all_table_names()):
             self._warehouse_table_names.append(name)
 
@@ -342,6 +394,133 @@ class Database(BaseModel):
         self.tables.merge_with(node)
         for name in sorted(node.resolve_all_table_names()):
             self._view_table_names.append(name)
+
+    def _is_direct_query(self) -> bool:
+        return self._connection_id is not None
+
+    @staticmethod
+    def _is_helper_function_table(table: object) -> bool:
+        return isinstance(table, FunctionCallTable) and not isinstance(
+            table, (DirectPostgresTable, PostgresTable, S3Table)
+        )
+
+    def _remove_lazy_joins_to_disallowed_tables(self, allowed_table_names: set[str]) -> None:
+        def should_keep_join(field: LazyJoin) -> bool:
+            join_table = field.join_table
+
+            if isinstance(join_table, str):
+                return join_table in allowed_table_names
+
+            if self._is_helper_function_table(join_table):
+                return True
+
+            if not isinstance(join_table.name, str):
+                return True
+
+            return join_table.name in allowed_table_names
+
+        def visit(node: TableNode) -> None:
+            table = node.table
+            if isinstance(table, Table):
+                for field_name, field in list(table.fields.items()):
+                    if isinstance(field, LazyJoin) and not should_keep_join(field):
+                        del table.fields[field_name]
+
+            for child in node.children.values():
+                visit(child)
+
+        visit(self.tables)
+
+    def prune_to_table_names(self, allowed_table_names: set[str]) -> None:
+        def prune_node(node: TableNode, chain: list[str]) -> bool:
+            full_name = ".".join(chain)
+            keep_table = node.table is not None and (
+                full_name in allowed_table_names or (len(chain) > 0 and self._is_helper_function_table(node.table))
+            )
+
+            pruned_children: dict[str, TableNode] = {}
+            for child_name, child in node.children.items():
+                if prune_node(child, [*chain, child_name]):
+                    pruned_children[child_name] = child
+            node.children = pruned_children
+
+            return node.name == "root" or keep_table or len(node.children) > 0
+
+        prune_node(self.tables, [])
+        self._warehouse_table_names = [name for name in self._warehouse_table_names if name in allowed_table_names]
+        self._warehouse_self_managed_table_names = [
+            name for name in self._warehouse_self_managed_table_names if name in allowed_table_names
+        ]
+        self._view_table_names = [name for name in self._view_table_names if name in allowed_table_names]
+        self._remove_lazy_joins_to_disallowed_tables(allowed_table_names)
+
+    def apply_schema_scope(self) -> None:
+        if self._is_direct_query():
+            self.prune_to_table_names(set(self._warehouse_table_names))
+            return
+
+        allowed_table_names = set(self.tables.resolve_all_table_names())
+        built_in_global_table_names = set(self.get_posthog_table_names(include_hidden=True))
+        built_in_global_table_names.update(self.get_system_table_names())
+        built_in_global_table_names.add("numbers")
+
+        # Direct connections stay hidden from the default scope, but they must not evict
+        # built-in PostHog tables when a direct source reuses names like `events` or `persons`.
+        hidden_direct_name_collisions = self._direct_access_warehouse_table_names & built_in_global_table_names
+        direct_table_names_to_hide = self._direct_access_warehouse_table_names - built_in_global_table_names
+        allowed_table_names.difference_update(direct_table_names_to_hide)
+        self.prune_to_table_names(allowed_table_names)
+        self._warehouse_table_names = [
+            name for name in self._warehouse_table_names if name not in hidden_direct_name_collisions
+        ]
+
+    def _filter_system_tables_for_user(self, user: "User", team: "Team") -> None:
+        """Remove system tables user doesn't have resource access to."""
+        from posthog.models import OrganizationMembership
+        from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
+
+        self.user_access_control = UserAccessControl(user=user, team=team)
+
+        org_membership = self.user_access_control._organization_membership
+        if org_membership and org_membership.level >= OrganizationMembership.Level.ADMIN:
+            return
+
+        system_node = self.tables.children.get("system")
+        if not system_node or not hasattr(system_node, "children"):
+            return
+
+        denied: set[str] = set()
+        for table_node in list(system_node.children.values()):
+            table = table_node.table
+            if not isinstance(table, PostgresTable) or table.access_scope is None:
+                continue  # Not access-controlled, keep it
+
+            access_level = self.user_access_control.access_level_for_resource(table.access_scope)
+            if access_level and access_level != NO_ACCESS_LEVEL:
+                continue  # User has access, keep it
+
+            # No access - remove from schema
+            del system_node.children[table_node.name]
+            denied.add(f"system.{table_node.name}")
+
+        self._denied_tables = denied
+
+    def _filter_all_scoped_system_tables(self) -> None:
+        """Remove ALL access-controlled system tables"""
+        system_node = self.tables.children.get("system")
+        if not system_node or not hasattr(system_node, "children"):
+            return
+
+        denied: set[str] = set()
+        for table_node in list(system_node.children.values()):
+            table = table_node.table
+            if not isinstance(table, PostgresTable) or table.access_scope is None:
+                continue  # Not access-controlled, keep it
+
+            del system_node.children[table_node.name]
+            denied.add(f"system.{table_node.name}")
+
+        self._denied_tables = denied
 
     def serialize(
         self,
@@ -358,7 +537,11 @@ class Database(BaseModel):
             raise ResolutionError("Must provide team_id to serialize database")
 
         # PostHog tables
-        posthog_table_names = self.get_posthog_table_names(include_hidden=include_hidden_posthog_tables)
+        posthog_table_names = (
+            []
+            if self._is_direct_query()
+            else self.get_posthog_table_names(include_hidden=include_hidden_posthog_tables)
+        )
         for table_name in posthog_table_names:
             if include_only and table_name not in include_only:
                 continue
@@ -375,7 +558,7 @@ class Database(BaseModel):
             tables[table_name] = DatabaseSchemaPostHogTable(fields=fields_dict, id=table_name, name=table_name)
 
         # System tables
-        system_tables = self.get_system_table_names()
+        system_tables = [] if self._is_direct_query() else self.get_system_table_names()
         for table_key in system_tables:
             if include_only and table_key not in include_only:
                 continue
@@ -393,13 +576,11 @@ class Database(BaseModel):
 
         # Data Warehouse Tables and Views - Fetch all related data in one go
         warehouse_table_names = self.get_warehouse_table_names()
-        views = self.get_view_names()
+        views = [] if self._is_direct_query() else self.get_view_names()
 
-        # Fetch warehouse tables with related data in a single query
-        warehouse_tables_with_data = (
-            DataWarehouseTable.objects.select_related("credential", "external_data_source")
+        warehouse_tables_query = (
+            DataWarehouseTable.raw_objects.select_related("credential", "external_data_source")
             .prefetch_related(
-                "externaldataschema_set",
                 Prefetch(
                     "external_data_source__jobs",
                     queryset=ExternalDataJob.objects.filter(status="Completed", team_id=context.team_id).order_by(
@@ -408,17 +589,34 @@ class Database(BaseModel):
                     to_attr="latest_completed_job",
                 ),
             )
-            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id, name__in=warehouse_table_names)
+            .filter(Q(deleted=False) | Q(deleted__isnull=True), team_id=context.team_id)
             .order_by("external_data_source__prefix", "external_data_source__source_type", "name")
-            .all()
-            if warehouse_table_names
-            else []
         )
+        if self._is_direct_query():
+            warehouse_tables_query = warehouse_tables_query.filter(external_data_source_id=self._connection_id)
+        elif warehouse_table_names:
+            warehouse_tables_query = warehouse_tables_query.filter(name__in=warehouse_table_names)
+        else:
+            warehouse_tables_query = warehouse_tables_query.none()
+
+        warehouse_tables_with_data = list(warehouse_tables_query.all())
+        _preload_active_external_data_schemas(warehouse_tables_with_data)
+        if self._is_direct_query():
+            warehouse_tables_with_data = [
+                warehouse_table
+                for warehouse_table in warehouse_tables_with_data
+                if _should_include_connection_table(
+                    warehouse_table,
+                    connection_id=cast(str, self._connection_id),
+                    view_names=set(views),
+                )
+            ]
+        allowed_warehouse_table_names = set(warehouse_table_names) if self._is_direct_query() else None
 
         # Process warehouse tables
         for warehouse_table in warehouse_tables_with_data:
             # Get schema from prefetched data
-            schema_data = list(warehouse_table.externaldataschema_set.all())
+            schema_data = _get_active_external_data_schemas(warehouse_table)
             if not schema_data:
                 schema = None
             else:
@@ -443,48 +641,49 @@ class Database(BaseModel):
                     else None
                 )
                 source = DatabaseSchemaSource(
-                    id=str(db_source.source_id),
+                    id=str(db_source.id),
                     status=db_source.status,
                     source_type=db_source.source_type,
+                    access_method=db_source.access_method,
                     prefix=db_source.prefix or "",
                     last_synced_at=str(latest_completed_run.created_at) if latest_completed_run else None,
                 )
 
-            # Temp until we migrate all table names in the DB to use dot notation
-            table_key = get_data_warehouse_table_name(warehouse_table.external_data_source, warehouse_table.name)
+            for table_key in _get_warehouse_table_keys(warehouse_table, direct_query=self._is_direct_query()):
+                if allowed_warehouse_table_names is not None and table_key not in allowed_warehouse_table_names:
+                    continue
 
-            if include_only and table_key not in include_only:
-                continue
+                if include_only and table_key not in include_only:
+                    continue
 
-            try:
-                field_input = {}
-                table = self.get_table(table_key)
-                if isinstance(table, Table):
-                    field_input = table.fields
+                try:
+                    field_input = {}
+                    table = self.get_table(table_key)
+                    if isinstance(table, Table):
+                        field_input = table.fields
 
-                fields = serialize_fields(
-                    field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
-                )
-                fields_dict = {field.name: field for field in fields}
+                    fields = serialize_fields(
+                        field_input, context, table_key.split("."), warehouse_table.columns, table_type="external"
+                    )
+                    fields_dict = {field.name: field for field in fields}
 
-                tables[table_key] = DatabaseSchemaDataWarehouseTable(
-                    fields=fields_dict,
-                    id=str(warehouse_table.id),
-                    name=table_key,
-                    format=warehouse_table.format,
-                    url_pattern=warehouse_table.url_pattern,
-                    schema=schema,
-                    source=source,
-                    row_count=warehouse_table.row_count,
-                )
-            except (QueryError, ResolutionError) as e:
-                # Log error but continue processing other tables
-                logger.warning(
-                    f"Failed to serialize data warehouse table '{table_key}': {str(e)}",
-                    exc_info=True,
-                )
-                self._serialization_errors[table_key] = str(e)
-                continue  # Skip this table but process others
+                    tables[table_key] = DatabaseSchemaDataWarehouseTable(
+                        fields=fields_dict,
+                        id=str(warehouse_table.id),
+                        name=table_key,
+                        format=warehouse_table.format,
+                        url_pattern=warehouse_table.url_pattern,
+                        schema=schema,
+                        source=source,
+                        row_count=warehouse_table.row_count,
+                    )
+                except (QueryError, ResolutionError) as e:
+                    logger.warning(
+                        f"Failed to serialize data warehouse table '{table_key}': {str(e)}",
+                        exc_info=True,
+                    )
+                    self._serialization_errors[table_key] = str(e)
+                    continue
 
         # Fetch all views in a single query
         all_views = (
@@ -558,14 +757,14 @@ class Database(BaseModel):
         team_id: int | None = None,
         *,
         team: Optional["Team"] = None,
+        user: Optional["User"] = None,
         modifiers: HogQLQueryModifiers | None = None,
         timings: HogQLTimings | None = None,
+        connection_id: str | None = None,
     ) -> "Database":
         if timings is None:
             timings = HogQLTimings()
 
-        with timings.measure("imports"):
-            from posthog.hogql.database.s3_table import DataWarehouseTable as HogQLDataWarehouseTable
         from posthog.hogql.query import create_default_modifiers_for_team
 
         from posthog.models import Team
@@ -609,40 +808,65 @@ class Database(BaseModel):
             )
 
         with timings.measure("database"):
-            database = Database(timezone=team.timezone, week_start_day=team.week_start_day)
+            database = Database(
+                timezone=team.timezone,
+                week_start_day=team.week_start_day,
+                include_posthog_tables=connection_id is None,
+            )
+            if connection_id is not None:
+                database._connection_id = connection_id
+
+        with timings.measure("filter_system_tables_for_user"):
+            if team is not None:
+                is_hogql_access_control_enabled = posthoganalytics.feature_enabled(
+                    "hogql-access-control",
+                    str(team.uuid),
+                    groups={"organization": str(team.organization_id), "project": str(team.id)},
+                    group_properties={
+                        "organization": {"id": str(team.organization_id)},
+                        "project": {"id": str(team.id)},
+                    },
+                    send_feature_flag_events=False,
+                )
+                if is_hogql_access_control_enabled:
+                    if user is not None:
+                        database._filter_system_tables_for_user(user, team)
+                    else:
+                        database._filter_all_scoped_system_tables()
 
         with timings.measure("modifiers"):
             modifiers = create_default_modifiers_for_team(team, modifiers)
 
-            events_table = database.get_table("events")
-            poe = cast(VirtualTable, events_table.fields["poe"])
+            if not database._is_direct_query():
+                events_table = database.get_table("events")
+                poe = cast(VirtualTable, events_table.fields["poe"])
 
-            if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
-                # no change
-                events_table.fields["person"] = FieldTraverser(chain=["pdi", "person"])
-                events_table.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
+                if modifiers.personsOnEventsMode == PersonsOnEventsMode.DISABLED:
+                    # no change
+                    events_table.fields["person"] = FieldTraverser(chain=["pdi", "person"])
+                    events_table.fields["person_id"] = FieldTraverser(chain=["pdi", "person_id"])
 
-            elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
-                events_table.fields["person_id"] = StringDatabaseField(name="person_id")
-                _use_person_properties_from_events(database)
+                elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS:
+                    events_table.fields["person_id"] = StringDatabaseField(name="person_id")
+                    _use_person_properties_from_events(database)
 
-            elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
-                _use_person_id_from_person_overrides(database)
-                _use_person_properties_from_events(database)
-                poe.fields["id"] = events_table.fields["person_id"]
+                elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS:
+                    _use_person_id_from_person_overrides(database)
+                    _use_person_properties_from_events(database)
+                    poe.fields["id"] = events_table.fields["person_id"]
 
-            elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
-                _use_person_id_from_person_overrides(database)
-                events_table.fields["person"] = LazyJoin(
-                    from_field=["person_id"],
-                    join_table=database.get_table("persons"),
-                    join_function=join_with_persons_table,
-                )
+                elif modifiers.personsOnEventsMode == PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED:
+                    _use_person_id_from_person_overrides(database)
+                    events_table.fields["person"] = LazyJoin(
+                        from_field=["person_id"],
+                        join_table=database.get_table("persons"),
+                        join_function=join_with_persons_table,
+                    )
 
-            _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
+                _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database)
 
         with timings.measure("session_table"):
-            if (
+            if not database._is_direct_query() and (
                 modifiers.sessionTableVersion == SessionTableVersion.V2
                 or modifiers.sessionTableVersion == SessionTableVersion.AUTO
             ):
@@ -676,7 +900,7 @@ class Database(BaseModel):
                     join_function=join_replay_table_to_sessions_table_v2,
                 )
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
-            elif modifiers.sessionTableVersion == SessionTableVersion.V3:
+            elif not database._is_direct_query() and modifiers.sessionTableVersion == SessionTableVersion.V3:
                 sessions = SessionsTableV3()
                 database.tables.add_child(TableNode(name="sessions", table=sessions), table_conflict_mode="override")
 
@@ -704,90 +928,105 @@ class Database(BaseModel):
                 cast(LazyJoin, raw_replay_events.fields["events"]).join_table = events_table
 
         with timings.measure("virtual_fields"):
-            _use_virtual_fields(database, modifiers, timings)
+            if not database._is_direct_query():
+                _use_virtual_fields(database, modifiers, timings)
 
         with timings.measure("group_type_mapping"):
-            _setup_group_key_fields(database, team)
-            events_table = database.get_table("events")
-            for mapping in GroupTypeMapping.objects.using(PERSONS_DB_FOR_READ).filter(project_id=team.project_id):
-                if events_table.fields.get(mapping.group_type) is None:
-                    events_table.fields[mapping.group_type] = FieldTraverser(
-                        chain=[f"group_{mapping.group_type_index}"]
-                    )
+            if not database._is_direct_query():
+                group_types = get_group_types_for_project(team.project_id)
+                _setup_group_key_fields(database, group_types)
+                events_table = database.get_table("events")
+                for mapping in group_types:
+                    if events_table.fields.get(mapping["group_type"]) is None:
+                        events_table.fields[mapping["group_type"]] = FieldTraverser(
+                            chain=[f"group_{mapping['group_type_index']}"]
+                        )
 
         warehouse_tables_dot_notation_mapping: dict[str, str] = {}
         warehouse_tables: TableNode = TableNode()
         self_managed_warehouse_tables: TableNode = TableNode()
         views: TableNode = TableNode()
+        warehouse_tables_to_process: list[tuple[Table, DataWarehouseTable]] = []
+        view_names: set[str] = set()
 
         with timings.measure("data_warehouse_saved_query"):
-            with timings.measure("select"):
-                queryset = (
-                    DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-                    .exclude(deleted=True)
-                    .order_by("name")
-                    .select_related("table", "table__credential", "managed_viewset")
-                )
+            if database._is_direct_query():
+                queryset = DataWarehouseSavedQuery.objects.filter(team_id=team.pk).exclude(deleted=True)
                 if not is_managed_viewset_enabled:
                     queryset = queryset.filter(managed_viewset__isnull=True)
-
-                saved_queries = list(queryset)
-
-            for saved_query in saved_queries:
-                with timings.measure(f"saved_query_{saved_query.name}"):
-                    views.add_child(
-                        TableNode.create_nested_for_chain(
-                            saved_query.name.split("."),
-                            table=saved_query.hogql_definition(modifiers),
-                        ),
-                        table_conflict_mode="ignore",
+                view_names = set(queryset.values_list("name", flat=True))
+            else:
+                with timings.measure("select"):
+                    queryset = (
+                        DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                        .exclude(deleted=True)
+                        .order_by("name")
+                        .select_related("table", "table__credential", "managed_viewset")
                     )
+                    if not is_managed_viewset_enabled:
+                        queryset = queryset.filter(managed_viewset__isnull=True)
 
-        with timings.measure("endpoint_saved_query"):
-            endpoint_saved_queries = []
-            try:
-                endpoint_saved_queries = list(
-                    DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
-                    .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
-                    .exclude(deleted=True)
-                    .select_related("table", "table__credential")
-                )
-                for endpoint_saved_query in endpoint_saved_queries:
-                    with timings.measure(f"endpoint_saved_query_{endpoint_saved_query.name}"):
+                    saved_queries = list(queryset)
+
+                for saved_query in saved_queries:
+                    with timings.measure(f"saved_query_{saved_query.name}"):
                         views.add_child(
-                            TableNode(
-                                name=endpoint_saved_query.name, table=endpoint_saved_query.hogql_definition(modifiers)
+                            TableNode.create_nested_for_chain(
+                                saved_query.name.split("."),
+                                table=saved_query.hogql_definition(modifiers),
                             ),
                             table_conflict_mode="ignore",
                         )
-            except Exception as e:
-                capture_exception(e)
+                view_names = set(views.resolve_all_table_names())
 
-        with timings.measure("revenue_analytics_views"):
-            revenue_views: list[RevenueAnalyticsBaseView] = []
-            try:
-                if not is_managed_viewset_enabled:
-                    revenue_views = list(build_all_revenue_analytics_views(team, timings))
-            except Exception as e:
-                capture_exception(e)
-
-            # Each view will have a name similar to `stripe.<prefix>.<table_name>`
-            # We want to create a nested table group where `stripe` is the parent,
-            # `<prefix>` is the child of `stripe`, and `<table_name>` is the child of `<prefix>`
-            # allowing you to access the table as `stripe[prefix][table_name]` in a dict fashion
-            # but still allowing the bare `stripe.prefix.table_name` string access
-            for view in revenue_views:
+        with timings.measure("endpoint_saved_query"):
+            if not database._is_direct_query():
+                endpoint_saved_queries = []
                 try:
-                    views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
+                    endpoint_saved_queries = list(
+                        DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+                        .filter(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
+                        .exclude(deleted=True)
+                        .select_related("table", "table__credential")
+                    )
+                    for endpoint_saved_query in endpoint_saved_queries:
+                        with timings.measure(f"endpoint_saved_query_{endpoint_saved_query.name}"):
+                            views.add_child(
+                                TableNode(
+                                    name=endpoint_saved_query.name,
+                                    table=endpoint_saved_query.hogql_definition(modifiers),
+                                ),
+                                table_conflict_mode="ignore",
+                            )
                 except Exception as e:
                     capture_exception(e)
-                    continue
+
+        with timings.measure("revenue_analytics_views"):
+            if not database._is_direct_query():
+                revenue_views: list[RevenueAnalyticsBaseView] = []
+                try:
+                    if not is_managed_viewset_enabled:
+                        revenue_views = list(build_all_revenue_analytics_views(team, timings))
+                except Exception as e:
+                    capture_exception(e)
+
+                # Each view will have a name similar to `stripe.<prefix>.<table_name>`
+                # We want to create a nested table group where `stripe` is the parent,
+                # `<prefix>` is the child of `stripe`, and `<table_name>` is the child of `<prefix>`
+                # allowing you to access the table as `stripe[prefix][table_name]` in a dict fashion
+                # but still allowing the bare `stripe.prefix.table_name` string access
+                for view in revenue_views:
+                    try:
+                        views.add_child(TableNode.create_nested_for_chain(view.name.split("."), view))
+                    except Exception as e:
+                        capture_exception(e)
+                        continue
 
         with timings.measure("data_warehouse_tables"):
 
             class WarehousePropertiesVirtualTable(VirtualTable):
                 fields: dict[str, FieldOrTable]
-                parent_table: HogQLDataWarehouseTable
+                parent_table: Table
 
                 def to_printed_hogql(self):
                     return self.parent_table.to_printed_hogql()
@@ -801,16 +1040,33 @@ class Database(BaseModel):
                     .exclude(deleted=True)
                     .select_related("credential", "external_data_source")
                 )
-
-            view_names = views.resolve_all_table_names()
+                _preload_active_external_data_schemas(tables)
+                if database._is_direct_query():
+                    tables = [
+                        table
+                        for table in tables
+                        if _should_include_connection_table(
+                            table,
+                            connection_id=cast(str, database._connection_id),
+                            view_names=view_names,
+                        )
+                    ]
             for table in tables:
                 # Skip adding data warehouse tables that are materialized from views
                 # We can detect that because they have the exact same name as the view
                 if table.name in view_names:
                     continue
 
+                if (
+                    not database._is_direct_query()
+                    and table.external_data_source
+                    and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                ):
+                    continue
+
                 with timings.measure(f"table_{table.name}"):
                     s3_table = table.hogql_definition(modifiers)
+                    primary_table = s3_table
 
                     # If the warehouse table has no _properties_ field, then set it as a virtual table
                     if s3_table.fields.get("properties") is None:
@@ -819,31 +1075,42 @@ class Database(BaseModel):
                         )
 
                     if table.external_data_source:
-                        warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
+                        if not database._is_direct_query():
+                            warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
                     else:
                         self_managed_warehouse_tables.add_child(TableNode(name=table.name, table=s3_table))
 
-                    # Add warehouse table using dot notation
                     if table.external_data_source:
-                        source_type = table.external_data_source.source_type
-                        prefix = table.external_data_source.prefix
-                        table_chain: list[str] = [source_type.lower()]
+                        for index, table_key in enumerate(
+                            _get_warehouse_table_keys(table, direct_query=database._is_direct_query())
+                        ):
+                            table_for_key = s3_table if index == 0 else s3_table.model_copy(deep=True)
+                            table_chain = table_key.split(".")
+                            table_conflict_mode: Literal["override", "ignore"] = (
+                                "override"
+                                if database._is_direct_query()
+                                and table.external_data_source
+                                and table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT
+                                else "ignore"
+                            )
 
-                        if prefix is not None and isinstance(prefix, str) and prefix != "":
-                            table_name_stripped = table.name.replace(f"{prefix}{source_type}_".lower(), "")
-                            table_chain.extend([prefix.strip("_").lower(), table_name_stripped])
-                        else:
-                            table_name_stripped = table.name.replace(f"{source_type}_".lower(), "")
-                            table_chain.append(table_name_stripped)
+                            # For a chain of type a.b.c, we want to create a nested table node
+                            # where a is the parent, b is the child of a, and c is the child of b
+                            # where a.b.c will contain the table
+                            warehouse_tables.add_child(
+                                TableNode.create_nested_for_chain(table_chain, table_for_key),
+                                table_conflict_mode=table_conflict_mode,
+                            )
 
-                        # For a chain of type a.b.c, we want to create a nested table node
-                        # where a is the parent, b is the child of a, and c is the child of b
-                        # where a.b.c will contain the s3_table
-                        warehouse_tables.add_child(TableNode.create_nested_for_chain(table_chain, s3_table))
+                            joined_table_chain = ".".join(table_chain)
+                            table_for_key.name = joined_table_chain
+                            warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+                            if table.external_data_source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+                                database._direct_access_warehouse_table_names.add(joined_table_chain)
+                            if index == 0:
+                                primary_table = table_for_key
 
-                        joined_table_chain = ".".join(table_chain)
-                        s3_table.name = joined_table_chain
-                        warehouse_tables_dot_notation_mapping[joined_table_chain] = table.name
+                    warehouse_tables_to_process.append((primary_table, table))
 
         def define_mappings(root_node: TableNode, get_table: Callable):
             table: Table | None = None
@@ -967,6 +1234,15 @@ class Database(BaseModel):
         database._add_warehouse_self_managed_tables(self_managed_warehouse_tables)
         database._add_views(views)
 
+        with timings.measure("warehouse_foreign_keys"):
+            for hogql_table, warehouse_table_model in warehouse_tables_to_process:
+                add_postgres_foreign_key_lazy_joins(
+                    hogql_table=hogql_table,
+                    warehouse_table=warehouse_table_model,
+                    database=database,
+                    schemas=_get_active_external_data_schemas(warehouse_table_model),
+                )
+
         with timings.measure("data_warehouse_joins"):
             for join in DataWarehouseJoin.objects.filter(team_id=team.pk).exclude(deleted=True):
                 # Skip if either table is not present. This can happen if the table was deleted after the join was created.
@@ -986,18 +1262,19 @@ class Database(BaseModel):
                     if to_field is None:
                         continue
 
+                    join_configuration = join.configuration if isinstance(join.configuration, dict) else {}
                     source_table.fields[join.field_name] = LazyJoin(
                         from_field=from_field,
                         to_field=to_field,
                         join_table=joining_table,
                         join_function=(
                             join.join_function_for_experiments()
-                            if "events" == join.joining_table_name and join.configuration.get("experiments_optimized")
+                            if "events" == join.joining_table_name and join_configuration.get("experiments_optimized")
                             else join.join_function()
                         ),
                     )
 
-                    if join.source_table_name == "persons":
+                    if not database._is_direct_query() and join.source_table_name == "persons":
                         events_table = database.get_table("events")
                         person_field = events_table.fields["person"]
                         if isinstance(person_field, ast.FieldTraverser):
@@ -1025,15 +1302,8 @@ class Database(BaseModel):
 
                                 override_source_table_key = f"person.{join.source_table_key}"
 
-                                # If the source_table_key is a ast.Call node, then we want to inject in `person` on the chain of the inner `ast.Field` node
-                                source_table_key_node = parse_expr(join.source_table_key)
-                                if isinstance(source_table_key_node, ast.Call) and isinstance(
-                                    source_table_key_node.args[0], ast.Field
-                                ):
-                                    source_table_key_node.args[0].chain = [
-                                        "person",
-                                        *source_table_key_node.args[0].chain,
-                                    ]
+                                source_table_key_node = qualify_join_key_expr(join.source_table_key, "person")
+                                if source_table_key_node is not None:
                                     override_source_table_key = source_table_key_node.to_hogql()
 
                                 events_table.fields[join.field_name] = LazyJoin(
@@ -1063,23 +1333,26 @@ class Database(BaseModel):
                 except Exception as e:
                     capture_exception(e)
 
+        database.apply_schema_scope()
+
         return database
 
 
 def get_data_warehouse_table_name(source: ExternalDataSource | None, table_name: str):
-    if source:
-        source_type = source.source_type
-        prefix = source.prefix
-        if prefix is not None and isinstance(prefix, str) and prefix != "":
-            table_name_stripped = table_name.replace(f"{prefix}{source_type}_".lower(), "")
-            table_key = f"{source_type}.{prefix.strip('_')}.{table_name_stripped}".lower()
-        else:
-            table_name_stripped = table_name.replace(f"{source_type}_".lower(), "")
-            table_key = f"{source_type}.{table_name_stripped}".lower()
-    else:
-        table_key = table_name
+    if source is None:
+        return table_name
 
-    return table_key
+    if source.access_method == ExternalDataSource.AccessMethod.DIRECT:
+        return table_name
+
+    source_type = source.source_type.lower()
+    prefix = (source.prefix or "").strip("_").lower()
+    table_name_stripped = _strip_external_source_prefix(source, table_name)
+
+    if prefix:
+        return f"{source_type}.{prefix}.{table_name_stripped}".lower()
+
+    return f"{source_type}.{table_name_stripped}".lower()
 
 
 def _use_person_properties_from_events(database: Database) -> None:
@@ -1127,17 +1400,14 @@ def _use_error_tracking_issue_id_from_error_tracking_issue_overrides(database: D
     )
 
 
-def _setup_group_key_fields(database: Database, team: "Team") -> None:
+def _setup_group_key_fields(database: Database, group_types: list[dict[str, Any]]) -> None:
     """
     Set up group key fields as ExpressionFields that handle filtering based on GroupTypeMapping.created_at.
     For $group_N fields, this returns:
     - Empty string if no GroupTypeMapping exists for that index
     - if(timestamp < mapping.created_at, '', $group_N) if GroupTypeMapping exists
     """
-    group_mappings = {
-        mapping.group_type_index: mapping
-        for mapping in GroupTypeMapping.objects.using(PERSONS_DB_FOR_READ).filter(team=team)
-    }
+    group_mappings = {mapping["group_type_index"]: mapping for mapping in group_types}
     table = database.get_table("events")
 
     for group_index in range(5):
@@ -1145,13 +1415,13 @@ def _setup_group_key_fields(database: Database, team: "Team") -> None:
 
         group_mapping = group_mappings.get(group_index, None)
         # If no mapping exists or the mapping predated this feature, leave the original field unchanged
-        if group_mapping and group_mapping.created_at:
+        if group_mapping and group_mapping["created_at"]:
             # Store the original field as a "raw" version before replacing
             original_field = table.fields[field_name]
             raw_field_name = f"_{field_name}_raw"
             table.fields[raw_field_name] = original_field.model_copy(update={"hidden": True})
 
-            created_at_str = group_mapping.created_at.strftime("%Y-%m-%d %H:%M:%S")
+            created_at_str = group_mapping["created_at"].strftime("%Y-%m-%d %H:%M:%S")
 
             table.fields[field_name] = ExpressionField(
                 name=field_name,
@@ -1234,6 +1504,86 @@ def _constant_type_to_serialized_field_type(constant_type: ast.ConstantType) -> 
 
 
 HOGQL_CHARACTERS_TO_BE_WRAPPED = ["@", "-", "!", "$", "+"]
+NOT_DELETED_Q = Q(deleted=False) | Q(deleted__isnull=True)
+
+
+def _preload_active_external_data_schemas(warehouse_tables: Sequence[DataWarehouseTable]) -> None:
+    table_ids = [
+        str(warehouse_table.id) for warehouse_table in warehouse_tables if warehouse_table.external_data_source_id
+    ]
+    if not table_ids:
+        return
+
+    schemas_by_table_id: dict[str, list[ExternalDataSchema]] = defaultdict(list)
+    for schema in ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id__in=table_ids):
+        schemas_by_table_id[str(schema.table_id)].append(schema)
+
+    for warehouse_table in warehouse_tables:
+        warehouse_table.__dict__["_active_external_data_schemas"] = schemas_by_table_id.get(str(warehouse_table.id), [])
+
+
+def _get_active_external_data_schemas(warehouse_table: DataWarehouseTable) -> list[ExternalDataSchema]:
+    active_external_data_schemas = cast(
+        Optional[list[ExternalDataSchema]],
+        getattr(warehouse_table, "_active_external_data_schemas", None),
+    )
+    if active_external_data_schemas is not None:
+        return active_external_data_schemas
+
+    if warehouse_table.external_data_source_id is None:
+        return []
+
+    return list(ExternalDataSchema.objects.filter(NOT_DELETED_Q, table_id=warehouse_table.id))
+
+
+def _strip_external_source_prefix(source: ExternalDataSource, table_name: str) -> str:
+    source_type = source.source_type.lower()
+    raw_prefix = (source.prefix or "").lower()
+    prefix = raw_prefix.strip("_")
+
+    table_name_stripped = table_name
+    known_prefixes = [
+        f"{source_type}_{source.pk.hex}_",
+        f"{raw_prefix}{source_type}_" if raw_prefix else None,
+        f"{prefix}_{source_type}_" if prefix else None,
+        f"{prefix}{source_type}_" if prefix else None,
+        f"{source_type}_",
+    ]
+
+    for known_prefix in filter(None, known_prefixes):
+        if table_name_stripped.lower().startswith(known_prefix):
+            table_name_stripped = table_name_stripped[len(known_prefix) :]
+            break
+
+    return table_name_stripped
+
+
+def _get_warehouse_table_keys(warehouse_table: DataWarehouseTable, *, direct_query: bool) -> list[str]:
+    source = warehouse_table.external_data_source
+    if source is not None and source.access_method == ExternalDataSource.AccessMethod.DIRECT and direct_query:
+        return [warehouse_table.name]
+
+    return [get_data_warehouse_table_name(source, warehouse_table.name)]
+
+
+def _should_include_connection_table(
+    warehouse_table: DataWarehouseTable,
+    *,
+    connection_id: str,
+    view_names: set[str],
+) -> bool:
+    source = warehouse_table.external_data_source
+    if source is None or source.access_method != ExternalDataSource.AccessMethod.DIRECT:
+        return False
+
+    if str(warehouse_table.external_data_source_id) != connection_id:
+        return False
+
+    if warehouse_table.name in view_names:
+        return False
+
+    schemas = _get_active_external_data_schemas(warehouse_table)
+    return not schemas or any(schema.should_sync for schema in schemas)
 
 
 def serialize_fields(

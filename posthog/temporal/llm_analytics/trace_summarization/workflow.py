@@ -106,6 +106,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         batch_run_id: str,
         model: str | None,
         max_length: int,
+        job_id: str,
+        job_name: str,
     ) -> SummarizationActivityResult:
         """Process a single trace or generation with semaphore-controlled concurrency."""
         async with semaphore:
@@ -153,6 +155,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     generation_id=item.generation_id,
                     event_count=fetch_result.event_count,
                     text_repr_length=fetch_result.text_repr_length,
+                    job_id=job_id,
+                    job_name=job_name,
                 ),
                 activity_id=f"llma-summarize-{item_suffix}-{idx}",
                 start_to_close_timeout=SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT,
@@ -174,6 +178,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         """
         start_time = temporalio.workflow.now()
         batch_run_id = f"{inputs.team_id}_{start_time.isoformat()}"
+        if inputs.job_id:
+            batch_run_id = f"{batch_run_id}_{inputs.job_id}"
         metrics = BatchSummarizationMetrics()
 
         increment_workflow_started(inputs.analysis_level)
@@ -200,6 +206,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             window_start=window_start,
             window_end=window_end,
             event_filters=inputs.event_filters,
+            job_id=inputs.job_id,
+            job_name=inputs.job_name,
         )
 
         semaphore = asyncio.Semaphore(inputs.batch_size)
@@ -229,6 +237,8 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 batch_run_id=batch_run_id,
                 model=inputs.model,
                 max_length=MAX_TEXT_REPR_LENGTH,
+                job_id=inputs.job_id,
+                job_name=inputs.job_name,
             )
             for idx, item in enumerate(items)
         ]

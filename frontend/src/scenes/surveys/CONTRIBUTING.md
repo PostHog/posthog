@@ -10,6 +10,7 @@
    - `--responses` - Number of responses per survey (default: 50)
    - `--team-id` - Team ID to create surveys for (default: first team)
    - `--days-back` - Spread responses over the last N days (default: 30)
+   - `--question-types` - Generate only specific question types (for example, `--question-types nps` to guarantee an NPS question)
 
 ## How to test changes
 

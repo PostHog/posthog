@@ -348,18 +348,14 @@ impl PersonHogReplica for PersonHogReplicaService {
     ) -> Result<Response<UpsertHashKeyOverridesResponse>, Status> {
         let req = request.into_inner();
 
-        let overrides: Vec<storage::HashKeyOverrideInput> = req
-            .overrides
-            .into_iter()
-            .map(|o| storage::HashKeyOverrideInput {
-                person_id: o.person_id,
-                feature_flag_key: o.feature_flag_key,
-            })
-            .collect();
-
         let inserted_count = self
             .storage
-            .upsert_hash_key_overrides(req.team_id, &overrides, &req.hash_key)
+            .upsert_hash_key_overrides(
+                req.team_id,
+                &req.distinct_ids,
+                &req.feature_flag_keys,
+                &req.hash_key,
+            )
             .await
             .map_err(|e| log_and_convert_error(e, "upsert_hash_key_overrides"))?;
 

@@ -5,16 +5,37 @@ import useResizeObserver from 'use-resize-observer'
 import { IconCheck, IconWarning, IconX } from '@posthog/icons'
 import { LemonDivider, LemonTabs, Spinner } from '@posthog/lemon-ui'
 
-import { DangerousOperationResponse, MultiQuestionForm } from '~/queries/schema/schema-assistant-messages'
+import {
+    DangerousOperationResponse,
+    MultiQuestionForm,
+    MultiQuestionFormQuestion,
+} from '~/queries/schema/schema-assistant-messages'
 
 import { MarkdownMessage } from '../MarkdownMessage'
 import { maxThreadLogic } from '../maxThreadLogic'
 import { Option, OptionSelector } from './OptionSelector'
+import { MultiFieldQuestion, QuestionField, isFieldValid } from './QuestionField'
+
+function isQuestionAnswered(
+    q: MultiQuestionFormQuestion,
+    answers: Record<string, string | string[]>,
+    confirmedQuestions?: Set<string>
+): boolean {
+    if (q.fields?.length) {
+        // Multi_field questions with defaults (toggles, sliders) can appear "valid" on mount.
+        // Require the user to explicitly confirm by clicking the submit button.
+        if (confirmedQuestions && !confirmedQuestions.has(q.id)) {
+            return false
+        }
+        return q.fields.every((field) => isFieldValid(field, answers[field.id]))
+    }
+    return answers[q.id] !== undefined
+}
 
 interface MultiQuestionFormInputProps {
     form: MultiQuestionForm
     /** Initial answers for stories/testing */
-    initialAnswers?: Record<string, string>
+    initialAnswers?: Record<string, string | string[]>
 }
 
 function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuestionFormInputProps): JSX.Element | null {
@@ -22,39 +43,51 @@ function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuestionForm
     const questions = form.questions
 
     const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
-    const [answers, setAnswers] = useState<Record<string, string>>(initialAnswers)
-    // Track custom input text separately from answers, so switching tabs preserves typed text
-    const [customInputs, setCustomInputs] = useState<Record<string, string>>({})
+    // Track which multi_field questions the user has explicitly confirmed
+    const [confirmedQuestions, setConfirmedQuestions] = useState<Set<string>>(() => new Set())
+    const [answers, setAnswers] = useState<Record<string, string | string[]>>(() => {
+        const initial = { ...initialAnswers }
+        for (const q of questions) {
+            if (!q.fields) {
+                continue
+            }
+            for (const field of q.fields) {
+                if (initial[field.id] !== undefined) {
+                    continue
+                }
+                if (field.type === 'toggle') {
+                    initial[field.id] = 'false'
+                } else if (field.type === 'slider') {
+                    initial[field.id] = String(field.min ?? 0)
+                }
+            }
+        }
+        return initial
+    })
     const [isSubmitting, setIsSubmitting] = useState(false)
 
+    const answersRef = useRef(answers)
+    answersRef.current = answers
+    const confirmedQuestionsRef = useRef(confirmedQuestions)
+    confirmedQuestionsRef.current = confirmedQuestions
+
     const currentQuestion = questions[currentQuestionIndex]
-    const allowCustomAnswer = currentQuestion?.allow_custom_answer !== false
     const isLastQuestion = currentQuestionIndex >= questions.length - 1
 
     const contentRef = useRef<HTMLDivElement>(null)
     const { height: contentHeight } = useResizeObserver({ ref: contentRef })
 
-    const options: Option[] = useMemo(() => {
-        if (!currentQuestion) {
-            return []
-        }
-        return currentQuestion.options.map((option) => ({
-            label: option.value,
-            value: option.value,
-            description: option.description,
-        }))
-    }, [currentQuestion])
-
-    const allQuestionsAnswered = Object.keys(answers).length === questions.length
+    const allQuestionsAnswered = questions.every((q) => isQuestionAnswered(q, answers, confirmedQuestions))
 
     const advanceToNextQuestion = useCallback(
-        (updatedAnswers: Record<string, string>) => {
-            const allAnswered = Object.keys(updatedAnswers).length === questions.length
+        (updatedAnswers: Record<string, string | string[]>) => {
+            const confirmed = confirmedQuestionsRef.current
+            const allAnswered = questions.every((q) => isQuestionAnswered(q, updatedAnswers, confirmed))
             if (allAnswered) {
                 setIsSubmitting(true)
                 continueAfterForm(updatedAnswers)
             } else if (isLastQuestion) {
-                const firstMissingQuestion = questions.find((question) => !updatedAnswers[question.id])
+                const firstMissingQuestion = questions.find((q) => !isQuestionAnswered(q, updatedAnswers, confirmed))
                 if (firstMissingQuestion) {
                     setCurrentQuestionIndex(questions.indexOf(firstMissingQuestion))
                 }
@@ -65,25 +98,26 @@ function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuestionForm
         [isLastQuestion, questions, continueAfterForm]
     )
 
-    const handleSelect = useCallback(
-        (value: string) => {
-            const updatedAnswers = { ...answers, [currentQuestion.id]: value }
+    const handleSingleFieldAnswer = useCallback(
+        (value: string | string[]) => {
+            const updatedAnswers = { ...answersRef.current, [currentQuestion.id]: value }
             setAnswers(updatedAnswers)
             advanceToNextQuestion(updatedAnswers)
         },
-        [answers, currentQuestion, advanceToNextQuestion]
+        [currentQuestion, advanceToNextQuestion]
     )
 
-    const handleCustomSubmit = useCallback(
-        (value: string) => {
-            // Store the custom input text and use it as the answer
-            setCustomInputs((prev) => ({ ...prev, [currentQuestion.id]: value }))
-            const updatedAnswers = { ...answers, [currentQuestion.id]: value }
-            setAnswers(updatedAnswers)
-            advanceToNextQuestion(updatedAnswers)
-        },
-        [answers, currentQuestion, advanceToNextQuestion]
-    )
+    const handleFieldChange = useCallback((fieldId: string, value: string | string[]) => {
+        setAnswers((prev) => ({ ...prev, [fieldId]: value }))
+    }, [])
+
+    const handleMultiFieldSubmit = useCallback(() => {
+        const updated = new Set(confirmedQuestionsRef.current)
+        updated.add(currentQuestion.id)
+        setConfirmedQuestions(updated)
+        confirmedQuestionsRef.current = updated
+        advanceToNextQuestion(answersRef.current)
+    }, [advanceToNextQuestion, currentQuestion])
 
     const handleTabClick = useCallback((index: number) => {
         setCurrentQuestionIndex(index)
@@ -110,7 +144,7 @@ function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuestionForm
                             return {
                                 key: index,
                                 label: question.title,
-                                completed: answers[question.id] !== undefined,
+                                completed: isQuestionAnswered(question, answers, confirmedQuestions),
                             }
                         })}
                         className="w-[calc(100%+var(--spacing-3))] -mx-3 [&>ul]:pl-3 -mt-2.5"
@@ -123,22 +157,39 @@ function MultiQuestionFormInput({ form, initialAnswers = {} }: MultiQuestionForm
                 style={{ height: contentHeight }}
             >
                 <div ref={contentRef}>
-                    <div
-                        key={currentQuestion.id}
-                        className="flex flex-col gap-3 starting:opacity-0 opacity-100 transition-[opacity] duration-150 motion-reduce:transition-none"
-                    >
-                        <div className="font-medium text-sm">{currentQuestion.question}</div>
-                        <OptionSelector
-                            options={options}
-                            onSelect={handleSelect}
-                            allowCustom={allowCustomAnswer}
-                            customPlaceholder="Type your answer..."
-                            onCustomSubmit={handleCustomSubmit}
-                            initialCustomValue={customInputs[currentQuestion.id]}
-                            selectedValue={answers[currentQuestion.id]}
-                            submitLabel={allQuestionsAnswered ? 'Submit' : 'Next'}
-                        />
-                    </div>
+                    {questions.map((q, index) => {
+                        const active = index === currentQuestionIndex
+                        const qIsMultiField = q.type === 'multi_field' || !!(q.fields && q.fields.length > 0)
+
+                        return (
+                            <div
+                                key={q.id}
+                                className={
+                                    active
+                                        ? 'flex flex-col gap-3 starting:opacity-0 opacity-100 transition-[opacity] duration-150 motion-reduce:transition-none'
+                                        : 'hidden'
+                                }
+                            >
+                                <div className="font-medium text-sm">{q.question}</div>
+                                {qIsMultiField ? (
+                                    <MultiFieldQuestion
+                                        question={q}
+                                        answers={answers}
+                                        onFieldChange={handleFieldChange}
+                                        onSubmit={handleMultiFieldSubmit}
+                                        submitLabel={allQuestionsAnswered ? 'Submit' : 'Next'}
+                                    />
+                                ) : (
+                                    <QuestionField
+                                        question={q}
+                                        value={answers[q.id]}
+                                        onAnswer={handleSingleFieldAnswer}
+                                        submitLabel={allQuestionsAnswered ? 'Submit' : 'Next'}
+                                    />
+                                )}
+                            </div>
+                        )
+                    })}
                 </div>
             </div>
         </div>

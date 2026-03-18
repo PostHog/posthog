@@ -1,3 +1,5 @@
+import './LiveEventsTable.scss'
+
 import { useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
@@ -6,8 +8,8 @@ import { LemonButton, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { LiveRecordingsCount, LiveUserCount } from 'lib/components/LiveUserCount'
 import { PropertyKeyInfo } from 'lib/components/PropertyKeyInfo'
-import { TZLabel } from 'lib/components/TZLabel'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
+import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { usePageVisibility } from 'lib/hooks/usePageVisibility'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -16,8 +18,8 @@ import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { ActivitySceneTabs } from 'scenes/activity/ActivitySceneTabs'
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
-import { Scene, SceneExport } from 'scenes/sceneTypes'
 import { sceneConfigurations } from 'scenes/scenes'
+import { Scene, SceneExport } from 'scenes/sceneTypes'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -159,6 +161,7 @@ export function LiveEventsTable(): JSX.Element {
                 </div>
             </div>
             <LemonTable
+                className="LiveEventsTable__table"
                 columns={columns}
                 data-attr="live-events-table"
                 rowKey="uuid"

@@ -44,13 +44,15 @@ const TZLabelPopoverContent = React.memo(function TZLabelPopoverContent({
     time,
     title,
     displayTimezone,
-}: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & { time: dayjs.Dayjs }): JSX.Element {
+}: Pick<TZLabelProps, 'showSeconds' | 'title' | 'displayTimezone'> & {
+    time: dayjs.Dayjs
+}): JSX.Element {
     const DATE_OUTPUT_FORMAT = !showSeconds ? BASE_OUTPUT_FORMAT : BASE_OUTPUT_FORMAT_WITH_SECONDS
     const { currentTeam } = useValues(teamLogic)
     const { reportTimezoneComponentViewed } = useActions(eventUsageLogic)
 
     const copyDateTime = (dateTime: dayjs.Dayjs, label: string): void => {
-        void copyToClipboard(dateTime.toDate().toISOString(), label)
+        void copyToClipboard(dateTime.format(DATE_OUTPUT_FORMAT), label)
     }
 
     const copyUnixTimestamp = (unixTimestamp: number, label: string): void => {
@@ -194,14 +196,15 @@ const TZLabelRaw = forwardRef<HTMLElement, TZLabelProps>(function TZLabelRaw(
             return parsedTime
         }
     }, [parsedTime, displayTimezone])
+    const effectiveTimestampStyle = displayTimezone ? 'absolute' : timestampStyle
 
     const format = useCallback(() => {
-        return formatDate || formatTime
+        return formatDate || formatTime || effectiveTimestampStyle === 'absolute'
             ? humanFriendlyDetailedTime(displayTime, formatDate, formatTime, {
-                  timestampStyle: displayTimezone ? 'absolute' : timestampStyle,
+                  timestampStyle: effectiveTimestampStyle,
               })
             : displayTime.fromNow()
-    }, [formatDate, formatTime, displayTime, timestampStyle, displayTimezone])
+    }, [formatDate, formatTime, displayTime, effectiveTimestampStyle])
 
     const [formattedContent, setFormattedContent] = useState(format)
 

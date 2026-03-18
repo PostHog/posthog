@@ -7,28 +7,28 @@ use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
+use assignment_coordination::store::{EtcdStore, StoreConfig};
 use personhog_coordination::coordinator::{Coordinator, CoordinatorConfig};
 use personhog_coordination::error::Result;
 use personhog_coordination::pod::{HandoffHandler, PodConfig, PodHandle};
 use personhog_coordination::routing_table::{CutoverHandler, RoutingTable, RoutingTableConfig};
-use personhog_coordination::store::{EtcdStore, StoreConfig};
+use personhog_coordination::store::PersonhogStore;
 use personhog_coordination::strategy::AssignmentStrategy;
 
 pub const ETCD_ENDPOINT: &str = "http://localhost:2379";
 pub const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
 pub const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
-pub async fn test_store(test_name: &str) -> Arc<EtcdStore> {
+pub async fn test_store(test_name: &str) -> Arc<PersonhogStore> {
     let prefix = format!("/test-{}-{}/", test_name, uuid::Uuid::new_v4());
     let config = StoreConfig {
         endpoints: vec![ETCD_ENDPOINT.to_string()],
         prefix,
     };
-    Arc::new(
-        EtcdStore::connect(config)
-            .await
-            .expect("failed to connect to etcd"),
-    )
+    let inner = EtcdStore::connect(config)
+        .await
+        .expect("failed to connect to etcd");
+    Arc::new(PersonhogStore::new(inner))
 }
 
 pub async fn wait_for_condition<F, Fut>(timeout: Duration, interval: Duration, f: F)
@@ -49,7 +49,7 @@ where
 // ── Component builders ──────────────────────────────────────────
 
 pub fn start_coordinator(
-    store: Arc<EtcdStore>,
+    store: Arc<PersonhogStore>,
     strategy: Arc<dyn AssignmentStrategy>,
     cancel: CancellationToken,
 ) -> JoinHandle<Result<()>> {
@@ -57,7 +57,7 @@ pub fn start_coordinator(
 }
 
 pub fn start_coordinator_named(
-    store: Arc<EtcdStore>,
+    store: Arc<PersonhogStore>,
     name: &str,
     leader_lease_ttl: i64,
     strategy: Arc<dyn AssignmentStrategy>,
@@ -83,12 +83,12 @@ pub struct PodHandles {
     pub events: Arc<Mutex<Vec<HandoffEvent>>>,
 }
 
-pub fn start_pod(store: Arc<EtcdStore>, name: &str, cancel: CancellationToken) -> PodHandles {
+pub fn start_pod(store: Arc<PersonhogStore>, name: &str, cancel: CancellationToken) -> PodHandles {
     start_pod_with_lease_ttl(store, name, 10, cancel)
 }
 
 pub fn start_pod_with_lease_ttl(
-    store: Arc<EtcdStore>,
+    store: Arc<PersonhogStore>,
     name: &str,
     lease_ttl: i64,
     cancel: CancellationToken,
@@ -113,7 +113,7 @@ pub fn start_pod_with_lease_ttl(
 /// Start a pod whose warm_partition blocks forever. Useful for testing
 /// crashes during the Warming phase.
 pub fn start_pod_blocking(
-    store: Arc<EtcdStore>,
+    store: Arc<PersonhogStore>,
     name: &str,
     lease_ttl: i64,
     cancel: CancellationToken,
@@ -136,7 +136,7 @@ pub fn start_pod_blocking(
 }
 
 pub fn start_coordinator_with_debounce(
-    store: Arc<EtcdStore>,
+    store: Arc<PersonhogStore>,
     strategy: Arc<dyn AssignmentStrategy>,
     debounce_interval: Duration,
     cancel: CancellationToken,
@@ -154,7 +154,7 @@ pub fn start_coordinator_with_debounce(
 }
 
 pub fn start_pod_slow(
-    store: Arc<EtcdStore>,
+    store: Arc<PersonhogStore>,
     name: &str,
     warm_delay: Duration,
     cancel: CancellationToken,
@@ -178,7 +178,11 @@ pub struct RouterHandles {
     pub table: Arc<tokio::sync::RwLock<std::collections::HashMap<u32, String>>>,
 }
 
-pub fn start_router(store: Arc<EtcdStore>, name: &str, cancel: CancellationToken) -> RouterHandles {
+pub fn start_router(
+    store: Arc<PersonhogStore>,
+    name: &str,
+    cancel: CancellationToken,
+) -> RouterHandles {
     let (handler, events) = MockCutoverHandler::new();
     let router = RoutingTable::new(
         store,

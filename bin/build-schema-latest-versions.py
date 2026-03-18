@@ -23,5 +23,5 @@ with open(filename, "wb") as f:
     f.write(to_json(with_comment))
 
 subprocess.run(
-    ["pnpm", "prettier", "--write", filename],
+    ["pnpm", "exec", "oxfmt", filename],
 )

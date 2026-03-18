@@ -219,12 +219,12 @@ class PostHogSCIMGroup(SCIMGroup):
 
                     try:
                         user = User.objects.get(id=user_id)
-                        # Upsert organization membership
-                        org_membership, _ = OrganizationMembership.objects.get_or_create(
-                            user=user,
-                            organization=self._organization_domain.organization,
-                            defaults={"level": OrganizationMembership.Level.MEMBER},
-                        )
+                        org_membership = OrganizationMembership.objects.filter(
+                            user=user, organization=self._organization_domain.organization
+                        ).first()
+
+                        if not org_membership:
+                            continue  # cannot assign a role to a non-member
 
                         # nosemgrep: idor-lookup-without-org (SCIM bearer token auth, org gated by middleware)
                         RoleMembership.objects.get_or_create(

@@ -5,11 +5,13 @@ edition = "2021"
 publish = false
 
 [dependencies]
+personhog-common = { path = "../personhog-common" }
 personhog-proto = { path = "../personhog-proto" }
 common-database = { path = "../common/database" }
-common-metrics = { path = "../common/metrics" }
 common-alloc = { path = "../common/alloc" }
-health = { path = "../common/health" }
+common-metrics = { path = "../common/metrics" }
+metrics-exporter-prometheus = { workspace = true }
+lifecycle = { path = "../common/lifecycle" }
 
 async-trait = { workspace = true }
 axum = { workspace = true }

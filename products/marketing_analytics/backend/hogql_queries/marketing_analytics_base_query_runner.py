@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 from datetime import datetime
 from functools import cached_property
-from typing import Generic, Optional, TypeVar, cast
+from typing import Generic, Optional, TypeVar
 
 import structlog
 
@@ -11,10 +11,12 @@ from posthog.schema import (
     ConversionGoalFilter3,
     DateRange,
     MarketingAnalyticsConstants,
-    NodeKind,
+    MarketingAnalyticsDrillDownLevel,
 )
 
 from posthog.hogql import ast
+from posthog.hogql.database.schema.channel_type import ChannelTypeExprs, create_channel_type_expr
+from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.parser import parse_select
 
 from posthog.hogql_queries.query_runner import AnalyticsQueryResponseProtocol, AnalyticsQueryRunner
@@ -23,6 +25,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.query_previous_period_date_range import QueryPreviousPeriodDateRange
 from posthog.models.team.team import DEFAULT_CURRENCY
 
+from products.data_warehouse.backend.models.util import get_view_or_table_by_name
 from products.marketing_analytics.backend.hogql_queries.constants import UNIFIED_CONVERSION_GOALS_CTE_ALIAS
 
 from .adapters.base import MarketingSourceAdapter, QueryContext
@@ -43,6 +46,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.config = MarketingAnalyticsConfig()
+        self._conversion_goal_warnings: list[str] = []
 
     @cached_property
     def query_date_range(self):
@@ -88,21 +92,47 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # Build SELECT columns for the CTE
         select_columns: list[ast.Expr] = []
 
-        # Only include campaign, ID, source, and match_key fields if we're grouping by them
+        # Include grouping columns based on drill-down level.
+        # We always emit campaign_name, campaign_id, source_name, match_key
+        # so the CTE schema is stable. At channel/source level we repurpose
+        # campaign_name to hold the channel or source value.
         if group_by_exprs:
-            select_columns.extend(
-                [
-                    ast.Field(chain=[self.config.campaign_field]),
-                    ast.Field(chain=[self.config.id_field]),
-                    ast.Field(chain=[self.config.source_field]),
-                    # match_key is used for joining with conversion goals
-                    # Use any() since all rows in a group have the same match_key value
-                    ast.Alias(
-                        alias=self.config.match_key_field,
-                        expr=ast.Call(name="any", args=[ast.Field(chain=[self.config.match_key_field])]),
-                    ),
-                ]
-            )
+            level = self.config.drill_down_level
+            if level == MarketingAnalyticsDrillDownLevel.CHANNEL:
+                # Repurpose campaign_name to hold the channel derived from source
+                select_columns.extend(
+                    [
+                        ast.Alias(alias=self.config.campaign_field, expr=self._build_channel_type_expr()),
+                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.source_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            elif level == MarketingAnalyticsDrillDownLevel.SOURCE:
+                # Repurpose campaign_name to hold the source
+                select_columns.extend(
+                    [
+                        ast.Alias(alias=self.config.campaign_field, expr=ast.Field(chain=[self.config.source_field])),
+                        ast.Alias(alias=self.config.id_field, expr=ast.Constant(value="")),
+                        ast.Alias(alias=self.config.source_field, expr=ast.Field(chain=[self.config.source_field])),
+                        ast.Alias(alias=self.config.match_key_field, expr=ast.Constant(value="")),
+                    ]
+                )
+            else:
+                # Campaign level (default) — include campaign, id, source, match_key
+                select_columns.extend(
+                    [
+                        ast.Field(chain=[self.config.campaign_field]),
+                        ast.Field(chain=[self.config.id_field]),
+                        ast.Field(chain=[self.config.source_field]),
+                        # match_key is used for joining with conversion goals
+                        # Use any() since all rows in a group have the same match_key value
+                        ast.Alias(
+                            alias=self.config.match_key_field,
+                            expr=ast.Call(name="any", args=[ast.Field(chain=[self.config.match_key_field])]),
+                        ),
+                    ]
+                )
 
         select_columns.extend(
             [
@@ -222,25 +252,67 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
     def _filter_invalid_conversion_goals(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
-    ) -> list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]:
+    ) -> tuple[list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3], list[str]]:
         """
-        Filter out invalid conversion goals (e.g., those using "All Events").
-        Returns only valid conversion goals.
+        Filter out invalid conversion goals (e.g., those using "All Events" or
+        referencing missing Data Warehouse columns).
+        Returns (valid_goals, warnings).
         """
-        valid_goals = []
+        valid_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3] = []
+        warnings: list[str] = []
+
         for goal in conversion_goals:
+            goal_name = getattr(goal, "conversion_goal_name", "Unknown")
+
             # Skip "All Events" goals
-            if goal.kind == cast(str, NodeKind.EVENTS_NODE):
+            if goal.kind == "EventsNode":
                 event_name = getattr(goal, "event", None)
                 if event_name is None or event_name == "":
                     logger.info(
                         "filtering_out_all_events_conversion_goal",
-                        goal_name=getattr(goal, "conversion_goal_name", "Unknown"),
+                        goal_name=goal_name,
+                    )
+                    warnings.append(f"Conversion goal '{goal_name}' skipped: 'All Events' cannot be used")
+                    continue
+
+            # Validate DataWarehouseNode column existence
+            if goal.kind == "DataWarehouseNode" and isinstance(goal, ConversionGoalFilter3):
+                table = get_view_or_table_by_name(team=self.team, name=goal.table_name)
+                if table is None:
+                    logger.warning(
+                        "filtering_out_missing_dw_table_goal",
+                        goal_name=goal_name,
+                        table_name=goal.table_name,
+                    )
+                    warnings.append(f"Conversion goal '{goal_name}' skipped: table '{goal.table_name}' not found")
+                    continue
+
+                schema_map = goal.schema_map or {}
+                table_columns = getattr(table, "columns", None) or {}
+                missing_cols = []
+                for schema_key, default_col in [
+                    ("utm_campaign_name", "utm_campaign"),
+                    ("utm_source_name", "utm_source"),
+                ]:
+                    col_name = schema_map.get(schema_key) or default_col
+                    if col_name not in table_columns:
+                        missing_cols.append(col_name)
+
+                if missing_cols:
+                    logger.warning(
+                        "filtering_out_missing_column_goal",
+                        goal_name=goal_name,
+                        table_name=goal.table_name,
+                        missing_columns=missing_cols,
+                    )
+                    warnings.append(
+                        f"Conversion goal '{goal_name}' skipped: columns {missing_cols} not found on table '{goal.table_name}'"
                     )
                     continue
+
             valid_goals.append(goal)
 
-        return valid_goals
+        return valid_goals, warnings
 
     def _create_conversion_goal_processors(
         self, conversion_goals: list[ConversionGoalFilter1 | ConversionGoalFilter2 | ConversionGoalFilter3]
@@ -274,10 +346,12 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         if include_date_range:
             # Handle date_field with table prefixes like "events.timestamp"
             date_field_chain = date_field.split(".")
+            # Always cast the date field explicitly. Data warehouse columns may be
+            # stored as String, and ClickHouse cannot compare String with Date/DateTime.
+            # Casting is a no-op when the column is already the correct type.
+            raw_field = ast.Field(chain=date_field_chain)
             if use_date_not_datetime:
-                # For conversion goals that use toDate instead of toDateTime
-                # Build: date_field >= toDate('date_from')
-                date_field_expr = ast.Field(chain=date_field_chain)
+                date_field_expr = ast.Call(name="toDate", args=[raw_field])
                 from_date = ast.Call(name="toDate", args=[ast.Constant(value=date_range.date_from_str)])
                 to_date = ast.Call(name="toDate", args=[ast.Constant(value=date_range.date_to_str)])
 
@@ -290,12 +364,7 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
                 conditions.extend([gte_condition, lte_condition])
             else:
-                date_cast: ast.Expr
-                # Build for regular datetime conditions
-                if "." in date_field:
-                    date_cast = ast.Call(name="toDateTime", args=[ast.Field(chain=date_field_chain)])
-                else:
-                    date_cast = ast.Field(chain=date_field_chain)
+                date_cast = ast.Call(name="toDateTime", args=[raw_field])
 
                 from_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_from_str)])
                 to_datetime = ast.Call(name="toDateTime", args=[ast.Constant(value=date_range.date_to_str)])
@@ -382,9 +451,37 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
         return main_query
 
+    def _build_channel_type_expr(self) -> ast.Expr:
+        """Compute channel_type for adapter data using web analytics' classification."""
+        modifiers = create_default_modifiers_for_team(self.team)
+        return create_channel_type_expr(
+            custom_rules=modifiers.customChannelTypeRules,
+            source_exprs=ChannelTypeExprs(
+                source=ast.Field(chain=[self.config.source_field]),
+                medium=ast.Constant(value="cpc"),  # all adapter data is paid
+                campaign=ast.Constant(value=""),
+                referring_domain=ast.Constant(value="$direct"),
+                url=ast.Constant(value=""),
+                hostname=ast.Constant(value=""),
+                pathname=ast.Constant(value=""),
+                has_gclid=ast.Constant(value=False),
+                has_fbclid=ast.Constant(value=False),
+                gad_source=ast.Constant(value=None),
+            ),
+        )
+
+    def _apply_drill_down_level(self) -> None:
+        """Read drillDownLevel from query and apply to config"""
+        level = getattr(self.query, "drillDownLevel", None)
+        if level is not None:
+            self.config.drill_down_level = level
+
     def to_query(self) -> ast.SelectQuery:
         """Generate the HogQL query using the new adapter architecture"""
         with self.timings.measure("marketing_analytics_base_query"):
+            # Apply drill-down level from query to config
+            self._apply_drill_down_level()
+
             # Get marketing source adapters
             adapters = self._get_marketing_source_adapters(date_range=self.query_date_range)
 
@@ -393,7 +490,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
             # Get conversion goals and filter out invalid ones
             conversion_goals = self._get_team_conversion_goals()
-            valid_conversion_goals = self._filter_invalid_conversion_goals(conversion_goals)
+            valid_conversion_goals, self._conversion_goal_warnings = self._filter_invalid_conversion_goals(
+                conversion_goals
+            )
 
             # Create processors only for valid conversion goals
             processors = (
@@ -472,6 +571,9 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
 
     def _get_group_by_expressions(self) -> list[ast.Expr]:
         """Get GROUP BY expressions"""
+        if self.config.drill_down_level == MarketingAnalyticsDrillDownLevel.CHANNEL:
+            # channel is a computed alias, so GROUP BY the same expression
+            return [self._build_channel_type_expr()]
         return [ast.Field(chain=[field]) for field in self.config.group_by_fields]
 
     # Abstract methods that subclasses must implement

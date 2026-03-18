@@ -27,7 +27,7 @@ from posthog.models.user import User
 from posthog.models.utils import UUIDTModel, execute_with_timeout
 from posthog.storage.hypercache import HyperCache, HyperCacheStoreMissing
 
-from products.error_tracking.backend.models import ErrorTrackingAutoCaptureControls, ErrorTrackingSuppressionRule
+from products.error_tracking.backend.models import ErrorTrackingSuppressionRule
 from products.product_tours.backend.models import ProductTour
 
 tracer = trace.get_tracer(__name__)
@@ -130,8 +130,7 @@ class RemoteConfig(UUIDTModel):
         from posthog.models.team import Team
         from posthog.plugins.site import get_decide_site_apps
 
-        from products.error_tracking.backend.api.suppression_rules import get_suppression_rules
-        from products.error_tracking.backend.models import get_autocapture_triggers
+        from products.error_tracking.backend.remote_config import build_error_tracking_config
 
         # NOTE: It is important this is changed carefully. This is what the SDK will load in place of "decide" so the format
         # should be kept consistent. The JS code should be minified and the JSON should be as small as possible.
@@ -143,7 +142,7 @@ class RemoteConfig(UUIDTModel):
         config = {
             "token": team.api_token,
             "supportedCompression": ["gzip", "gzip-js"],
-            "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True, deleted=False).count() > 0,
+            "hasFeatureFlags": FeatureFlag.objects.filter(team=team, active=True).count() > 0,
             "captureDeadClicks": bool(team.capture_dead_clicks),
             "capturePerformance": (
                 {
@@ -165,15 +164,7 @@ class RemoteConfig(UUIDTModel):
             config["elementsChainAsString"] = True
 
         # MARK: Error tracking
-        config["errorTracking"] = {
-            "autocaptureExceptions": bool(team.autocapture_exceptions_opt_in),
-            "suppressionRules": get_suppression_rules(team) if team.autocapture_exceptions_opt_in else [],
-            **(
-                {"errorTrackingAutocaptureTriggers": get_autocapture_triggers(team.id)}
-                if team.autocapture_exceptions_opt_in
-                else {}
-            ),
-        }
+        config["errorTracking"] = build_error_tracking_config(team)
 
         # MARK: Logs
         logs_settings = team.logs_settings or {}
@@ -597,16 +588,6 @@ def product_tour_deleted(sender, instance, **kwargs):
 
 @receiver(post_save, sender=ErrorTrackingSuppressionRule)
 def error_tracking_suppression_rule_saved(sender, instance: "ErrorTrackingSuppressionRule", created, **kwargs):
-    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
-
-
-@receiver(post_save, sender=ErrorTrackingAutoCaptureControls)
-def error_tracking_autocapture_controls_saved(sender, instance: "ErrorTrackingAutoCaptureControls", created, **kwargs):
-    transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
-
-
-@receiver(post_delete, sender=ErrorTrackingAutoCaptureControls)
-def error_tracking_autocapture_controls_deleted(sender, instance: "ErrorTrackingAutoCaptureControls", **kwargs):
     transaction.on_commit(lambda: _update_team_remote_config(instance.team_id))
 
 
