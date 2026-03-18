@@ -157,6 +157,7 @@ async fn test_evaluate_feature_flags() {
                 }]),
                 rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
@@ -259,6 +260,7 @@ async fn test_evaluate_feature_flags_with_errors() {
                 }]),
                 rollout_percentage: Some(100.0), // Set to 100% to ensure it's always on
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
@@ -648,6 +650,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -674,6 +677,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -762,6 +766,7 @@ async fn test_evaluate_feature_flags_details() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -788,6 +793,7 @@ async fn test_evaluate_feature_flags_details() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -946,6 +952,7 @@ async fn test_evaluate_feature_flags_with_overrides() {
                 }]),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: Some(0),
@@ -1054,6 +1061,7 @@ async fn test_long_distinct_id() {
                 properties: Some(vec![]),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
@@ -1513,6 +1521,7 @@ async fn test_parallel_path_matches_sequential_results() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -1539,6 +1548,7 @@ async fn test_parallel_path_matches_sequential_results() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -1565,6 +1575,7 @@ async fn test_parallel_path_matches_sequential_results() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -1591,6 +1602,7 @@ async fn test_parallel_path_matches_sequential_results() {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,

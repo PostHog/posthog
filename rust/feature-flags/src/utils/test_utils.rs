@@ -807,6 +807,7 @@ pub fn create_test_flag(
                 properties: Some(vec![]),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
@@ -878,6 +879,7 @@ pub fn create_test_flag_with_properties(
                 properties: Some(filters),
                 rollout_percentage: Some(100.0),
                 variant: None,
+                ..Default::default()
             }],
             multivariate: None,
             aggregation_group_type_index: None,
