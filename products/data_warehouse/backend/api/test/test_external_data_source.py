@@ -1505,6 +1505,7 @@ class TestExternalDataSource(APIBaseTest):
                 {
                     "table": "table_1",
                     "should_sync": False,
+                    "description": None,
                     "rows": 42,
                     "incremental_fields": [
                         {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
@@ -1554,6 +1555,7 @@ class TestExternalDataSource(APIBaseTest):
                 {
                     "table": "table_1",
                     "should_sync": False,
+                    "description": None,
                     "rows": 42,
                     "incremental_fields": [
                         {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
