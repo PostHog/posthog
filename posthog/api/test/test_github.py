@@ -318,6 +318,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             label="Test Key",
             secure_value=hash_key_value(token),
             mask_value=mask_key_value(token),
+            scopes=["*"],
         )
         original_secure_value = key.secure_value
 
@@ -396,6 +397,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             label="Legacy Key",
             secure_value=legacy_hash,
             mask_value=mask_key_value(token),
+            scopes=["*"],
         )
 
         # Send alert with the token
@@ -439,6 +441,7 @@ dYtHUlWNMx0y6YwVG8nlBiJk2e0n+zpzs2WwszrnC7wfCqgU6rU3TkDvBQ==
             label="Inactive User Key",
             secure_value=hash_key_value(token),
             mask_value=mask_key_value(token),
+            scopes=["*"],
         )
 
         # Send alert with the token

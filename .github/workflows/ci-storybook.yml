@@ -26,7 +26,8 @@ jobs:
         if: github.event_name != 'merge_group'
         # Set job outputs to values from filter step
         outputs:
-            frontend: ${{ steps.bot-snapshot.outputs.skip == 'true' && 'false' || steps.filter.outputs.frontend || 'true' }}
+            frontend: ${{ steps.filter.outputs.frontend || 'true' }}
+            mode: ${{ steps.detect.outputs.mode }}
         steps:
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
               id: filter
@@ -44,30 +45,39 @@ jobs:
                         - '.github/workflows/ci-storybook.yml'
                         - 'playwright.config.ts'
 
-            # Skip CI when a bot commit contains only image files (e.g. snapshot updates).
-            # Snapshot-only commits can never produce new diffs, so re-running is pure waste.
-            - name: Check for bot snapshot-only commit
-              id: bot-snapshot
-              if: github.event_name == 'pull_request' && (steps.filter.outputs.frontend || 'true') == 'true'
-              env:
-                  GH_TOKEN: ${{ github.token }}
+            - name: Detect snapshot mode
+              id: detect
               run: |
-                  ACTOR="${{ github.actor }}"
-                  if [[ "$ACTOR" != "tests-posthog[bot]" ]] && [[ "$ACTOR" != "posthog-bot" ]]; then
-                    exit 0
-                  fi
-                  FILES=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha }}" --jq '.files[].filename')
-                  if [ -z "$FILES" ]; then
-                    exit 0
-                  fi
-                  shopt -s nocasematch
-                  while IFS= read -r file; do
-                    if [[ ! "$file" =~ \.(png|jpg|jpeg|gif|svg)$ ]]; then
-                      exit 0
+                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
+                    echo "mode=check" >> $GITHUB_OUTPUT
+                    echo "Fork detected - running in CHECK mode (no commits allowed)"
+                  else
+                    AUTHOR="${{ github.actor }}"
+                    echo "Workflow triggered by: $AUTHOR"
+
+                    # Trusted bots that are allowed to run in update mode
+                    # Add bot usernames here to allow snapshot auto-updates on their PRs
+                    TRUSTED_BOTS=("mendral-app[bot]" "cursor[bot]")
+
+                    IS_TRUSTED=false
+                    for bot in "${TRUSTED_BOTS[@]}"; do
+                      if [[ "$AUTHOR" == "$bot" ]]; then
+                        IS_TRUSTED=true
+                        break
+                      fi
+                    done
+
+                    if [[ "$IS_TRUSTED" == "true" ]]; then
+                      echo "mode=update" >> $GITHUB_OUTPUT
+                      echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
+                    elif [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
+                      echo "mode=check" >> $GITHUB_OUTPUT
+                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
+                    else
+                      echo "mode=update" >> $GITHUB_OUTPUT
+                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
                     fi
-                  done <<< "$FILES"
-                  echo "skip=true" >> "$GITHUB_OUTPUT"
-                  echo "::notice::Skipping CI - bot commit with only image files"
+                  fi
 
     build-storybook:
         name: Build Storybook
@@ -127,52 +137,10 @@ jobs:
                   path: common/storybook/dist
                   retention-days: 1
 
-    detect-snapshot-mode:
-        name: Detect snapshot mode
-        runs-on: ubuntu-latest
-        needs: [changes]
-        if: needs.changes.outputs.frontend == 'true'
-        outputs:
-            mode: ${{ steps.detect.outputs.mode }}
-        steps:
-            - name: Detect mode
-              id: detect
-              run: |
-                  if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
-                    echo "mode=check" >> $GITHUB_OUTPUT
-                    echo "Fork detected - running in CHECK mode (no commits allowed)"
-                  else
-                    AUTHOR="${{ github.actor }}"
-                    echo "Workflow triggered by: $AUTHOR"
-
-                    # Trusted bots that are allowed to run in update mode
-                    # Add bot usernames here to allow snapshot auto-updates on their PRs
-                    TRUSTED_BOTS=("mendral-app[bot]" "cursor[bot]")
-
-                    IS_TRUSTED=false
-                    for bot in "${TRUSTED_BOTS[@]}"; do
-                      if [[ "$AUTHOR" == "$bot" ]]; then
-                        IS_TRUSTED=true
-                        break
-                      fi
-                    done
-
-                    if [[ "$IS_TRUSTED" == "true" ]]; then
-                      echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
-                    elif [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
-                      echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
-                    else
-                      echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
-                    fi
-                  fi
-
     visual-regression:
         name: Visual regression tests - ${{ matrix.browser }} (${{ matrix.shard }}/${{ matrix.shard_count }})
         runs-on: ubuntu-latest
-        needs: [changes, build-storybook, detect-snapshot-mode]
+        needs: [changes, build-storybook]
         if: needs.changes.outputs.frontend == 'true'
         timeout-minutes: 60
         container:
@@ -359,7 +327,7 @@ jobs:
                   # All verify attempts failed - try snapshot update if applicable
                   if [ $EXIT_CODE -ne 0 ]; then
                     LAST_LOG="/tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-attempt${attempt}.log"
-                    if [ "${{ needs.detect-snapshot-mode.outputs.mode }}" == "update" ] && grep -Eqi "(snapshot.*(failed|was not written)|Expected image to)" "$LAST_LOG" 2>/dev/null; then
+                    if [ "${{ needs.changes.outputs.mode }}" == "update" ] && grep -Eqi "(snapshot.*(failed|was not written)|Expected image to)" "$LAST_LOG" 2>/dev/null; then
                       echo "Snapshot failure confirmed - updating snapshots"
                       set -o pipefail
                       pnpm --filter=@posthog/storybook test:visual:ci:update --browsers ${{ matrix.browser }} --shard ${{ matrix.shard }}/${{ matrix.shard_count }} 2>&1 | tee /tmp/test-output-${{ matrix.browser }}-${{ matrix.shard }}-update.log
@@ -396,7 +364,7 @@ jobs:
             # Run even if tests failed, as long as snapshots may have been updated
             - name: Create snapshot patch
               id: create-patch
-              if: needs.detect-snapshot-mode.outputs.mode == 'update' && (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository
+              if: needs.changes.outputs.mode == 'update' && (success() || failure()) && github.event.pull_request.head.repo.full_name == github.repository
               run: |
                   # Verify we're in a git repository before running git commands
                   if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -432,6 +400,87 @@ jobs:
                   retention-days: 1
                   if-no-files-found: ignore
 
+    # Post a helpful comment when snapshot tests fail in check mode (no label)
+    snapshot-failure-comment:
+        name: Post snapshot failure guidance
+        runs-on: ubuntu-latest
+        needs: [visual-regression, changes]
+        if: >-
+            always()
+            && needs.visual-regression.result == 'failure'
+            && needs.changes.outputs.mode == 'check'
+            && github.event_name == 'pull_request'
+            && github.event.pull_request.head.repo.full_name == github.repository
+        permissions:
+            pull-requests: write
+        steps:
+            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const marker = '<!-- storybook-snapshot-hint -->';
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+                      const existing = comments.find(c => c.body.includes(marker));
+
+                      const body = `${marker}
+                      ### Storybook visual regression tests failed
+
+                      **If your changes intentionally update UI snapshots:** add the \`update-snapshots\` label, then push an empty commit or merge master to trigger a new run. Snapshots will be auto-committed.
+
+                      **If you didn't change any UI:** this is likely a flaky snapshot — wait for a fix to land on master.`.replace(/^                      /gm, '');
+
+                      if (existing) {
+                          await github.rest.issues.updateComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existing.id,
+                              body,
+                          });
+                      } else {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: context.issue.number,
+                              body,
+                          });
+                      }
+
+    # Clean up the hint comment when tests pass
+    snapshot-success-cleanup:
+        name: Clean up snapshot hint
+        runs-on: ubuntu-latest
+        needs: [visual-regression, changes]
+        if: >-
+            always()
+            && needs.visual-regression.result == 'success'
+            && github.event_name == 'pull_request'
+            && github.event.pull_request.head.repo.full_name == github.repository
+        permissions:
+            pull-requests: write
+        steps:
+            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const marker = '<!-- storybook-snapshot-hint -->';
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+                      const existing = comments.find(c => c.body.includes(marker));
+                      if (existing) {
+                          await github.rest.issues.deleteComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existing.id,
+                          });
+                      }
+
     # Job to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     visual_regression_tests:
@@ -459,8 +508,8 @@ jobs:
     handle-snapshots:
         name: Handle snapshot changes
         runs-on: ubuntu-latest
-        needs: [visual-regression, detect-snapshot-mode, changes]
-        if: always() && needs.detect-snapshot-mode.outputs.mode == 'update' && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
+        needs: [visual-regression, changes]
+        if: always() && needs.changes.outputs.mode == 'update' && needs.changes.outputs.frontend == 'true' && github.event.pull_request.head.repo.full_name == github.repository
         permissions:
             contents: write
             pull-requests: write
@@ -511,7 +560,7 @@ jobs:
 
             # UPDATE mode: commit the changes
             - name: Commit snapshot changes
-              if: steps.check-snapshots.outputs.has-changes == 'true' && needs.detect-snapshot-mode.outputs.mode == 'update'
+              if: steps.check-snapshots.outputs.has-changes == 'true' && needs.changes.outputs.mode == 'update'
               uses: ./.github/actions/commit-snapshots
               with:
                   workflow-type: storybook

@@ -1,4 +1,8 @@
-use std::{fmt::Display, path::PathBuf};
+use std::{
+    fmt::Display,
+    io::{self, BufRead},
+    path::PathBuf,
+};
 
 use anyhow::{bail, Result};
 
@@ -9,6 +13,10 @@ pub struct FileSelectionArgs {
     /// The directory containing the bundled chunks
     #[arg(short, long, alias = "file")]
     pub directory: Vec<PathBuf>,
+
+    /// Read additional file/directory paths from stdin (one per line)
+    #[arg(long, default_value = "false")]
+    pub stdin: bool,
 
     /// One or more directory glob patterns to exclude from selection
     #[arg(short, long, alias = "ignore")]
@@ -22,7 +30,18 @@ pub struct FileSelectionArgs {
 impl TryFrom<FileSelectionArgs> for FileSelection {
     type Error = anyhow::Error;
     fn try_from(args: FileSelectionArgs) -> Result<Self> {
-        FileSelection::from_roots(args.directory)
+        let mut paths = args.directory;
+        if args.stdin {
+            let stdin = io::stdin();
+            for line in stdin.lock().lines() {
+                let line = line?;
+                let trimmed = line.trim();
+                if !trimmed.is_empty() {
+                    paths.push(PathBuf::from(trimmed));
+                }
+            }
+        }
+        FileSelection::from_roots(paths)
             .include(args.include)?
             .exclude(args.exclude)
     }
@@ -36,7 +55,7 @@ impl Display for FileSelectionArgs {
 
 impl FileSelectionArgs {
     pub fn validate(&self) -> Result<()> {
-        if self.directory.is_empty() {
+        if self.directory.is_empty() && !self.stdin {
             bail!("No --directory provided")
         }
         for dir in &self.directory {

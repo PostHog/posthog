@@ -19,6 +19,8 @@ export interface TextCardModalProps {
     onClose: () => void
 }
 
+const MAX_TEXT_CARD_BODY_LENGTH = 4000
+
 const getTileBody = (dashboard: DashboardType<QueryBasedInsightModel>, textTileId: number): string => {
     const dashboardTiles = dashboard.tiles
     const matchedTile = dashboardTiles?.find((tt) => tt.id === textTileId)
@@ -30,13 +32,37 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
     props({} as TextCardModalProps),
     key((props) => `textCardModalLogic-${props.dashboard.id}-${props.textTileId}`),
     connect(() => ({ actions: [dashboardsModel, ['updateDashboard']] })),
-    listeners(({ props, actions }) => ({
+    listeners(({ props, actions, values }) => ({
         submitTextTileFailure: (error) => {
             if (props.dashboard && props.textTileId) {
-                lemonToast.error(`Could not save text: ${error.error} (${JSON.stringify(error.errors)})`)
+                const failure = error as {
+                    errors?: Record<string, any>
+                    error?: string | { error?: string; errors?: Record<string, any> }
+                }
+                const normalizedErrors = (failure.errors ||
+                    (typeof failure.error === 'object' ? failure.error?.errors : undefined) ||
+                    {}) as Record<string, any>
+                const normalizedMessage =
+                    (typeof failure.error === 'string' ? failure.error : null) ||
+                    (typeof failure.error === 'object' && typeof failure.error?.error === 'string'
+                        ? failure.error.error
+                        : null) ||
+                    'Unknown error'
+                const formBodyError = values.textTileValidationErrors.body as string | null
+                const apiBodyError =
+                    (Array.isArray(normalizedErrors?.body) ? normalizedErrors.body[0] : normalizedErrors?.body) ||
+                    (Array.isArray(normalizedErrors?.text?.body)
+                        ? normalizedErrors.text.body[0]
+                        : normalizedErrors?.text?.body) ||
+                    null
+
+                // Expected validation errors are shown inline on the form.
+                if (formBodyError || apiBodyError) {
+                    return
+                }
+
+                lemonToast.error(`Could not save text: ${normalizedMessage}`)
             }
-            actions.resetTextTile()
-            props?.onClose?.()
         },
         submitTextTileSuccess: ({ textTile }: { textTile: TextTileForm }) => {
             actions.resetTextTile()
@@ -60,7 +86,11 @@ export const textCardModalLogic = kea<textCardModalLogicType>([
             } as TextTileForm,
             errors: ({ body }) => {
                 return {
-                    body: !body ? 'This card would be empty! Type something first' : null,
+                    body: !body.trim()
+                        ? 'This card would be empty! Type something first'
+                        : body.length > MAX_TEXT_CARD_BODY_LENGTH
+                          ? `Text is too long (${MAX_TEXT_CARD_BODY_LENGTH} characters max)`
+                          : null,
                 }
             },
             submit: (formValues) => {

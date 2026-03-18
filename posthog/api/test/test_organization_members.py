@@ -113,6 +113,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             label="Old Org Key",
             scoped_organizations=[str(self.organization.id)],
             last_used_at=timezone.now() - timedelta(days=14),
+            scopes=["*"],
         )
 
         # Check response with one inactive key
@@ -134,6 +135,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             label="Team Key",
             scoped_teams=[self.team.id],
             last_used_at=timezone.now() - timedelta(days=2),
+            scopes=["*"],
         )
 
         # Create a key with no scoped teams or organizations (applies to all orgs/teams)
@@ -143,6 +145,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             scoped_teams=[],
             scoped_organizations=[],
             last_used_at=timezone.now() - timedelta(days=1),
+            scopes=["*"],
         )
 
         # Check response with all keys (one org-scoped, one team-scoped, one global)
@@ -184,6 +187,7 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
             scoped_teams=None,
             scoped_organizations=None,
             last_used_at=timezone.now() - timedelta(days=3),
+            scopes=["*"],
         )
 
         # Check response with all keys including the null scoped key
@@ -200,10 +204,14 @@ class TestOrganizationMembersAPI(APIBaseTest, QueryMatchingTest):
         other_team = Team.objects.create(organization=other_org, name="Other Team", project=self.team.project)
 
         # Create a key scoped to the other organization
-        PersonalAPIKey.objects.create(user=other_user, label="Other Org Key", scoped_organizations=[str(other_org.id)])
+        PersonalAPIKey.objects.create(
+            user=other_user, label="Other Org Key", scoped_organizations=[str(other_org.id)], scopes=["*"]
+        )
 
         # Create a key scoped to the other team
-        PersonalAPIKey.objects.create(user=other_user, label="Other Team Key", scoped_teams=[other_team.id])
+        PersonalAPIKey.objects.create(
+            user=other_user, label="Other Team Key", scoped_teams=[other_team.id], scopes=["*"]
+        )
 
         # Add the other user to our organization
         other_user.join(organization=self.organization)

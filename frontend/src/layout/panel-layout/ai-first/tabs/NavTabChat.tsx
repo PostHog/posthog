@@ -4,7 +4,7 @@ import { router } from 'kea-router'
 import { useMemo, useState } from 'react'
 
 import { IconPlusSmall, IconSearch, IconX } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonSkeleton, Tooltip } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Link } from 'lib/lemon-ui/Link'
@@ -115,15 +115,19 @@ export function NavTabChat({
                                 </ButtonPrimitive>
                             )}
                         </label>
-                        <Link to={urls.ai()} buttonProps={{ iconOnly: true, variant: 'panel' }} tooltip="New chat">
-                            <IconPlusSmall />
+                        <Link
+                            to={urls.ai()}
+                            buttonProps={{ iconOnly: true, variant: 'outline', className: 'text-ai' }}
+                            tooltip="New chat"
+                        >
+                            <IconPlusSmall className="size-4" />
                         </Link>
                     </div>
 
                     <ScrollableShadows
                         direction="vertical"
                         className="flex flex-col flex-1 min-h-0 overflow-hidden"
-                        innerClassName="flex flex-col px-1 pb-4 -mx-1"
+                        innerClassName="flex flex-col px-1 pb-4 -mx-1 scroll-pt-8"
                         styledScrollbars
                     >
                         {conversationHistoryLoading && conversationHistory.length === 0 ? (
@@ -156,45 +160,54 @@ export function NavTabChat({
                                                                     <Combobox.Item
                                                                         key={conversation.id}
                                                                         value={conversation}
-                                                                        onClick={(e) => {
-                                                                            e.preventDefault()
-                                                                            router.actions.push(
-                                                                                AiChatListItem.getHref(conversation.id)
-                                                                            )
-                                                                            onItemClick?.()
-                                                                        }}
-                                                                        render={
-                                                                            <Link
-                                                                                to={AiChatListItem.getHref(
-                                                                                    conversation.id
-                                                                                )}
-                                                                                buttonProps={{
-                                                                                    active:
-                                                                                        conversation.id ===
-                                                                                        currentConversationId,
-                                                                                    fullWidth: true,
-                                                                                    className: 'pr-0',
-                                                                                    menuItem: true,
-                                                                                }}
-                                                                                tooltip={
+                                                                        render={(props) => (
+                                                                            <Tooltip
+                                                                                title={
                                                                                     conversation.title ||
                                                                                     'view conversation'
                                                                                 }
-                                                                                tooltipPlacement="right"
-                                                                                extraContextMenuItems={
-                                                                                    <AiChatListItem.ContextMenuAction
-                                                                                        conversationId={conversation.id}
-                                                                                    />
-                                                                                }
+                                                                                placement="right"
                                                                             >
-                                                                                <AiChatListItem.Content
-                                                                                    showIcon
-                                                                                    title={conversation.title}
-                                                                                    status={conversation.status}
-                                                                                    updatedAt={conversation.updated_at}
-                                                                                />
-                                                                            </Link>
-                                                                        }
+                                                                                <Link
+                                                                                    {...props}
+                                                                                    to={AiChatListItem.getHref(
+                                                                                        conversation.id
+                                                                                    )}
+                                                                                    buttonProps={{
+                                                                                        active:
+                                                                                            conversation.id ===
+                                                                                            currentConversationId,
+                                                                                        fullWidth: true,
+                                                                                        className: 'pr-0',
+                                                                                        menuItem: true,
+                                                                                    }}
+                                                                                    extraContextMenuItems={
+                                                                                        <AiChatListItem.ContextMenuAction
+                                                                                            conversationId={
+                                                                                                conversation.id
+                                                                                            }
+                                                                                        />
+                                                                                    }
+                                                                                    onClick={(e) => {
+                                                                                        e.preventDefault()
+                                                                                        router.actions.push(
+                                                                                            AiChatListItem.getHref(
+                                                                                                conversation.id
+                                                                                            )
+                                                                                        )
+                                                                                        onItemClick?.()
+                                                                                    }}
+                                                                                >
+                                                                                    <AiChatListItem.Content
+                                                                                        title={conversation.title}
+                                                                                        status={conversation.status}
+                                                                                        updatedAt={
+                                                                                            conversation.updated_at
+                                                                                        }
+                                                                                    />
+                                                                                </Link>
+                                                                            </Tooltip>
+                                                                        )}
                                                                     />
                                                                     <AiChatListItem.Trigger />
                                                                 </AiChatListItem.Group>
