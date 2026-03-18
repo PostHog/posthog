@@ -21,9 +21,9 @@ from posthog.schema import (
     BaseMathType,
     BreakdownFilter,
     BreakdownType,
-    DataWarehouseNode,
     DateRange,
     EventsNode,
+    FunnelsDataWarehouseNode,
     FunnelsFilter,
     FunnelsQuery,
 )
@@ -3102,11 +3102,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     dateRange=DateRange(date_from="2025-11-01"),
                     series=[
                         EventsNode(event="$pageview"),
-                        DataWarehouseNode(
+                        FunnelsDataWarehouseNode(
                             id=table_name,
                             table_name=table_name,
                             id_field="id",
-                            distinct_id_field="toUUID(user_id)",
+                            aggregation_target_field="toUUID(user_id)",
                             timestamp_field="created",
                         ),
                     ],
@@ -3245,11 +3245,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     dateRange=DateRange(date_from="2025-11-01"),
                     series=[
                         EventsNode(event="$pageview"),
-                        DataWarehouseNode(
+                        FunnelsDataWarehouseNode(
                             id=table_name,
                             table_name=table_name,
                             id_field="id",
-                            distinct_id_field="toUUID(user_id)",
+                            aggregation_target_field="toUUID(user_id)",
                             timestamp_field="created",
                         ),
                     ],
@@ -3374,11 +3374,11 @@ def funnel_breakdown_test_factory(funnel_order_type: FunnelOrderType):
                     kind="FunnelsQuery",
                     dateRange=DateRange(date_from="2025-11-01"),
                     series=[
-                        DataWarehouseNode(
+                        FunnelsDataWarehouseNode(
                             id=table_name,
                             table_name=table_name,
                             id_field="id",
-                            distinct_id_field="toUUID(user_id)",
+                            aggregation_target_field="toUUID(user_id)",
                             timestamp_field="created",
                         ),
                         EventsNode(event="$pageview"),
