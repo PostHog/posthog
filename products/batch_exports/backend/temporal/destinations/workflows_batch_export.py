@@ -230,6 +230,8 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 consumer=consumer,
                 producer_task=producer_task,
                 transformer=transformer,
+                # the CDP API expects the JSON columns to be strings
+                json_columns=(),
             )
 
         return result
