@@ -19,7 +19,7 @@ import structlog
 import posthoganalytics
 from axes.decorators import axes_dispatch
 from django_filters.rest_framework import DjangoFilterBackend
-from drf_spectacular.utils import extend_schema, extend_schema_view
+from drf_spectacular.utils import extend_schema, extend_schema_field, extend_schema_view
 from loginas.utils import is_impersonated_session
 from nanoid import generate
 from posthoganalytics import capture_exception
@@ -170,6 +170,11 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
     enable_partial_responses = serializers.BooleanField(required=False, allow_null=True)
     enable_iframe_embedding = serializers.BooleanField(required=False, allow_null=True)
 
+    @extend_schema_field(
+        serializers.ListField(
+            child=serializers.DictField(child=serializers.CharField(allow_null=True)),
+        )
+    )
     def get_feature_flag_keys(self, survey: Survey) -> list:
         return [
             {"key": "linked_flag_key", "value": survey.linked_flag.key if survey.linked_flag else None},
@@ -225,6 +230,7 @@ class SurveySerializer(UserAccessControlSerializerMixin, serializers.ModelSerial
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 
+    @extend_schema_field(serializers.DictField(allow_null=True))
     def get_conditions(self, survey: Survey):
         return get_survey_conditions_with_actions(survey)
 
@@ -2145,6 +2151,7 @@ class SurveyAPISerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    @extend_schema_field(serializers.DictField(allow_null=True))
     def get_conditions(self, survey: Survey):
         return get_survey_conditions_with_actions(survey, SurveyAPIActionSerializer)
 

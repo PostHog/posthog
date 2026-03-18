@@ -30,6 +30,29 @@ class IngestionWarningsTable(Table):
         return "ingestion_warnings"
 
 
+alerts: PostgresTable = PostgresTable(
+    name="alerts",
+    postgres_table_name="posthog_alertconfiguration",
+    access_scope="alert",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "name": StringDatabaseField(name="name"),
+        "insight_id": IntegerDatabaseField(name="insight_id"),
+        "enabled": BooleanDatabaseField(name="enabled"),
+        "state": StringDatabaseField(name="state"),
+        "calculation_interval": StringDatabaseField(name="calculation_interval"),
+        "condition": StringJSONDatabaseField(name="condition"),
+        "config": StringJSONDatabaseField(name="config"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+        "last_notified_at": DateTimeDatabaseField(name="last_notified_at"),
+        "last_checked_at": DateTimeDatabaseField(name="last_checked_at"),
+        "next_check_at": DateTimeDatabaseField(name="next_check_at"),
+        "snoozed_until": DateTimeDatabaseField(name="snoozed_until"),
+        "skip_weekend": BooleanDatabaseField(name="skip_weekend"),
+    },
+)
+
 cohort_calculation_history: PostgresTable = PostgresTable(
     name="cohort_calculation_history",
     postgres_table_name="posthog_cohortcalculationhistory",
@@ -494,6 +517,7 @@ class SystemTables(TableNode):
     name: str = "system"
     children: dict[str, TableNode] = {
         "actions": TableNode(name="actions", table=actions),
+        "alerts": TableNode(name="alerts", table=alerts),
         "annotations": TableNode(name="annotations", table=annotations),
         "cohort_calculation_history": TableNode(name="cohort_calculation_history", table=cohort_calculation_history),
         "cohorts": TableNode(name="cohorts", table=cohorts),

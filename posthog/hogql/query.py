@@ -15,7 +15,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.constants import (
+    HogQLGlobalSettings,
+    LimitContext,
+    get_default_hogql_global_settings,
+    get_default_limit_for_context,
+)
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
@@ -309,7 +314,10 @@ class HogQLQueryExecutor:
                     )
 
     def _effective_direct_postgres_settings(self) -> HogQLGlobalSettings:
-        settings = self.settings.model_copy(deep=True) if self.settings is not None else HogQLGlobalSettings()
+        settings = get_default_hogql_global_settings(
+            self.team.pk,
+            self.settings,
+        )
 
         if self.limit_context in (
             LimitContext.EXPORT,
@@ -489,7 +497,7 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
-        settings = self.settings or HogQLGlobalSettings()
+        settings = get_default_hogql_global_settings(self.team.pk, self.settings)
         if self.limit_context in (
             LimitContext.EXPORT,
             LimitContext.COHORT_CALCULATION,

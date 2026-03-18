@@ -42,6 +42,13 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         description:
             'Track all changes and activities in your organization with detailed filtering and export capabilities.',
     },
+    [Scene.AgenticAuthorize]: {
+        name: 'Authorize Stripe',
+        layout: 'plain',
+        projectBased: false,
+        organizationBased: false,
+        allowUnauthenticated: true,
+    },
     [Scene.AsyncMigrations]: { instanceLevel: true },
     [Scene.MaterializedColumns]: {
         projectBased: true,
@@ -942,6 +949,8 @@ export const routes: Record<string, [Scene | string, string]> = {
     [urls.exports()]: [Scene.Exports, 'exports'],
     [urls.startups()]: [Scene.StartupProgram, 'startupProgram'],
     [urls.startups(':referrer')]: [Scene.StartupProgram, 'startupProgramWithReferrer'],
+    [urls.agenticAuthorize()]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
+    [`${urls.agenticAuthorize()}/`]: [Scene.AgenticAuthorize, 'agenticAuthorize'],
     [urls.oauthAuthorize()]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [`${urls.oauthAuthorize()}/`]: [Scene.OAuthAuthorize, 'oauthAuthorize'],
     [urls.dataPipelinesNew(':kind' as any)]: [Scene.DataPipelinesNew, 'dataPipelinesNew'],
