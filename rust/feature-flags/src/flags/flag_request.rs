@@ -185,6 +185,20 @@ impl FlagRequest {
         }
     }
 
+    /// Extracts device_id from the request.
+    /// Checks the top-level device_id field first, then falls back to
+    /// person_properties.$device_id for SDKs that only send it as a property.
+    pub fn extract_device_id(&self) -> Option<String> {
+        self.device_id.clone().or_else(|| {
+            self.person_properties
+                .as_ref()
+                .and_then(|props| props.get("$device_id"))
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string())
+        })
+    }
+
     /// Checks if feature flags should be disabled for this request.
     /// Returns true if disable_flags is explicitly set to true.
     pub fn is_flags_disabled(&self) -> bool {
@@ -376,6 +390,76 @@ mod tests {
 
         let flag_payload = FlagRequest::from_bytes(bytes).expect("failed to parse request");
         assert_eq!(flag_payload.distinct_id, Some("123.45".to_string()));
+    }
+
+    #[test]
+    fn test_extract_device_id_from_top_level() {
+        let flag_request = FlagRequest {
+            device_id: Some("top-level-device".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            flag_request.extract_device_id(),
+            Some("top-level-device".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_device_id_from_person_properties() {
+        let flag_request = FlagRequest {
+            device_id: None,
+            person_properties: Some(HashMap::from([(
+                "$device_id".to_string(),
+                json!("prop-device"),
+            )])),
+            ..Default::default()
+        };
+        assert_eq!(
+            flag_request.extract_device_id(),
+            Some("prop-device".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_device_id_top_level_takes_precedence() {
+        let flag_request = FlagRequest {
+            device_id: Some("top-level-device".to_string()),
+            person_properties: Some(HashMap::from([(
+                "$device_id".to_string(),
+                json!("prop-device"),
+            )])),
+            ..Default::default()
+        };
+        assert_eq!(
+            flag_request.extract_device_id(),
+            Some("top-level-device".to_string())
+        );
+    }
+
+    #[test]
+    fn test_extract_device_id_none_when_absent() {
+        let flag_request = FlagRequest {
+            device_id: None,
+            person_properties: Some(HashMap::from([(
+                "other_prop".to_string(),
+                json!("value"),
+            )])),
+            ..Default::default()
+        };
+        assert_eq!(flag_request.extract_device_id(), None);
+    }
+
+    #[test]
+    fn test_extract_device_id_ignores_empty_string_in_properties() {
+        let flag_request = FlagRequest {
+            device_id: None,
+            person_properties: Some(HashMap::from([(
+                "$device_id".to_string(),
+                json!(""),
+            )])),
+            ..Default::default()
+        };
+        assert_eq!(flag_request.extract_device_id(), None);
     }
 
     #[test]
