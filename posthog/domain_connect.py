@@ -9,7 +9,6 @@ See https://www.domainconnect.org/ for the protocol specification.
 
 import base64
 import logging
-from typing import cast
 from urllib.parse import urlencode
 
 from django.conf import settings
@@ -34,8 +33,8 @@ logger = logging.getLogger(__name__)
 # contact the provider, and add their endpoint here once confirmed.
 #
 DOMAIN_CONNECT_PROVIDERS: dict[str, DomainConnectProviderName] = {
-    "api.cloudflare.com/client/v4/dns/domainconnect": cast(DomainConnectProviderName, "Cloudflare"),
-    "domainconnect.vercel.com": cast(DomainConnectProviderName, "Vercel"),
+    "api.cloudflare.com/client/v4/dns/domainconnect": DomainConnectProviderName.CLOUDFLARE,
+    "domainconnect.vercel.com": DomainConnectProviderName.VERCEL,
 }
 
 # Providers that reject unsigned apply requests.  When a provider is in this
@@ -318,7 +317,6 @@ def generate_apply_url(
     )
 
 
-# --- Internal helpers ---
 def _lookup_domain_connect_endpoint(domain: str) -> str | None:
     """DNS TXT lookup for _domainconnect.{domain}.
 
