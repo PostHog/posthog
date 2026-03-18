@@ -196,14 +196,6 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 	header := fmt.Sprintf("  %-*s  %-*s  %s", svcW, "SERVICE", stateW, "STATE", "STATUS")
 	sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(sharedpalette.ColorWhite).Render(header))
 	sb.WriteByte('\n')
-
-	sepLen := svcW + stateW + statusW + 8
-	if sepLen > width-2 {
-		sepLen = width - 2
-	}
-	if sepLen < 1 {
-		sepLen = 1
-	}
 	sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorDarkGrey).Render("  " + strings.Repeat("─", width-4)))
 	sb.WriteByte('\n')
 
