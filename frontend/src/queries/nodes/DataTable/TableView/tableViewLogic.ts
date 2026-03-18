@@ -73,9 +73,18 @@ function getQueryFromView(
     }
 
     const rawFilters = (view.filters || []) as AnyPropertyFilter[]
-    const properties = rawFilters.filter((filter) => filter.key !== 'event' && filter.key !== 'events')
-    const event = rawFilters.find((filter) => filter.key === 'event')?.value
-    const events = rawFilters.find((filter) => filter.key === 'events')?.value
+    const properties = rawFilters.filter(
+        (filter) =>
+            (filter.key !== 'event' && filter.key !== 'events') ||
+            (filter.key === 'event' && filter.operator !== PropertyOperator.Exact) ||
+            (filter.key === 'events' && filter.operator !== PropertyOperator.In)
+    )
+    const event = rawFilters.findLast(
+        (filter) => filter.key === 'event' && filter.operator === PropertyOperator.Exact
+    )?.value
+    const events = rawFilters.findLast(
+        (filter) => filter.key === 'events' && filter.operator === PropertyOperator.In
+    )?.value
     return {
         ...query,
         select: view.columns || [],
