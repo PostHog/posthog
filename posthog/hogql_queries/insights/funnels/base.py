@@ -150,6 +150,21 @@ class FunnelBase(ABC):
 
         return list(cohorts)
 
+    @cached_property
+    def _not_in_cohort_name(self) -> str | None:
+        if len(self.breakdown_cohorts) == 1:
+            return self.breakdown_cohorts[0].name
+        return None
+
+    @cached_property
+    def should_add_not_in_cohort_group(self) -> bool:
+        breakdown, breakdownType = self.context.breakdown, self.context.breakdownType
+        if breakdownType != BreakdownType.COHORT:
+            return False
+        if isinstance(breakdown, list) and "all" in breakdown:
+            return False
+        return len(self.breakdown_cohorts) == 1
+
     def _format_results(
         self, results
     ) -> Union[FunnelTimeToConvertResults, list[dict[str, Any]], list[list[dict[str, Any]]]]:
@@ -198,7 +213,11 @@ class FunnelBase(ABC):
                 serialized_result.update(
                     {
                         "breakdown": (
-                            get_breakdown_cohort_name(breakdown_value, self.context.team)
+                            get_breakdown_cohort_name(
+                                breakdown_value,
+                                self.context.team,
+                                not_in_cohort_name=self._not_in_cohort_name,
+                            )
                             if self.context.breakdownFilter.breakdown_type == "cohort"
                             else breakdown_value
                         ),
@@ -324,7 +343,7 @@ class FunnelBase(ABC):
         )
 
         # TODO: cohort breakdowns are not supported for data warehouse / mixed funnels at the moment
-        if breakdown and breakdownType == BreakdownType.COHORT:
+        if breakdown and breakdownType == BreakdownType.COHORT and not self.should_add_not_in_cohort_group:
             assert funnel_events_query.select_from is not None
             funnel_events_query.select_from.next_join = self._get_cohort_breakdown_join()
 

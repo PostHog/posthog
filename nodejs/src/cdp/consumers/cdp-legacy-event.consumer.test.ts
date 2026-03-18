@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { createCdpLegacyEventsConsumerDeps } from '~/tests/helpers/cdp'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 
@@ -30,7 +31,7 @@ describe('CdpLegacyEventsConsumer', () => {
     beforeEach(async () => {
         hub = await createHub()
         await resetTestDatabase()
-        consumer = new CdpLegacyEventsConsumer(hub, hub)
+        consumer = new CdpLegacyEventsConsumer(hub, createCdpLegacyEventsConsumerDeps(hub))
         legacyPluginExecutor = new LegacyPluginExecutorService(hub.postgres, hub.geoipService)
         team = await getFirstTeam(hub.postgres)
 
