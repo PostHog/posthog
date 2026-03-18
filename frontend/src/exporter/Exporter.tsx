@@ -7,11 +7,14 @@ import { useEffect } from 'react'
 
 import { Logo } from 'lib/brand/Logo'
 import { HeatmapCanvas } from 'lib/components/heatmaps/HeatmapCanvas'
+import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import { useThemedHtml } from 'lib/hooks/useThemedHtml'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { Link } from 'lib/lemon-ui/Link'
+import { humanFriendlyDuration } from 'lib/utils'
 import { Dashboard } from 'scenes/dashboard/Dashboard'
+import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { SessionRecordingPlayer } from 'scenes/session-recordings/player/SessionRecordingPlayer'
 import { SessionRecordingPlayerMode } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 import { teamLogic } from 'scenes/teamLogic'
@@ -20,6 +23,7 @@ import { ExportedInsight } from '~/exporter/ExportedInsight/ExportedInsight'
 import { ExporterLogin } from '~/exporter/ExporterLogin'
 import { ExportType, ExportedData } from '~/exporter/types'
 import { getQueryBasedDashboard } from '~/queries/nodes/InsightViz/utils'
+import { AUTO_REFRESH_INITIAL_INTERVAL_SECONDS } from '~/scenes/dashboard/dashboardUtils'
 import { DashboardPlacement } from '~/types'
 
 import { exporterViewLogic } from './exporterViewLogic'
@@ -54,6 +58,22 @@ function ExportHeatmap(): JSX.Element {
     )
 }
 
+function SharedDashboardAutoRefresh({ dashboardId }: { dashboardId: number }): JSX.Element | null {
+    const { setAutoRefresh, setPageVisibility } = dashboardLogic({
+        id: dashboardId,
+        placement: DashboardPlacement.Public,
+    }).actions
+
+    // Tie dashboard auto-refresh to tab visibility, same as in-app dashboard.
+    usePageVisibilityCb(setPageVisibility)
+
+    useEffect(() => {
+        setAutoRefresh(true, AUTO_REFRESH_INITIAL_INTERVAL_SECONDS)
+    }, [setAutoRefresh])
+
+    return null
+}
+
 export function Exporter(props: ExportedData): JSX.Element {
     // NOTE: Mounting the logic is important as it is used by sub-logics
     const { type, dashboard, insight, recording, themes, accessToken, exportToken, ...exportOptions } = props
@@ -69,6 +89,16 @@ export function Exporter(props: ExportedData): JSX.Element {
         // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
         window.parent?.postMessage({ event: 'posthog:dimensions', name: window.name, height, width }, '*')
     }, [height, width])
+
+    useEffect(() => {
+        if (dashboard && (type === ExportType.Scene || type === ExportType.Embed)) {
+            const baseTitle = dashboard.name || 'Dashboard'
+            document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
+        } else if (insight && (type === ExportType.Scene || type === ExportType.Embed)) {
+            const baseTitle = insight.name || insight.derived_name || 'Insight'
+            document.title = whitelabel ? baseTitle : `${baseTitle} • PostHog`
+        }
+    }, [dashboard, insight, type, whitelabel])
 
     useThemedHtml(false)
 
@@ -87,31 +117,38 @@ export function Exporter(props: ExportedData): JSX.Element {
                 })}
                 ref={elementRef}
             >
-                {!whitelabel && dashboard ? (
+                {dashboard ? (
                     type === ExportType.Scene ? (
                         <div className="SharedDashboard-header">
-                            <Link
-                                to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
-                                target="_blank"
-                            >
-                                <Logo className="text-lg" />
-                            </Link>
+                            {!whitelabel && (
+                                <Link
+                                    to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
+                                    target="_blank"
+                                >
+                                    <Logo className="text-lg" />
+                                </Link>
+                            )}
                             <div className="SharedDashboard-header-title">
                                 <h1 className="mb-2" data-attr="dashboard-item-title">
                                     {dashboard.name}
                                 </h1>
                                 <LemonMarkdown lowKeyHeadings>{dashboard.description || ''}</LemonMarkdown>
                             </div>
-                            <span className="SharedDashboard-header-team">{currentTeam?.name}</span>
+                            <div className="SharedDashboard-header-team text-right">
+                                <span className="block">{currentTeam?.name}</span>
+                                <span className="block text-xs text-muted-alt">
+                                    Auto refresh every {humanFriendlyDuration(AUTO_REFRESH_INITIAL_INTERVAL_SECONDS)}
+                                </span>
+                            </div>
                         </div>
-                    ) : type === ExportType.Embed ? (
+                    ) : type === ExportType.Embed && !whitelabel ? (
                         <Link
                             to="https://posthog.com?utm_medium=in-product&utm_campaign=shared-dashboard"
                             target="_blank"
                         >
                             <Logo className="text-lg" />
                         </Link>
-                    ) : type === ExportType.Image ? (
+                    ) : type === ExportType.Image && !whitelabel ? (
                         <>
                             <h1 className="mb-2">{dashboard.name}</h1>
                             <LemonMarkdown lowKeyHeadings>{dashboard.description || ''}</LemonMarkdown>
@@ -121,12 +158,17 @@ export function Exporter(props: ExportedData): JSX.Element {
                 {insight ? (
                     <ExportedInsight insight={insight} themes={themes!} exportOptions={exportOptions} />
                 ) : dashboard ? (
-                    <Dashboard
-                        id={String(dashboard.id)}
-                        dashboard={getQueryBasedDashboard(dashboard)!}
-                        placement={type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public}
-                        themes={themes}
-                    />
+                    <>
+                        {type !== ExportType.Image && <SharedDashboardAutoRefresh dashboardId={dashboard.id} />}
+                        <Dashboard
+                            id={String(dashboard.id)}
+                            dashboard={getQueryBasedDashboard(dashboard)!}
+                            placement={
+                                type === ExportType.Image ? DashboardPlacement.Export : DashboardPlacement.Public
+                            }
+                            themes={themes}
+                        />
+                    </>
                 ) : recording ? (
                     <SessionRecordingPlayer
                         playerKey="exporter"

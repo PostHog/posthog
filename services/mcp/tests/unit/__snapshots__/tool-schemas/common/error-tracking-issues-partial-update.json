@@ -4,7 +4,21 @@
         "assignee": {
             "properties": {
                 "id": {
-                    "type": "string"
+                    "anyOf": [
+                        {
+                            "anyOf": [
+                                {
+                                    "type": "number"
+                                },
+                                {
+                                    "type": "string"
+                                }
+                            ]
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
                 },
                 "type": {
                     "type": "string"

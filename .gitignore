@@ -179,7 +179,7 @@ data/seaweedfs/
 agent-os/
 
 # MCP build files
-services/mcp/ui-apps-dist
+services/mcp/public/ui-apps
 
 # Product skills (synced by hogli sync:skill)
 .agents/skills/.gitignore
