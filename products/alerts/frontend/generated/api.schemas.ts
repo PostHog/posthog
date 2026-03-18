@@ -325,7 +325,7 @@ export interface AlertApi {
 * `daily` - daily
 * `weekly` - weekly
 * `monthly` - monthly */
-    calculation_interval?: CalculationIntervalEnumApi | BlankEnumApi | NullEnumApi | null
+    calculation_interval?: CalculationIntervalEnumApi | NullEnumApi | null
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
      * @nullable
@@ -387,7 +387,7 @@ export interface PatchedAlertApi {
 * `daily` - daily
 * `weekly` - weekly
 * `monthly` - monthly */
-    calculation_interval?: CalculationIntervalEnumApi | BlankEnumApi | NullEnumApi | null
+    calculation_interval?: CalculationIntervalEnumApi | NullEnumApi | null
     /**
      * Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.
      * @nullable
