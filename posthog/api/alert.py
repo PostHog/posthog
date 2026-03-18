@@ -10,7 +10,7 @@ from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import AlertCondition, AlertState, InsightThreshold, TrendsAlertConfig
+from posthog.schema import AlertCondition, AlertState, DetectorConfig, InsightThreshold, TrendsAlertConfig
 
 from posthog.api.documentation import extend_schema_field
 from posthog.api.insight import InsightBasicSerializer
@@ -39,6 +39,11 @@ class AlertConditionField(serializers.JSONField):
 
 @extend_schema_field(TrendsAlertConfig)  # type: ignore[arg-type]
 class TrendsAlertConfigField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(DetectorConfig)  # type: ignore[arg-type]
+class DetectorConfigField(serializers.JSONField):
     pass
 
 
@@ -82,6 +87,10 @@ class AlertCheckSerializer(serializers.ModelSerializer):
             "calculated_value",
             "state",
             "targets_notified",
+            "anomaly_scores",
+            "triggered_points",
+            "triggered_dates",
+            "interval",
         ]
         read_only_fields = fields
 
@@ -140,6 +149,7 @@ class AlertSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval).",
     )
+    detector_config = DetectorConfigField(required=False, allow_null=True)
     insight = TeamScopedPrimaryKeyRelatedField(
         queryset=Insight.objects.all(),
         help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
@@ -205,6 +215,7 @@ class AlertSerializer(serializers.ModelSerializer):
             "next_check_at",
             "checks",
             "config",
+            "detector_config",
             "calculation_interval",
             "snoozed_until",
             "skip_weekend",
@@ -324,6 +335,25 @@ class AlertSerializer(serializers.ModelSerializer):
             analytics_props=get_request_analytics_properties(self.context["request"]),
         )
         return instance
+
+    def validate_detector_config(self, value):
+        if value is None:
+            return value
+
+        import pydantic
+
+        try:
+            validated = DetectorConfig.model_validate(value)
+        except pydantic.ValidationError:
+            raise ValidationError("Invalid detector configuration.")
+
+        # Ensemble requires at least 2 sub-detectors
+        root = validated.root if hasattr(validated, "root") else validated
+        if getattr(root, "type", None) == "ensemble" and hasattr(root, "detectors"):
+            if len(root.detectors) < 2:
+                raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
+
+        return validated.model_dump() if hasattr(validated, "model_dump") else value
 
     def validate_snoozed_until(self, value):
         if value is not None and not isinstance(value, str):
