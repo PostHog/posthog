@@ -619,6 +619,7 @@ pub fn filter_graph_by_keys(
     requested_keys: &[String],
     flags_with_missing_deps: &HashSet<i32>,
 ) -> Option<FilteredGraphResult> {
+    use petgraph::visit::EdgeRef;
     let mut nodes_to_include = HashSet::new();
 
     // Build an index from flag keys to node indices for O(1) lookups
@@ -835,7 +836,7 @@ impl PrecomputedDependencyGraph {
         });
 
         // When flag_keys is None, all non-filtered-out flags are needed.
-        let is_needed = |id: &i32| needed_ids.as_ref().map_or(true, |ids| ids.contains(id));
+        let is_needed = |id: &i32| needed_ids.as_ref().is_none_or(|ids| ids.contains(id));
 
         // Count non-filtered-out IDs across all stages for the cycle count computation.
         let global_flags_in_stages_count: usize = evaluation_metadata
