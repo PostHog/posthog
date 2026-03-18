@@ -47,6 +47,8 @@ from .oauth import (
 )
 from .proxy import proxy_mcp_request, validate_installation_auth
 
+_RECOMMENDED_URLS = [server["url"] for server in RECOMMENDED_SERVERS]
+
 
 class MCPProxyRenderer(renderers.BaseRenderer):
     """Accepts any content type so DRF content negotiation doesn't reject MCP requests."""
@@ -335,6 +337,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         data = request.validated_data
 
         if "is_enabled" in data:
+            logger.info("WE ARE HERE")
             report_user_action(
                 request.user,
                 "mcp_store server toggled",
@@ -869,7 +872,7 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                 "server_url": installation.url,
                 "auth_type": "oauth",
                 "install_source": install_source,
-                "source": "recommended" if server else "custom",
+                "source": "recommended" if installation.url in _RECOMMENDED_URLS else "custom",
             },
             team=installation.team,
         )
