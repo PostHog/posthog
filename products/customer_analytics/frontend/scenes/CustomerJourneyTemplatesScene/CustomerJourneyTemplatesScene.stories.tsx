@@ -1,3 +1,4 @@
+// Stories for Customer Analytics Journey Templates scene
 import { Meta, StoryFn } from '@storybook/react'
 
 import { App } from 'scenes/App'
