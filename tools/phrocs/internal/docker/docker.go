@@ -59,27 +59,64 @@ func IsDockerComposeShell(shell string) bool {
 	return strings.Contains(shell, "docker compose") || strings.Contains(shell, "docker-compose")
 }
 
-func ParseComposeFile(shell string) string {
+// ComposeArgs holds the flags needed to address the right compose project
+type ComposeArgs struct {
+	Files    []string // -f / --file values
+	Profiles []string // --profile values
+}
+
+// ParseComposeArgs extracts all -f/--file and --profile flags from a shell
+// command string so they can be forwarded to docker compose subcommands.
+func ParseComposeArgs(shell string) ComposeArgs {
 	parts := strings.Fields(shell)
-	for i, p := range parts {
-		if p == "-f" && i+1 < len(parts) {
-			return parts[i+1]
+	var args ComposeArgs
+	for i := 0; i < len(parts); i++ {
+		switch {
+		case (parts[i] == "-f" || parts[i] == "--file") && i+1 < len(parts):
+			args.Files = append(args.Files, parts[i+1])
+			i++
+		case parts[i] == "--profile" && i+1 < len(parts):
+			args.Profiles = append(args.Profiles, parts[i+1])
+			i++
+		case strings.HasPrefix(parts[i], "--file="):
+			args.Files = append(args.Files, strings.TrimPrefix(parts[i], "--file="))
+		case strings.HasPrefix(parts[i], "--profile="):
+			args.Profiles = append(args.Profiles, strings.TrimPrefix(parts[i], "--profile="))
 		}
 	}
-	return ""
+	return args
 }
 
-func composeBaseArgs(composeFile string) []string {
-	if composeFile != "" {
-		return []string{"compose", "-f", composeFile}
+// StripComposeLogsTail removes a trailing "docker compose ... logs ..." segment
+// from a &&-chained shell command. This prevents the parent process from
+// tailing all container logs when phrocs streams them individually per container.
+func StripComposeLogsTail(shell string) string {
+	segments := strings.Split(shell, "&&")
+	if len(segments) < 2 {
+		return shell
 	}
-	return []string{"compose"}
+	last := strings.TrimSpace(segments[len(segments)-1])
+	if IsDockerComposeShell(last) && strings.Contains(last, "logs") {
+		return strings.TrimRight(strings.Join(segments[:len(segments)-1], "&&"), " ")
+	}
+	return shell
 }
 
-func FetchContainerList(composeFile string) tea.Cmd {
+func composeBaseArgs(args ComposeArgs) []string {
+	base := []string{"compose"}
+	for _, f := range args.Files {
+		base = append(base, "-f", f)
+	}
+	for _, p := range args.Profiles {
+		base = append(base, "--profile", p)
+	}
+	return base
+}
+
+func FetchContainerList(args ComposeArgs) tea.Cmd {
 	return func() tea.Msg {
-		base := composeBaseArgs(composeFile)
-		args := append(base, "ps", "--format", "json", "-a")
+		base := composeBaseArgs(args)
+		args := append(base, "ps", "--format", "json")
 		cmd := exec.Command("docker", args...)
 		out, err := cmd.Output()
 		if err != nil {
@@ -118,9 +155,9 @@ func PollContainersTick() tea.Cmd {
 
 const MaxContainerLogLines = 5000
 
-func StartContainerLogStream(composeFile, service string, send func(tea.Msg)) *ContainerLogStream {
+func StartContainerLogStream(composeArgs ComposeArgs, service string, send func(tea.Msg)) *ContainerLogStream {
 	stream := &ContainerLogStream{}
-	base := composeBaseArgs(composeFile)
+	base := composeBaseArgs(composeArgs)
 	args := append(base, "logs", "-f", "--tail=200", "--no-log-prefix", service)
 	cmd := exec.Command("docker", args...)
 
@@ -145,7 +182,7 @@ func StartContainerLogStream(composeFile, service string, send func(tea.Msg)) *C
 
 	go func() {
 		scanner := bufio.NewScanner(pr)
-		scanner.Buffer(make([]byte, 64*1024), 64*1024)
+		scanner.Buffer(make([]byte, 64*1024), 1024*1024)
 		for scanner.Scan() {
 			stream.mu.Lock()
 			stopped := stream.stopped
@@ -156,6 +193,12 @@ func StartContainerLogStream(composeFile, service string, send func(tea.Msg)) *C
 			send(ContainerLogLineMsg{
 				Service: service,
 				Line:    scanner.Text(),
+			})
+		}
+		if err := scanner.Err(); err != nil {
+			send(ContainerLogLineMsg{
+				Service: service,
+				Line:    fmt.Sprintf("[log stream error: %v]", err),
 			})
 		}
 		_ = pr.Close()
@@ -196,7 +239,7 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 	header := fmt.Sprintf("  %-*s  %-*s  %s", svcW, "SERVICE", stateW, "STATE", "STATUS")
 	sb.WriteString(lipgloss.NewStyle().Bold(true).Foreground(sharedpalette.ColorWhite).Render(header))
 	sb.WriteByte('\n')
-	sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorDarkGrey).Render("  " + strings.Repeat("─", width-4)))
+	sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorDarkGrey).Render("  " + strings.Repeat("─", max(width-4, 0))))
 	sb.WriteByte('\n')
 
 	for _, c := range containers {

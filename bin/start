@@ -6,7 +6,6 @@ export REPOSITORY_ROOT=$(realpath "$(dirname "$0")/..")
 export LOCK_FILE="$REPOSITORY_ROOT/bin/start.lock"
 
 cleanup_lock() {
-    flock -u 9 2>/dev/null || true
     rm -f "$LOCK_FILE"
 }
 

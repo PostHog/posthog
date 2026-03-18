@@ -40,32 +40,100 @@ func TestIsDockerComposeShell(t *testing.T) {
 	}
 }
 
-func TestParseComposeFile(t *testing.T) {
+func TestParseComposeArgs(t *testing.T) {
+	tests := []struct {
+		name     string
+		shell    string
+		files    []string
+		profiles []string
+	}{
+		{
+			name:  "single file",
+			shell: "docker compose -f docker-compose.dev.yml up",
+			files: []string{"docker-compose.dev.yml"},
+		},
+		{
+			name:     "multiple files and profile",
+			shell:    "docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile tracing up",
+			files:    []string{"docker-compose.dev.yml", "docker-compose.profiles.yml"},
+			profiles: []string{"tracing"},
+		},
+		{
+			name:  "no flags",
+			shell: "docker compose up",
+		},
+		{
+			name:  "dash f at end",
+			shell: "docker compose -f",
+		},
+		{
+			name:     "equals syntax",
+			shell:    "docker compose --file=a.yml --profile=dev up",
+			files:    []string{"a.yml"},
+			profiles: []string{"dev"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := ParseComposeArgs(tc.shell)
+			if strings.Join(got.Files, ",") != strings.Join(tc.files, ",") {
+				t.Fatalf("Files = %v, want %v", got.Files, tc.files)
+			}
+			if strings.Join(got.Profiles, ",") != strings.Join(tc.profiles, ",") {
+				t.Fatalf("Profiles = %v, want %v", got.Profiles, tc.profiles)
+			}
+		})
+	}
+}
+
+func TestStripComposeLogsTail(t *testing.T) {
 	tests := []struct {
 		name  string
 		shell string
 		want  string
 	}{
-		{name: "compose with file", shell: "docker compose -f docker-compose.dev.yml up", want: "docker-compose.dev.yml"},
-		{name: "compose without file", shell: "docker compose up", want: ""},
-		{name: "dash f at end", shell: "docker compose -f", want: ""},
+		{
+			name:  "strips trailing logs",
+			shell: "docker compose -f a.yml up -d && echo ready && docker compose -f a.yml logs --tail=100 -f",
+			want:  "docker compose -f a.yml up -d && echo ready",
+		},
+		{
+			name:  "no logs tail",
+			shell: "docker compose -f a.yml up -d && echo ready",
+			want:  "docker compose -f a.yml up -d && echo ready",
+		},
+		{
+			name:  "single segment",
+			shell: "docker compose up",
+			want:  "docker compose up",
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := ParseComposeFile(tc.shell); got != tc.want {
-				t.Fatalf("ParseComposeFile(%q) = %q, want %q", tc.shell, got, tc.want)
+			if got := StripComposeLogsTail(tc.shell); got != tc.want {
+				t.Fatalf("StripComposeLogsTail() = %q, want %q", got, tc.want)
 			}
 		})
 	}
 }
 
 func TestComposeBaseArgs(t *testing.T) {
-	if got := composeBaseArgs(""); strings.Join(got, " ") != "compose" {
+	if got := composeBaseArgs(ComposeArgs{}); strings.Join(got, " ") != "compose" {
 		t.Fatalf("composeBaseArgs(empty) = %v", got)
 	}
-	if got := composeBaseArgs("docker-compose.dev.yml"); strings.Join(got, " ") != "compose -f docker-compose.dev.yml" {
+	args := ComposeArgs{Files: []string{"docker-compose.dev.yml"}}
+	if got := composeBaseArgs(args); strings.Join(got, " ") != "compose -f docker-compose.dev.yml" {
 		t.Fatalf("composeBaseArgs(with file) = %v", got)
+	}
+	args2 := ComposeArgs{
+		Files:    []string{"docker-compose.dev.yml", "docker-compose.profiles.yml"},
+		Profiles: []string{"tracing"},
+	}
+	want := "compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile tracing"
+	if got := composeBaseArgs(args2); strings.Join(got, " ") != want {
+		t.Fatalf("composeBaseArgs(multi) = %v, want %v", got, want)
 	}
 }
 
@@ -79,7 +147,8 @@ this-is-not-json
 EOF
 `)
 
-	msg := FetchContainerList("docker-compose.dev.yml")()
+	args := ComposeArgs{Files: []string{"docker-compose.dev.yml"}}
+	msg := FetchContainerList(args)()
 	listMsg, ok := msg.(ContainerListMsg)
 	if !ok {
 		t.Fatalf("message type = %T, want ContainerListMsg", msg)
@@ -95,7 +164,8 @@ EOF
 func TestFetchContainerListCommandFailure(t *testing.T) {
 	installFakeDocker(t, "#!/bin/sh\nexit 1\n")
 
-	msg := FetchContainerList("docker-compose.dev.yml")()
+	args := ComposeArgs{Files: []string{"docker-compose.dev.yml"}}
+	msg := FetchContainerList(args)()
 	listMsg, ok := msg.(ContainerListMsg)
 	if !ok {
 		t.Fatalf("message type = %T, want ContainerListMsg", msg)
@@ -156,13 +226,14 @@ printf "%%s\n" "$@" > %q
 echo '{"Service":"one","Status":"Up","State":"running"}'
 `, argsFile))
 
-	_ = FetchContainerList("docker-compose.dev.yml")()
+	composeArgs := ComposeArgs{Files: []string{"docker-compose.dev.yml"}}
+	_ = FetchContainerList(composeArgs)()
 	gotBytes, err := os.ReadFile(argsFile)
 	if err != nil {
 		t.Fatalf("read args file: %v", err)
 	}
 	got := strings.Split(strings.TrimSpace(string(gotBytes)), "\n")
-	want := []string{"compose", "-f", "docker-compose.dev.yml", "ps", "--format", "json", "-a"}
+	want := []string{"compose", "-f", "docker-compose.dev.yml", "ps", "--format", "json"}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("docker args = %v, want %v", got, want)
 	}

@@ -62,7 +62,7 @@ func (m Model) loadContainerView() Model {
 		m.viewportAtBottom = false
 	} else {
 		// Start streaming logs for the selected container
-		m.containerLogStream = docker.StartContainerLogStream(m.composeFile, svc, m.mgr.Send())
+		m.containerLogStream = docker.StartContainerLogStream(m.composeArgs, svc, m.mgr.Send())
 		m.viewport.SetContent("")
 		m.viewportAtBottom = true
 	}
@@ -85,7 +85,7 @@ func (m Model) renderContainerSidebar() string {
 		var icon, name string
 		var iconColor color.Color
 		if i == 0 {
-			icon, name, iconColor = "◻", "Status", colorBlue
+			icon, name, iconColor = "🐋", "Status", colorBlue
 		} else {
 			c := m.containers[i-1]
 			icon = docker.ContainerStateIcon(c.State)

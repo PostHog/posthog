@@ -21,7 +21,7 @@ func (m Model) handleMouseClick(msg tea.MouseClickMsg, cmds []tea.Cmd) (tea.Mode
 					return m, tea.Batch(loadCmds...)
 				}
 			}
-		} else if m.isDockerMode() && msg.X >= m.width-containerSidebarWidth {
+		} else if m.isDockerMode() && msg.X >= m.width-containerSidebarWidth && msg.Y >= headerHeight {
 			// Clicked in container sidebar
 			m.focusedPane = focusContainers
 			m.dbg("focus: mouse click → containers")

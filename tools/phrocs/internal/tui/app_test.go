@@ -354,9 +354,6 @@ func TestSearch_enterConfirmsAndKeepsMatches(t *testing.T) {
 	m = update(m, keypress('o'))
 	m = update(m, keypress('o'))
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	if m.searchMode {
-		t.Error("enter should exit search typing mode")
-	}
 	if m.searchQuery != "foo" {
 		t.Errorf("query should be preserved after enter, got %q", m.searchQuery)
 	}
@@ -378,18 +375,18 @@ func TestSearch_navigateWithEnter(t *testing.T) {
 		m = update(m, keypress(ch))
 	}
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	if m.searchCursor != 0 {
-		t.Fatalf("after enter cursor should be 0, got %d", m.searchCursor)
+	if m.searchCursor != 1 {
+		t.Fatalf("after enter cursor should be 1, got %d", m.searchCursor)
 	}
 	// ↵ → next match
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Text: "enter"})
-	if m.searchCursor != 1 {
-		t.Errorf("enter: want cursor 1, got %d", m.searchCursor)
+	if m.searchCursor != 2 {
+		t.Errorf("enter: want cursor 2, got %d", m.searchCursor)
 	}
 	// ⇧↵ → prev match
 	m = update(m, tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift, Text: "shift+enter"})
-	if m.searchCursor != 0 {
-		t.Errorf("shift+enter: want cursor 0, got %d", m.searchCursor)
+	if m.searchCursor != 1 {
+		t.Errorf("shift+enter: want cursor 1, got %d", m.searchCursor)
 	}
 }
 

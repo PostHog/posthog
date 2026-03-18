@@ -52,7 +52,7 @@ type Model struct {
 	containerOffset    int
 	containerLines     []string
 	containerLogStream *docker.ContainerLogStream
-	composeFile        string
+	composeArgs        docker.ComposeArgs
 
 	keys     keyMap
 	help     help.Model
@@ -170,7 +170,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case docker.ContainerPollTickMsg:
 		if m.isDockerMode() {
-			cmds = append(cmds, docker.FetchContainerList(m.composeFile), docker.PollContainersTick())
+			cmds = append(cmds, docker.FetchContainerList(m.composeArgs), docker.PollContainersTick())
 		}
 
 	case docker.ContainerLogLineMsg:
@@ -305,8 +305,9 @@ func (m Model) applySize() Model {
 }
 
 // Reloads the viewport with the selected process's output.
-// Switching processes always exits copy mode and search typing mode,
-// but preserves the search query so matches are shown in the new process.
+// Switching processes always exits copy mode and search typing mode.
+// The search query is preserved across non-docker processes, but entering
+// docker mode resets the search query and matches.
 func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 	if !m.ready {
 		return m, nil
@@ -332,12 +333,12 @@ func (m Model) loadActiveProc() (Model, []tea.Cmd) {
 	m.containerLines = nil
 
 	if m.isDockerMode() {
-		m.composeFile = docker.ParseComposeFile(m.activeProc().Cfg.Shell)
+		m.composeArgs = docker.ParseComposeArgs(m.activeProc().Cfg.Shell)
 		m.searchQuery = ""
 		m.searchMatches = nil
 		m.searchCursor = 0
 		m.viewport.SetContent(docker.RenderContainerStatusTable(m.containers, m.viewport.Width()))
-		cmds = append(cmds, docker.FetchContainerList(m.composeFile), docker.PollContainersTick())
+		cmds = append(cmds, docker.FetchContainerList(m.composeArgs), docker.PollContainersTick())
 	} else {
 		m.focusedPane = focusServices
 		m.containers = nil
