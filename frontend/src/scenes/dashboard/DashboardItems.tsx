@@ -305,7 +305,7 @@ export function DashboardItems(): JSX.Element {
                                           setDashboardMode(DashboardMode.Edit, DashboardEventSource.CardDragHandle)
                                       }
                                     : undefined,
-                                showEditingControls: isEditablePlacement,
+                                showEditingControls: isEditablePlacement || dashboardMode === DashboardMode.Edit,
                                 moveToDashboard: ({ id, name }: Pick<DashboardType, 'id' | 'name'>) => {
                                     if (!dashboard) {
                                         throw new Error('must be on a dashboard to move this tile')
@@ -378,6 +378,7 @@ export function DashboardItems(): JSX.Element {
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}
                                         showResizeHandles={commonTileProps.showResizeHandles}
+                                        showEditingControls={commonTileProps.showEditingControls}
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}
@@ -402,6 +403,7 @@ export function DashboardItems(): JSX.Element {
                                         onDuplicate={() => duplicateTile(tile)}
                                         onRemove={commonTileProps.removeFromDashboard}
                                         showResizeHandles={commonTileProps.showResizeHandles}
+                                        showEditingControls={commonTileProps.showEditingControls}
                                         canEnterEditModeFromEdge={commonTileProps.canEnterEditModeFromEdge}
                                         onEnterEditModeFromEdge={commonTileProps.onEnterEditModeFromEdge}
                                         onDragHandleMouseDown={commonTileProps.onDragHandleMouseDown}

@@ -21,6 +21,8 @@ interface ButtonTileCardProps extends React.HTMLAttributes<HTMLDivElement>, Resi
     onEnterEditModeFromEdge?: () => void
     moreButtonOverlay?: MoreProps['overlay']
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
+    /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
+    showEditingControls?: boolean
 }
 
 function ButtonTileCardInternal(
@@ -34,6 +36,7 @@ function ButtonTileCardInternal(
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
+        showEditingControls,
         ...divProps
     }: ButtonTileCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -45,7 +48,7 @@ function ButtonTileCardInternal(
         throw new Error('ButtonTileCard requires button_tile')
     }
 
-    const shouldHideMoreButton = placement === DashboardPlacement.Public
+    const shouldHideMoreButton = placement === DashboardPlacement.Public || showEditingControls === false
 
     const handleClick = (): void => {
         if (button_tile.url.startsWith('/')) {
@@ -62,6 +65,7 @@ function ButtonTileCardInternal(
             className={clsx(
                 'ButtonTileCard rounded flex flex-col',
                 !isTransparent && 'bg-surface-primary border',
+                isTransparent && showResizeHandles && 'border border-dashed border-border',
                 className
             )}
             data-attr="button-tile-card"
