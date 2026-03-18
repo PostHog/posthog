@@ -1,0 +1,189 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "calculation_interval": {
+            "anyOf": [
+                {
+                    "anyOf": [
+                        {
+                            "description": "* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly",
+                            "enum": ["hourly", "daily", "weekly", "monthly"],
+                            "type": "string"
+                        },
+                        {
+                            "const": null,
+                            "type": "null"
+                        }
+                    ]
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "How often the alert is checked: hourly, daily, weekly, or monthly.\n\n* `hourly` - hourly\n* `daily` - daily\n* `weekly` - weekly\n* `monthly` - monthly"
+        },
+        "condition": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "type": {
+                            "enum": ["absolute_value", "relative_increase", "relative_decrease"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease."
+        },
+        "config": {
+            "anyOf": [
+                {
+                    "properties": {
+                        "check_ongoing_interval": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones."
+                        },
+                        "series_index": {
+                            "description": "Zero-based index of the series in the insight's query to monitor.",
+                            "type": "number"
+                        },
+                        "type": {
+                            "default": "TrendsAlertConfig",
+                            "enum": ["TrendsAlertConfig"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["series_index"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval)."
+        },
+        "enabled": {
+            "description": "Whether the alert is actively being evaluated.",
+            "type": "boolean"
+        },
+        "id": {
+            "description": "A UUID string identifying this alert configuration.",
+            "type": "string"
+        },
+        "insight": {
+            "description": "Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
+            "type": "number"
+        },
+        "name": {
+            "description": "Human-readable name for the alert.",
+            "type": "string"
+        },
+        "skip_weekend": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Skip alert evaluation on weekends (Saturday and Sunday)."
+        },
+        "snoozed_until": {
+            "anyOf": [
+                {
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze."
+        },
+        "subscribed_users": {
+            "description": "User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.",
+            "items": {
+                "type": "number"
+            },
+            "type": "array"
+        },
+        "threshold": {
+            "description": "Threshold configuration with bounds and type for evaluating the alert.",
+            "properties": {
+                "configuration": {
+                    "description": "Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).",
+                    "properties": {
+                        "bounds": {
+                            "anyOf": [
+                                {
+                                    "properties": {
+                                        "lower": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Alert fires when the value drops below this number."
+                                        },
+                                        "upper": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "number"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ],
+                                            "description": "Alert fires when the value exceeds this number."
+                                        }
+                                    },
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "type": {
+                            "enum": ["absolute", "percentage"],
+                            "type": "string"
+                        }
+                    },
+                    "required": ["type"],
+                    "type": "object"
+                },
+                "created_at": {
+                    "format": "date-time",
+                    "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z))$",
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "description": "Optional name for the threshold.",
+                    "type": "string"
+                }
+            },
+            "required": ["configuration"],
+            "type": "object"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

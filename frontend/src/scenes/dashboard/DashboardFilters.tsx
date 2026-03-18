@@ -166,7 +166,7 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
     return (
         <div className="flex flex-col gap-2 w-full">
             <div className="flex gap-2 justify-between">
-                <div className="flex flex-col md:flex-row gap-2 justify-between">
+                <div className="flex flex-col md:flex-row gap-2 justify-between shrink-0 items-start lg:items-center">
                     {![
                         DashboardPlacement.Public,
                         DashboardPlacement.Export,
@@ -180,9 +180,12 @@ export function DashboardFilterBar({ backTo }: DashboardFilterBarProps): JSX.Ele
                 </div>
                 {![DashboardPlacement.Export, DashboardPlacement.Builtin].includes(placement) && (
                     <div
-                        className={clsx('flex shrink-0 gap-4 items-center dashoard-items-actions ml-auto', {
-                            'mt-7': hasVariables,
-                        })}
+                        className={clsx(
+                            'flex flex-col lg:flex-row items-end lg:items-center shrink-0 gap-4 dashoard-items-actions ml-auto',
+                            {
+                                'mt-7': hasVariables,
+                            }
+                        )}
                     >
                         {dashboardFiltersEnabled && <DashboardAdvancedOptionsToggle />}
                         <div className={`left-item ${placement === DashboardPlacement.Public ? 'text-right' : ''}`}>
