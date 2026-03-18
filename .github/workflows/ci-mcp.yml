@@ -56,6 +56,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install Python dependencies
@@ -91,6 +92,9 @@ jobs:
                     exit 1
                   fi
 
+            - name: Lint tool names
+              run: cd services/mcp && pnpm lint-tool-names
+
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest
@@ -117,12 +121,12 @@ jobs:
 
             - name: Run unit tests
               run: |
-                  pnpm --filter=@posthog/mcp run test -- -u
+                  pnpm --filter=@posthog/mcp run test -u
 
                   if [ -n "$(git status --porcelain -- services/mcp/tests/unit)" ]; then
                     echo ""
                     git status --short -- services/mcp/tests/unit
-                    echo "::error::MCP unit test artifacts are out of date. Run 'pnpm --filter=@posthog/mcp run test -- -u' and commit the result."
+                    echo "::error::MCP unit test artifacts are out of date. Run 'pnpm --filter=@posthog/mcp run test -u' and commit the result."
                     exit 1
                   fi
 
@@ -236,6 +240,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies

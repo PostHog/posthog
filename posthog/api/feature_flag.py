@@ -827,6 +827,11 @@ class FeatureFlagSerializer(
 
             _validate_rollout_percentage(group.get("rollout_percentage"), f"groups[{group_index}].rollout_percentage")
 
+            _validate_integer(
+                group.get("aggregation_group_type_index"),
+                f"groups[{group_index}].aggregation_group_type_index",
+            )
+
             for prop_index, prop in enumerate(group.get("properties", [])):
                 _validate_integer(
                     prop.get("group_type_index"),

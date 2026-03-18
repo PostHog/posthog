@@ -115,15 +115,19 @@ export function NavTabChat({
                                 </ButtonPrimitive>
                             )}
                         </label>
-                        <Link to={urls.ai()} buttonProps={{ iconOnly: true, variant: 'panel' }} tooltip="New chat">
-                            <IconPlusSmall />
+                        <Link
+                            to={urls.ai()}
+                            buttonProps={{ iconOnly: true, variant: 'outline', className: 'text-ai' }}
+                            tooltip="New chat"
+                        >
+                            <IconPlusSmall className="size-4" />
                         </Link>
                     </div>
 
                     <ScrollableShadows
                         direction="vertical"
                         className="flex flex-col flex-1 min-h-0 overflow-hidden"
-                        innerClassName="flex flex-col px-1 pb-4 -mx-1"
+                        innerClassName="flex flex-col px-1 pb-4 -mx-1 scroll-pt-8"
                         styledScrollbars
                     >
                         {conversationHistoryLoading && conversationHistory.length === 0 ? (
@@ -156,14 +160,7 @@ export function NavTabChat({
                                                                     <Combobox.Item
                                                                         key={conversation.id}
                                                                         value={conversation}
-                                                                        onClick={(e) => {
-                                                                            e.preventDefault()
-                                                                            router.actions.push(
-                                                                                AiChatListItem.getHref(conversation.id)
-                                                                            )
-                                                                            onItemClick?.()
-                                                                        }}
-                                                                        render={
+                                                                        render={(props) => (
                                                                             <Tooltip
                                                                                 title={
                                                                                     conversation.title ||
@@ -172,6 +169,7 @@ export function NavTabChat({
                                                                                 placement="right"
                                                                             >
                                                                                 <Link
+                                                                                    {...props}
                                                                                     to={AiChatListItem.getHref(
                                                                                         conversation.id
                                                                                     )}
@@ -190,6 +188,15 @@ export function NavTabChat({
                                                                                             }
                                                                                         />
                                                                                     }
+                                                                                    onClick={(e) => {
+                                                                                        e.preventDefault()
+                                                                                        router.actions.push(
+                                                                                            AiChatListItem.getHref(
+                                                                                                conversation.id
+                                                                                            )
+                                                                                        )
+                                                                                        onItemClick?.()
+                                                                                    }}
                                                                                 >
                                                                                     <AiChatListItem.Content
                                                                                         title={conversation.title}
@@ -200,7 +207,7 @@ export function NavTabChat({
                                                                                     />
                                                                                 </Link>
                                                                             </Tooltip>
-                                                                        }
+                                                                        )}
                                                                     />
                                                                     <AiChatListItem.Trigger />
                                                                 </AiChatListItem.Group>

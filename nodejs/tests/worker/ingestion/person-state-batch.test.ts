@@ -126,7 +126,7 @@ describe('PersonState.processEvent()', () => {
 
     beforeEach(async () => {
         teamId = await createTeam(hub.postgres, organizationId)
-        mainTeam = (await getTeam(hub, teamId))!
+        mainTeam = (await getTeam(hub.postgres, teamId))!
         timestamp = DateTime.fromISO('2020-01-01T12:00:05.200Z').toUTC()
         timestamp2 = DateTime.fromISO('2020-02-02T12:00:05.200Z').toUTC()
         timestampch = '2020-01-01 12:00:05.000'
@@ -317,7 +317,7 @@ describe('PersonState.processEvent()', () => {
             }).updateProperties()
 
             const otherTeamId = await createTeam(hub.postgres, organizationId)
-            const otherTeam = (await getTeam(hub, otherTeamId))!
+            const otherTeam = (await getTeam(hub.postgres, otherTeamId))!
             teamId = otherTeamId
             const [personOtherTeam, kafkaAcksOther] = await personPropertyService(
                 {

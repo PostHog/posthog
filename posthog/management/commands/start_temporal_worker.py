@@ -355,16 +355,19 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--graceful-shutdown-timeout-seconds",
+            type=int,
             default=settings.GRACEFUL_SHUTDOWN_TIMEOUT_SECONDS,
             help="Time that the worker will wait after shutdown before canceling activities, in seconds",
         )
         parser.add_argument(
             "--max-concurrent-workflow-tasks",
+            type=int,
             default=settings.MAX_CONCURRENT_WORKFLOW_TASKS,
             help="Maximum number of concurrent workflow tasks for this worker",
         )
         parser.add_argument(
             "--max-concurrent-activities",
+            type=int,
             default=settings.MAX_CONCURRENT_ACTIVITIES,
             help="Maximum number of concurrent activity tasks for this worker",
         )
@@ -376,11 +379,13 @@ class Command(BaseCommand):
         )
         parser.add_argument(
             "--target-memory-usage",
+            type=float,
             default=settings.TARGET_MEMORY_USAGE,
             help="Fraction of available memory to use",
         )
         parser.add_argument(
             "--target-cpu-usage",
+            type=float,
             default=settings.TARGET_CPU_USAGE,
             help="Fraction of available CPU to use",
         )

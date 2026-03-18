@@ -675,8 +675,14 @@ export interface DetailApi {
     readonly type: string
 }
 
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null | null
+
 export interface ActivityLogEntryApi {
-    readonly user: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
     readonly activity: string
     readonly scope: string
     readonly item_id: string

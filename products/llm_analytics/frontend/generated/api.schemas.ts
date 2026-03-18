@@ -437,6 +437,85 @@ export interface PatchedLLMProviderKeyApi {
     readonly last_used_at?: string | null
 }
 
+export interface ReviewQueueItemApi {
+    readonly id: string
+    /** Review queue ID that currently owns this pending trace. */
+    readonly queue_id: string
+    /** Human-readable name of the queue that currently owns this pending trace. */
+    readonly queue_name: string
+    /** Trace ID currently pending human review. */
+    readonly trace_id: string
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User who queued this trace. */
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedReviewQueueItemListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReviewQueueItemApi[]
+}
+
+export interface ReviewQueueItemCreateApi {
+    /** Review queue ID that should own this pending trace. */
+    queue_id: string
+    /**
+     * Trace ID to add to the selected review queue.
+     * @maxLength 255
+     */
+    trace_id: string
+}
+
+export interface PatchedReviewQueueItemUpdateApi {
+    /** Review queue ID that should own this pending trace. */
+    queue_id?: string
+}
+
+export interface ReviewQueueApi {
+    readonly id: string
+    /** Human-readable queue name. */
+    readonly name: string
+    /** Number of pending traces currently assigned to this queue. */
+    readonly pending_item_count: number
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    /** User who created this review queue. */
+    readonly created_by: UserBasicApi
+    readonly team: number
+}
+
+export interface PaginatedReviewQueueListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ReviewQueueApi[]
+}
+
+export interface ReviewQueueCreateApi {
+    /**
+     * Human-readable queue name.
+     * @maxLength 255
+     */
+    name: string
+}
+
+export interface PatchedReviewQueueUpdateApi {
+    /**
+     * Human-readable queue name.
+     * @maxLength 255
+     */
+    name?: string
+}
+
 /**
  * * `categorical` - categorical
  * `numeric` - numeric
@@ -807,6 +886,125 @@ export interface TextReprResponseApi {
     metadata: TextReprMetadataApi
 }
 
+export interface TraceReviewScoreApi {
+    readonly id: string
+    /** Stable scorer definition ID. */
+    readonly definition_id: string
+    /** Human-readable scorer name. */
+    readonly definition_name: string
+    /** Scorer kind for this saved score. */
+    readonly definition_kind: string
+    /** Whether the scorer is currently archived. */
+    readonly definition_archived: boolean
+    /** Immutable scorer version ID used to validate this score. */
+    readonly definition_version_id: string
+    /** Immutable scorer version number used to validate this score. */
+    readonly definition_version: number
+    /** Immutable scorer configuration snapshot used to validate this score. */
+    readonly definition_config: ScoreDefinitionConfigApi
+    /**
+     * Categorical option keys selected for this score.
+     * @nullable
+     */
+    readonly categorical_values: readonly string[] | null
+    /**
+     * @nullable
+     * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+     */
+    readonly numeric_value: string | null
+    /** @nullable */
+    readonly boolean_value: boolean | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface TraceReviewApi {
+    readonly id: string
+    /** Trace ID for the review. */
+    readonly trace_id: string
+    /**
+     * Optional human comment or reasoning for the review.
+     * @nullable
+     */
+    readonly comment: string | null
+    readonly created_at: string
+    /** @nullable */
+    readonly updated_at: string | null
+    readonly created_by: UserBasicApi
+    /** User who last saved this review. */
+    readonly reviewed_by: UserBasicApi
+    /** Saved scorer values for this review. */
+    readonly scores: readonly TraceReviewScoreApi[]
+    readonly team: number
+}
+
+export interface PaginatedTraceReviewListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: TraceReviewApi[]
+}
+
+export interface TraceReviewScoreWriteApi {
+    /** Stable scorer definition ID. */
+    definition_id: string
+    /**
+     * Optional immutable scorer version ID. Defaults to the scorer's current version.
+     * @nullable
+     */
+    definition_version_id?: string | null
+    /**
+     * Categorical option keys selected for this score.
+     * @minItems 1
+     * @nullable
+     */
+    categorical_values?: string[] | null
+    /**
+     * Numeric value selected for this score.
+     * @nullable
+     * @pattern ^-?\d{0,6}(?:\.\d{0,6})?$
+     */
+    numeric_value?: string | null
+    /**
+     * Boolean value selected for this score.
+     * @nullable
+     */
+    boolean_value?: boolean | null
+}
+
+export interface TraceReviewCreateApi {
+    /**
+     * Trace ID for the review. Only one active review can exist per trace and team.
+     * @maxLength 255
+     */
+    trace_id: string
+    /**
+     * Optional human comment or reasoning for the review.
+     * @nullable
+     */
+    comment?: string | null
+    /** Full desired score set for this review. Omit scorers you want to leave blank. */
+    scores?: TraceReviewScoreWriteApi[]
+}
+
+export interface PatchedTraceReviewUpdateApi {
+    /**
+     * Trace ID for the review. Only one active review can exist per trace and team.
+     * @maxLength 255
+     */
+    trace_id?: string
+    /**
+     * Optional human comment or reasoning for the review.
+     * @nullable
+     */
+    comment?: string | null
+    /** Full desired score set for this review. Omit scorers you want to leave blank. */
+    scores?: TraceReviewScoreWriteApi[]
+}
+
 export interface LLMPromptApi {
     readonly id: string
     /**
@@ -1042,6 +1240,57 @@ export type LlmAnalyticsProviderKeysListParams = {
     offset?: number
 }
 
+export type LlmAnalyticsReviewQueueItemsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Order by `created_at` or `updated_at`.
+     */
+    order_by?: string
+    /**
+     * Filter by a specific review queue ID.
+     */
+    queue_id?: string
+    /**
+     * Search pending trace IDs.
+     */
+    search?: string
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string
+}
+
+export type LlmAnalyticsReviewQueuesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    name?: string
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Order by `name`, `updated_at`, or `created_at`.
+     */
+    order_by?: string
+    /**
+     * Search review queue names.
+     */
+    search?: string
+}
+
 export type LlmAnalyticsScoreDefinitionsListParams = {
     /**
      * Filter by archived state.
@@ -1088,6 +1337,41 @@ export type LlmAnalyticsTextReprCreate400 = { [key: string]: unknown }
 export type LlmAnalyticsTextReprCreate500 = { [key: string]: unknown }
 
 export type LlmAnalyticsTextReprCreate503 = { [key: string]: unknown }
+
+export type LlmAnalyticsTraceReviewsListParams = {
+    /**
+     * Filter by a stable scorer definition ID.
+     */
+    definition_id?: string
+    /**
+     * Filter by multiple scorer definition IDs separated by commas.
+     */
+    definition_id__in?: string
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * Order by `updated_at` or `created_at`.
+     */
+    order_by?: string
+    /**
+     * Search trace IDs and comments.
+     */
+    search?: string
+    /**
+     * Filter by an exact trace ID.
+     */
+    trace_id?: string
+    /**
+     * Filter by multiple trace IDs separated by commas.
+     */
+    trace_id__in?: string
+}
 
 export type LlmPromptsListParams = {
     /**
