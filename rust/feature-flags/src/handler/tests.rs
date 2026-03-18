@@ -696,7 +696,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-    
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -723,7 +723,7 @@ async fn test_evaluate_feature_flags_multiple_flags() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-    
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -814,7 +814,7 @@ async fn test_evaluate_feature_flags_details() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-    
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -841,7 +841,7 @@ async fn test_evaluate_feature_flags_details() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-    
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1575,7 +1575,7 @@ async fn test_parallel_path_matches_sequential_results() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-    
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1602,7 +1602,7 @@ async fn test_parallel_path_matches_sequential_results() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-    
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1629,7 +1629,7 @@ async fn test_parallel_path_matches_sequential_results() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-    
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
@@ -1656,7 +1656,7 @@ async fn test_parallel_path_matches_sequential_results() {
                 aggregation_group_type_index: None,
                 payloads: None,
                 super_groups: None,
-    
+
                 holdout: None,
             },
             ensure_experience_continuity: Some(false),
