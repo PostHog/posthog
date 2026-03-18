@@ -404,11 +404,11 @@ jobs:
     snapshot-failure-comment:
         name: Post snapshot failure guidance
         runs-on: ubuntu-latest
-        needs: [visual-regression, detect-snapshot-mode]
+        needs: [visual-regression, changes]
         if: >-
             always()
             && needs.visual-regression.result == 'failure'
-            && needs.detect-snapshot-mode.outputs.mode == 'check'
+            && needs.changes.outputs.mode == 'check'
             && github.event_name == 'pull_request'
             && github.event.pull_request.head.repo.full_name == github.repository
         permissions:
@@ -453,7 +453,7 @@ jobs:
     snapshot-success-cleanup:
         name: Clean up snapshot hint
         runs-on: ubuntu-latest
-        needs: [visual-regression, detect-snapshot-mode]
+        needs: [visual-regression, changes]
         if: >-
             always()
             && needs.visual-regression.result == 'success'

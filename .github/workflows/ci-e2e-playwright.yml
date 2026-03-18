@@ -621,7 +621,7 @@ jobs:
                       }
 
                       const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
-                      const snapshotMode = '${{ needs.detect-snapshot-mode.outputs.mode }}';
+                      const snapshotMode = '${{ needs.changes.outputs.mode }}';
                       const snapshotHint = (snapshotMode === 'check' && failed.length > 0)
                           ? '\n\n---\n**If your changes intentionally update screenshots:** add the `update-snapshots` label, then push an empty commit or merge master to trigger a new run. Screenshots will be auto-committed.\n**If you didn\'t change any UI:** this is likely a flaky screenshot — wait for a fix to land on master.'
                           : '';
