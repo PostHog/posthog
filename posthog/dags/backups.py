@@ -548,6 +548,7 @@ def cleanup_old_backups(
             context.log.warning(f"Found locked (crashed) backup {b.path}, marking for deletion.")
             if b not in backups_to_delete:
                 backups_to_delete.append(b)
+            continue
         b_status = get_most_recent_status(map_hosts(b.status).result().values())
         if b_status is not None and not b_status.created():
             context.log.info(f"Marking failed backup {b.path} (status: {b_status.status}) for deletion.")

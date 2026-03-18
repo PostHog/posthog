@@ -26,6 +26,7 @@ from posthog.dags.backups import (
     non_sharded_backup,
     prepare_run_config,
     sharded_backup,
+    wait_for_backup,
 )
 
 
@@ -657,3 +658,54 @@ def test_cleanup_deletes_failed_recent_backups():
     }
     # Only the failed incremental should be deleted; the verified full should be kept
     assert paginated_prefixes == {f"{prior_backups[0].path}/"}
+
+
+def test_wait_for_backup_raises_on_max_tries_exceeded():
+    config = BackupConfig(database="posthog", table="test", incremental=False)
+    backup = Backup(database="posthog", table="test", date="20240201000000", shard=1)
+
+    mock_cluster = MagicMock()
+
+    # Simulate backup that never finishes: is_done always returns False
+    def mock_map_hosts(fn, **kwargs):
+        mock_result = MagicMock()
+        # wait() returns None, is_done() returns False, status() returns CREATING_BACKUP
+        status = BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
+        mock_result.result.return_value = {"host1": status}
+        return mock_result
+
+    mock_cluster.map_hosts_in_shard_by_role.side_effect = mock_map_hosts
+
+    # Patch backup.wait to be a no-op (avoid actual sleep)
+    with patch.object(Backup, "wait", return_value=None), patch.object(Backup, "is_done", return_value=True):
+        with pytest.raises(dagster.Failure, match="did not complete"):
+            wait_for_backup(
+                context=dagster.build_op_context(),
+                config=config,
+                backup=backup,
+                cluster=mock_cluster,
+            )
+
+
+def test_wait_for_backup_raises_on_none_status_after_retries():
+    config = BackupConfig(database="posthog", table="test", incremental=False)
+    backup = Backup(database="posthog", table="test", date="20240201000000", shard=1)
+
+    mock_cluster = MagicMock()
+
+    # Simulate backup that finishes (is_done=True) but has no status in backup_log
+    def mock_map_hosts(fn, **kwargs):
+        mock_result = MagicMock()
+        mock_result.result.return_value = {"host1": None}
+        return mock_result
+
+    mock_cluster.map_hosts_in_shard_by_role.side_effect = mock_map_hosts
+
+    with patch.object(Backup, "wait", return_value=None), patch.object(Backup, "is_done", return_value=True):
+        with pytest.raises(dagster.Failure, match="no status found"):
+            wait_for_backup(
+                context=dagster.build_op_context(),
+                config=config,
+                backup=backup,
+                cluster=mock_cluster,
+            )
