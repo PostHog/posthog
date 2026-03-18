@@ -10,12 +10,18 @@ from posthog.schema import (
     DatabaseSchemaQuery,
     DatabaseSchemaQueryResponse,
     DataWarehouseViewLink,
+    FunnelsFilter,
     HogQLAutocomplete,
     HogQLMetadata,
     HogQLVariable,
     HogQuery,
     HogQueryResponse,
+    LifecycleFilter,
+    PathsFilter,
     QuerySchemaRoot,
+    RetentionFilter,
+    StickinessFilter,
+    TrendsFilter,
 )
 
 from posthog.hogql.autocomplete import get_hogql_autocomplete
@@ -40,6 +46,56 @@ from common.hogvm.python.debugger import color_bytecode
 
 logger = structlog.get_logger(__name__)
 
+# Mapping of insight query kinds to their filter key and Pydantic model.
+# Used to strip invalid properties that may have leaked from other insight types
+# (e.g. "display" ending up in funnelsFilter after converting a Trend to a Funnel).
+_INSIGHT_FILTER_MODELS: dict[str, tuple[str, type]] = {
+    "TrendsQuery": ("trendsFilter", TrendsFilter),
+    "FunnelsQuery": ("funnelsFilter", FunnelsFilter),
+    "RetentionQuery": ("retentionFilter", RetentionFilter),
+    "PathsQuery": ("pathsFilter", PathsFilter),
+    "StickinessQuery": ("stickinessFilter", StickinessFilter),
+    "LifecycleQuery": ("lifecycleFilter", LifecycleFilter),
+}
+
+
+def _clean_insight_filter_properties(query_json: dict) -> dict:
+    """Strip unknown properties from insight-specific filter objects.
+
+    When users convert an insight from one type to another (e.g. Trends -> Funnels),
+    properties from the old insight type can leak into the new filter object. Since
+    the Pydantic filter models use extra="forbid", these stale properties cause
+    validation errors at query time. This function defensively removes any fields
+    that aren't recognized by the target filter model.
+    """
+    # Handle InsightVizNode wrapper — the actual query is in "source"
+    source = query_json.get("source", query_json)
+    if not isinstance(source, dict):
+        return query_json
+
+    kind = source.get("kind")
+    if kind not in _INSIGHT_FILTER_MODELS:
+        return query_json
+
+    filter_key, filter_model = _INSIGHT_FILTER_MODELS[kind]
+    filter_dict = source.get(filter_key)
+    if not isinstance(filter_dict, dict):
+        return query_json
+
+    valid_fields = set(filter_model.model_fields.keys())
+    unknown_keys = [k for k in filter_dict if k not in valid_fields]
+    if unknown_keys:
+        for key in unknown_keys:
+            del filter_dict[key]
+        logger.warning(
+            "stripped_unknown_insight_filter_properties",
+            kind=kind,
+            filter_key=filter_key,
+            unknown_keys=unknown_keys,
+        )
+
+    return query_json
+
 
 def process_query_dict(
     team: Team,
@@ -58,6 +114,7 @@ def process_query_dict(
     analytics_props: Optional[AnalyticsProps] = None,
 ) -> dict | BaseModel:
     upgraded_query_json = upgrade(query_json)
+    _clean_insight_filter_properties(upgraded_query_json)
     try:
         model = QuerySchemaRoot.model_validate(upgraded_query_json)
     except pydantic_core.ValidationError as e:
