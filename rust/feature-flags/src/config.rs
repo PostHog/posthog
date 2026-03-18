@@ -41,6 +41,28 @@ impl Deref for FlexBool {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ServiceMode {
+    All,         // default — both fleets (current behavior)
+    Flags,       // /flags and /decide only
+    Definitions, // /flags/definitions only
+}
+
+impl FromStr for ServiceMode {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.trim().to_lowercase().as_str() {
+            "all" => Ok(ServiceMode::All),
+            "flags" => Ok(ServiceMode::Flags),
+            "definitions" => Ok(ServiceMode::Definitions),
+            _ => Err(format!(
+                "Invalid SERVICE_MODE: '{s}'. Expected 'all', 'flags', or 'definitions'"
+            )),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TeamIdCollection {
     All,
     None,
@@ -578,6 +600,9 @@ pub struct Config {
 
     #[envconfig(from = "TEAM_NEGATIVE_CACHE_TTL_SECONDS", default = "300")]
     pub team_negative_cache_ttl_seconds: u64,
+
+    #[envconfig(from = "SERVICE_MODE", default = "all")]
+    pub service_mode: ServiceMode,
 }
 
 /// Thread counts for Tokio (async I/O) and Rayon (CPU-bound parallel evaluation).
@@ -779,6 +804,7 @@ impl Config {
             thread_pool_cores: 0,
             team_negative_cache_capacity: 10_000,
             team_negative_cache_ttl_seconds: 300,
+            service_mode: ServiceMode::All,
         }
     }
 
@@ -1188,6 +1214,40 @@ mod tests {
 
         assert_eq!(zero_config.redis_response_timeout_ms, 0);
         assert_eq!(zero_config.redis_connection_timeout_ms, 0);
+    }
+}
+
+#[cfg(test)]
+mod service_mode_tests {
+    use super::*;
+
+    #[test]
+    fn test_service_mode_from_str() {
+        assert_eq!("all".parse::<ServiceMode>().unwrap(), ServiceMode::All);
+        assert_eq!("flags".parse::<ServiceMode>().unwrap(), ServiceMode::Flags);
+        assert_eq!(
+            "definitions".parse::<ServiceMode>().unwrap(),
+            ServiceMode::Definitions
+        );
+        // case insensitive
+        assert_eq!("ALL".parse::<ServiceMode>().unwrap(), ServiceMode::All);
+        assert_eq!("Flags".parse::<ServiceMode>().unwrap(), ServiceMode::Flags);
+        assert_eq!(
+            "DEFINITIONS".parse::<ServiceMode>().unwrap(),
+            ServiceMode::Definitions
+        );
+    }
+
+    #[test]
+    fn test_service_mode_invalid() {
+        assert!("invalid".parse::<ServiceMode>().is_err());
+        assert!("".parse::<ServiceMode>().is_err());
+    }
+
+    #[test]
+    fn test_service_mode_default() {
+        let config = Config::default_test_config();
+        assert_eq!(config.service_mode, ServiceMode::All);
     }
 }
 
