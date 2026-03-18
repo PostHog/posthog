@@ -33,4 +33,4 @@
 
 /* Scan mosaic components and all app source files for Tailwind classes */
 @source "../../../../../common/mosaic/src/**/*.tsx";
-@source "../apps/*/main.tsx";
+@source "../apps/*.tsx";
