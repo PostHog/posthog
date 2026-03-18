@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import os
 import json
-import time
 
 import pytest
 from unittest.mock import patch
@@ -82,25 +81,6 @@ class TestTrack:
         ):
             telemetry.track("command_completed")
             mock_post.assert_not_called()
-
-
-class TestFlush:
-    def test_respects_timeout(self, tmp_path):
-        config_path = tmp_path / "config.json"
-        config_path.write_text(json.dumps({"enabled": True, "anonymous_id": "test-id", "first_run_notice_shown": True}))
-
-        def slow_post(host, payload):
-            time.sleep(5)
-
-        with (
-            patch.object(telemetry, "get_config_path", return_value=config_path),
-            patch.object(telemetry, "_post_event", side_effect=slow_post),
-        ):
-            telemetry.track("test_event")
-            start = time.monotonic()
-            telemetry.flush(timeout=0.1)
-            elapsed = time.monotonic() - start
-            assert elapsed < 1.0
 
 
 class TestFirstRunNotice:

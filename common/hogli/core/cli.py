@@ -138,7 +138,7 @@ def cli(ctx: click.Context) -> None:
     in_git_hook = os.environ.get("GIT_DIR") is not None or os.environ.get("HUSKY") is not None
     if ctx.invoked_subcommand not in {"meta:check", "help"} and not in_git_hook:
         _auto_update_manifest()
-        if ctx.invoked_subcommand != "telemetry:off":
+        if ctx.invoked_subcommand not in {"telemetry:off", "telemetry:status"}:
             telemetry.show_first_run_notice_if_needed()
 
     # Fire early so long-running commands (e.g. hogli start) are always counted
