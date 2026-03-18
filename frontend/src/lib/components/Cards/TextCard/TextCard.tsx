@@ -87,7 +87,7 @@ function TextCardInternal(
                 className={clsx('TextCard__body w-full', onDragHandleMouseDown && 'cursor-grab')}
                 onMouseDown={onDragHandleMouseDown}
             >
-                <TextContent text={text.body} className="p-4 pr-14" />
+                <TextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
             </div>
 
             {canEnterEditModeFromEdge && !showResizeHandles && onEnterEditModeFromEdge && (
