@@ -8,7 +8,7 @@ export interface TriggerGroupCardProps {
 }
 
 export function TriggerGroupCard({ group }: TriggerGroupCardProps): JSX.Element {
-    const { id, name, sampleRate, conditions } = group
+    const { id, name, sampleRate, minDurationMs, conditions } = group
 
     // TODO: Format conditions for display
     const conditionsSummary = `${conditions.matchType.toUpperCase()} match`
@@ -20,6 +20,7 @@ export function TriggerGroupCard({ group }: TriggerGroupCardProps): JSX.Element 
                     <div className="flex items-center gap-2 mb-2">
                         <h4 className="font-semibold">{name || `Group ${id.slice(0, 8)}`}</h4>
                         <LemonTag type="default">{Math.round(sampleRate * 100)}% sampled</LemonTag>
+                        {minDurationMs !== undefined && <LemonTag type="muted">min {minDurationMs / 1000}s</LemonTag>}
                     </div>
                     <p className="text-sm text-muted">{conditionsSummary}</p>
                     {/* TODO: Show detailed conditions */}

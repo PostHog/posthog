@@ -20,9 +20,6 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
         addTriggerGroup: (group: SessionRecordingTriggerGroup) => ({ group }),
         updateTriggerGroup: (id: string, updates: Partial<SessionRecordingTriggerGroup>) => ({ id, updates }),
         deleteTriggerGroup: (id: string) => ({ id }),
-        reorderTriggerGroups: (groupIds: string[]) => ({ groupIds }),
-        setGroupEvaluationMode: (mode: 'first_match' | 'highest_priority') => ({ mode }),
-        setFallbackSampleRate: (rate: number | undefined) => ({ rate }),
         saveTriggerGroups: true,
     }),
     loaders(({ values }) => ({
@@ -48,18 +45,6 @@ export const replayTriggersV2Logic = kea<replayTriggersV2LogicType>([
             (s) => [s.triggerGroupsConfig],
             (config): SessionRecordingTriggerGroup[] => {
                 return config?.groups || []
-            },
-        ],
-        groupEvaluationMode: [
-            (s) => [s.triggerGroupsConfig],
-            (config): 'first_match' | 'highest_priority' => {
-                return config?.groupEvaluationMode || 'first_match'
-            },
-        ],
-        fallbackSampleRate: [
-            (s) => [s.triggerGroupsConfig],
-            (config): number | undefined => {
-                return config?.fallbackSampleRate
             },
         ],
         hasV2Config: [

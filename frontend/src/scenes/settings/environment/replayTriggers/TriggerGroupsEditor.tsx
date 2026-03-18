@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 
 import { IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { SessionRecordingTriggerGroup } from '~/lib/components/IngestionControls/types'
 
@@ -9,10 +9,10 @@ import { replayTriggersV2Logic } from './replayTriggersV2Logic'
 import { TriggerGroupCard } from './TriggerGroupCard'
 
 export function TriggerGroupsEditor(): JSX.Element {
-    const { triggerGroups, isLoading } = useValues(replayTriggersV2Logic)
+    const { triggerGroups, triggerGroupsConfigLoading } = useValues(replayTriggersV2Logic)
 
-    if (isLoading) {
-        return <div>Loading...</div>
+    if (triggerGroupsConfigLoading) {
+        return <LemonSkeleton className="h-10 w-full" />
     }
 
     return (
@@ -41,9 +41,6 @@ export function TriggerGroupsEditor(): JSX.Element {
                     ))}
                 </div>
             )}
-
-            {/* TODO: Add evaluation mode selector */}
-            {/* TODO: Add fallback sample rate */}
         </div>
     )
 }
