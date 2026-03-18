@@ -620,6 +620,9 @@
                     "$ref": "#/definitions/DataWarehouseNode"
                 },
                 {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
                     "$ref": "#/definitions/LifecycleDataWarehouseNode"
                 }
             ]
@@ -647,6 +650,19 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<FunnelsDataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
                 }
             ]
         },
@@ -4145,6 +4161,10 @@
                 "is_cached": {
                     "type": "boolean"
                 },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentQuery",
                     "type": "string"
@@ -5327,6 +5347,10 @@
                     "type": "string"
                 },
                 "is_cached": {
+                    "type": "boolean"
+                },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
                     "type": "boolean"
                 },
                 "last_refresh": {
@@ -11748,6 +11772,21 @@
             ],
             "type": "string"
         },
+        "DetectorConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/SingleDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/EnsembleDetectorConfig"
+                }
+            ],
+            "description": "Detector configuration types"
+        },
+        "DetectorType": {
+            "enum": ["zscore", "mad", "threshold"],
+            "type": "string"
+        },
         "DocumentArtifactContent": {
             "additionalProperties": false,
             "properties": {
@@ -12513,6 +12552,32 @@
             },
             "required": ["results"],
             "type": "object"
+        },
+        "EnsembleDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "detectors": {
+                    "description": "Sub-detector configurations (minimum 2)",
+                    "items": {
+                        "$ref": "#/definitions/SingleDetectorConfig"
+                    },
+                    "type": "array"
+                },
+                "operator": {
+                    "$ref": "#/definitions/EnsembleOperator",
+                    "description": "How to combine sub-detector results"
+                },
+                "type": {
+                    "const": "ensemble",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "operator", "detectors"],
+            "type": "object"
+        },
+        "EnsembleOperator": {
+            "enum": ["and", "or"],
+            "type": "string"
         },
         "EntityNode": {
             "additionalProperties": false,
@@ -14950,6 +15015,10 @@
                     },
                     "type": "array"
                 },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentQuery",
                     "type": "string"
@@ -15769,6 +15838,16 @@
         "FeatureFlagGroupType": {
             "additionalProperties": false,
             "properties": {
+                "aggregation_group_type_index": {
+                    "anyOf": [
+                        {
+                            "type": "integer"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ]
+                },
                 "description": {
                     "type": ["string", "null"]
                 },
@@ -16674,6 +16753,87 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "FunnelsDataWarehouseNode": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_target_field": {
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "dw_source_type": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "id_field": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "FunnelsDataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["aggregation_target_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "FunnelsFilter": {
             "additionalProperties": false,
             "properties": {
@@ -16690,6 +16850,10 @@
                 "breakdownSorting": {
                     "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
                     "type": "string"
+                },
+                "customAggregationTarget": {
+                    "description": "For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups.",
+                    "type": "boolean"
                 },
                 "exclusions": {
                     "default": [],
@@ -16902,7 +17066,7 @@
                     "items": {
                         "anyOf": [
                             {
-                                "$ref": "#/definitions/AnyEntityNode"
+                                "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
                             },
                             {
                                 "$ref": "#/definitions/GroupNode"
@@ -18389,7 +18553,8 @@
                     "$ref": "#/definitions/InsightsThresholdBounds"
                 },
                 "type": {
-                    "$ref": "#/definitions/InsightThresholdType"
+                    "$ref": "#/definitions/InsightThresholdType",
+                    "description": "Whether bounds are compared as absolute values or as percentage change from the previous interval."
                 }
             },
             "required": ["type"],
@@ -18876,9 +19041,11 @@
             "additionalProperties": false,
             "properties": {
                 "lower": {
+                    "description": "Alert fires when the value drops below this number.",
                     "type": "number"
                 },
                 "upper": {
+                    "description": "Alert fires when the value exceeds this number.",
                     "type": "number"
                 }
             },
@@ -19988,6 +20155,29 @@
             "description": "Field to break down sparkline data by",
             "enum": ["severity", "service"],
             "type": "string"
+        },
+        "MADDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "mad",
+                    "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size for calculating median/MAD (default: 30)"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
         },
         "MarkdownBlock": {
             "additionalProperties": false,
@@ -22638,6 +22828,10 @@
                 "hogql": {
                     "type": "string"
                 },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
+                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -22665,6 +22859,7 @@
                 "GroupNode",
                 "ActionsNode",
                 "DataWarehouseNode",
+                "FunnelsDataWarehouseNode",
                 "LifecycleDataWarehouseNode",
                 "EventsQuery",
                 "SessionsQuery",
@@ -23515,6 +23710,25 @@
         "PlanningStepStatus": {
             "enum": ["pending", "in_progress", "completed"],
             "type": "string"
+        },
+        "PreprocessingConfig": {
+            "additionalProperties": false,
+            "description": "Preprocessing transforms applied to the time series before detection",
+            "properties": {
+                "diffs_n": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0)"
+                },
+                "lags_n": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of lag features. 0 = none, >0 = include n lagged values (default: 0)"
+                },
+                "smooth_n": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0)"
+                }
+            },
+            "type": "object"
         },
         "ProductAnalyticsInsightQueryNode": {
             "anyOf": [
@@ -25174,6 +25388,10 @@
                                 "type": "object"
                             },
                             "type": "array"
+                        },
+                        "is_precomputed": {
+                            "description": "Whether exposures were served from the precomputation system",
+                            "type": "boolean"
                         },
                         "kind": {
                             "const": "ExperimentQuery",
@@ -28533,6 +28751,9 @@
                     "$ref": "#/definitions/DataWarehouseNode"
                 },
                 {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
                     "$ref": "#/definitions/LifecycleDataWarehouseNode"
                 },
                 {
@@ -31713,6 +31934,20 @@
             "enum": ["day", "month"],
             "type": "string"
         },
+        "SingleDetectorConfig": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/ZScoreDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/MADDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ThresholdDetectorConfig"
+                }
+            ],
+            "description": "A single (leaf) detector config"
+        },
         "SlashCommandName": {
             "enum": ["/init", "/remember", "/usage", "/feedback", "/ticket"],
             "type": "string"
@@ -33132,6 +33367,29 @@
             ],
             "type": "object"
         },
+        "ThresholdDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "lower_bound": {
+                    "description": "Lower bound - values below this are anomalies",
+                    "type": "number"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "type": {
+                    "const": "threshold",
+                    "type": "string"
+                },
+                "upper_bound": {
+                    "description": "Upper bound - values above this are anomalies",
+                    "type": "number"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
         "TikTokAdsDefaultSources": {
             "enum": ["tiktok"],
             "type": "string"
@@ -33497,10 +33755,12 @@
             "additionalProperties": false,
             "properties": {
                 "check_ongoing_interval": {
+                    "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones.",
                     "type": "boolean"
                 },
                 "series_index": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Zero-based index of the series in the insight's query to monitor."
                 },
                 "type": {
                     "const": "TrendsAlertConfig",
@@ -36058,6 +36318,29 @@
                     "type": "boolean"
                 }
             },
+            "type": "object"
+        },
+        "ZScoreDetectorConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
+                "threshold": {
+                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "zscore",
+                    "type": "string"
+                },
+                "window": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Rolling window size for calculating mean/std (default: 30)"
+                }
+            },
+            "required": ["type"],
             "type": "object"
         },
         "ZendeskTicketSignalExtra": {

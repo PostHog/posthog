@@ -141,6 +141,13 @@ class HogQLPrinter(Visitor[str]):
             return f"({ret.strip()})"
         return ret
 
+    def visit_values_query(self, node: ast.ValuesQuery):
+        rows = []
+        for row in node.rows:
+            values = ", ".join(self.visit(expr) for expr in row)
+            rows.append(f"({values})")
+        return f"(VALUES {', '.join(rows)})"
+
     def _print_select_columns(self, columns: Iterable[ast.Expr]) -> list[str]:
         return [self.visit(column) for column in columns]
 
@@ -383,7 +390,11 @@ class HogQLPrinter(Visitor[str]):
 
         elif isinstance(node.type, ast.SelectQueryAliasType) and node.alias is not None:
             join_strings.append(self.visit(node.table))
-            join_strings.append(f"AS {self._print_identifier(node.alias)}")
+            alias_str = f"AS {self._print_identifier(node.alias)}"
+            if node.alias_columns:
+                col_names = ", ".join(self._print_identifier(c) for c in node.alias_columns)
+                alias_str += f" ({col_names})"
+            join_strings.append(alias_str)
 
         elif isinstance(node.type, ast.LazyTableType):
             if self.dialect == "hogql":
