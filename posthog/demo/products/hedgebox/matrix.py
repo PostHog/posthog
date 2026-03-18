@@ -162,7 +162,7 @@ class HedgeboxMatrix(Matrix):
     def set_project_up(self, team: "Team", user: "User"):
         super().set_project_up(team, user)
         team.autocapture_web_vitals_opt_in = True
-        team.session_recording_opt_in = True  # Also see: the hedgebox-dummy/ app
+        team.session_recording_opt_in = True  # Also see: the tools/hedgebox-dummy/ app
 
         # Actions
         interacted_with_file_action = Action.objects.create(
@@ -1064,6 +1064,7 @@ class HedgeboxMatrix(Matrix):
                 "recommended_sample_size": int(len(self.clusters) * 0.35),
                 "minimum_detectable_effect": 15,
             },
+            scheduling_config={"timeseries": True},
             start_date=self.onboarding_experiment_start,
             end_date=self.onboarding_experiment_end,
             conclusion="won",
@@ -1225,6 +1226,7 @@ class HedgeboxMatrix(Matrix):
                 "recommended_sample_size": int(len(self.clusters) * 0.40),
                 "minimum_detectable_effect": 10,
             },
+            scheduling_config={"timeseries": True},
             start_date=self.file_engagement_experiment_start,
             end_date=None,
             created_at=file_engagement_flag.created_at,

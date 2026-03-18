@@ -78,6 +78,14 @@ RUN mkdir -p /scripts && \
     npm init -y && \
     CACHE_BUST=${COMMIT_HASH} npm install @posthog/agent@latest
 
+# Install pre-built skills (PostHog + context-mill) into the plugin directory.
+# The dist/skills/ directory is populated by the CD workflow's build_skills job.
+COPY products/posthog_ai/dist/skills/ /tmp/skills/
+COPY products/tasks/backend/sandbox/images/install-skills.sh /tmp/install-skills.sh
+RUN chmod +x /tmp/install-skills.sh && \
+    /tmp/install-skills.sh /tmp/skills && \
+    rm -rf /tmp/install-skills.sh /tmp/skills
+
 # Configure git for commits - TODO: Use user's email and name
 RUN git config --global user.email "array@posthog.com" && \
     git config --global user.name "Array"

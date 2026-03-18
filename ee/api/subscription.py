@@ -47,6 +47,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
+    summary = serializers.CharField(read_only=True)
     invite_message = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     integration_id = serializers.IntegerField(required=False, allow_null=True)
     dashboard_export_insights = DashboardExportInsightsField(required=False)

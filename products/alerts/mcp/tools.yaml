@@ -1,0 +1,113 @@
+# MCP tool definition — tool entries are scaffolded from the OpenAPI schema.
+# The tool list and operation IDs are kept in sync automatically:
+#   pnpm --filter=@posthog/mcp run scaffold-yaml -- --sync-all
+#
+# To enable a tool, set enabled: true and add required scopes + annotations.
+# All other fields (title, description, enrich_url, etc.) are yours to configure.
+category: Alerts
+feature: alerts
+url_prefix: /insights
+tools:
+    alerts-list:
+        operation: alerts_list
+        enabled: true
+        scopes:
+            - alert:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List alerts
+        description: >
+            List all insight alerts in the project. Returns alerts with their current state, threshold configuration,
+            and timing information. Supports filtering by insight ID via query parameter.
+        mcp_version: 1
+    alert-get:
+        operation: alerts_retrieve
+        enabled: true
+        scopes:
+            - alert:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Get alert
+        description: >
+            Get a specific alert by ID. Returns the full alert configuration including the last 5 check results,
+            threshold settings, and subscribed users.
+        mcp_version: 1
+    alert-create:
+        operation: alerts_create
+        enabled: true
+        scopes:
+            - alert:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Create alert
+        description: >
+            Create a new alert on an insight. Alerts monitor insight values and notify subscribed users when thresholds
+            are breached. Requires an insight ID, at least one subscribed user, and a threshold configuration. The alert
+            condition determines how the value is evaluated (absolute_value, relative_increase, or relative_decrease).
+        exclude_params:
+            - state
+            - last_notified_at
+            - last_checked_at
+            - next_check_at
+            - last_value
+    alert-update:
+        operation: alerts_partial_update
+        enabled: true
+        scopes:
+            - alert:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Update alert
+        description: >
+            Update an existing alert by ID. Can update name, threshold, condition, config, subscribed users, enabled
+            state, calculation interval, and weekend skipping. To snooze an alert, set snoozed_until to a relative date
+            string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.
+        exclude_params:
+            - state
+            - last_notified_at
+            - last_checked_at
+            - next_check_at
+            - last_value
+    alerts-update:
+        operation: alerts_update
+        enabled: false
+    alert-delete:
+        operation: alerts_destroy
+        enabled: true
+        scopes:
+            - alert:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Delete alert
+        description: >
+            Delete an alert by ID. This permanently removes the alert and all its check history. Subscribed users will
+            no longer receive notifications.
+    logs-alerts-list:
+        operation: logs_alerts_list
+        enabled: false
+    logs-alerts-create:
+        operation: logs_alerts_create
+        enabled: false
+    logs-alerts-retrieve:
+        operation: logs_alerts_retrieve
+        enabled: false
+    logs-alerts-update:
+        operation: logs_alerts_update
+        enabled: false
+    logs-alerts-partial-update:
+        operation: logs_alerts_partial_update
+        enabled: false
+    logs-alerts-destroy:
+        operation: logs_alerts_destroy
+        enabled: false

@@ -120,14 +120,14 @@ export const EventPropertyTabs = ({
             ? {
                   key: 'conversation',
                   label: 'Conversation',
-                  content: tabContentComponentFn({ event, properties, tabKey: 'conversation' }),
+                  content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'conversation' }),
               }
             : null,
         isAIEvaluationEvent
             ? {
                   key: 'evaluation',
                   label: 'Evaluation',
-                  content: tabContentComponentFn({ event, properties, tabKey: 'evaluation' }),
+                  content: tabContentComponentFn({ event, properties: event.properties, tabKey: 'evaluation' }),
               }
             : null,
         {
