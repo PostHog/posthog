@@ -2,15 +2,9 @@
 
 from __future__ import annotations
 
-import os
-
 from unittest.mock import MagicMock, patch
 
 from click.testing import CliRunner
-
-# Skip Django setup for these tests
-os.environ["DJANGO_SKIP_MIGRATIONS"] = "true"
-
 from hogli.core.cli import cli
 
 runner = CliRunner()
