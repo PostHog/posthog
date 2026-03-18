@@ -60,7 +60,7 @@ function ButtonTileCardInternal(
     return (
         <div
             className={clsx(
-                'ButtonTileCard rounded flex flex-col h-full',
+                'ButtonTileCard rounded flex flex-col',
                 !isTransparent && 'bg-surface-primary border',
                 className
             )}
