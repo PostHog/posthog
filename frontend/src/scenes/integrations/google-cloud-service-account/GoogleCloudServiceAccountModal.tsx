@@ -77,7 +77,8 @@ export const GoogleCloudServiceAccountModal = (props: GoogleCloudServiceAccountS
 
                             <p className="text-sm text-warning">
                                 In order to identify you as the owner of this service account, you must include{' '}
-                                <code>posthog:{currentOrganization}</code> as part of the service account description.
+                                <code>posthog:{currentOrganization?.id}</code> as part of the service account
+                                description.
                             </p>
 
                             <LemonField
