@@ -464,12 +464,17 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             }
         };
 
+        let payload_bytes = payload.len() as u64;
+
         let record = ProduceRecord {
             topic: topic.to_string(),
             key: partition_key.map(|s| s.to_string()),
             payload,
             headers,
         };
+
+        counter!("capture_kafka_produce_bytes_total", "topic" => record.topic.clone())
+            .increment(payload_bytes);
 
         self.producer.send(record)
     }
