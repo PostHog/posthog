@@ -58,8 +58,8 @@ def build_dependent_resource(
     should_use_incremental_field: bool = False,
     incremental_field: str | None = None,
     incremental_config_factory: Callable[[str], IncrementalConfig] | None = None,
-    parent_endpoint_extra: dict[str, Any] | None = None,
-    child_endpoint_extra: dict[str, Any] | None = None,
+    parent_endpoint_extra: Endpoint | None = None,
+    child_endpoint_extra: Endpoint | None = None,
     page_size_param: str = "limit",
 ) -> Iterable[Any]:
     parent_config = endpoint_configs[fanout.parent_name]
