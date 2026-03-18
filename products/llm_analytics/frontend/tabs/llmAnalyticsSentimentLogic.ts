@@ -50,7 +50,7 @@ export interface LLMAnalyticsSentimentLogicProps {
 
 const GENERATIONS_PAGE_SIZE = 200
 // Match backend MAX_MESSAGE_CHARS (2000) so training data captures the same text window the model classified
-const SNIPPET_MAX_LENGTH = 2000
+export const CLASSIFIER_WINDOW = 2000
 
 /** Parse aiInput and return the raw content text for the message at the given index, or '' on failure */
 function getRawMessageText(aiInput: unknown, messageIndex: number): string {
@@ -66,11 +66,15 @@ function getRawMessageText(aiInput: unknown, messageIndex: number): string {
 }
 
 function getCardMessageText(card: SentimentCard): string {
-    return getRawMessageText(card.generation.aiInput, card.messageIndex).trim()
+    const text = getRawMessageText(card.generation.aiInput, card.messageIndex).trim()
+    // Group by the same trailing window the classifier processes so messages
+    // that differ only in a prefix (e.g. varying system prompt headers) are
+    // correctly treated as duplicates.
+    return text.slice(-CLASSIFIER_WINDOW)
 }
 
 function getSnippetFromCard(card: SentimentCard): string {
-    return getRawMessageText(card.generation.aiInput, card.messageIndex).slice(-SNIPPET_MAX_LENGTH)
+    return getRawMessageText(card.generation.aiInput, card.messageIndex).slice(-CLASSIFIER_WINDOW)
 }
 
 interface GenerationsQueryValues {
