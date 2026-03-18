@@ -27,6 +27,13 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
         fields = ["id", "filters", "assignee", "issue", "order_key", "disabled_data", "created_at", "updated_at"]
         read_only_fields = ["team_id", "created_at", "updated_at"]
 
+    @extend_schema_field(
+        serializers.DictField(
+            child=serializers.CharField(),
+            allow_null=True,
+            help_text="Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys",
+        )
+    )
     def get_assignee(self, obj):
         if obj.user_id:
             return {"type": "user", "id": obj.user_id}

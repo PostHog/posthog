@@ -277,6 +277,11 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
             PosthogJwtAudience.LIVESTREAM,
         )
 
+    @extend_schema_field(
+        serializers.ListField(
+            child=serializers.DictField(child=serializers.CharField(allow_null=True)),
+        )
+    )
     def get_product_intents(self, obj):
         project = obj
         team = project.passthrough_team
