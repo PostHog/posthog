@@ -124,7 +124,9 @@ SELECT cosineDistance(
     embedText('users seeing checkout errors', 'text-embedding-3-small-1536')
 ) as distance
 FROM document_embeddings
-WHERE model_name = 'text-embedding-3-small-1536'
+WHERE
+    model_name = 'text-embedding-3-small-1536'
+    AND timestamp >= now() - INTERVAL 30 DAY
 ORDER BY distance ASC
 LIMIT 10
 ```
