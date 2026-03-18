@@ -240,7 +240,6 @@ export interface ThresholdDetectorConfigApi {
     upper_bound?: number | null
 }
 
-<<<<<<< HEAD
 export type EnsembleOperatorApi = (typeof EnsembleOperatorApi)[keyof typeof EnsembleOperatorApi]
 
 export const EnsembleOperatorApi = {
@@ -257,11 +256,21 @@ export const EnsembleDetectorConfigApiType = {
 
 export interface EnsembleDetectorConfigApi {
     /** Sub-detector configurations (minimum 2) */
-    detectors: (ZScoreDetectorConfigApi | MADDetectorConfigApi | ThresholdDetectorConfigApi)[]
+    detectors: (
+        | ZScoreDetectorConfigApi
+        | MADDetectorConfigApi
+        | IQRDetectorConfigApi
+        | ThresholdDetectorConfigApi
+        | ECODDetectorConfigApi
+        | COPODDetectorConfigApi
+        | IsolationForestDetectorConfigApi
+        | KNNDetectorConfigApi
+    )[]
     /** How to combine sub-detector results */
     operator: EnsembleOperatorApi
     type?: EnsembleDetectorConfigApiType
-=======
+}
+
 export type ECODDetectorConfigApiType = (typeof ECODDetectorConfigApiType)[keyof typeof ECODDetectorConfigApiType]
 
 export const ECODDetectorConfigApiType = {
@@ -270,10 +279,10 @@ export const ECODDetectorConfigApiType = {
 
 export interface ECODDetectorConfigApi {
     /**
-     * Expected proportion of outliers (default: 0.1)
+     * Anomaly probability threshold (default: 0.9)
      * @nullable
      */
-    contamination?: number | null
+    threshold?: number | null
     type?: ECODDetectorConfigApiType
 }
 
@@ -285,10 +294,10 @@ export const COPODDetectorConfigApiType = {
 
 export interface COPODDetectorConfigApi {
     /**
-     * Expected proportion of outliers (default: 0.1)
+     * Anomaly probability threshold (default: 0.9)
      * @nullable
      */
-    contamination?: number | null
+    threshold?: number | null
     type?: COPODDetectorConfigApiType
 }
 
@@ -301,10 +310,10 @@ export const IsolationForestDetectorConfigApiType = {
 
 export interface IsolationForestDetectorConfigApi {
     /**
-     * Expected proportion of outliers (default: 0.1)
+     * Anomaly probability threshold (default: 0.9)
      * @nullable
      */
-    contamination?: number | null
+    threshold?: number | null
     /**
      * Number of trees in the forest (default: 100)
      * @nullable
@@ -329,10 +338,10 @@ export const KNNDetectorConfigApiType = {
 
 export interface KNNDetectorConfigApi {
     /**
-     * Expected proportion of outliers (default: 0.1)
+     * Anomaly probability threshold (default: 0.9)
      * @nullable
      */
-    contamination?: number | null
+    threshold?: number | null
     /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
     method?: MethodApi | null
     /**
@@ -341,19 +350,13 @@ export interface KNNDetectorConfigApi {
      */
     n_neighbors?: number | null
     type?: KNNDetectorConfigApiType
->>>>>>> 9b51198b0cb (chore: update OpenAPI generated types)
 }
 
 /**
  * Detector configuration types
  */
 export type DetectorConfigApi =
-<<<<<<< HEAD
     | EnsembleDetectorConfigApi
-    | ZScoreDetectorConfigApi
-    | MADDetectorConfigApi
-    | ThresholdDetectorConfigApi
-=======
     | ZScoreDetectorConfigApi
     | MADDetectorConfigApi
     | IQRDetectorConfigApi
@@ -362,7 +365,6 @@ export type DetectorConfigApi =
     | COPODDetectorConfigApi
     | IsolationForestDetectorConfigApi
     | KNNDetectorConfigApi
->>>>>>> 9b51198b0cb (chore: update OpenAPI generated types)
 
 /**
  * * `hourly` - hourly
