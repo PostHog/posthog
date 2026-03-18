@@ -13,6 +13,8 @@ from posthoganalytics import Posthog
 from posthoganalytics.ai.gemini import genai
 from posthoganalytics.ai.openai import AsyncOpenAI
 
+from posthog.models import Organization, Team
+
 load_dotenv(Path(__file__).resolve().parents[3] / ".env")
 
 logging.getLogger("google_genai").setLevel(logging.ERROR)
@@ -60,8 +62,16 @@ def online(request):
 
 
 @pytest.fixture
-def posthog_client(no_capture):
+def posthog_client(no_capture, db):
     api_key = os.environ.get("POSTHOG_PROJECT_API_KEY", "")
+    if not api_key:
+        last_team = Team.objects.order_by("-pk").first()
+        if last_team:
+            api_key = last_team.api_token
+        elif not no_capture:
+            org = Organization.objects.create(name="Eval Org", is_ai_data_processing_approved=True)
+            team = Team.objects.create(organization=org, name="Eval Team")
+            api_key = team.api_token
     if not api_key and not no_capture:
         raise ValueError("POSTHOG_PROJECT_API_KEY needs to be set (or pass --no-capture).")
     host = os.environ.get("POSTHOG_HOST", "http://localhost:8010")

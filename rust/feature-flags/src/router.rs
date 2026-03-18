@@ -38,7 +38,7 @@ use crate::{
         flags_rate_limiter::{FlagsRateLimiter, IpRateLimiter},
     },
     cohorts::cohort_cache_manager::CohortCacheManager,
-    config::{Config, TeamIdCollection},
+    config::{Config, ServiceMode, TeamIdCollection},
     metrics::{
         consts::{
             FLAG_DEFINITIONS_RATE_LIMITED_COUNTER, FLAG_DEFINITIONS_REQUESTS_COUNTER,
@@ -221,19 +221,32 @@ pub fn router(
     // 2. TimeoutLayer: cancels the entire request after request_timeout_ms,
     //    ensuring zombie tasks don't hold connections after Envoy kills the downstream.
     // 3. ConcurrencyLimitLayer (innermost): bounds in-flight requests.
-    let flags_router = Router::new()
-        .route("/flags", any(endpoint::flags))
-        .route("/flags/", any(endpoint::flags))
-        .route(
-            "/flags/definitions",
-            any(flag_definitions::flags_definitions),
-        )
-        .route(
-            "/flags/definitions/",
-            any(flag_definitions::flags_definitions),
-        )
-        .route("/decide", any(endpoint::flags))
-        .route("/decide/", any(endpoint::flags))
+    let mut flags_router = Router::new();
+
+    if matches!(config.service_mode, ServiceMode::All | ServiceMode::Flags) {
+        flags_router = flags_router
+            .route("/flags", any(endpoint::flags))
+            .route("/flags/", any(endpoint::flags))
+            .route("/decide", any(endpoint::flags))
+            .route("/decide/", any(endpoint::flags));
+    }
+
+    if matches!(
+        config.service_mode,
+        ServiceMode::All | ServiceMode::Definitions
+    ) {
+        flags_router = flags_router
+            .route(
+                "/flags/definitions",
+                any(flag_definitions::flags_definitions),
+            )
+            .route(
+                "/flags/definitions/",
+                any(flag_definitions::flags_definitions),
+            );
+    }
+
+    let flags_router = flags_router
         .layer(ConcurrencyLimitLayer::new(config.max_concurrency))
         .layer(
             ServiceBuilder::new()
