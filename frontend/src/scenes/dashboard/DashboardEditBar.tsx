@@ -1,5 +1,6 @@
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
+import { useMemo } from 'react'
 
 import { IconCalendar } from '@posthog/icons'
 
@@ -31,18 +32,22 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
 
     const { hasPageview, hasScreen } = getProjectEventExistence()
 
-    const insightProps: InsightLogicProps = {
-        dashboardItemId: 'new',
-        dashboardId: dashboard?.id,
-        cachedInsight: null,
-        query: {
-            kind: NodeKind.InsightVizNode,
-            source: {
-                kind: NodeKind.TrendsQuery,
-                series: [],
+    const insightProps = useMemo<InsightLogicProps>(
+        () => ({
+            dashboardItemId: 'new',
+            dashboardId: dashboard?.id,
+            cachedInsight: null,
+            doNotLoad: true,
+            query: {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                },
             },
-        },
-    }
+        }),
+        [dashboard?.id]
+    )
 
     return (
         <div
