@@ -11,7 +11,7 @@ Signals are automated observations that PostHog generates by monitoring a custom
 
 Signals are grouped into **Signal Reports**. When a report accumulates enough weight it gets summarized and assessed for actionability. A signal report represents a cluster of related observations that together describe a meaningful issue or trend.
 
-Signals and their embeddings are stored in the `document_embeddings` ClickHouse table, queryable via HogQL through the `posthog:execute-sql` MCP tool. They may provide a useful way to semantically query for recent things that happened in the users product.
+Signals and their embeddings are stored in the `document_embeddings` ClickHouse table, queryable via HogQL through the `posthog:execute-sql` MCP tool. They may provide a useful way to semantically query for recent things that happened in the user's product.
 
 ## Table and Column Reference
 
