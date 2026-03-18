@@ -16,7 +16,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql, get_start_of_interval_hogql_str
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
-from posthog.models.cohort.cohort import Cohort
+from posthog.queries.breakdown_props import NOT_IN_COHORT_ID, get_breakdown_cohort_name
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp, get_interval_func_ch
 from posthog.utils import DATERANGE_MAP, relative_date_parse
 
@@ -208,6 +208,22 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             if breakdown_limit:
                 limit = min(breakdown_limit * len(self._date_range().all_values()), limit)
 
+            not_in_cohort_union = ""
+            extra_placeholders: dict[str, ast.Expr] = {}
+            if self.should_add_not_in_cohort_group:
+                not_in_cohort_union = """
+                    UNION ALL
+                    SELECT
+                        entrance_period_start,
+                        0 as reached_from_step_count,
+                        0 as reached_to_step_count,
+                        {not_in_cohort_id} as prop
+                    FROM
+                        ({not_in_cohort_fill_query})
+                """
+                extra_placeholders["not_in_cohort_fill_query"] = fill_query
+                extra_placeholders["not_in_cohort_id"] = ast.Constant(value=NOT_IN_COHORT_ID)
+
             s = parse_select(
                 f"""
             SELECT
@@ -225,7 +241,8 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                     breakdown as prop
                 FROM
                     ({{inner_select}})
-                GROUP BY entrance_period_start, breakdown) as data
+                GROUP BY entrance_period_start, breakdown
+                {not_in_cohort_union}) as data
             GROUP BY
                 fill.entrance_period_start,
                 data.prop
@@ -235,7 +252,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 fill.entrance_period_start ASC
             LIMIT {limit}
             """,
-                {"fill_query": fill_query, "inner_select": inner_select},
+                {"fill_query": fill_query, "inner_select": inner_select, **extra_placeholders},
             )
         else:
             s = parse_select(
@@ -346,14 +363,18 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                     isinstance(breakdown_value, list) and all(isinstance(item, str) for item in breakdown_value)
                 ):
                     serialized_result.update({"breakdown_value": (breakdown_value)})
-                else:
+                elif isinstance(breakdown_value, (int, float)):
                     serialized_result.update(
                         {
-                            "breakdown_value": Cohort.objects.get(
-                                pk=breakdown_value, team__project_id=self.context.team.project_id
-                            ).name
+                            "breakdown_value": get_breakdown_cohort_name(
+                                int(breakdown_value),
+                                self.context.team,
+                                not_in_cohort_name=self._not_in_cohort_name,
+                            )
                         }
                     )
+                else:
+                    serialized_result.update({"breakdown_value": str(breakdown_value)})
 
             summary.append(serialized_result)
 

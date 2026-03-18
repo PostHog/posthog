@@ -51,7 +51,7 @@ procs:
         ready_pattern: 'All systems go'
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
-        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags
+        # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, traces, feature_flags
         # Example: NODEJS_CAPABILITY_GROUPS=cdp_workflows,session_replay
 
     frontend:
@@ -72,9 +72,9 @@ procs:
             bin/check_ducklake_up && \
             python manage.py register_temporal_search_attributes && \
             if [ -n "$TEMPORAL_DISABLE_HOT_RELOAD" ] || ! command -v nodemon >/dev/null 2>&1; then \
-                python manage.py start_temporal_worker --task-queue development-task-queue; \
+                python manage.py start_temporal_worker --task-queue development-task-queue --max-concurrent-workflow-tasks=1000 --max-concurrent-activities=1000; \
             else \
-                nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue"; \
+                nodemon -w common -w dags -w ee -w posthog -w products -w pyproject.toml -e py --signal SIGTERM --exec "python manage.py start_temporal_worker --task-queue development-task-queue --max-concurrent-workflow-tasks=1000 --max-concurrent-activities=1000"; \
             fi
         capability: temporal_workflows
 

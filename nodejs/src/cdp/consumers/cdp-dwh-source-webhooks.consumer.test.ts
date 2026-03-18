@@ -12,6 +12,7 @@ import { insertHogFunction, insertHogFunctionTemplate } from '~/cdp/_tests/fixtu
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
 import { KAFKA_WAREHOUSE_SOURCE_WEBHOOKS } from '~/config/kafka-topics'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 import { closeHub, createHub } from '~/utils/db/hub'
@@ -151,7 +152,7 @@ describe('DWH source webhooks', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub({})
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         mockFetch.mockClear()
     })
 
@@ -177,7 +178,7 @@ describe('DWH source webhooks', () => {
         const signingSecret = 'whsec_testsecret'
 
         beforeEach(async () => {
-            api = new CdpApi(hub, hub)
+            api = new CdpApi(hub, createCdpConsumerDeps(hub))
             app = setupExpressApp()
             app.use('/', api.router())
             server = app.listen(0, () => {})

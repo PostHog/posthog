@@ -2,13 +2,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{routing::get, Router};
-use common_metrics::setup_metrics_routes;
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
+use metrics_exporter_prometheus::PrometheusBuilder;
+use personhog_common::GrpcMetricsLayer;
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_router::backend::ReplicaBackend;
 use personhog_router::config::Config;
-use personhog_router::middleware::GrpcMetricsLayer;
 use personhog_router::router::PersonHogRouter;
 use personhog_router::service::PersonHogRouterService;
 use tonic::transport::Server;
@@ -74,6 +74,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         let _guard = metrics_handle.process_scope();
 
+        let recorder_handle = PrometheusBuilder::new()
+            .add_global_label("service", "personhog-router")
+            .install_recorder()
+            .expect("Failed to install metrics recorder");
+
         let health_router = Router::new()
             .route(
                 "/_readiness",
@@ -82,15 +87,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     async move { r.check().await }
                 }),
             )
-            .route("/_liveness", get(move || async move { liveness.check() }));
-        let metrics_router = setup_metrics_routes(health_router);
+            .route("/_liveness", get(move || async move { liveness.check() }))
+            .route(
+                "/metrics",
+                get(move || std::future::ready(recorder_handle.render())),
+            );
 
         let bind = format!("0.0.0.0:{metrics_port}");
         let listener = tokio::net::TcpListener::bind(&bind)
             .await
             .expect("Failed to bind metrics port");
         tracing::info!("Metrics server listening on {}", bind);
-        axum::serve(listener, metrics_router)
+        axum::serve(listener, health_router)
             .with_graceful_shutdown(metrics_handle.shutdown_signal())
             .await
             .expect("Metrics server error");

@@ -10,13 +10,13 @@ use tower::{Layer, Service};
 
 /// Tower layer that instruments gRPC requests with timing metrics.
 ///
-/// Records:
-/// - `grpc_server_requests_total` - counter with method label
-/// - `grpc_server_request_duration_ms` - histogram with method label
+/// Records per request:
+/// - `grpc_server_requests_total{method}` — counter
+/// - `grpc_server_request_duration_ms{method}` — histogram
 ///
-/// Note: For error tracking, use `personhog_router_backend_errors_total` from the
-/// router layer, which has access to the actual gRPC status codes.
-#[derive(Clone, Default)]
+/// The `service` label is set globally via `PrometheusBuilder::add_global_label`
+/// at recorder init time, so it doesn't need to be threaded through here.
+#[derive(Clone, Copy)]
 pub struct GrpcMetricsLayer;
 
 impl<S> Layer<S> for GrpcMetricsLayer {
@@ -85,9 +85,16 @@ where
         if result.is_ready() {
             let duration_ms = this.start.elapsed().as_secs_f64() * 1000.0;
 
-            counter!("grpc_server_requests_total", "method" => this.method.clone()).increment(1);
-            histogram!("grpc_server_request_duration_ms", "method" => this.method.clone())
-                .record(duration_ms);
+            counter!(
+                "grpc_server_requests_total",
+                "method" => this.method.clone(),
+            )
+            .increment(1);
+            histogram!(
+                "grpc_server_request_duration_ms",
+                "method" => this.method.clone(),
+            )
+            .record(duration_ms);
         }
 
         result
