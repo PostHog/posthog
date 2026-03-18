@@ -28,11 +28,14 @@ class ErrorTrackingGroupingRuleSerializer(serializers.ModelSerializer):
         read_only_fields = ["team_id", "created_at", "updated_at"]
 
     @extend_schema_field(
-        serializers.DictField(
-            child=serializers.CharField(),
-            allow_null=True,
-            help_text="Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys",
-        )
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "type": {"type": "string", "enum": ["user", "role"]},
+                "id": {"oneOf": [{"type": "integer"}, {"type": "string", "format": "uuid"}]},
+            },
+        }
     )
     def get_assignee(self, obj):
         if obj.user_id:

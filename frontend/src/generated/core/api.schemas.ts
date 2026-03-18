@@ -288,7 +288,13 @@ export interface PaginatedProjectBackwardCompatBasicListApi {
 
 export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
-export type ProjectBackwardCompatApiProductIntentsItem = { [key: string]: string | null }
+export type ProjectBackwardCompatApiProductIntentsItem = {
+    product_type?: string
+    created_at?: string
+    /** @nullable */
+    onboarding_completed_at?: string | null
+    updated_at?: string
+}
 
 export type EffectiveMembershipLevelEnumApi =
     (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
@@ -586,7 +592,13 @@ export interface ProjectBackwardCompatApi {
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
-export type PatchedProjectBackwardCompatApiProductIntentsItem = { [key: string]: string | null }
+export type PatchedProjectBackwardCompatApiProductIntentsItem = {
+    product_type?: string
+    created_at?: string
+    /** @nullable */
+    onboarding_completed_at?: string | null
+    updated_at?: string
+}
 
 /**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of

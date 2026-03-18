@@ -58,11 +58,14 @@ class ErrorTrackingIssueFullSerializer(serializers.ModelSerializer):
         fields = ["id", "status", "name", "description", "first_seen", "assignee", "external_issues", "cohort"]
 
     @extend_schema_field(
-        serializers.DictField(
-            child=serializers.CharField(),
-            allow_null=True,
-            help_text="Cohort linked to this issue, with 'id' and 'name' keys",
-        )
+        {
+            "type": "object",
+            "nullable": True,
+            "properties": {
+                "id": {"type": "integer"},
+                "name": {"type": "string"},
+            },
+        }
     )
     def get_cohort(self, instance):
         first_cohort = instance.cohorts.filter(cohort__deleted=False).first()

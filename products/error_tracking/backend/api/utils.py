@@ -31,7 +31,7 @@ class ErrorTrackingIssueAssignmentSerializer(serializers.ModelSerializer):
         model = ErrorTrackingIssueAssignment
         fields = ["id", "type"]
 
-    @extend_schema_field(serializers.CharField(allow_null=True))
+    @extend_schema_field({"oneOf": [{"type": "integer"}, {"type": "string"}], "nullable": True})
     def get_id(self, obj):
         return obj.user_id if obj.user_id else str(obj.role_id) if obj.role_id else None
 

@@ -278,9 +278,18 @@ class ProjectBackwardCompatSerializer(ProjectBackwardCompatBasicSerializer, User
         )
 
     @extend_schema_field(
-        serializers.ListField(
-            child=serializers.DictField(child=serializers.CharField(allow_null=True)),
-        )
+        {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "product_type": {"type": "string"},
+                    "created_at": {"type": "string", "format": "date-time"},
+                    "onboarding_completed_at": {"type": "string", "format": "date-time", "nullable": True},
+                    "updated_at": {"type": "string", "format": "date-time"},
+                },
+            },
+        }
     )
     def get_product_intents(self, obj):
         project = obj

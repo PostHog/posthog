@@ -12122,18 +12122,17 @@ export namespace Schemas {
     }
 
     /**
-     * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
      * @nullable
      */
-    export type ErrorTrackingAssignmentRuleAssignee = {[key: string]: string} | null | null;
+    export type ErrorTrackingAssignmentRuleAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null | null;
 
     export interface ErrorTrackingAssignmentRule {
       readonly id: string;
       filters: unknown;
-      /**
-       * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
-       * @nullable
-       */
+      /** @nullable */
       readonly assignee: ErrorTrackingAssignmentRuleAssignee;
       /**
        * @minimum -2147483648
@@ -12211,10 +12210,12 @@ export namespace Schemas {
     }
 
     /**
-     * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
      * @nullable
      */
-    export type ErrorTrackingGroupingRuleAssignee = {[key: string]: string} | null | null;
+    export type ErrorTrackingGroupingRuleAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null | null;
 
     /**
      * Issue linked to this rule
@@ -12225,10 +12226,7 @@ export namespace Schemas {
     export interface ErrorTrackingGroupingRule {
       readonly id: string;
       filters: unknown;
-      /**
-       * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
-       * @nullable
-       */
+      /** @nullable */
       readonly assignee: ErrorTrackingGroupingRuleAssignee;
       /**
        * Issue linked to this rule
@@ -12246,16 +12244,17 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingIssueAssignment {
-      /** @nullable */
-      readonly id: string | null;
+      readonly id: number | string | null;
       readonly type: string;
     }
 
     /**
-     * Cohort linked to this issue, with 'id' and 'name' keys
      * @nullable
      */
-    export type ErrorTrackingIssueFullCohort = {[key: string]: string} | null | null;
+    export type ErrorTrackingIssueFullCohort = {
+      readonly id?: number;
+      readonly name?: string;
+    } | null | null;
 
     /**
      * * `archived` - Archived
@@ -12285,10 +12284,7 @@ export namespace Schemas {
       first_seen: string;
       assignee: ErrorTrackingIssueAssignment;
       external_issues: ErrorTrackingExternalReference[];
-      /**
-       * Cohort linked to this issue, with 'id' and 'name' keys
-       * @nullable
-       */
+      /** @nullable */
       readonly cohort: ErrorTrackingIssueFullCohort;
     }
 
@@ -20936,18 +20932,17 @@ export namespace Schemas {
     }
 
     /**
-     * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
      * @nullable
      */
-    export type PatchedErrorTrackingAssignmentRuleAssignee = {[key: string]: string} | null | null;
+    export type PatchedErrorTrackingAssignmentRuleAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null | null;
 
     export interface PatchedErrorTrackingAssignmentRule {
       readonly id?: string;
       filters?: unknown;
-      /**
-       * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
-       * @nullable
-       */
+      /** @nullable */
       readonly assignee?: PatchedErrorTrackingAssignmentRuleAssignee;
       /**
        * @minimum -2147483648
@@ -20969,10 +20964,12 @@ export namespace Schemas {
     }
 
     /**
-     * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
      * @nullable
      */
-    export type PatchedErrorTrackingGroupingRuleAssignee = {[key: string]: string} | null | null;
+    export type PatchedErrorTrackingGroupingRuleAssignee = {
+      readonly type?: 'user' | 'role';
+      readonly id?: number | string;
+    } | null | null;
 
     /**
      * Issue linked to this rule
@@ -20983,10 +20980,7 @@ export namespace Schemas {
     export interface PatchedErrorTrackingGroupingRule {
       readonly id?: string;
       filters?: unknown;
-      /**
-       * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
-       * @nullable
-       */
+      /** @nullable */
       readonly assignee?: PatchedErrorTrackingGroupingRuleAssignee;
       /**
        * Issue linked to this rule
@@ -21004,10 +20998,12 @@ export namespace Schemas {
     }
 
     /**
-     * Cohort linked to this issue, with 'id' and 'name' keys
      * @nullable
      */
-    export type PatchedErrorTrackingIssueFullCohort = {[key: string]: string} | null | null;
+    export type PatchedErrorTrackingIssueFullCohort = {
+      readonly id?: number;
+      readonly name?: string;
+    } | null | null;
 
     export interface PatchedErrorTrackingIssueFull {
       readonly id?: string;
@@ -21019,10 +21015,7 @@ export namespace Schemas {
       first_seen?: string;
       assignee?: ErrorTrackingIssueAssignment;
       external_issues?: ErrorTrackingExternalReference[];
-      /**
-       * Cohort linked to this issue, with 'id' and 'name' keys
-       * @nullable
-       */
+      /** @nullable */
       readonly cohort?: PatchedErrorTrackingIssueFullCohort;
     }
 
@@ -22123,7 +22116,13 @@ export namespace Schemas {
 
     export type PatchedProjectBackwardCompatGroupTypesItem = {[key: string]: unknown};
 
-    export type PatchedProjectBackwardCompatProductIntentsItem = {[key: string]: string | null};
+    export type PatchedProjectBackwardCompatProductIntentsItem = {
+      product_type?: string;
+      created_at?: string;
+      /** @nullable */
+      onboarding_completed_at?: string | null;
+      updated_at?: string;
+    };
 
     /**
      * * `0` - Sunday
@@ -23451,7 +23450,13 @@ export namespace Schemas {
 
     export type ProjectBackwardCompatGroupTypesItem = {[key: string]: unknown};
 
-    export type ProjectBackwardCompatProductIntentsItem = {[key: string]: string | null};
+    export type ProjectBackwardCompatProductIntentsItem = {
+      product_type?: string;
+      created_at?: string;
+      /** @nullable */
+      onboarding_completed_at?: string | null;
+      updated_at?: string;
+    };
 
     /**
      * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of

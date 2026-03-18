@@ -8,18 +8,17 @@
  * OpenAPI spec version: 1.0.0
  */
 /**
- * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
  * @nullable
  */
-export type ErrorTrackingAssignmentRuleApiAssignee = { [key: string]: string } | null | null
+export type ErrorTrackingAssignmentRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
 
 export interface ErrorTrackingAssignmentRuleApi {
     readonly id: string
     filters: unknown
-    /**
-     * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
-     * @nullable
-     */
+    /** @nullable */
     readonly assignee: ErrorTrackingAssignmentRuleApiAssignee
     /**
      * @minimum -2147483648
@@ -41,18 +40,17 @@ export interface PaginatedErrorTrackingAssignmentRuleListApi {
 }
 
 /**
- * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
  * @nullable
  */
-export type PatchedErrorTrackingAssignmentRuleApiAssignee = { [key: string]: string } | null | null
+export type PatchedErrorTrackingAssignmentRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
 
 export interface PatchedErrorTrackingAssignmentRuleApi {
     readonly id?: string
     filters?: unknown
-    /**
-     * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
-     * @nullable
-     */
+    /** @nullable */
     readonly assignee?: PatchedErrorTrackingAssignmentRuleApiAssignee
     /**
      * @minimum -2147483648
@@ -142,10 +140,12 @@ export interface PaginatedErrorTrackingFingerprintListApi {
 }
 
 /**
- * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
  * @nullable
  */
-export type ErrorTrackingGroupingRuleApiAssignee = { [key: string]: string } | null | null
+export type ErrorTrackingGroupingRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
 
 /**
  * Issue linked to this rule
@@ -156,10 +156,7 @@ export type ErrorTrackingGroupingRuleApiIssue = { [key: string]: string } | null
 export interface ErrorTrackingGroupingRuleApi {
     readonly id: string
     filters: unknown
-    /**
-     * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
-     * @nullable
-     */
+    /** @nullable */
     readonly assignee: ErrorTrackingGroupingRuleApiAssignee
     /**
      * Issue linked to this rule
@@ -186,10 +183,12 @@ export interface PaginatedErrorTrackingGroupingRuleListApi {
 }
 
 /**
- * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
  * @nullable
  */
-export type PatchedErrorTrackingGroupingRuleApiAssignee = { [key: string]: string } | null | null
+export type PatchedErrorTrackingGroupingRuleApiAssignee = {
+    readonly type?: 'user' | 'role'
+    readonly id?: number | string
+} | null | null
 
 /**
  * Issue linked to this rule
@@ -200,10 +199,7 @@ export type PatchedErrorTrackingGroupingRuleApiIssue = { [key: string]: string }
 export interface PatchedErrorTrackingGroupingRuleApi {
     readonly id?: string
     filters?: unknown
-    /**
-     * Assignee for this rule, with 'type' ('user' or 'role') and 'id' keys
-     * @nullable
-     */
+    /** @nullable */
     readonly assignee?: PatchedErrorTrackingGroupingRuleApiAssignee
     /**
      * Issue linked to this rule
@@ -239,16 +235,17 @@ export const ErrorTrackingIssueFullStatusEnumApi = {
 } as const
 
 export interface ErrorTrackingIssueAssignmentApi {
-    /** @nullable */
-    readonly id: string | null
+    readonly id: number | string | null
     readonly type: string
 }
 
 /**
- * Cohort linked to this issue, with 'id' and 'name' keys
  * @nullable
  */
-export type ErrorTrackingIssueFullApiCohort = { [key: string]: string } | null | null
+export type ErrorTrackingIssueFullApiCohort = {
+    readonly id?: number
+    readonly name?: string
+} | null | null
 
 export interface ErrorTrackingIssueFullApi {
     readonly id: string
@@ -260,10 +257,7 @@ export interface ErrorTrackingIssueFullApi {
     first_seen: string
     assignee: ErrorTrackingIssueAssignmentApi
     external_issues: ErrorTrackingExternalReferenceApi[]
-    /**
-     * Cohort linked to this issue, with 'id' and 'name' keys
-     * @nullable
-     */
+    /** @nullable */
     readonly cohort: ErrorTrackingIssueFullApiCohort
 }
 
@@ -277,10 +271,12 @@ export interface PaginatedErrorTrackingIssueFullListApi {
 }
 
 /**
- * Cohort linked to this issue, with 'id' and 'name' keys
  * @nullable
  */
-export type PatchedErrorTrackingIssueFullApiCohort = { [key: string]: string } | null | null
+export type PatchedErrorTrackingIssueFullApiCohort = {
+    readonly id?: number
+    readonly name?: string
+} | null | null
 
 export interface PatchedErrorTrackingIssueFullApi {
     readonly id?: string
@@ -292,10 +288,7 @@ export interface PatchedErrorTrackingIssueFullApi {
     first_seen?: string
     assignee?: ErrorTrackingIssueAssignmentApi
     external_issues?: ErrorTrackingExternalReferenceApi[]
-    /**
-     * Cohort linked to this issue, with 'id' and 'name' keys
-     * @nullable
-     */
+    /** @nullable */
     readonly cohort?: PatchedErrorTrackingIssueFullApiCohort
 }
 
