@@ -28,7 +28,7 @@ It will explore the UI with Playwright MCP tools, plan the tests, implement them
 
 ### Best practices
 
-- Don't use CSS selectors — prefer accessibility roles (`getByRole`) or `data-testid` attributes. Add `data-attr` to components if needed.
+- Don't use CSS selectors — prefer accessibility roles (`getByRole`) or `getByTestId()` which maps to `data-attr` in our config. Add `data-attr` to components if needed.
 - Write fewer, longer tests that do multiple things. Split logical steps with `test.step()`.
 - Use page object models for common tasks and accessing common elements (see `page-models/`).
 - After UI interactions, assert on UI changes — don't assert on network requests resolving.

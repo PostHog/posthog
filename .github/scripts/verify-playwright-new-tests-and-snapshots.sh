@@ -25,16 +25,17 @@ fi
 
 echo "Detecting changed Playwright test files since $BASE_SHA..."
 
+# Clean up stale results from a previous run (depot runners reuse workspaces).
+RESULTS_FILE="playwright/flake-verification-results.json"
+rm -f "$RESULTS_FILE"
+
 # All spec files touched by the PR (added or modified).
-changed_test_files=$(git diff --name-only "$BASE_SHA..HEAD" -- 'playwright/**/*.spec.ts' || true)
+changed_test_files=$(git diff --name-only "$BASE_SHA..HEAD" -- 'playwright/**/*.spec.ts')
 
 if [ -z "$changed_test_files" ]; then
     echo "No changed Playwright test files found — skipping flake verification"
     exit 0
 fi
-
-# Filter out files that are entirely skipped (every test.describe is skipped, or the whole file is).
-# A file with any runnable tests is worth verifying.
 declare -a tests_to_run=()
 while IFS= read -r test_file; do
     if [ ! -f "$test_file" ]; then
@@ -55,7 +56,6 @@ echo "Verifying ${#tests_to_run[@]} file(s) with --repeat-each=$REPEAT_COUNT:"
 printf "  %s\n" "${tests_to_run[@]}"
 
 # Write a JSON results file for the PR comment step to pick up.
-RESULTS_FILE="playwright/flake-verification-results.json"
 write_results() {
     local status="$1"
     local message="$2"
