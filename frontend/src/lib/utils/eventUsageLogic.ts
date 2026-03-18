@@ -423,9 +423,10 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         ) => ({ attribute, originalLength, newLength }),
         reportDashboardShareToggled: (isShared: boolean) => ({ isShared }),
         reportDashboardWhitelabelToggled: (isWhiteLabelled: boolean) => ({ isWhiteLabelled }),
-        reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized') => ({
+        reportDashboardTileRepositioned: (dashboardId: number, action: 'moved' | 'resized', layoutZoom: number) => ({
             dashboardId,
             action,
+            layoutZoom,
         }),
         reportDashboardInsightMetaUpdated: (
             dashboardId: number | undefined,
@@ -1234,10 +1235,11 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardWhitelabelToggled: async ({ isWhiteLabelled }) => {
             posthog.capture(`dashboard whitelabel toggled`, { is_whitelabelled: isWhiteLabelled })
         },
-        reportDashboardTileRepositioned: async ({ dashboardId, action }) => {
+        reportDashboardTileRepositioned: async ({ dashboardId, action, layoutZoom }) => {
             posthog.capture('dashboard tile repositioned', {
                 dashboard_id: dashboardId,
                 action,
+                layout_zoom: layoutZoom,
             })
         },
         reportDashboardInsightMetaUpdated: async ({ dashboardId, insightId, attribute }) => {
