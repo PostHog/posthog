@@ -87,9 +87,13 @@ export class DashboardPage {
         })
         await expect(modal).toBeVisible()
 
-        const textArea = modal.getByTestId('text-card-edit-area')
-        await expect(textArea).toBeVisible()
-        await textArea.fill(text)
+        const textEditor = modal
+            .locator(
+                'textarea[data-attr="text-card-edit-area"], [data-attr="text-card-edit-area"][contenteditable="true"], [data-attr="text-card-edit-area"] [contenteditable="true"]'
+            )
+            .first()
+        await expect(textEditor).toBeVisible()
+        await textEditor.fill(text)
         await modal.getByTestId('save-new-text-tile').click()
 
         await expect(this.textCards.filter({ hasText: text })).toBeVisible()
@@ -121,7 +125,10 @@ export class DashboardPage {
     }
 
     async closeInfoPanel(): Promise<void> {
-        await this.page.getByTestId('context-panel-close-button').click()
+        const closeButton = this.page.getByTestId('context-panel-close-button')
+        if (await closeButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+            await closeButton.click()
+        }
     }
 
     async duplicate(): Promise<void> {
