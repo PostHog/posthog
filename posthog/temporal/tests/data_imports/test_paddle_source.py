@@ -35,7 +35,7 @@ class MockResponse:
         if self.status_code >= 400:
             from requests.exceptions import HTTPError
 
-            raise HTTPError(f"HTTP Error {self.status_code}", response=self)
+            raise HTTPError(f"HTTP Error {self.status_code}")
 
 
 def _get_mock_resumable_manager() -> ResumableSourceManager[PaddleResumeConfig]:
@@ -66,7 +66,6 @@ def test_get_rows_pagination(mock_request):
             api_key="fake",
             endpoint="customers",
             db_incremental_field_last_value=None,
-            db_incremental_field_earliest_value=None,
             logger=logger,
             resumable_source_manager=mock_manager,
             should_use_incremental_field=False,
@@ -93,7 +92,6 @@ def test_get_rows_incremental(mock_request):
             api_key="fake",
             endpoint="transactions",
             db_incremental_field_last_value="2024-01-01T00:00:00Z",
-            db_incremental_field_earliest_value=None,
             logger=logger,
             resumable_source_manager=mock_manager,
             should_use_incremental_field=True,
@@ -143,7 +141,6 @@ def test_paddle_source(mock_get_mapping, mock_request):
         api_key="fake",
         endpoint="products",
         db_incremental_field_last_value=None,
-        db_incremental_field_earliest_value=None,
         should_use_incremental_field=False,
         logger=logger,
         resumable_source_manager=mock_manager,
@@ -168,7 +165,6 @@ def test_get_rows_resume(mock_request):
             api_key="fake",
             endpoint="customers",
             db_incremental_field_last_value=None,
-            db_incremental_field_earliest_value=None,
             logger=logger,
             resumable_source_manager=mock_manager,
             should_use_incremental_field=False,
@@ -224,7 +220,6 @@ def test_get_rows_stops_on_repeated_cursor(mock_request):
             api_key="fake",
             endpoint="products",
             db_incremental_field_last_value=None,
-            db_incremental_field_earliest_value=None,
             logger=MagicMock(),
             resumable_source_manager=_get_mock_resumable_manager(),
             should_use_incremental_field=False,
