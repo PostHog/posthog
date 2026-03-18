@@ -78,14 +78,14 @@ Followed by an aggregate results summary table.
 All metrics are captured as `$ai_evaluation` events with source `signals-grouping`.
 Five eval experiments, each with their own metrics:
 
-| Experiment                     | Granularity | Metrics                                                                                      |
-| ------------------------------ | ----------- | -------------------------------------------------------------------------------------------- |
-| `match-quality`                | Per-signal  | `correct_match` (binary), failure mode: NONE/UNDERGROUP/OVERGROUP/SPECIFICITY_SPLIT          |
-| `{source}-actionability-check` | Per-signal  | `correct_classification` (binary) — did pre-emit filter agree with ground truth              |
-| `grouping-quality`             | Per-report  | `purity`, `is_pure`, `group_recall`                                                          |
-| `report-safety-check`          | Per-report  | `correct_classification` (binary) — safety judge vs ground truth                             |
-| `report-actionability-check`   | Per-report  | `correct_classification` (binary) — actionability judge vs ground truth                      |
-| `grouping-aggregate`           | Global      | `ari`, `homogeneity`, `completeness`, `mean_purity`, `group_recall`, `malicious_leaked_rate` |
+| Experiment                     | Granularity | Metrics                                                                                                                                                                                                 |
+| ------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `match-quality`                | Per-signal  | `correct_match` (binary), `correct_match_pre_specificity` (binary), failure mode: NONE/UNDERGROUP/OVERGROUP, `query_diversity` (numeric, cosine distance), `candidate_diversity` (numeric, 1 − Jaccard) |
+| `{source}-actionability-check` | Per-signal  | `correct_classification` (binary) — did pre-emit filter agree with ground truth                                                                                                                         |
+| `grouping-quality`             | Per-report  | `purity`, `is_pure`, `group_recall`                                                                                                                                                                     |
+| `report-safety-check`          | Per-report  | `correct_classification` (binary) — safety judge vs ground truth                                                                                                                                        |
+| `report-actionability-check`   | Per-report  | `correct_classification` (binary) — actionability judge vs ground truth                                                                                                                                 |
+| `grouping-aggregate`           | Global      | `ari`, `homogeneity`, `completeness`, `mean_purity`, `group_recall`, `malicious_leaked_rate`                                                                                                            |
 
 ### Aggregate metrics explained
 
@@ -161,7 +161,6 @@ SELECT
     multiIf(
         properties.$ai_score = 1.0, 'CORRECT',
         properties.$ai_reasoning LIKE '%UNDERGROUP%', 'UNDERGROUP',
-        properties.$ai_reasoning LIKE '%SPECIFICITY_SPLIT%', 'SPECIFICITY_SPLIT',
         properties.$ai_reasoning LIKE '%OVERGROUP%', 'OVERGROUP',
         'UNKNOWN'
     ) AS failure_mode,
@@ -175,6 +174,58 @@ WHERE event = '$ai_evaluation'
   AND properties.$ai_metric_name = 'correct_match'
 GROUP BY failure_mode
 ORDER BY cnt DESC
+```
+
+### Specificity judge impact
+
+Compares pre- and post-specificity correctness to show
+how often the specificity judge helps (prevents overgroup),
+hurts (causes undergroup), or has no effect.
+
+```sql
+SELECT
+    multiIf(
+        pre.score = 1.0 AND post.score = 1.0, 'no_effect_correct',
+        pre.score = 0.0 AND post.score = 0.0 AND pre.reasoning = post.reasoning, 'no_effect_wrong',
+        pre.score = 0.0 AND post.score = 1.0, 'prevented_overgroup',
+        pre.score = 1.0 AND post.score = 0.0, 'caused_undergroup',
+        pre.score = 0.0 AND post.score = 0.0, 'changed_failure_mode',
+        'unknown'
+    ) AS specificity_impact,
+    count() AS cnt
+FROM (
+    SELECT properties.$ai_experiment_item_name AS item, properties.$ai_score AS score, properties.$ai_reasoning AS reasoning
+    FROM events
+    WHERE event = '$ai_evaluation' AND properties.$ai_eval_source = 'signals-grouping' AND properties.$ai_evaluation_type = 'offline'
+      AND properties.$ai_experiment_name = 'signals-grouping/match-quality' AND properties.$ai_metric_name = 'correct_match_pre_specificity'
+) pre
+JOIN (
+    SELECT properties.$ai_experiment_item_name AS item, properties.$ai_score AS score, properties.$ai_reasoning AS reasoning
+    FROM events
+    WHERE event = '$ai_evaluation' AND properties.$ai_eval_source = 'signals-grouping' AND properties.$ai_evaluation_type = 'offline'
+      AND properties.$ai_experiment_name = 'signals-grouping/match-quality' AND properties.$ai_metric_name = 'correct_match'
+) post ON pre.item = post.item
+GROUP BY specificity_impact
+ORDER BY cnt DESC
+```
+
+### Query and candidate diversity
+
+```sql
+SELECT
+    properties.$ai_metric_name AS metric,
+    count() AS n,
+    round(avg(properties.$ai_score), 3) AS mean,
+    round(min(properties.$ai_score), 3) AS min,
+    round(max(properties.$ai_score), 3) AS max
+FROM events
+WHERE event = '$ai_evaluation'
+  AND properties.$ai_eval_source = 'signals-grouping'
+  AND properties.$ai_evaluation_type = 'offline'
+  AND properties.$ai_experiment_name = 'signals-grouping/match-quality'
+  AND properties.$ai_metric_name IN ('query_diversity', 'candidate_diversity')
+GROUP BY metric
+ORDER BY metric
 ```
 
 ### Pre-emit actionability by source type
