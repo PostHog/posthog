@@ -45,9 +45,9 @@ describe('PersonsManager', () => {
         personRepository = new PostgresPersonRepository(hub.postgres)
         await resetTestDatabase()
         manager = new PersonsManagerService(hub.teamManager, hub.personRepository, 'http://localhost:8000')
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = (await getTeam(hub.postgres, team2Id))!
 
         persons = [
             await createPerson(team.id, { foo: '1' }, 'distinct_id_A_1', ['distinct_id_A_2', 'distinct_id_A_3']),

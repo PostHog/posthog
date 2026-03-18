@@ -32,7 +32,7 @@ export class CdpCyclotronWorker<
             throw new Error(`Invalid cyclotron job queue kind: ${this.queue}`)
         }
 
-        this.cyclotronJobQueue = new CyclotronJobQueue(config)
+        this.cyclotronJobQueue = new CyclotronJobQueue(config.CONSUMER_BATCH_SIZE, config.KAFKA_CLIENT_RACK, config)
     }
 
     @instrumented('cdpConsumer.handleEachBatch.executeInvocations')

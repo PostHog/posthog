@@ -1,44 +1,23 @@
-import { spawn } from 'node:child_process'
+import { generate } from 'orval'
 
 /**
- * Run a single Orval config file as a child process.
- * Returns a promise that resolves on success, rejects with stderr on failure.
+ * Run multiple Orval generations in parallel using Orval's JS API.
  *
- * @param {string} configFile - absolute path to the Orval config
- * @param {string} cwd - working directory (repo root)
- * @returns {Promise<void>}
- */
-function runOne(configFile, cwd) {
-    return new Promise((resolve, reject) => {
-        const child = spawn('pnpm', ['exec', 'orval', '--config', configFile], {
-            stdio: 'pipe',
-            cwd,
-        })
-        let stderr = ''
-        child.stderr.on('data', (chunk) => {
-            stderr += chunk
-        })
-        child.on('close', (code) => {
-            if (code !== 0) {
-                reject(new Error(`Orval exited with code ${code}: ${stderr}`))
-            } else {
-                resolve()
-            }
-        })
-        child.on('error', reject)
-    })
-}
-
-/**
- * Run multiple Orval config files in parallel with bounded concurrency.
+ * Calls `generate()` in-process — avoids spawning a child process per
+ * module, saving ~0.6s of Node/pnpm startup overhead per invocation.
  *
- * @param {Array<{configFile: string, label: string}>} jobs
- * @param {object} opts
- * @param {string} opts.cwd - working directory (repo root)
- * @param {number} [opts.concurrency=10] - max parallel Orval processes
+ * @param {Array<{config: object, label: string}>} jobs
+ *   Each `config` is an Orval config object: `{ input, output }`.
+ * @param {object} [opts]
+ * @param {number} [opts.concurrency=10] - max parallel Orval generations
  * @returns {Promise<Array<{status: 'fulfilled', label: string} | {status: 'rejected', label: string, reason: Error}>>}
  */
-export async function runOrvalParallel(jobs, { cwd, concurrency = 10 }) {
+export async function runOrvalParallel(jobs, { concurrency = 10 } = {}) {
+    if (jobs.length === 0) {
+        return []
+    }
+    concurrency = Math.max(1, concurrency)
+
     const results = []
     let index = 0
 
@@ -47,7 +26,7 @@ export async function runOrvalParallel(jobs, { cwd, concurrency = 10 }) {
             const i = index++
             const job = jobs[i]
             try {
-                await runOne(job.configFile, cwd)
+                await generate(job.config)
                 results[i] = { status: 'fulfilled', label: job.label }
             } catch (err) {
                 results[i] = { status: 'rejected', label: job.label, reason: err }
