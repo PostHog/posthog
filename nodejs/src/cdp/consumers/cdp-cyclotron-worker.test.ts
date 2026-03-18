@@ -2,6 +2,7 @@ import { mockFetch } from '~/tests/helpers/mocks/request.mock'
 
 import { DateTime } from 'luxon'
 
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { UUIDT } from '~/utils/utils'
 
@@ -36,7 +37,7 @@ describe('CdpCyclotronWorker', () => {
         await resetTestDatabase()
         hub = await createHub()
         team = await getFirstTeam(hub.postgres)
-        processor = new CdpCyclotronWorker(hub, hub)
+        processor = new CdpCyclotronWorker(hub, createCdpConsumerDeps(hub))
 
         fn = await insertHogFunction(
             hub.postgres,
