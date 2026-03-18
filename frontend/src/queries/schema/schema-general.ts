@@ -3334,6 +3334,9 @@ export interface ExperimentQueryResponse {
 
     clickhouse_sql?: string
     hogql?: string
+
+    /** Whether exposures were served from the precomputation system */
+    is_precomputed?: boolean
 }
 
 // Strongly typed variants of ExperimentQueryResponse for better type safety
@@ -3418,6 +3421,8 @@ export interface NewExperimentQueryResponse {
     baseline: ExperimentStatsBaseValidated
     variant_results: ExperimentVariantResultFrequentist[] | ExperimentVariantResultBayesian[]
     breakdown_results?: ExperimentBreakdownResult[]
+    /** Whether exposures were served from the precomputation system */
+    is_precomputed?: boolean
 }
 
 export interface ExperimentExposureTimeSeries {

@@ -74,8 +74,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     tokio::spawn(async move {
         let _guard = metrics_handle.process_scope();
 
+        const BUCKETS: &[f64] = &[
+            1.0, 5.0, 10.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2000.0, 5000.0, 10000.0,
+        ];
         let recorder_handle = PrometheusBuilder::new()
             .add_global_label("service", "personhog-router")
+            .set_buckets(BUCKETS)
+            .unwrap()
             .install_recorder()
             .expect("Failed to install metrics recorder");
 
