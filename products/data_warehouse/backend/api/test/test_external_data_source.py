@@ -615,6 +615,7 @@ class TestExternalDataSource(APIBaseTest):
                     "table": schema.table,
                     "sync_frequency": sync_frequency_interval_to_sync_frequency(schema.sync_frequency_interval),
                     "sync_time_of_day": schema.sync_time_of_day,
+                    "description": schema.description,
                 }
             ],
         )
@@ -1504,6 +1505,7 @@ class TestExternalDataSource(APIBaseTest):
                 {
                     "table": "table_1",
                     "should_sync": False,
+                    "description": None,
                     "rows": 42,
                     "incremental_fields": [
                         {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
@@ -1553,6 +1555,7 @@ class TestExternalDataSource(APIBaseTest):
                 {
                     "table": "table_1",
                     "should_sync": False,
+                    "description": None,
                     "rows": 42,
                     "incremental_fields": [
                         {"label": "id", "type": "integer", "field": "id", "field_type": "integer", "nullable": True}
