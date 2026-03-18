@@ -429,6 +429,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             if not created:
                 return Response({"detail": "This server URL is already installed."}, status=status.HTTP_400_BAD_REQUEST)
 
+            logger.info(
+                "MCP server installed via API key",
+                server_name=name,
+                server_url=url,
+                install_source=install_source,
+                team_id=self.team_id,
+            )
             report_user_action(
                 request.user,
                 "mcp_store server installed",
@@ -620,6 +627,13 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except MCPServer.DoesNotExist:
             return Response({"detail": "Server not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        logger.info(
+            "MCP OAuth flow started",
+            server_name=server.name,
+            server_id=str(server.id),
+            install_source=install_source,
+            team_id=self.team_id,
+        )
         report_user_action(
             request.user,
             "mcp_store oauth started",
@@ -801,6 +815,11 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
 
         code = request.query_params.get("code")
         if not code:
+            logger.warning(
+                "OAuth redirect: missing authorization code",
+                server_url=installation.url,
+                install_source=install_source,
+            )
             return self._build_oauth_redirect(
                 install_source,
                 installation,
@@ -811,6 +830,11 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         try:
             self._exchange_and_store_tokens(installation, server, code, oauth_state.pkce_verifier)
         except OAuthTokenExchangeError:
+            logger.exception(
+                "OAuth redirect: token exchange failed",
+                server_url=installation.url,
+                server_id=str(server.id) if server else "",
+            )
             report_user_action(
                 installation.user,
                 "mcp_store oauth failed",
@@ -829,6 +853,13 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
                 posthog_code_callback_url=posthog_code_callback_url,
             )
 
+        logger.info(
+            "MCP server installed via OAuth",
+            server_name=server.name if server else "",
+            server_url=installation.url,
+            install_source=install_source,
+            team_id=installation.team_id,
+        )
         report_user_action(
             installation.user,
             "mcp_store server installed",
