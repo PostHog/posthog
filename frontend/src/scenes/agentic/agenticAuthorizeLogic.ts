@@ -65,7 +65,7 @@ export const agenticAuthorizeLogic = kea<agenticAuthorizeLogicType>([
             }),
             submit: async (formValues: AgenticAuthorizationFormValues) => {
                 try {
-                    const response = await api.create('api/agentic/authorize/confirm', {
+                    const response = await api.create('api/agentic/authorize/confirm/', {
                         state: values.state,
                         team_id: formValues.scoped_teams[0],
                     })
