@@ -255,7 +255,7 @@ export function HomepageInput(): JSX.Element {
         <div className="w-full max-w-180 mx-auto py-2 ">
             {mode === 'idle' && (
                 <div className="flex flex-col items-center gap-3 pb-(--scene-layout-header-height)">
-                    <Intro forceHeadline={`Hello ${user?.first_name || 'there'}`} forceSubheadline="POSTHOG ONLY" />
+                    <Intro forceHeadline={`Hello ${user?.first_name || 'there'}`} forceSubheadline={null} />
                     <IdleInput />
                     <SuggestionMenubar />
 
