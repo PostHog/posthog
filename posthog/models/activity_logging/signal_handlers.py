@@ -325,8 +325,8 @@ def handle_experiment_saved_metric_delete(sender, instance, **kwargs):
     log_activity(
         organization_id=instance.team.organization_id,
         team_id=instance.team_id,
-        user=getattr(instance, "last_modified_by", instance.created_by),
-        was_impersonated=False,
+        user=activity_storage.get_user() or getattr(instance, "last_modified_by", instance.created_by),
+        was_impersonated=activity_storage.get_was_impersonated(),
         item_id=instance.id,
         scope="Experiment",  # log under Experiment scope so it appears in experiment activity log
         activity="deleted",
