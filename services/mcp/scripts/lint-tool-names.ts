@@ -33,6 +33,8 @@ function main(): void {
         const parsed = parseYaml(content)
         const result = CategoryConfigSchema.safeParse(parsed)
         if (!result.success) {
+            process.stderr.write(`Error: ${label} failed schema validation: ${result.error.message}\n`)
+            process.exitCode = 1
             continue
         }
 
