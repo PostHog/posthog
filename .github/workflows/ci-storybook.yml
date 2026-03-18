@@ -112,17 +112,22 @@ jobs:
         steps:
             - name: Detect mode
               id: detect
+              env:
+                  HAS_UPDATE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'update-snapshots') }}
               run: |
                   if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "Fork detected - running in CHECK mode (no commits allowed)"
+                  elif [ "$HAS_UPDATE_LABEL" == "true" ]; then
+                    echo "mode=update" >> $GITHUB_OUTPUT
+                    echo "::notice::🔄 Running in UPDATE mode - 'update-snapshots' label detected"
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
 
                     # Trusted bots that are allowed to run in update mode
                     # Add bot usernames here to allow snapshot auto-updates on their PRs
-                    TRUSTED_BOTS=("mendral-app[bot]" "cursor[bot]")
+                    TRUSTED_BOTS=("mendral-app[bot]")
 
                     IS_TRUSTED=false
                     for bot in "${TRUSTED_BOTS[@]}"; do
@@ -135,12 +140,9 @@ jobs:
                     if [[ "$IS_TRUSTED" == "true" ]]; then
                       echo "mode=update" >> $GITHUB_OUTPUT
                       echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
-                    elif [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
-                      echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
-                      echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
+                      echo "mode=check" >> $GITHUB_OUTPUT
+                      echo "::notice::🔍 Running in CHECK mode - add 'update-snapshots' label to enable snapshot updates"
                     fi
                   fi
 
@@ -406,6 +408,87 @@ jobs:
                   path: /tmp/patches/shard-${{ matrix.browser }}-${{ matrix.shard }}.patch
                   retention-days: 1
                   if-no-files-found: ignore
+
+    # Post a helpful comment when snapshot tests fail in check mode (no label)
+    snapshot-failure-comment:
+        name: Post snapshot failure guidance
+        runs-on: ubuntu-latest
+        needs: [visual-regression, detect-snapshot-mode]
+        if: >-
+            always()
+            && needs.visual-regression.result == 'failure'
+            && needs.detect-snapshot-mode.outputs.mode == 'check'
+            && github.event_name == 'pull_request'
+            && github.event.pull_request.head.repo.full_name == github.repository
+        permissions:
+            pull-requests: write
+        steps:
+            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const marker = '<!-- storybook-snapshot-hint -->';
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+                      const existing = comments.find(c => c.body.includes(marker));
+
+                      const body = `${marker}
+                      ### Storybook visual regression tests failed
+
+                      **If your changes intentionally update UI snapshots:** add the \`update-snapshots\` label, then push an empty commit or merge master to trigger a new run. Snapshots will be auto-committed.
+
+                      **If you didn't change any UI:** this is likely a flaky snapshot — wait for a fix to land on master.`.replace(/^                      /gm, '');
+
+                      if (existing) {
+                          await github.rest.issues.updateComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existing.id,
+                              body,
+                          });
+                      } else {
+                          await github.rest.issues.createComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              issue_number: context.issue.number,
+                              body,
+                          });
+                      }
+
+    # Clean up the hint comment when tests pass
+    snapshot-success-cleanup:
+        name: Clean up snapshot hint
+        runs-on: ubuntu-latest
+        needs: [visual-regression, detect-snapshot-mode]
+        if: >-
+            always()
+            && needs.visual-regression.result == 'success'
+            && github.event_name == 'pull_request'
+            && github.event.pull_request.head.repo.full_name == github.repository
+        permissions:
+            pull-requests: write
+        steps:
+            - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+              with:
+                  github-token: ${{ secrets.GITHUB_TOKEN }}
+                  script: |
+                      const marker = '<!-- storybook-snapshot-hint -->';
+                      const { data: comments } = await github.rest.issues.listComments({
+                          owner: context.repo.owner,
+                          repo: context.repo.repo,
+                          issue_number: context.issue.number,
+                      });
+                      const existing = comments.find(c => c.body.includes(marker));
+                      if (existing) {
+                          await github.rest.issues.deleteComment({
+                              owner: context.repo.owner,
+                              repo: context.repo.repo,
+                              comment_id: existing.id,
+                          });
+                      }
 
     # Job to collate the status of the matrix jobs for requiring passing status
     # Must depend on handle-snapshots to prevent auto-merge before commits complete

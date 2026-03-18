@@ -110,7 +110,7 @@ SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
 SNAPSHOT_SOURCE_REQUESTED = Counter(
     "session_snapshots_requested_counter",
     "When calling the API and providing a concrete snapshot type to load.",
-    labelnames=["source"],
+    labelnames=["source", "is_personal_api_key"],
 )
 
 GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
@@ -529,13 +529,14 @@ def get_cached_org_tier(team_id: int) -> str:
 
 class _TierAwareSnapshotThrottle(PersonalApiKeyRateThrottle):
     def _apply_tier_rates(self, tier: str) -> None:
-        # scope is str | None in DRF's base class, but subclasses always set it
         if self.scope is None:
             raise ValueError("_TierAwareSnapshotThrottle subclasses must set scope")
+        base_scope = self.scope
         rates = _snapshot_rates()
-        rates_for_tier = rates.get(tier) or rates[SNAPSHOT_DEFAULT_TIER]
-        self.rate = rates_for_tier[self.scope]
+        resolved_tier = tier if tier in rates else SNAPSHOT_DEFAULT_TIER
+        self.rate = rates[resolved_tier][base_scope]
         self.num_requests, self.duration = self.parse_rate(self.rate)
+        self.scope = f"{base_scope}_{resolved_tier}"
 
     def _is_personal_api_key_request(self, request) -> bool:
         return isinstance(getattr(request, "successful_authenticator", None), PersonalAPIKeyAuthentication)
@@ -1080,7 +1081,9 @@ class SessionRecordingViewSet(
         ):
             raise exceptions.NotFound("Recording not found")
 
-        SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
+        SNAPSHOT_SOURCE_REQUESTED.labels(
+            source=source_log_label, is_personal_api_key=str(is_personal_api_key).lower()
+        ).inc()
 
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)

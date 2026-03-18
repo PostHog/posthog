@@ -74,7 +74,7 @@ describe('CDP API', () => {
             SITE_URL: 'http://localhost:8000',
         })
         hub.CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN = 'ADWORDS_TOKEN'
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         api = new CdpApi(hub, hub)
         app = setupExpressApp()

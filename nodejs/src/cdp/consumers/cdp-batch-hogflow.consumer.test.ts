@@ -32,7 +32,7 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
     beforeEach(async () => {
         await resetTestDatabase()
         hub = await createHub()
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         processor = new CdpBatchHogFlowRequestsConsumer(hub, hub)
 

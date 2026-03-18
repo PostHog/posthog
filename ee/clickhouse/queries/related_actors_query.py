@@ -52,24 +52,19 @@ class RelatedActorsQuery:
     def is_aggregating_by_groups(self) -> bool:
         return self.group_type_index is not None
 
-    def _use_optimized_related_people_query(self) -> bool:
-        return posthoganalytics.feature_enabled(
+    def _is_test_variant(self) -> bool:
+        flag_result = posthoganalytics.get_feature_flag(
             "optimized-related-people-query",
             str(self.team.uuid),
-            groups={"organization": str(self.team.organization_id), "project": str(self.team.id)},
-            group_properties={
-                "organization": {"id": str(self.team.organization_id)},
-                "project": {"id": str(self.team.id)},
-            },
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
+            groups={"organization": str(self.team.organization.id), "project": str(self.team.uuid)},
         )
+        return flag_result == "test"  # type: ignore[comparison-overlap]
 
     def _query_related_people(self) -> list[SerializedPerson]:
         if not self.is_aggregating_by_groups:
             return []
 
-        if self._use_optimized_related_people_query():
+        if self._is_test_variant():
             tag_queries(name="optimized-related-people-test")
             person_ids = self._query_related_people_optimized()
         else:
