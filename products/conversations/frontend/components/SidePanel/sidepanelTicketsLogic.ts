@@ -280,6 +280,7 @@ export const sidepanelTicketsLogic = kea<sidepanelTicketsLogicType>([
         restoreFromUrlToken: async () => {
             const conversations = posthog.conversations as any
             if (!conversations?.restoreFromUrlToken) {
+                removeRestoreTokenFromUrl()
                 actions.loadTickets()
                 return
             }
