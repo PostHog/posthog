@@ -1,6 +1,6 @@
 from django.db.models import Q
 
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, viewsets
 from rest_framework.permissions import SAFE_METHODS, BasePermission
 from rest_framework.response import Response
@@ -46,6 +46,7 @@ class PublicDataColorThemeSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "colors", "is_global"]
         read_only_fields = ["id", "name", "colors", "is_global"]
 
+    @extend_schema_field(serializers.BooleanField())
     def get_is_global(self, obj):
         return obj.team_id is None
 

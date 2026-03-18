@@ -264,6 +264,18 @@ export interface DashboardApi {
     _create_in_folder?: string
 }
 
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
+}
+
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -271,7 +283,7 @@ export interface SharingConfigurationApi {
     readonly access_token: string | null
     settings?: unknown | null
     password_required?: boolean
-    readonly share_passwords: string
+    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 export type PatchedDashboardApiFilters = { [key: string]: unknown }
@@ -377,7 +389,7 @@ export interface DataColorThemeApi {
     /** @maxLength 100 */
     name: string
     colors?: unknown
-    readonly is_global: string
+    readonly is_global: boolean
     /** @nullable */
     readonly created_at: string | null
     readonly created_by: UserBasicApi
@@ -397,7 +409,7 @@ export interface PatchedDataColorThemeApi {
     /** @maxLength 100 */
     name?: string
     colors?: unknown
-    readonly is_global?: string
+    readonly is_global?: boolean
     /** @nullable */
     readonly created_at?: string | null
     readonly created_by?: UserBasicApi
