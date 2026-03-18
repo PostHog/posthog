@@ -7,7 +7,7 @@ from django.db import transaction
 
 import structlog
 import posthoganalytics
-from drf_spectacular.utils import extend_schema
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.parsers import FileUploadParser, JSONParser, MultiPartParser
@@ -42,6 +42,7 @@ class ErrorTrackingSymbolSetSerializer(serializers.ModelSerializer):
         fields = ["id", "ref", "team_id", "created_at", "last_used", "storage_ptr", "failure_reason", "release"]
         read_only_fields = ["team_id"]
 
+    @extend_schema_field(serializers.DictField(allow_null=True, help_text="Release associated with this symbol set"))
     def get_release(self, obj):
         from products.error_tracking.backend.api.releases import ErrorTrackingReleaseSerializer
 
