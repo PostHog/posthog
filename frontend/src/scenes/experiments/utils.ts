@@ -7,6 +7,7 @@ import { uuid } from 'lib/utils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import {
+    AnyDataWarehouseNode,
     AnyEntityNode,
     CachedNewExperimentQueryResponse,
     EventsNode,
@@ -122,7 +123,7 @@ export function transformFiltersForWinningVariant(
 }
 
 function seriesToFilterLegacy(
-    series: AnyEntityNode | GroupNode,
+    series: AnyEntityNode<AnyDataWarehouseNode> | GroupNode,
     featureFlagKey: string,
     variantKey: string
 ): UniversalFiltersGroupValue | null {
