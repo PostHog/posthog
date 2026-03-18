@@ -162,7 +162,7 @@ def email_inbound_handler(request: HttpRequest) -> HttpResponse:
             )
 
             if existing_ticket:
-                Ticket.objects.filter(id=ticket.id).update(
+                Ticket.objects.filter(id=ticket.id, team=team).update(
                     unread_team_count=F("unread_team_count") + 1,
                 )
 
