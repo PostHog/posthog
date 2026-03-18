@@ -315,7 +315,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
             )
         },
     })),
-    propsChanged(({ actions, props, values }) => {
+    propsChanged(({ actions, props, values }, oldProps) => {
         // Uses syncQueryFromProps (not setQuery) to avoid triggering the
         // insightVizDataLogic.setQuery listener which would loop back via props.setQuery.
         // Guard must match propsQuery selector (only ad-hoc insights receive query via props).
@@ -331,6 +331,13 @@ export const insightDataLogic = kea<insightDataLogicType>([
         }
 
         if (!props.cachedInsight?.query) {
+            return
+        }
+
+        const cachedQueryChanged =
+            !oldProps?.cachedInsight?.query || !objectsEqual(oldProps.cachedInsight.query, props.cachedInsight.query)
+
+        if (!cachedQueryChanged) {
             return
         }
         try {

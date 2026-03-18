@@ -3,6 +3,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use personhog_proto::personhog::{
+    leader::v1::{UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse},
     service::v1::person_hog_service_server::{PersonHogService, PersonHogServiceServer},
     types::v1::*,
 };
@@ -180,6 +181,12 @@ impl PersonHogService for MockPersonHogService {
         &self,
         _: Request<GetGroupTypeMappingsByProjectIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
+    async fn update_person_properties(
+        &self,
+        _: Request<UpdatePersonPropertiesRequest>,
+    ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
         Err(Status::unimplemented(""))
     }
 }

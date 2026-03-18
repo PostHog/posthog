@@ -176,6 +176,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -252,6 +253,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -334,6 +336,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -364,6 +367,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: Some(0),
@@ -454,6 +458,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: Some(1),
@@ -686,6 +691,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("control".to_string()),
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -698,11 +704,13 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("test".to_string()),
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: Some(vec![]),
                         rollout_percentage: Some(100.0),
                         variant: Some("other".to_string()),
+                        ..Default::default()
                     },
                 ],
                 multivariate: Some(MultivariateFlagOptions {
@@ -1169,6 +1177,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("control".to_string()),
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -1181,6 +1190,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: Some("test".to_string()),
+                        ..Default::default()
                     },
                 ],
                 multivariate: Some(MultivariateFlagOptions {
@@ -1392,6 +1402,7 @@ mod tests {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -1409,6 +1420,7 @@ mod tests {
             variant: None,
             properties: Some(vec![]),
             rollout_percentage: Some(100.0),
+            ..Default::default()
         };
 
         let matcher = FeatureFlagMatcher::new(
@@ -1445,6 +1457,7 @@ mod tests {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -1469,6 +1482,7 @@ mod tests {
                 negation: None,
             }]),
             rollout_percentage: Some(100.0),
+            ..Default::default()
         };
 
         let mut matcher = FeatureFlagMatcher::new(
@@ -1501,6 +1515,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
@@ -1564,6 +1579,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -1645,6 +1661,7 @@ mod tests {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -1724,6 +1741,7 @@ mod tests {
                     ]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -1785,6 +1803,7 @@ mod tests {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -1833,6 +1852,7 @@ mod tests {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -1966,6 +1986,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -2031,6 +2052,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -2078,6 +2100,7 @@ mod tests {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -2137,6 +2160,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -2149,6 +2173,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                 ],
                 multivariate: None,
@@ -2383,6 +2408,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -2460,6 +2486,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(0.0),
                         variant: None,
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -2472,11 +2499,13 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: None,
                         rollout_percentage: Some(50.0),
                         variant: None,
+                        ..Default::default()
                     },
                 ],
                 multivariate: None,
@@ -2493,6 +2522,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }]),
                 holdout_groups: None,
                 holdout: None,
@@ -2620,6 +2650,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(0.0),
                         variant: None,
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -2632,11 +2663,13 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: None,
                         rollout_percentage: Some(50.0),
                         variant: None,
+                        ..Default::default()
                     },
                 ],
                 multivariate: None,
@@ -2653,6 +2686,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }]),
                 holdout_groups: None,
                 holdout: None,
@@ -2732,6 +2766,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(0.0),
                         variant: None,
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -2744,11 +2779,13 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: None,
                         rollout_percentage: Some(50.0),
                         variant: None,
+                        ..Default::default()
                     },
                 ],
                 multivariate: None,
@@ -2765,6 +2802,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }]),
                 holdout_groups: None,
                 holdout: None,
@@ -2913,6 +2951,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3010,6 +3049,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3107,6 +3147,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3225,6 +3266,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3322,6 +3364,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3419,6 +3462,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3508,6 +3552,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3592,6 +3637,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3691,6 +3737,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3768,6 +3815,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3875,6 +3923,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3965,6 +4014,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -3996,6 +4046,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -4103,6 +4154,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: Some("control".to_string()), // Override to always show "control" variant
+                    ..Default::default()
                 }],
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
@@ -4175,6 +4227,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: Some("nonexistent_variant".to_string()), // Override with invalid variant
+                    ..Default::default()
                 }],
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
@@ -4283,11 +4336,13 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 holdout_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(70.0),
                     variant: Some("holdout".to_string()),
+                    ..Default::default()
                 }]),
                 holdout: None,
                 multivariate: Some(multivariate_json.clone()),
@@ -4317,11 +4372,13 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 holdout_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(70.0),
                     variant: Some("holdout".to_string()),
+                    ..Default::default()
                 }]),
                 holdout: None,
                 multivariate: Some(multivariate_json.clone()),
@@ -4351,11 +4408,13 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 holdout_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(0.0),
                     variant: Some("holdout".to_string()),
+                    ..Default::default()
                 }]),
                 holdout: None,
                 multivariate: Some(multivariate_json),
@@ -4520,6 +4579,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 holdout_groups: None,
                 holdout: Some(Holdout {
@@ -4640,11 +4700,13 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 holdout_groups: Some(vec![FlagPropertyGroup {
                     properties: Some(vec![]),
                     rollout_percentage: Some(70.0),
                     variant: Some("holdout".to_string()),
+                    ..Default::default()
                 }]),
                 holdout: Some(Holdout {
                     id: 42,
@@ -4718,6 +4780,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 holdout_groups: None,
                 holdout: Some(Holdout {
@@ -4820,6 +4883,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 holdout_groups: None,
                 holdout: Some(Holdout {
@@ -4895,6 +4959,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: None,
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
@@ -5060,6 +5125,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -5124,6 +5190,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -5193,6 +5260,7 @@ mod tests {
                     properties: Some(vec![]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: Some(1),
@@ -5340,6 +5408,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -5357,6 +5426,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         properties: Some(vec![PropertyFilter {
@@ -5369,6 +5439,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                 ],
                 multivariate: None,
@@ -5385,6 +5456,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }]),
                 holdout_groups: None,
                 holdout: None,
@@ -5588,6 +5660,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(50.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 ..FlagFilters::default()
             },
@@ -5853,6 +5926,7 @@ mod tests {
                         ]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                     // Condition 2: Requires only email (100% rollout)
                     FlagPropertyGroup {
@@ -5866,6 +5940,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                 ],
                 multivariate: None,
@@ -6111,6 +6186,7 @@ mod tests {
                         ]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                     // Condition 2: Requires only billing_email (100% rollout)
                     FlagPropertyGroup {
@@ -6124,6 +6200,7 @@ mod tests {
                         }]),
                         rollout_percentage: Some(100.0),
                         variant: None,
+                        ..Default::default()
                     },
                 ],
                 multivariate: None,
@@ -6404,11 +6481,13 @@ mod tests {
                             negation: None,
                         }]),
                         rollout_percentage: Some(100.0),
+                        ..Default::default()
                     },
                     FlagPropertyGroup {
                         variant: Some("test".to_string()), // Has variant override
                         properties: Some(vec![]),          // Catch-all
                         rollout_percentage: Some(100.0),
+                        ..Default::default()
                     },
                 ],
                 multivariate: Some(MultivariateFlagOptions {
@@ -7223,6 +7302,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -7316,6 +7396,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(50.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -7409,6 +7490,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
@@ -7520,6 +7602,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: Some(MultivariateFlagOptions {
                     variants: vec![
@@ -7631,6 +7714,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -7713,6 +7797,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -7737,6 +7822,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(50.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -7761,6 +7847,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -7881,6 +7968,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -7905,6 +7993,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(50.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -8019,6 +8108,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(50.0), // Partial rollout means we need consistent bucketing
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -8051,6 +8141,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0), // 100% rollout - doesn't need lookup on its own
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -8143,6 +8234,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(0.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -8158,6 +8250,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }]),
                 holdout_groups: None,
                 holdout: None,
@@ -8242,6 +8335,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(0.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -8257,6 +8351,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }]),
                 holdout_groups: None,
                 holdout: None,
@@ -8347,6 +8442,7 @@ mod tests {
                     properties: None,
                     rollout_percentage: Some(0.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: None,
@@ -8362,6 +8458,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }]),
                 holdout_groups: None,
                 holdout: None,
@@ -8461,6 +8558,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: Some(0),
@@ -8492,6 +8590,7 @@ mod tests {
                     }]),
                     rollout_percentage: Some(100.0),
                     variant: None,
+                    ..Default::default()
                 }],
                 multivariate: None,
                 aggregation_group_type_index: Some(1),

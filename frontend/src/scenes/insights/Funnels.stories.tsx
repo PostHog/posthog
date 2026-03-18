@@ -162,7 +162,6 @@ const waitForFunnelToStabilize: NonNullable<Story['play']> = async ({ canvasElem
 FunnelLeftToRightEditViewports.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=funnel-bar-vertical] .StepBar', '.PayGateMini'],
-        snapshotTargetSelector: '[data-attr=funnel-bar-vertical]',
         viewportWidths: ['medium', 'wide', 'superwide'],
     },
 }

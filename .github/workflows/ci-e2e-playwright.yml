@@ -72,7 +72,7 @@ jobs:
         name: Determine need to run E2E checks
         # Set job outputs to values from filter step
         outputs:
-            shouldRun: ${{ steps.bot-snapshot.outputs.skip == 'true' && 'false' || steps.changes.outputs.shouldRun || 'true' }}
+            shouldRun: ${{ steps.changes.outputs.shouldRun || 'true' }}
         steps:
             # For pull requests it's not necessary to check out the code
             - uses: dorny/paths-filter@de90cc6fb38fc0963ad72b210f1f284cd68cea36 # v3.0.2
@@ -103,31 +103,6 @@ jobs:
                         - docker-compose.dev.yml
                         - Dockerfile
                         - playwright/**
-
-            # Skip CI when a bot commit contains only image files (e.g. snapshot updates).
-            # Snapshot-only commits can never produce new diffs, so re-running is pure waste.
-            - name: Check for bot snapshot-only commit
-              id: bot-snapshot
-              if: github.event_name == 'pull_request' && (steps.changes.outputs.shouldRun || 'true') == 'true'
-              env:
-                  GH_TOKEN: ${{ github.token }}
-              run: |
-                  ACTOR="${{ github.actor }}"
-                  if [[ "$ACTOR" != "tests-posthog[bot]" ]] && [[ "$ACTOR" != "posthog-bot" ]]; then
-                    exit 0
-                  fi
-                  FILES=$(gh api "repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha }}" --jq '.files[].filename')
-                  if [ -z "$FILES" ]; then
-                    exit 0
-                  fi
-                  shopt -s nocasematch
-                  while IFS= read -r file; do
-                    if [[ ! "$file" =~ \.(png|jpg|jpeg|gif|svg)$ ]]; then
-                      exit 0
-                    fi
-                  done <<< "$FILES"
-                  echo "skip=true" >> "$GITHUB_OUTPUT"
-                  echo "::notice::Skipping CI - bot commit with only image files"
 
     get_clickhouse_versions:
         name: Get ClickHouse versions
@@ -161,10 +136,15 @@ jobs:
         steps:
             - name: Detect mode
               id: detect
+              env:
+                  HAS_UPDATE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'update-snapshots') }}
               run: |
                   if [ "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]; then
                     echo "mode=check" >> $GITHUB_OUTPUT
                     echo "Fork detected - running in CHECK mode (no commits allowed)"
+                  elif [ "$HAS_UPDATE_LABEL" == "true" ]; then
+                    echo "mode=update" >> $GITHUB_OUTPUT
+                    echo "::notice::🔄 Running in UPDATE mode - 'update-snapshots' label detected"
                   else
                     AUTHOR="${{ github.actor }}"
                     echo "Workflow triggered by: $AUTHOR"
@@ -184,12 +164,9 @@ jobs:
                     if [[ "$IS_TRUSTED" == "true" ]]; then
                       echo "mode=update" >> $GITHUB_OUTPUT
                       echo "::notice::🔄 Trusted bot '$AUTHOR' - running in UPDATE mode"
-                    elif [[ "$AUTHOR" == *"github-actions"* ]] || [[ "$AUTHOR" == *"[bot]"* ]] || [[ "$AUTHOR" == "posthog-bot" ]]; then
-                      echo "mode=check" >> $GITHUB_OUTPUT
-                      echo "::notice::🔍 Running in CHECK mode - snapshots must match exactly"
                     else
-                      echo "mode=update" >> $GITHUB_OUTPUT
-                      echo "::notice::🔄 Running in UPDATE mode - snapshots can be updated"
+                      echo "mode=check" >> $GITHUB_OUTPUT
+                      echo "::notice::🔍 Running in CHECK mode - add 'update-snapshots' label to enable snapshot updates"
                     fi
                   fi
 
@@ -262,6 +239,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Determine if hogql-parser has changed compared to master
@@ -354,7 +332,7 @@ jobs:
               env:
                   COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
                   COMPOSE_PROFILES: capture
-              run: bin/ci-wait-for-docker launch
+              run: bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
               env:
@@ -605,10 +583,10 @@ jobs:
                       // comment that may have relevant info from a previous run.
                       let extraLines = '';
                       let resultsRead = false;
+                      let failed = [];
                       try {
                           const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'));
                           resultsRead = true;
-                          const failed = [];
                           const flaky = [];
                           function collect(suites) {
                               for (const suite of suites || []) {
@@ -654,8 +632,12 @@ jobs:
                       }
 
                       const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
+                      const snapshotMode = '${{ needs.detect-snapshot-mode.outputs.mode }}';
+                      const snapshotHint = (snapshotMode === 'check' && failed.length > 0)
+                          ? '\n\n---\n**If your changes intentionally update screenshots:** add the `update-snapshots` label, then push an empty commit or merge master to trigger a new run. Screenshots will be auto-committed.\n**If you didn\'t change any UI:** this is likely a flaky screenshot — wait for a fix to land on master.'
+                          : '';
                       const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
-                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
+                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${snapshotHint}${footer}`;
 
                       if (existing) {
                           await github.rest.issues.updateComment({
