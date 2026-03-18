@@ -1,11 +1,13 @@
 import numpy as np
 from pyod.models.hbos import HBOS
 
+from posthog.schema import DetectorType
+
 from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
-@register_detector("hbos")
+@register_detector(DetectorType.HBOS)
 class HBOSDetector(BaseDetector):
     """
     Histogram-Based Outlier Score (HBOS) using PyOD.

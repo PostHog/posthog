@@ -471,6 +471,15 @@ DETECTOR_MIN_SAMPLES: dict[DetectorType, int] = {
     DetectorType.ZSCORE: 31,  # window + 1
     DetectorType.MAD: 31,  # window + 1
     DetectorType.THRESHOLD: 1,  # single data point sufficient
+    DetectorType.IQR: 31,  # window + 1
+    DetectorType.COPOD: 10,
+    DetectorType.ECOD: 10,
+    DetectorType.HBOS: 10,
+    DetectorType.ISOLATION_FOREST: 10,
+    DetectorType.KNN: 10,
+    DetectorType.LOF: 20,  # needs n_neighbors samples
+    DetectorType.OCSVM: 10,
+    DetectorType.PCA: 10,
 }
 
 

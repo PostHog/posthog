@@ -648,14 +648,6 @@ class BreakdownValue(BaseModel):
     value: str
 
 
-class COPODDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
-    type: Literal["copod"] = "copod"
-
-
 class Results(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -1209,14 +1201,6 @@ class DurationType(StrEnum):
     DURATION = "duration"
     ACTIVE_SECONDS = "active_seconds"
     INACTIVE_SECONDS = "inactive_seconds"
-
-
-class ECODDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
-    type: Literal["ecod"] = "ecod"
 
 
 class Key(StrEnum):
@@ -3121,27 +3105,6 @@ class NodeKind(StrEnum):
 class NonIntegratedConversionsColumnsSchemaNames(StrEnum):
     SOURCE = "Source"
     CAMPAIGN = "Campaign"
-
-
-class OCSVMDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    kernel: str | None = Field(default=None, description='SVM kernel type (default: "rbf")')
-    nu: float | None = Field(
-        default=None,
-        description="Upper bound on training errors fraction (default: 0.1)",
-    )
-    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
-    type: Literal["ocsvm"] = "ocsvm"
-
-
-class PCADetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
-    type: Literal["pca"] = "pca"
 
 
 class PageURL(BaseModel):
@@ -5762,15 +5725,6 @@ class GroupPropertyFilter(BaseModel):
     value: list[str | float | bool] | str | float | bool | None = None
 
 
-class HBOSDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    n_bins: int | None = Field(default=None, description="Number of histogram bins (default: 10)")
-    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
-    type: Literal["hbos"] = "hbos"
-
-
 class HogQLAutocompleteResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5853,21 +5807,6 @@ class HogQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
-class IQRDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    multiplier: float | None = Field(
-        default=None,
-        description=("IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)"),
-    )
-    type: Literal["iqr"] = "iqr"
-    window: int | None = Field(
-        default=None,
-        description="Rolling window size for calculating quartiles (default: 30)",
-    )
-
-
 class DayItem(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -5887,28 +5826,6 @@ class InsightThreshold(BaseModel):
             "Whether bounds are compared as absolute values or as percentage change from the previous interval."
         ),
     )
-
-
-class IsolationForestDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    n_estimators: int | None = Field(default=None, description="Number of trees in the forest (default: 100)")
-    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
-    type: Literal["isolation_forest"] = "isolation_forest"
-
-
-class KNNDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    method: Method | None = Field(
-        default=None,
-        description="Distance method: 'largest', 'mean', 'median' (default: 'largest')",
-    )
-    n_neighbors: int | None = Field(default=None, description="Number of neighbors to consider (default: 5)")
-    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
-    type: Literal["knn"] = "knn"
 
 
 class LLMTrace(BaseModel):
@@ -5933,15 +5850,6 @@ class LLMTrace(BaseModel):
     totalCost: float | None = None
     totalLatency: float | None = None
     traceName: str | None = None
-
-
-class LOFDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    n_neighbors: int | None = Field(default=None, description="Number of neighbors for LOF (default: 20)")
-    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
-    type: Literal["lof"] = "lof"
 
 
 class LifecycleFilter(BaseModel):
@@ -6004,25 +5912,6 @@ class LogPropertyFilter(BaseModel):
     operator: PropertyOperator
     type: LogPropertyFilterType
     value: list[str | float | bool] | str | float | bool | None = None
-
-
-class MADDetectorConfig(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid",
-    )
-    threshold: float | None = Field(
-        default=None,
-        description=(
-            "Anomaly probability threshold [0-1]. Points above this probability are"
-            " flagged (default: 0.9)   MAD threshold multiplier for anomaly detection"
-            " (default: 3.0)"
-        ),
-    )
-    type: Literal["mad"] = "mad"
-    window: int | None = Field(
-        default=None,
-        description="Rolling window size for calculating median/MAD (default: 30)",
-    )
 
 
 class MarketingAnalyticsItem(BaseModel):
@@ -8256,6 +8145,17 @@ class BreakdownItem(BaseModel):
     )
     label: str
     value: str | int
+
+
+class COPODDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["copod"] = "copod"
 
 
 class CacheMissResponse(BaseModel):
@@ -11241,6 +11141,17 @@ class DocumentSimilarityQueryResponse(BaseModel):
     )
 
 
+class ECODDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["ecod"] = "ecod"
+
+
 class EndpointRunRequest(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12276,6 +12187,18 @@ class GroupsQueryResponse(BaseModel):
     types: list[str]
 
 
+class HBOSDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    n_bins: int | None = Field(default=None, description="Number of histogram bins (default: 10)")
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["hbos"] = "hbos"
+
+
 class HeatMapQuerySource(RootModel[EventsNode]):
     root: EventsNode
 
@@ -12360,6 +12283,24 @@ class HogQLQueryResponse(BaseModel):
     types: list | None = Field(default=None, description="Types of returned columns")
 
 
+class IQRDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    multiplier: float | None = Field(
+        default=None,
+        description=("IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)"),
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    type: Literal["iqr"] = "iqr"
+    window: int | None = Field(
+        default=None,
+        description="Rolling window size for calculating quartiles (default: 30)",
+    )
+
+
 class InsightActorsQueryBase(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12370,6 +12311,46 @@ class InsightActorsQueryBase(BaseModel):
     response: ActorsQueryResponse | None = None
     tags: QueryLogTags | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
+class IsolationForestDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    n_estimators: int | None = Field(default=None, description="Number of trees in the forest (default: 100)")
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["isolation_forest"] = "isolation_forest"
+
+
+class KNNDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    method: Method | None = Field(
+        default=None,
+        description="Distance method: 'largest', 'mean', 'median' (default: 'largest')",
+    )
+    n_neighbors: int | None = Field(default=None, description="Number of neighbors to consider (default: 5)")
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["knn"] = "knn"
+
+
+class LOFDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    n_neighbors: int | None = Field(default=None, description="Number of neighbors for LOF (default: 20)")
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["lof"] = "lof"
 
 
 class LifecycleDataWarehouseNode(BaseModel):
@@ -12565,6 +12546,24 @@ class LogsQueryResponse(BaseModel):
     )
 
 
+class MADDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(
+        default=None,
+        description=("Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)"),
+    )
+    type: Literal["mad"] = "mad"
+    window: int | None = Field(
+        default=None,
+        description="Rolling window size for calculating median/MAD (default: 30)",
+    )
+
+
 class MarketingAnalyticsAggregatedQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12719,6 +12718,33 @@ class NonIntegratedConversionsTableQueryResponse(BaseModel):
         description=("Measured timings for different parts of the query generation process"),
     )
     types: list | None = None
+
+
+class OCSVMDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    kernel: str | None = Field(default=None, description='SVM kernel type (default: "rbf")')
+    nu: float | None = Field(
+        default=None,
+        description="Upper bound on training errors fraction (default: 0.1)",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["ocsvm"] = "ocsvm"
+
+
+class PCADetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    preprocessing: PreprocessingConfig | None = Field(
+        default=None, description="Preprocessing transforms applied before detection"
+    )
+    threshold: float | None = Field(default=None, description="Anomaly probability threshold (default: 0.9)")
+    type: Literal["pca"] = "pca"
 
 
 class PathsQueryResponse(BaseModel):

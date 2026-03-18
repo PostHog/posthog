@@ -3956,20 +3956,14 @@ export interface MADDetectorConfig {
     preprocessing?: PreprocessingConfig
 }
 
-export interface MADDetectorConfig {
-    type: 'mad'
-    /** MAD threshold multiplier for anomaly detection (default: 3.0) */
-    threshold?: number
-    /** Rolling window size for calculating median/MAD (default: 30) */
-    window?: integer
-}
-
 export interface IQRDetectorConfig {
     type: 'iqr'
     /** IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers) */
     multiplier?: number
     /** Rolling window size for calculating quartiles (default: 30) */
     window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
 }
 
 export interface ThresholdDetectorConfig {
@@ -3986,12 +3980,16 @@ export interface ECODDetectorConfig {
     type: 'ecod'
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
 }
 
 export interface COPODDetectorConfig {
     type: 'copod'
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
 }
 
 export interface IsolationForestDetectorConfig {
@@ -4000,6 +3998,8 @@ export interface IsolationForestDetectorConfig {
     threshold?: number
     /** Number of trees in the forest (default: 100) */
     n_estimators?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
 }
 
 export interface KNNDetectorConfig {
@@ -4010,6 +4010,8 @@ export interface KNNDetectorConfig {
     n_neighbors?: integer
     /** Distance method: 'largest', 'mean', 'median' (default: 'largest') */
     method?: 'largest' | 'mean' | 'median'
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
 }
 
 export interface HBOSDetectorConfig {
@@ -4018,6 +4020,8 @@ export interface HBOSDetectorConfig {
     threshold?: number
     /** Number of histogram bins (default: 10) */
     n_bins?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
 }
 
 export interface LOFDetectorConfig {
@@ -4026,6 +4030,8 @@ export interface LOFDetectorConfig {
     threshold?: number
     /** Number of neighbors for LOF (default: 20) */
     n_neighbors?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
 }
 
 export interface OCSVMDetectorConfig {
@@ -4036,12 +4042,16 @@ export interface OCSVMDetectorConfig {
     kernel?: string
     /** Upper bound on training errors fraction (default: 0.1) */
     nu?: number
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
 }
 
 export interface PCADetectorConfig {
     type: 'pca'
     /** Anomaly probability threshold (default: 0.9) */
     threshold?: number
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
 }
 
 export enum EnsembleOperator {

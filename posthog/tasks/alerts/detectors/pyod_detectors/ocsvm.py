@@ -1,11 +1,13 @@
 import numpy as np
 from pyod.models.ocsvm import OCSVM
 
+from posthog.schema import DetectorType
+
 from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
-@register_detector("ocsvm")
+@register_detector(DetectorType.OCSVM)
 class OCSVMDetector(BaseDetector):
     """
     One-Class SVM (OCSVM) using PyOD.

@@ -1,11 +1,13 @@
 import numpy as np
 from pyod.models.lof import LOF
 
+from posthog.schema import DetectorType
+
 from posthog.tasks.alerts.detectors.base import BaseDetector, DetectionResult
 from posthog.tasks.alerts.detectors.registry import register_detector
 
 
-@register_detector("lof")
+@register_detector(DetectorType.LOF)
 class LOFDetector(BaseDetector):
     """
     Local Outlier Factor (LOF) using PyOD.

@@ -10,11 +10,16 @@ import {
     ECODDetectorConfig,
     EnsembleDetectorConfig,
     EnsembleOperator,
+    HBOSDetectorConfig,
     IQRDetectorConfig,
     IsolationForestDetectorConfig,
     KNNDetectorConfig,
+    LOFDetectorConfig,
     MADDetectorConfig,
+    OCSVMDetectorConfig,
+    PCADetectorConfig,
     PreprocessingConfig,
+    ThresholdDetectorConfig,
     SingleDetectorConfig,
     ZScoreDetectorConfig,
 } from '~/queries/schema/schema-general'
@@ -26,12 +31,12 @@ interface DetectorSelectorProps {
 
 const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }> = [
     {
-        value: 'zscore',
+        value: DetectorType.ZSCORE,
         label: 'Z-Score',
         tooltip: 'Flags points that are unusually far from the rolling average. Good general-purpose detector.',
     },
     {
-        value: 'mad',
+        value: DetectorType.MAD,
         label: 'MAD',
         tooltip:
             'Like Z-Score but uses the median instead of the mean, making it robust to existing outliers in your data.',
@@ -39,12 +44,12 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
     {
         value: DetectorType.IQR,
         label: 'IQR',
-        description: 'Interquartile range - classic box plot method',
+        tooltip: 'Interquartile range — classic box plot method for detecting outliers.',
     },
     {
         value: DetectorType.THRESHOLD,
         label: 'Threshold',
-        description: 'Simple upper/lower bounds',
+        tooltip: 'Simple upper/lower bounds. Alerts when the value crosses a fixed limit.',
     },
     {
         value: 'ensemble',
@@ -54,22 +59,42 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
     {
         value: DetectorType.ECOD,
         label: 'ECOD',
-        description: 'Empirical cumulative distribution',
+        tooltip: 'Empirical cumulative distribution — parameter-free and interpretable.',
     },
     {
         value: DetectorType.COPOD,
         label: 'COPOD',
-        description: 'Copula-based outlier detection',
+        tooltip: 'Copula-based outlier detection — efficient and parameter-free.',
     },
     {
         value: DetectorType.ISOLATION_FOREST,
         label: 'Isolation Forest',
-        description: 'Tree-based anomaly isolation',
+        tooltip: 'Isolates anomalies using random forest — good for complex patterns.',
     },
     {
         value: DetectorType.KNN,
         label: 'KNN',
-        description: 'K-nearest neighbors distance',
+        tooltip: 'K-nearest neighbors distance — points far from others are anomalies.',
+    },
+    {
+        value: DetectorType.LOF,
+        label: 'LOF',
+        tooltip: 'Local outlier factor — density-based, good for seasonal data.',
+    },
+    {
+        value: DetectorType.HBOS,
+        label: 'HBOS',
+        tooltip: 'Histogram-based outlier score — very fast, good for high-volume alerting.',
+    },
+    {
+        value: DetectorType.OCSVM,
+        label: 'OCSVM',
+        tooltip: 'One-class SVM — learns a boundary around normal data.',
+    },
+    {
+        value: DetectorType.PCA,
+        label: 'PCA',
+        tooltip: 'PCA-based — detects anomalies via reconstruction error.',
     },
 ]
 
@@ -78,6 +103,16 @@ const SINGLE_DETECTOR_OPTIONS = DETECTOR_OPTIONS.filter((o) => o.value !== 'ense
 const DEFAULT_SINGLE_CONFIGS: Record<string, SingleDetectorConfig> = {
     zscore: { type: 'zscore', threshold: 0.9, window: 30 },
     mad: { type: 'mad', threshold: 0.9, window: 30 },
+    iqr: { type: 'iqr', multiplier: 1.5, window: 30 },
+    threshold: { type: 'threshold' },
+    ecod: { type: 'ecod', threshold: 0.9 },
+    copod: { type: 'copod', threshold: 0.9 },
+    isolation_forest: { type: 'isolation_forest', threshold: 0.9, n_estimators: 100 },
+    knn: { type: 'knn', threshold: 0.9, n_neighbors: 5, method: 'largest' },
+    lof: { type: 'lof', threshold: 0.9, n_neighbors: 20 },
+    hbos: { type: 'hbos', threshold: 0.9, n_bins: 10 },
+    ocsvm: { type: 'ocsvm', threshold: 0.9 },
+    pca: { type: 'pca', threshold: 0.9 },
 }
 
 const DEFAULT_ENSEMBLE: EnsembleDetectorConfig = {
@@ -135,20 +170,32 @@ export function DetectorSelector({ value, onChange }: DetectorSelectorProps): JS
                 onChange({ type: 'threshold' } as ThresholdDetectorConfig)
                 break
             case DetectorType.ECOD:
-                onChange({ type: 'ecod', contamination: 0.1 } as ECODDetectorConfig)
+                onChange({ type: 'ecod', threshold: 0.9 } as ECODDetectorConfig)
                 break
             case DetectorType.COPOD:
-                onChange({ type: 'copod', contamination: 0.1 } as COPODDetectorConfig)
+                onChange({ type: 'copod', threshold: 0.9 } as COPODDetectorConfig)
                 break
             case DetectorType.ISOLATION_FOREST:
                 onChange({
                     type: 'isolation_forest',
-                    contamination: 0.1,
+                    threshold: 0.9,
                     n_estimators: 100,
                 } as IsolationForestDetectorConfig)
                 break
             case DetectorType.KNN:
-                onChange({ type: 'knn', contamination: 0.1, n_neighbors: 5, method: 'largest' } as KNNDetectorConfig)
+                onChange({ type: 'knn', threshold: 0.9, n_neighbors: 5, method: 'largest' } as KNNDetectorConfig)
+                break
+            case DetectorType.LOF:
+                onChange({ type: 'lof', threshold: 0.9, n_neighbors: 20 } as LOFDetectorConfig)
+                break
+            case DetectorType.HBOS:
+                onChange({ type: 'hbos', threshold: 0.9, n_bins: 10 } as HBOSDetectorConfig)
+                break
+            case DetectorType.OCSVM:
+                onChange({ type: 'ocsvm', threshold: 0.9 } as OCSVMDetectorConfig)
+                break
+            case DetectorType.PCA:
+                onChange({ type: 'pca', threshold: 0.9 } as PCADetectorConfig)
                 break
             default:
                 onChange(null)
@@ -311,19 +358,58 @@ function SingleDetectorConfigSection({
                 </div>
             )}
             {config.type === 'iqr' && (
-                <IQRConfig config={config as IQRDetectorConfig} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
+                <IQRConfig
+                    config={config as IQRDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
             )}
             {config.type === 'ecod' && (
-                <ECODConfig config={config as ECODDetectorConfig} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
+                <ECODConfig
+                    config={config as ECODDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
             )}
             {config.type === 'copod' && (
-                <COPODConfig config={config as COPODDetectorConfig} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
+                <COPODConfig
+                    config={config as COPODDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
             )}
             {config.type === 'isolation_forest' && (
-                <IsolationForestConfig config={config as IsolationForestDetectorConfig} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
+                <IsolationForestConfig
+                    config={config as IsolationForestDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
             )}
             {config.type === 'knn' && (
-                <KNNConfig config={config as KNNDetectorConfig} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
+                <KNNConfig
+                    config={config as KNNDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'lof' && (
+                <LOFConfig
+                    config={config as LOFDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'hbos' && (
+                <HBOSConfig
+                    config={config as HBOSDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'ocsvm' && (
+                <OCSVMConfig
+                    config={config as OCSVMDetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
+            )}
+            {config.type === 'pca' && (
+                <PCAConfig
+                    config={config as PCADetectorConfig}
+                    onChange={(updated) => onChange(updated as SingleDetectorConfig)}
+                />
             )}
             <PreprocessingSection config={config} onChange={(updated) => onChange(updated as SingleDetectorConfig)} />
         </div>
@@ -392,8 +478,12 @@ function ECODConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <ContaminationInput config={config} onChange={onChange} />
-            <p className="text-xs text-muted">Empirical cumulative distribution - parameter-free and interpretable.</p>
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <p className="text-xs text-muted">Empirical cumulative distribution — parameter-free and interpretable.</p>
         </div>
     )
 }
@@ -407,8 +497,12 @@ function COPODConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <ContaminationInput config={config} onChange={onChange} />
-            <p className="text-xs text-muted">Copula-based detection - efficient and parameter-free.</p>
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <p className="text-xs text-muted">Copula-based detection — efficient and parameter-free.</p>
         </div>
     )
 }
@@ -422,7 +516,11 @@ function IsolationForestConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <ContaminationInput config={config} onChange={onChange} />
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
             <div>
                 <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
                     Number of trees
@@ -437,7 +535,7 @@ function IsolationForestConfig({
                     fullWidth
                 />
             </div>
-            <p className="text-xs text-muted">Isolates anomalies using random forest - good for complex patterns.</p>
+            <p className="text-xs text-muted">Isolates anomalies using random forest — good for complex patterns.</p>
         </div>
     )
 }
@@ -451,7 +549,11 @@ function KNNConfig({
 }): JSX.Element {
     return (
         <div className="space-y-3 pl-4 border-l-2 border-border">
-            <ContaminationInput config={config} onChange={onChange} />
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
             <div>
                 <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
                     Number of neighbors
@@ -482,7 +584,117 @@ function KNNConfig({
                 />
             </div>
             <p className="text-xs text-muted">
-                Uses distance to nearest neighbors - points far from others are anomalies.
+                Uses distance to nearest neighbors — points far from others are anomalies.
+            </p>
+        </div>
+    )
+}
+
+function LOFConfig({
+    config,
+    onChange,
+}: {
+    config: LOFDetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
+                    Number of neighbors
+                </label>
+                <LemonInput
+                    type="number"
+                    min={1}
+                    max={50}
+                    step={1}
+                    value={config.n_neighbors ?? 20}
+                    onChange={(val) => onChange({ ...config, n_neighbors: val ? parseInt(String(val), 10) : 20 })}
+                    fullWidth
+                />
+            </div>
+            <p className="text-xs text-muted">
+                Density-based — compares local density of a point to its neighbors. Good for seasonal data.
+            </p>
+        </div>
+    )
+}
+
+function HBOSConfig({
+    config,
+    onChange,
+}: {
+    config: HBOSDetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <div>
+                <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
+                    Number of bins
+                </label>
+                <LemonInput
+                    type="number"
+                    min={5}
+                    max={50}
+                    step={1}
+                    value={config.n_bins ?? 10}
+                    onChange={(val) => onChange({ ...config, n_bins: val ? parseInt(String(val), 10) : 10 })}
+                    fullWidth
+                />
+            </div>
+            <p className="text-xs text-muted">Very fast histogram-based detection. Good for high-volume alerting.</p>
+        </div>
+    )
+}
+
+function OCSVMConfig({
+    config,
+    onChange,
+}: {
+    config: OCSVMDetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <p className="text-xs text-muted">
+                One-class SVM — learns a boundary around normal data using a support vector machine.
+            </p>
+        </div>
+    )
+}
+
+function PCAConfig({
+    config,
+    onChange,
+}: {
+    config: PCADetectorConfig
+    onChange: (config: DetectorConfig) => void
+}): JSX.Element {
+    return (
+        <div className="space-y-3 pl-4 border-l-2 border-border">
+            <SensitivityInput
+                value={config.threshold ?? 0.9}
+                onChange={(val) => onChange({ ...config, threshold: val })}
+                tooltip="Anomaly probability threshold (0-1). Higher = fewer alerts."
+            />
+            <p className="text-xs text-muted">
+                PCA-based — detects anomalies as points with high reconstruction error.
             </p>
         </div>
     )
@@ -511,36 +723,6 @@ function WindowSizeInput({
                     onChange({ ...config, window: val ? parseInt(String(val), 10) : 30 } as SingleDetectorConfig)
                 }
             />
-        </div>
-    )
-}
-
-function ContaminationInput({
-    config,
-    onChange,
-}: {
-    config: { contamination?: number }
-    onChange: (config: DetectorConfig) => void
-}): JSX.Element {
-    return (
-        <div>
-            <label className="text-xs font-semibold uppercase tracking-wide text-secondary mb-1 block">
-                Expected outlier proportion
-            </label>
-            <LemonInput
-                type="number"
-                min={0.01}
-                max={0.5}
-                step={0.01}
-                value={config.contamination ?? 0.1}
-                onChange={(val) =>
-                    onChange({ ...config, contamination: val ? parseFloat(String(val)) : 0.1 } as DetectorConfig)
-                }
-                fullWidth
-            />
-            <p className="text-xs text-muted mt-1">
-                Fraction of data expected to be outliers (0.1 = 10%). Lower = stricter.
-            </p>
         </div>
     )
 }

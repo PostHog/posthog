@@ -2816,6 +2816,10 @@
         "COPODDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
                 "threshold": {
                     "description": "Anomaly probability threshold (default: 0.9)",
                     "type": "number"
@@ -11991,6 +11995,10 @@
         "ECODDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
                 "threshold": {
                     "description": "Anomaly probability threshold (default: 0.9)",
                     "type": "number"
@@ -17563,6 +17571,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Number of histogram bins (default: 10)"
                 },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
                 "threshold": {
                     "description": "Anomaly probability threshold (default: 0.9)",
                     "type": "number"
@@ -18276,6 +18288,10 @@
                 "multiplier": {
                     "description": "IQR multiplier for fence calculation (default: 1.5, use 3.0 for far outliers)",
                     "type": "number"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
                 },
                 "type": {
                     "const": "iqr",
@@ -19188,6 +19204,10 @@
                     "$ref": "#/definitions/integer",
                     "description": "Number of trees in the forest (default: 100)"
                 },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
                 "threshold": {
                     "description": "Anomaly probability threshold (default: 0.9)",
                     "type": "number"
@@ -19211,6 +19231,10 @@
                 "n_neighbors": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of neighbors to consider (default: 5)"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
                 },
                 "threshold": {
                     "description": "Anomaly probability threshold (default: 0.9)",
@@ -19339,6 +19363,10 @@
                 "n_neighbors": {
                     "$ref": "#/definitions/integer",
                     "description": "Number of neighbors for LOF (default: 20)"
+                },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
                 },
                 "threshold": {
                     "description": "Anomaly probability threshold (default: 0.9)",
@@ -20302,8 +20330,12 @@
         "MADDetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
                 "threshold": {
-                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)   MAD threshold multiplier for anomaly detection (default: 3.0)",
+                    "description": "Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9)",
                     "type": "number"
                 },
                 "type": {
@@ -23354,6 +23386,10 @@
                     "description": "Upper bound on training errors fraction (default: 0.1)",
                     "type": "number"
                 },
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
                 "threshold": {
                     "description": "Anomaly probability threshold (default: 0.9)",
                     "type": "number"
@@ -23369,6 +23405,10 @@
         "PCADetectorConfig": {
             "additionalProperties": false,
             "properties": {
+                "preprocessing": {
+                    "$ref": "#/definitions/PreprocessingConfig",
+                    "description": "Preprocessing transforms applied before detection"
+                },
                 "threshold": {
                     "description": "Anomaly probability threshold (default: 0.9)",
                     "type": "number"
