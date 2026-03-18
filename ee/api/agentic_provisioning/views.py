@@ -58,6 +58,7 @@ ACCESS_TOKEN_EXPIRY_SECONDS = 365 * 24 * 3600
 
 FREE_PLAN_ID = "free"
 PAY_AS_YOU_GO_PLAN_ID = "pay_as_you_go"
+USAGE_BASED_PRICING = {"type": "freeform", "freeform": "Usage-based pricing"}
 ANALYTICS_SERVICE_ID = "analytics"
 
 ALL_CATEGORIES: list[str] = ["analytics", "feature_flags", "ai"]
@@ -76,10 +77,7 @@ PAY_AS_YOU_GO_PLAN_SERVICE: dict[str, Any] = {
     "categories": ALL_CATEGORIES,
     "pricing": {
         "type": "paid",
-        "paid": {
-            "type": "freeform",
-            "freeform": "Usage-based pricing",
-        },
+        "paid": USAGE_BASED_PRICING,
     },
     "kind": "plan",
 }
