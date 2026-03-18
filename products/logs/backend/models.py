@@ -56,8 +56,7 @@ class LogsAlertConfiguration(ModelActivityMixin, CreatedMetaFields, UpdatedMetaF
     )
 
     # N-of-M evaluation (AWS CloudWatch naming convention).
-    # evaluation_periods = M (total checks in sliding window)
-    # datapoints_to_alarm = N (how many must breach to trigger)
+    # evaluation_periods = M, datapoints_to_alarm = N
     evaluation_periods = models.PositiveIntegerField(default=1)
     datapoints_to_alarm = models.PositiveIntegerField(default=1)
 
