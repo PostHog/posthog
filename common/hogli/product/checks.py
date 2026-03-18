@@ -10,6 +10,7 @@ from pathlib import Path
 from .ast_helpers import (
     contract_coverage,
     count_direct_orm_queries,
+    count_viewset_files,
     get_cross_product_internal_imports,
     get_frozen_dataclass_names,
     get_model_names,
@@ -231,13 +232,14 @@ class IsolationProgressCheck(ProductCheck):
         n = len(model_names)
 
         # Check if any view file exists (canonical or legacy locations)
-        _all_view_candidates = [
-            ctx.backend_dir / "presentation" / "views.py",
-            ctx.backend_dir / "api" / "views.py",
-            ctx.backend_dir / "api.py",
-            ctx.backend_dir / "views.py",
-        ]
-        has_any_views = any(p.exists() for p in _all_view_candidates)
+        api_dir = ctx.backend_dir / "api"
+        has_any_views = (
+            (ctx.backend_dir / "presentation" / "views.py").exists()
+            or (api_dir.is_dir() and count_viewset_files(api_dir) > 0)
+            or (ctx.backend_dir / "api" / "views.py").exists()
+            or (ctx.backend_dir / "api.py").exists()
+            or (ctx.backend_dir / "views.py").exists()
+        )
 
         if n == 0 and not has_any_views:
             result.lines.append("no Django models or views found — nothing to isolate yet")
@@ -325,7 +327,8 @@ class IsolationProgressCheck(ProductCheck):
                 result.lines.append("serializers: ✓ no ORM model bindings")
 
         # Views — check canonical location first, then legacy locations
-        _LEGACY_VIEW_PATHS = [
+        _LEGACY_VIEW_CANDIDATES = [
+            ("api", "backend/api/"),  # package with multiple ViewSet files
             ("api/views.py", "backend/api/views.py"),
             ("api.py", "backend/api.py"),
             ("views.py", "backend/views.py"),
@@ -333,9 +336,12 @@ class IsolationProgressCheck(ProductCheck):
         views_path = ctx.backend_dir / "presentation" / "views.py"
         legacy_views: tuple[Path, str] | None = None
         if not views_path.exists():
-            for rel, label in _LEGACY_VIEW_PATHS:
+            for rel, label in _LEGACY_VIEW_CANDIDATES:
                 candidate = ctx.backend_dir / rel
-                if candidate.exists():
+                if candidate.is_dir() and count_viewset_files(candidate) > 0:
+                    legacy_views = (candidate, label)
+                    break
+                elif candidate.is_file():
                     legacy_views = (candidate, label)
                     break
 
@@ -365,6 +371,9 @@ class IsolationProgressCheck(ProductCheck):
             uses_facade, uses_models = view_facade_usage(legacy_path)
             orm_queries = count_direct_orm_queries(legacy_path)
             parts = []
+            if legacy_path.is_dir():
+                vs_count = count_viewset_files(legacy_path)
+                parts.append(f"{vs_count} ViewSet{'s' if vs_count != 1 else ''}")
             if uses_models:
                 parts.append("imports models directly")
             if orm_queries:

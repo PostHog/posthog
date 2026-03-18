@@ -132,12 +132,18 @@ def get_orm_bound_serializer_names(file_path: Path) -> list[str]:
     return names
 
 
-def count_direct_orm_queries(file_path: Path) -> int:
-    """Count .objects. attribute accesses — each is a direct ORM query that should go through the facade."""
-    tree = ast_parse_safe(file_path)
-    if not tree:
-        return 0
-    return sum(1 for node in ast.walk(tree) if isinstance(node, ast.Attribute) and node.attr == "objects")
+def count_direct_orm_queries(path: Path) -> int:
+    """Count .objects. attribute accesses — each is a direct ORM query that should go through the facade.
+
+    Accepts a single file or a directory (package of ViewSet files).
+    """
+    total = 0
+    for f in _collect_py_files(path):
+        tree = ast_parse_safe(f)
+        if not tree:
+            continue
+        total += sum(1 for node in ast.walk(tree) if isinstance(node, ast.Attribute) and node.attr == "objects")
+    return total
 
 
 def get_cross_product_internal_imports(product_dir: Path, product_name: str) -> list[str]:
@@ -167,18 +173,47 @@ def view_facade_usage(views_path: Path) -> tuple[bool, bool]:
     """
     Returns (imports_facade, imports_models_directly).
     Handles both relative (from ..facade import ...) and absolute imports.
+    Accepts a single file or a directory (package of ViewSet files).
     """
-    tree = ast_parse_safe(views_path)
-    if not tree:
-        return False, False
+    files = _collect_py_files(views_path)
     imports_facade = False
     imports_models = False
-    for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom):
+    for f in files:
+        tree = ast_parse_safe(f)
+        if not tree:
             continue
-        parts = (node.module or "").split(".")
-        if "facade" in parts:
-            imports_facade = True
-        if "models" in parts or node.module == "models":
-            imports_models = True
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            parts = (node.module or "").split(".")
+            if "facade" in parts:
+                imports_facade = True
+            if "models" in parts or node.module == "models":
+                imports_models = True
     return imports_facade, imports_models
+
+
+def count_viewset_files(directory: Path) -> int:
+    """Count Python files in a directory that define ViewSet classes."""
+    count = 0
+    for f in _collect_py_files(directory):
+        tree = ast_parse_safe(f)
+        if not tree:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and any(
+                ("ViewSet" in (b.id if isinstance(b, ast.Name) else b.attr if isinstance(b, ast.Attribute) else ""))
+                for b in node.bases
+            ):
+                count += 1
+                break
+    return count
+
+
+def _collect_py_files(path: Path) -> list[Path]:
+    """Return list of .py files — the file itself if a file, or all *.py in dir (non-recursive)."""
+    if path.is_file():
+        return [path]
+    if path.is_dir():
+        return [f for f in path.glob("*.py") if f.name != "__init__.py"]
+    return []
