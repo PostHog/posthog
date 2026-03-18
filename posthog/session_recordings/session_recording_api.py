@@ -60,10 +60,11 @@ from posthog.api.utils import ServerTimingsGathered, action, safe_clickhouse_str
 from posthog.auth import PersonalAPIKeyAuthentication, SharingAccessTokenAuthentication
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
+from posthog.constants import AvailableFeature
 from posthog.errors import CHQueryErrorCannotScheduleTask, CHQueryErrorTooManySimultaneousQueries
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
-from posthog.models import Team, User
+from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import Detail, log_activity
 from posthog.models.comment import Comment
 from posthog.models.person.person import READ_DB_FOR_PERSONS, PersonDistinctId
@@ -80,7 +81,7 @@ from posthog.session_recordings.queries.session_replay_events import SessionRepl
 from posthog.session_recordings.recordings import recording_s3_client
 from posthog.session_recordings.recordings.errors import BlockFetchError, RecordingDeletedError
 from posthog.session_recordings.recordings.recording_api_client import RecordingApiClient, recording_api_client
-from posthog.session_recordings.session_recording_v2_service import list_blocks
+from posthog.session_recordings.session_recording_v2_service import list_blocks, list_blocks_async
 from posthog.session_recordings.utils import (
     clean_prompt_whitespace,
     filter_from_params_to_query,
@@ -109,7 +110,7 @@ SNAPSHOTS_BY_PERSONAL_API_KEY_COUNTER = Counter(
 SNAPSHOT_SOURCE_REQUESTED = Counter(
     "session_snapshots_requested_counter",
     "When calling the API and providing a concrete snapshot type to load.",
-    labelnames=["source"],
+    labelnames=["source", "is_personal_api_key"],
 )
 
 GENERATE_PRE_SIGNED_URL_HISTOGRAM = Histogram(
@@ -477,14 +478,89 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-class SnapshotsBurstRateThrottle(PersonalApiKeyRateThrottle):
+SNAPSHOTS_TIER_CACHE_TTL_SECONDS = 12 * 60 * 60
+
+SNAPSHOT_DEFAULT_TIER = "free"
+
+
+def _snapshot_rates() -> dict[str, dict[str, str]]:
+    return {
+        "free": {
+            "snapshots_burst": settings.SNAPSHOT_RATE_FREE_BURST,
+            "snapshots_sustained": settings.SNAPSHOT_RATE_FREE_SUSTAINED,
+        },
+        "paid": {
+            "snapshots_burst": settings.SNAPSHOT_RATE_PAID_BURST,
+            "snapshots_sustained": settings.SNAPSHOT_RATE_PAID_SUSTAINED,
+        },
+        "enterprise": {
+            "snapshots_burst": settings.SNAPSHOT_RATE_ENTERPRISE_BURST,
+            "snapshots_sustained": settings.SNAPSHOT_RATE_ENTERPRISE_SUSTAINED,
+        },
+    }
+
+
+SNAPSHOT_RATES = _snapshot_rates()
+
+_ENTERPRISE_FEATURE_KEYS = {AvailableFeature.SAML, AvailableFeature.SCIM}
+
+
+def _org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
+    if not features:
+        return "free"
+    feature_keys = {f.get("key") for f in features if isinstance(f, dict)}
+    if feature_keys.intersection(_ENTERPRISE_FEATURE_KEYS):
+        return "enterprise"
+    return "paid"
+
+
+def get_cached_org_tier(team_id: int) -> str:
+    cache_key = f"snapshots_org_tier_{team_id}"
+    tier = cache.get(cache_key)
+    if tier is not None:
+        return tier
+
+    features = Organization.objects.filter(team=team_id).values_list("available_product_features", flat=True).first()
+
+    tier = _org_tier_from_features(features)
+    cache.set(cache_key, tier, SNAPSHOTS_TIER_CACHE_TTL_SECONDS)
+    return tier
+
+
+class _TierAwareSnapshotThrottle(PersonalApiKeyRateThrottle):
+    def _apply_tier_rates(self, tier: str) -> None:
+        if self.scope is None:
+            raise ValueError("_TierAwareSnapshotThrottle subclasses must set scope")
+        base_scope = self.scope
+        rates = _snapshot_rates()
+        resolved_tier = tier if tier in rates else SNAPSHOT_DEFAULT_TIER
+        self.rate = rates[resolved_tier][base_scope]
+        self.num_requests, self.duration = self.parse_rate(self.rate)
+        self.scope = f"{base_scope}_{resolved_tier}"
+
+    def _is_personal_api_key_request(self, request) -> bool:
+        return isinstance(getattr(request, "successful_authenticator", None), PersonalAPIKeyAuthentication)
+
+    def allow_request(self, request, view):
+        if self._is_personal_api_key_request(request):
+            try:
+                team_id = self.safely_get_team_id_from_view(view)
+                tier = get_cached_org_tier(team_id) if team_id else SNAPSHOT_DEFAULT_TIER
+                self._apply_tier_rates(tier)
+            except Exception:
+                logger.exception("snapshot_throttle_tier_lookup_failed")
+                self._apply_tier_rates(SNAPSHOT_DEFAULT_TIER)
+        return super().allow_request(request, view)
+
+
+class SnapshotsBurstRateThrottle(_TierAwareSnapshotThrottle):
     scope = "snapshots_burst"
-    rate = "90/minute"
+    rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_burst"]
 
 
-class SnapshotsSustainedRateThrottle(PersonalApiKeyRateThrottle):
+class SnapshotsSustainedRateThrottle(_TierAwareSnapshotThrottle):
     scope = "snapshots_sustained"
-    rate = "600/hour"
+    rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_sustained"]
 
 
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
@@ -1005,7 +1081,9 @@ class SessionRecordingViewSet(
         ):
             raise exceptions.NotFound("Recording not found")
 
-        SNAPSHOT_SOURCE_REQUESTED.labels(source=source_log_label).inc()
+        SNAPSHOT_SOURCE_REQUESTED.labels(
+            source=source_log_label, is_personal_api_key=str(is_personal_api_key).lower()
+        ).inc()
 
         if is_personal_api_key:
             personal_api_authenticator = cast(PersonalAPIKeyAuthentication, request.successful_authenticator)
@@ -1344,7 +1422,7 @@ class SessionRecordingViewSet(
             timer("list_blocks__stream_blob_v2_to_client"),
             tracer.start_as_current_span("list_blocks__stream_blob_v2_to_client"),
         ):
-            blocks = list_blocks(recording)
+            blocks = await list_blocks_async(recording)
             if not blocks:
                 raise exceptions.NotFound("Session recording not found")
 

@@ -7,7 +7,7 @@ use tokio_util::bytes::Bytes;
 use super::config::CheckpointConfig;
 use super::downloader::CheckpointDownloader;
 use super::error::DownloadCancelledError;
-use super::metadata::{DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
+use super::metadata::{hash_prefix_for_partition, DATE_PLUS_HOURS_ONLY_FORMAT, METADATA_FILENAME};
 use super::s3_client::create_s3_client;
 use crate::metrics_const::{
     CHECKPOINT_BATCH_FETCH_STORE_HISTOGRAM, CHECKPOINT_FILE_DOWNLOADS_COUNTER,
@@ -17,7 +17,7 @@ use crate::metrics_const::{
 
 use anyhow::{Context, Result};
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use futures::stream::FuturesUnordered;
 use futures::{StreamExt, TryStreamExt};
 use object_store::limit::LimitStore;
@@ -68,24 +68,15 @@ where
 }
 
 /// Build the S3 key prefix for listing checkpoints for a specific topic/partition.
+/// Includes the deterministic hash prefix so metadata and object files share the same path.
 /// The trailing slash is critical: ensures partition "41" doesn't prefix-match "410", "419", etc.
 fn format_checkpoint_list_prefix(
     s3_key_prefix: &str,
     topic: &str,
     partition_number: i32,
 ) -> String {
-    format!("{s3_key_prefix}/{topic}/{partition_number}/")
-}
-
-/// Build the S3 key used as lexicographic lower bound for listing recent checkpoints.
-/// S3 list_objects_v2 returns keys in lexicographic order, and checkpoint IDs are
-/// timestamp-formatted (YYYY-MM-DD-HH), so keys >= this bound are within the import window.
-fn format_checkpoint_list_start_after(partition_prefix: &str, cutoff: DateTime<Utc>) -> String {
-    format!(
-        "{}{}",
-        partition_prefix,
-        cutoff.format(DATE_PLUS_HOURS_ONLY_FORMAT)
-    )
+    let hash = hash_prefix_for_partition(topic, partition_number);
+    format!("{hash}/{s3_key_prefix}/{topic}/{partition_number}/")
 }
 
 /// Classify an object_store error into a short, searchable label for structured logging.
@@ -361,47 +352,50 @@ impl CheckpointDownloader for S3Downloader {
         let remote_key_prefix =
             format_checkpoint_list_prefix(&self.s3_key_prefix, topic, partition_number);
         let cutoff = Utc::now() - import_window_hours;
-        let start_after_key = format_checkpoint_list_start_after(&remote_key_prefix, cutoff);
+        let cutoff_id = cutoff.format(DATE_PLUS_HOURS_ONLY_FORMAT).to_string();
 
         info!(
-            "Listing checkpoint files newer than {} from S3 bucket: {}",
-            start_after_key, self.s3_bucket
+            "Listing checkpoint folders newer than {cutoff_id} from S3 bucket: {}",
+            self.s3_bucket
         );
 
-        // Use object_store's list_with_offset for lexicographic filtering
-        // This is equivalent to S3's start_after parameter
+        // Shallow list: returns only the checkpoint "folders" (common prefixes)
+        // under the partition prefix, NOT the individual files inside them.
+        // This is a single S3 ListObjectsV2 call with delimiter="/".
         let prefix = ObjectPath::from(remote_key_prefix.as_str());
-        let offset = ObjectPath::from(start_after_key.as_str());
+        let result = self
+            .store
+            .list_with_delimiter(Some(&prefix))
+            .await
+            .context("listing checkpoint folders from S3")?;
 
-        let mut keys_found = Vec::new();
-        let mut stream = self.store.list_with_offset(Some(&prefix), &offset);
+        // Each common_prefix is a checkpoint folder like:
+        //   <hash>/<s3_key_prefix>/<topic>/<partition>/2026-01-22T12-00-00Z
+        // Filter to folders newer than the cutoff, then construct metadata.json keys directly.
+        let mut metadata_keys: Vec<String> = result
+            .common_prefixes
+            .into_iter()
+            .filter(|cp| {
+                // Extract the checkpoint ID (last path segment) and compare to cutoff
+                let path_str = cp.as_ref();
+                let checkpoint_id = path_str.rsplit('/').find(|s| !s.is_empty()).unwrap_or("");
+                checkpoint_id >= cutoff_id.as_str()
+            })
+            .map(|cp| format!("{}/{}", cp.as_ref(), METADATA_FILENAME))
+            .collect();
 
-        while let Some(result) = stream.next().await {
-            match result {
-                Ok(meta) => {
-                    keys_found.push(meta.location.to_string());
-                }
-                Err(e) => {
-                    error!("Error listing S3 objects: {e:#}");
-                }
-            }
-        }
-
-        // filter results down to only metadata.json files and sort by most recently uploaded
-        let total_keys = keys_found.len();
-        keys_found.retain(|k| k.ends_with(METADATA_FILENAME));
-        keys_found.reverse();
+        // Sort newest first (checkpoint IDs are timestamps, so reverse lexicographic = newest)
+        metadata_keys.sort_unstable();
+        metadata_keys.reverse();
 
         let elapsed = start_time.elapsed();
         metrics::histogram!(CHECKPOINT_LIST_METADATA_HISTOGRAM).record(elapsed.as_secs_f64());
         info!(
-            "Found {} metadata.json files of {} total keys scanned at or after: {}",
-            keys_found.len(),
-            total_keys,
-            start_after_key
+            "Found {} checkpoint folders at or after {cutoff_id}",
+            metadata_keys.len(),
         );
 
-        Ok(keys_found)
+        Ok(metadata_keys)
     }
 
     async fn is_available(&self) -> bool {
@@ -415,8 +409,9 @@ mod tests {
 
     #[test]
     fn test_format_checkpoint_list_prefix_basic() {
+        let hash = hash_prefix_for_partition("events", 0);
         let prefix = format_checkpoint_list_prefix("checkpoints", "events", 0);
-        assert_eq!(prefix, "checkpoints/events/0/");
+        assert_eq!(prefix, format!("{hash}/checkpoints/events/0/"));
     }
 
     #[test]
@@ -425,76 +420,37 @@ mod tests {
         let prefix_41 = format_checkpoint_list_prefix("checkpoints", "events", 41);
         let prefix_419 = format_checkpoint_list_prefix("checkpoints", "events", 419);
 
-        assert_eq!(prefix_41, "checkpoints/events/41/");
-        assert_eq!(prefix_419, "checkpoints/events/419/");
+        let hash_41 = hash_prefix_for_partition("events", 41);
+        let hash_419 = hash_prefix_for_partition("events", 419);
+        assert_eq!(prefix_41, format!("{hash_41}/checkpoints/events/41/"));
+        assert_eq!(prefix_419, format!("{hash_419}/checkpoints/events/419/"));
 
-        // The key insight: with trailing slash, "41/" is NOT a prefix of "419/"
+        // Different partitions get different hashes, so prefixes never collide
+        assert_ne!(hash_41, hash_419);
         assert!(!prefix_419.starts_with(&prefix_41));
 
-        // Simulated S3 keys that would be returned
-        let key_for_41 = "checkpoints/events/41/2026-01-22T12-00-00Z/metadata.json";
-        let key_for_419 = "checkpoints/events/419/2026-01-22T12-00-00Z/metadata.json";
+        // Simulated S3 keys that would be returned (with hash)
+        let key_for_41 =
+            format!("{hash_41}/checkpoints/events/41/2026-01-22T12-00-00Z/metadata.json");
+        let key_for_419 =
+            format!("{hash_419}/checkpoints/events/419/2026-01-22T12-00-00Z/metadata.json");
 
-        // Prefix 41/ correctly matches only partition 41's keys
+        // Prefix 41 correctly matches only partition 41's keys
         assert!(key_for_41.starts_with(&prefix_41));
         assert!(!key_for_419.starts_with(&prefix_41));
 
-        // Prefix 419/ correctly matches only partition 419's keys
+        // Prefix 419 correctly matches only partition 419's keys
         assert!(key_for_419.starts_with(&prefix_419));
         assert!(!key_for_41.starts_with(&prefix_419));
     }
 
     #[test]
     fn test_format_checkpoint_list_prefix_with_namespaced_topic() {
+        let hash = hash_prefix_for_partition("ingestion-events-512", 41);
         let prefix = format_checkpoint_list_prefix("checkpoints", "ingestion-events-512", 41);
-        assert_eq!(prefix, "checkpoints/ingestion-events-512/41/");
-    }
-
-    #[test]
-    fn test_format_checkpoint_list_start_after_basic() {
-        use chrono::TimeZone;
-
-        let prefix = "checkpoints/events/0/";
-        let cutoff = Utc.with_ymd_and_hms(2026, 1, 22, 14, 30, 0).unwrap();
-        let start_after = format_checkpoint_list_start_after(prefix, cutoff);
-
-        // Format is YYYY-MM-DD-HH (hour precision for lexicographic filtering)
-        assert_eq!(start_after, "checkpoints/events/0/2026-01-22-14");
-    }
-
-    #[test]
-    fn test_format_checkpoint_list_start_after_lexicographic_ordering() {
-        use chrono::TimeZone;
-
-        let prefix = "checkpoints/events/0/";
-
-        // Checkpoint IDs use format YYYY-MM-DDTHH-MM-SSZ (e.g., 2026-01-20T12-00-00Z)
-        // start_after uses YYYY-MM-DD-HH (e.g., 2026-01-20-12)
-        //
-        // Since 'T' (ASCII 84) > '-' (ASCII 45), any checkpoint from a given date
-        // is lexicographically GREATER than the start_after for that date.
-        // This means start_after effectively filters by DATE, not hour.
-        let cutoff = Utc.with_ymd_and_hms(2026, 1, 20, 12, 0, 0).unwrap();
-        let start_after = format_checkpoint_list_start_after(prefix, cutoff);
-        assert_eq!(start_after, "checkpoints/events/0/2026-01-20-12");
-
-        // Keys lexicographically > start_after will be returned by S3 list_objects_v2
-        // (start_after is exclusive - keys strictly greater are returned)
-
-        // Previous day: lexicographically < start_after (filtered out)
-        let yesterday = "checkpoints/events/0/2026-01-19T23-59-59Z/metadata.json";
-        assert!(yesterday < start_after.as_str());
-
-        // Same day but earlier hour: 'T' > '-', so this is > start_after (returned)
-        let same_day_early = "checkpoints/events/0/2026-01-20T00-00-00Z/metadata.json";
-        assert!(same_day_early > start_after.as_str());
-
-        // Same day, later hour: also > start_after (returned)
-        let same_day_late = "checkpoints/events/0/2026-01-20T23-59-59Z/metadata.json";
-        assert!(same_day_late > start_after.as_str());
-
-        // Next day: > start_after (returned)
-        let tomorrow = "checkpoints/events/0/2026-01-21T08-00-00Z/metadata.json";
-        assert!(tomorrow > start_after.as_str());
+        assert_eq!(
+            prefix,
+            format!("{hash}/checkpoints/ingestion-events-512/41/")
+        );
     }
 }

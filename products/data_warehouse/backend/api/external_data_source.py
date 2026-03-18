@@ -600,6 +600,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                     if requires_incremental_fields and new_source_model.supports_scheduled_sync
                     else {"schema_metadata": schema_metadata}
                 ),
+                description=source_schema.description if source_schema else None,
             )
 
             if new_source_model.is_direct_postgres and should_sync:
@@ -758,12 +759,14 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 status=status.HTTP_400_BAD_REQUEST,
                 data={"message": "Could not fetch schemas from source."},
             )
+        descriptions = {s.name: s.description for s in schemas}
         with transaction.atomic():
             ExternalDataSource._base_manager.filter(pk=instance.pk).select_for_update().get()
             schemas_created, schemas_deleted = sync_old_schemas_with_new_schemas(
                 schema_names,
                 source_id=str(instance.id),
                 team_id=self.team_id,
+                descriptions=descriptions,
             )
 
             if instance.is_direct_postgres:
@@ -834,6 +837,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 else None,
                 "sync_type": None,
                 "rows": schema.row_count,
+                "description": schema.description,
             }
             for schema in schemas
         ]

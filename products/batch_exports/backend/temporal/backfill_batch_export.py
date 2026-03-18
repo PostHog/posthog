@@ -24,7 +24,7 @@ from posthog.clickhouse import query_tagging
 from posthog.clickhouse.query_tagging import Product
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
-from posthog.temporal.common.clickhouse import get_client
+from posthog.temporal.common.clickhouse import ClickHouseMemoryLimitExceededError, get_client
 from posthog.temporal.common.client import connect
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_write_only_logger
@@ -32,7 +32,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 from products.batch_exports.backend.service import (
     BackfillBatchExportInputs,
     BackfillDetails,
-    acreate_batch_export_backfill,
+    aget_or_create_batch_export_backfill,
     unpause_batch_export,
     update_batch_export_backfill,
 )
@@ -89,7 +89,7 @@ async def create_batch_export_backfill_model(inputs: CreateBatchExportBackfillIn
     model instance to represent them in our database.
     """
 
-    backfill = await acreate_batch_export_backfill(
+    backfill = await aget_or_create_batch_export_backfill(
         batch_export_id=uuid.UUID(inputs.batch_export_id),
         start_at=inputs.start_at,
         end_at=inputs.end_at,
@@ -372,11 +372,13 @@ async def _get_backfill_info_for_persons(
     logger = LOGGER.bind()
     is_limited_export = str(team_id) in settings.BATCH_EXPORTS_PERSONS_LIMITED_EXPORT_TEAM_IDS
 
+    lower_bound_condition = ""
     date_conditions = ""
     having_date_conditions = ""
     query_parameters: dict[str, typing.Any] = {"team_id": team_id, "log_comment": log_comment}
 
     if start_at is not None:
+        lower_bound_condition = "AND _timestamp >= %(start_at)s "
         date_conditions += "AND _timestamp >= %(start_at)s "
         having_date_conditions += "AND argMax(_timestamp, version) >= %(start_at)s "
         query_parameters["start_at"] = start_at.astimezone(dt.UTC)
@@ -441,6 +443,7 @@ async def _get_backfill_info_for_persons(
             SELECT id
             FROM person
             WHERE team_id = %(team_id)s
+            {lower_bound_condition}
             GROUP BY id
             HAVING argMax(_timestamp, version) > '2000-01-01'
                 {having_date_conditions}
@@ -451,6 +454,7 @@ async def _get_backfill_info_for_persons(
             SELECT distinct_id
             FROM person_distinct_id2
             WHERE team_id = %(team_id)s
+            {lower_bound_condition}
             GROUP BY distinct_id
             HAVING argMax(_timestamp, version) > '2000-01-01'
                 {having_date_conditions}
@@ -557,34 +561,45 @@ async def get_backfill_info(inputs: GetBackfillInfoInputs) -> GetBackfillInfoOut
 
     interval_seconds = batch_export.interval_time_delta.total_seconds()
 
-    if model == "events":
-        min_timestamp, record_count = await _get_backfill_info_for_events(
-            batch_export=batch_export,
-            start_at=start_at,
-            end_at=end_at,
-            include_events=include_events,
-            exclude_events=exclude_events,
-            filters_str=filters_str,
-            extra_query_parameters=extra_query_parameters,
-            log_comment=log_comment,
-        )
-    elif model == "persons":
-        min_timestamp, record_count = await _get_backfill_info_for_persons(
-            batch_export=batch_export,
-            start_at=start_at,
-            end_at=end_at,
-            log_comment=log_comment,
-        )
-    elif model == "sessions":
-        min_timestamp, record_count = await _get_backfill_info_for_sessions(
-            batch_export=batch_export,
-            start_at=start_at,
-            end_at=end_at,
-            log_comment=log_comment,
-        )
-    else:
-        logger.info(
-            "Backfill info not yet implemented for model, skipping estimation",
+    try:
+        if model == "events":
+            min_timestamp, record_count = await _get_backfill_info_for_events(
+                batch_export=batch_export,
+                start_at=start_at,
+                end_at=end_at,
+                include_events=include_events,
+                exclude_events=exclude_events,
+                filters_str=filters_str,
+                extra_query_parameters=extra_query_parameters,
+                log_comment=log_comment,
+            )
+        elif model == "persons":
+            min_timestamp, record_count = await _get_backfill_info_for_persons(
+                batch_export=batch_export,
+                start_at=start_at,
+                end_at=end_at,
+                log_comment=log_comment,
+            )
+        elif model == "sessions":
+            min_timestamp, record_count = await _get_backfill_info_for_sessions(
+                batch_export=batch_export,
+                start_at=start_at,
+                end_at=end_at,
+                log_comment=log_comment,
+            )
+        else:
+            logger.info(
+                "Backfill info not yet implemented for model, skipping estimation",
+                model=model,
+            )
+            return GetBackfillInfoOutputs(
+                adjusted_start_at=inputs.start_at,
+                total_records_count=None,
+                interval_seconds=interval_seconds,
+            )
+    except ClickHouseMemoryLimitExceededError:
+        logger.warning(
+            "Backfill estimation query exceeded memory limit, proceeding without estimate",
             model=model,
         )
         return GetBackfillInfoOutputs(

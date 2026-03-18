@@ -148,6 +148,17 @@ impl GroupType {
             GroupType::Resolved(name, _) => GroupType::Resolved(name, index),
         }
     }
+
+    /// Returns the Unresolved form of this group type. The shared dedup cache
+    /// always stores entries as Unresolved (inserted by the producer before
+    /// resolution), so cache removal after a failed batch write must use this
+    /// form to match the original key.
+    pub fn as_unresolved(&self) -> Self {
+        match self {
+            GroupType::Unresolved(_) => self.clone(),
+            GroupType::Resolved(name, _) => GroupType::Unresolved(name.clone()),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, PartialOrd, Ord, Deserialize, Serialize)]
@@ -538,5 +549,22 @@ impl EventDefinition {
         metrics::counter!(UPDATES_ISSUED, &[("type", "event_definition")]).increment(1);
 
         res
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn as_unresolved_is_noop_for_unresolved() {
+        let gt = GroupType::Unresolved("company".into());
+        assert_eq!(gt.as_unresolved(), GroupType::Unresolved("company".into()));
+    }
+
+    #[test]
+    fn as_unresolved_strips_resolved_index() {
+        let gt = GroupType::Resolved("company".into(), 2);
+        assert_eq!(gt.as_unresolved(), GroupType::Unresolved("company".into()));
     }
 }

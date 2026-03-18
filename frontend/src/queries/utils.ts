@@ -7,6 +7,8 @@ import { ProductAnalyticsInsightNodeKind } from '~/queries/nodes/InsightQuery/de
 import {
     ActionsNode,
     ActorsQuery,
+    AnyDataWarehouseNode,
+    AnyEntityNode,
     BreakdownFilter,
     CompareFilter,
     DataTableNode,
@@ -36,6 +38,7 @@ import {
     InsightFilterProperty,
     InsightQueryNode,
     InsightVizNode,
+    LifecycleDataWarehouseNode,
     LifecycleQuery,
     MarketingAnalyticsAggregatedQuery,
     MarketingAnalyticsTableQuery,
@@ -73,7 +76,7 @@ import {
     WebVitalsPathBreakdownQuery,
     WebVitalsQuery,
 } from '~/queries/schema/schema-general'
-import { BaseMathType, ChartDisplayType, IntervalType } from '~/types'
+import { BaseMathType, ChartDisplayType, GroupTypeIndex, IntervalType } from '~/types'
 
 import { LATEST_VERSIONS } from './latest-versions'
 
@@ -119,6 +122,14 @@ export function isActionsNode(node?: Record<string, any> | null): node is Action
 
 export function isDataWarehouseNode(node?: Record<string, any> | null): node is DataWarehouseNode {
     return node?.kind === NodeKind.DataWarehouseNode
+}
+
+export function isLifecycleDataWarehouseNode(node?: Record<string, any> | null): node is LifecycleDataWarehouseNode {
+    return node?.kind === NodeKind.LifecycleDataWarehouseNode
+}
+
+export function isAnyDataWarehouseNode(node?: Record<string, any> | null): node is AnyDataWarehouseNode {
+    return isDataWarehouseNode(node) || isLifecycleDataWarehouseNode(node)
 }
 
 /** @deprecated `ActorsQuery` is now used instead of `PersonsNode`. */
@@ -471,9 +482,7 @@ export const getFormulaNodes = (query: InsightQueryNode | null): TrendsFormulaNo
     return undefined
 }
 
-export const getSeries = (
-    query: InsightQueryNode
-): (EventsNode | ActionsNode | DataWarehouseNode | GroupNode)[] | undefined => {
+export const getSeries = (query: InsightQueryNode): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode)[] | undefined => {
     if (isInsightQueryWithSeries(query)) {
         return query.series
     }
@@ -490,6 +499,13 @@ export const getBreakdown = (query: InsightQueryNode): BreakdownFilter | undefin
 export const getCompareFilter = (query: InsightQueryNode): CompareFilter | undefined => {
     if (isInsightQueryWithCompare(query)) {
         return query.compareFilter
+    }
+    return undefined
+}
+
+export const getAggregationGroupTypeIndex = (query: InsightQueryNode): GroupTypeIndex | null | undefined => {
+    if (!isStickinessQuery(query)) {
+        return query.aggregation_group_type_index as GroupTypeIndex | null | undefined
     }
     return undefined
 }

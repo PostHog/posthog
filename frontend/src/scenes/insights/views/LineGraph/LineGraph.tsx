@@ -32,12 +32,10 @@ import { createXAxisTickCallback } from 'lib/charts/utils/dates'
 import { getBarColorFromStatus, getGraphColors } from 'lib/colors'
 import { AnnotationsOverlay } from 'lib/components/AnnotationsOverlay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useChart } from 'lib/hooks/useChart'
 import { useKeyHeld } from 'lib/hooks/useKeyHeld'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { formatAggregationAxisValue, formatPercentStackAxisValue } from 'scenes/insights/aggregationAxisFormat'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { InsightTooltip } from 'scenes/insights/InsightTooltip/InsightTooltip'
@@ -275,7 +273,6 @@ export function LineGraph_({
 
     const { aggregationLabel } = useValues(groupsModel)
     const { isDarkModeOn } = useValues(themeLogic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { baseCurrency } = useValues(teamLogic)
 
     const { insightProps, insight } = useValues(insightLogic)
@@ -571,13 +568,11 @@ export function LineGraph_({
                     weight: 'normal',
                 },
             }
-            const xAxisTickCallback = featureFlags[FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN]
-                ? createXAxisTickCallback({
-                      interval: interval ?? 'day',
-                      allDays: filteredDatasets[0]?.days ?? [],
-                      timezone,
-                  })
-                : undefined
+            const xAxisTickCallback = createXAxisTickCallback({
+                interval: interval ?? 'day',
+                allDays: filteredDatasets[0]?.days ?? [],
+                timezone,
+            })
 
             const gridOptions: Partial<GridLineOptions> = {
                 color: (context) => {
