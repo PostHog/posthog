@@ -107,15 +107,10 @@ class WorkflowsConsumer(Consumer):
     ):
         super().__init__(model=model)
 
-        if not url:
-            self.logger.error("Workflows API URL is not set")
-            raise ValueError("Workflows API URL is not set")
-
         path = HOG_FUNCTION_API_PATH.format(team_id=team_id, hog_function_id=hog_function_id)
 
         parsed = urllib.parse.urlparse(url)
         if not all((parsed.scheme, parsed.netloc)):
-            self.logger.error("Invalid URL: %s", url)
             raise ValueError(f"Invalid URL: {url}")
 
         self.url = urllib.parse.urljoin(url, path)
