@@ -263,6 +263,7 @@ export interface TabsTile extends BaseTile {
     activeTabId: string
     setTabId: (id: string) => void
     tabs: TabsTileTab[]
+    splitIndices?: number[]
 }
 
 export interface ReplayTile extends BaseTile {

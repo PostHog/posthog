@@ -39,6 +39,9 @@ pub const FLAG_DEFINITION_QUERY_TIME: &str = "flags_definition_query_time";
 pub const FLAG_PERSON_PROCESSING_TIME: &str = "flags_person_processing_time";
 pub const FLAG_COHORT_QUERY_TIME: &str = "flags_cohort_query_time";
 pub const FLAG_COHORT_PROCESSING_TIME: &str = "flags_cohort_processing_time";
+pub const FLAG_REALTIME_COHORT_QUERY_TIME: &str = "flags_realtime_cohort_query_time";
+pub const FLAG_REALTIME_COHORT_QUERY_ERROR_COUNTER: &str =
+    "flags_realtime_cohort_query_error_total";
 pub const FLAG_GROUP_QUERY_TIME: &str = "flags_group_query_time";
 pub const FLAG_GROUP_PROCESSING_TIME: &str = "flags_group_processing_time";
 pub const FLAG_DB_CONNECTION_TIME: &str = "flags_db_connection_time";
@@ -79,7 +82,7 @@ pub const FLAG_DEFINITIONS_CACHE_MISS_COUNTER: &str = "flags_flag_definitions_ca
 pub const FLAG_DEFINITIONS_ETAG_COUNTER: &str = "flags_flag_definitions_etag_total";
 
 // Flag definitions auth method
-// Labels: method (secret_api_token, personal_api_key)
+// Labels: method (secret_api_key, personal_api_key) — Rust only supports these two; Python also tracks oauth, jwt, session, other
 pub const FLAG_DEFINITIONS_AUTH_COUNTER: &str = "flags_flag_definitions_auth_total";
 
 // Request-level timeout (tower TimeoutLayer killed the request before completion)

@@ -43,7 +43,14 @@ class TrendsAlertConfigField(serializers.JSONField):
 
 
 class ThresholdSerializer(serializers.ModelSerializer):
-    configuration = ThresholdConfigurationField()
+    configuration = ThresholdConfigurationField(
+        help_text="Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage).",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Optional name for the threshold.",
+    )
 
     class Meta:
         model = Threshold
@@ -101,6 +108,13 @@ class AlertSubscriptionSerializer(serializers.ModelSerializer):
         return data
 
 
+@extend_schema_field(
+    {
+        "type": "string",
+        "nullable": True,
+        "description": "Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.",
+    }
+)
 class RelativeDateTimeField(serializers.DateTimeField):
     def to_internal_value(self, data):
         return data
@@ -108,13 +122,32 @@ class RelativeDateTimeField(serializers.DateTimeField):
 
 class AlertSerializer(serializers.ModelSerializer):
     created_by = UserBasicSerializer(read_only=True)
-    checks = AlertCheckSerializer(many=True, read_only=True)
-    threshold = ThresholdSerializer()
-    condition = AlertConditionField(required=False, allow_null=True)
-    config = TrendsAlertConfigField(required=False, allow_null=True)
+    checks = AlertCheckSerializer(
+        many=True,
+        read_only=True,
+        help_text="The last 5 alert check results (only populated on retrieve).",
+    )
+    threshold = ThresholdSerializer(
+        help_text="Threshold configuration with bounds and type for evaluating the alert.",
+    )
+    condition = AlertConditionField(
+        required=False,
+        allow_null=True,
+        help_text="Alert condition type. Determines how the value is evaluated: absolute_value, relative_increase, or relative_decrease.",
+    )
+    config = TrendsAlertConfigField(
+        required=False,
+        allow_null=True,
+        help_text="Trends-specific alert configuration. Includes series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval).",
+    )
     insight = TeamScopedPrimaryKeyRelatedField(
         queryset=Insight.objects.all(),
         help_text="Insight ID monitored by this alert. Note: Response returns full InsightBasicSerializer object.",
+    )
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Human-readable name for the alert.",
     )
     # nosemgrep: unscoped-primary-key-related-field — User model is not team-scoped; validate_subscribed_users() checks team membership
     subscribed_users = serializers.PrimaryKeyRelatedField(
@@ -124,8 +157,35 @@ class AlertSerializer(serializers.ModelSerializer):
         allow_empty=True,
         help_text="User IDs to subscribe to this alert. Note: Response returns full UserBasicSerializer object.",
     )
-    snoozed_until = RelativeDateTimeField(allow_null=True, required=False)
-    last_value = serializers.FloatField(read_only=True, allow_null=True)
+    enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether the alert is actively being evaluated.",
+    )
+    calculation_interval = serializers.ChoiceField(
+        choices=AlertConfiguration.CALCULATION_INTERVAL_CHOICES,
+        required=False,
+        allow_null=True,
+        help_text="How often the alert is checked: hourly, daily, weekly, or monthly.",
+    )
+    snoozed_until = RelativeDateTimeField(
+        allow_null=True,
+        required=False,
+        help_text="Snooze the alert until this time. Pass a relative date string (e.g. '2h', '1d') or null to unsnooze.",
+    )
+    skip_weekend = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Skip alert evaluation on weekends (Saturday and Sunday).",
+    )
+    state = serializers.CharField(
+        read_only=True,
+        help_text="Current alert state: Firing, Not firing, Errored, or Snoozed.",
+    )
+    last_value = serializers.FloatField(
+        read_only=True,
+        allow_null=True,
+        help_text="The last calculated value from the most recent alert check.",
+    )
 
     class Meta:
         model = AlertConfiguration
@@ -191,7 +251,10 @@ class AlertSerializer(serializers.ModelSerializer):
                 user=user, alert_configuration=instance, created_by=self.context["request"].user
             )
 
-        instance.report_created(self.context["request"].user, get_request_analytics_properties(self.context["request"]))
+        instance.report_created(
+            self.context["request"].user,
+            analytics_props=get_request_analytics_properties(self.context["request"]),
+        )
         return instance
 
     def update(self, instance, validated_data):
@@ -256,7 +319,10 @@ class AlertSerializer(serializers.ModelSerializer):
             instance.mark_for_recheck(reset_state=conditions_or_threshold_changed)
 
         instance = super().update(instance, validated_data)
-        instance.report_updated(self.context["request"].user, get_request_analytics_properties(self.context["request"]))
+        instance.report_updated(
+            self.context["request"].user,
+            analytics_props=get_request_analytics_properties(self.context["request"]),
+        )
         return instance
 
     def validate_snoozed_until(self, value):
@@ -305,9 +371,7 @@ class AlertSerializer(serializers.ModelSerializer):
         if self.context["request"].method != "POST":
             return attrs
 
-        if msg := AlertConfiguration.check_alert_limit(
-            self.context["team_id"], self.context["request"].user.organization
-        ):
+        if msg := AlertConfiguration.check_alert_limit(self.context["team_id"], self.context["get_organization"]()):
             raise ValidationError({"alert": [msg]})
 
         return attrs

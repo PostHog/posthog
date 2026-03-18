@@ -21,8 +21,6 @@ from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDR
 from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.service import RPCError, RPCStatusCode
 
-from posthog.schema import EmbeddingModelName
-
 from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
@@ -53,10 +51,9 @@ from products.signals.backend.temporal.types import (
     SignalReportDeletionWorkflowInputs,
     SignalReportReingestionWorkflowInputs,
 )
+from products.signals.backend.utils import EMBEDDING_MODEL
 
 logger = logging.getLogger(__name__)
-
-EMBEDDING_MODEL = EmbeddingModelName.TEXT_EMBEDDING_3_SMALL_1536
 
 
 class EmitSignalSerializer(serializers.Serializer):
@@ -236,10 +233,6 @@ class SignalReportViewSet(
 
     def destroy(self, request, *args, **kwargs):
         """Soft-delete a report and its signals via the deletion workflow."""
-        # TODO - I'm not sure about this - part of me feels like deletion should be sync, but it
-        # kind of can't be. We could pre-emptively delete the report, so it doesn't show up in the
-        # list, and then wrap the whole rest of the deletion workflow in a try-catch that undeletes
-        # the report on failure. Idk - not sure. For no, I think this is good enough.
         report = cast(SignalReport, self.get_object())
         report_id = str(report.id)
         team_id = self.team.id
@@ -262,6 +255,10 @@ class SignalReportViewSet(
                 {"error": "Failed to start deletion workflow."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+        # Hide the report from the list immediately while signal deletion continues asynchronously.
+        updated_fields = report.transition_to(SignalReport.Status.DELETED)
+        report.save(update_fields=updated_fields)
 
         return Response({"status": "deletion_started", "report_id": report_id}, status=status.HTTP_202_ACCEPTED)
 
@@ -293,7 +290,7 @@ class SignalReportViewSet(
                 document_id,
                 content,
                 metadata,
-                toString(timestamp) as timestamp
+                timestamp
             FROM (
                 SELECT
                     document_id,

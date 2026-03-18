@@ -1,12 +1,12 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-03-12 10:13:18 UTC
+// Generated at: 2026-03-18 10:18:09 UTC
 
 export type CanonicalProvider =
     | 'default'
     | 'ai21-fp8'
     | 'aion-labs'
     | 'aion-labs-bf16'
-    | 'akash-fp16'
+    | 'akashml-fp16'
     | 'alibaba'
     | 'alibaba-opensource'
     | 'amazon-bedrock'
@@ -84,7 +84,6 @@ export type CanonicalProvider =
     | 'nebius-fast'
     | 'nebius-fp4'
     | 'nebius-fp8'
-    | 'nebius-int4'
     | 'nextbit-bf16'
     | 'nextbit-fp4'
     | 'nextbit-fp8'

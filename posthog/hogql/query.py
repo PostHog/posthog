@@ -1,5 +1,5 @@
 import dataclasses
-from typing import ClassVar, Literal, Optional, Union, cast
+from typing import ClassVar, Literal, Optional, TypedDict, Union, cast
 
 import psycopg
 from opentelemetry import trace
@@ -15,7 +15,12 @@ from posthog.schema import (
 )
 
 from posthog.hogql import ast
-from posthog.hogql.constants import HogQLGlobalSettings, LimitContext, get_default_limit_for_context
+from posthog.hogql.constants import (
+    HogQLGlobalSettings,
+    LimitContext,
+    get_default_hogql_global_settings,
+    get_default_limit_for_context,
+)
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.database.schema.logs import HOGQL_MAX_BYTES_TO_READ_FOR_LOGS_USER_QUERIES
@@ -86,6 +91,20 @@ POSTGRES_OID_TO_CLICKHOUSE_TYPE: dict[int, str] = {
     1015: "Array(String)",
     2951: "Array(UUID)",
 }
+
+
+class PostgresConnectionKwargs(TypedDict, total=False):
+    host: str
+    port: int
+    dbname: str
+    user: str
+    password: str
+    connect_timeout: int
+    sslmode: str
+    options: str
+    sslcert: str
+    sslkey: str
+    sslrootcert: str
 
 
 def postgres_oid_to_clickhouse_type(oid: int | None) -> str:
@@ -295,7 +314,10 @@ class HogQLQueryExecutor:
                     )
 
     def _effective_direct_postgres_settings(self) -> HogQLGlobalSettings:
-        settings = self.settings.model_copy(deep=True) if self.settings is not None else HogQLGlobalSettings()
+        settings = get_default_hogql_global_settings(
+            self.team.pk,
+            self.settings,
+        )
 
         if self.limit_context in (
             LimitContext.EXPORT,
@@ -433,16 +455,27 @@ class HogQLQueryExecutor:
         try:
             with self.timings.measure("postgres_execute"):
                 with postgres_source.with_ssh_tunnel(source_config) as (host, port):
-                    with psycopg.connect(
-                        host=host,
-                        port=port,
-                        dbname=source_config.database,
-                        user=source_config.user,
-                        password=source_config.password,
-                        connect_timeout=DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
-                        sslmode=_get_sslmode(require_ssl),
-                        options=(f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}"),
-                    ) as connection:
+                    connection_kwargs: PostgresConnectionKwargs = {
+                        "host": host,
+                        "port": port,
+                        "dbname": source_config.database,
+                        "user": source_config.user,
+                        "password": source_config.password,
+                        "connect_timeout": DIRECT_POSTGRES_CONNECT_TIMEOUT_SECONDS,
+                        "sslmode": _get_sslmode(require_ssl),
+                        "options": f"-c default_transaction_read_only=on -c statement_timeout={statement_timeout_ms}",
+                        # Prevent libpq from probing ~/.postgresql/ for client certs,
+                        # which fails with "Permission denied" in containers where
+                        # $HOME is /root/ but the process runs as a non-root user.
+                        "sslcert": "/tmp/no.txt",
+                        "sslkey": "/tmp/no.txt",
+                        "sslrootcert": "/tmp/no.txt",
+                    }
+                    if host.endswith(".us.postwh.com"):
+                        # DuckLake hosts require SSL but do not use certificate-based auth.
+                        connection_kwargs["sslmode"] = "require"
+
+                    with psycopg.connect(**connection_kwargs) as connection:
                         with connection.cursor() as cursor:
                             cursor.execute(self.direct_postgres_sql, self.direct_postgres_values or None)
                             results = cursor.fetchall()
@@ -464,7 +497,7 @@ class HogQLQueryExecutor:
 
     @tracer.start_as_current_span("HogQLQueryExecutor._generate_clickhouse_sql")
     def _generate_clickhouse_sql(self):
-        settings = self.settings or HogQLGlobalSettings()
+        settings = get_default_hogql_global_settings(self.team.pk, self.settings)
         if self.limit_context in (
             LimitContext.EXPORT,
             LimitContext.COHORT_CALCULATION,

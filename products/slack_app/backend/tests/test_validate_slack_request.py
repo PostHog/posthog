@@ -19,7 +19,7 @@ def _make_signed_request(body: str, secret: str, timestamp: str | None = None) -
     signature = "v0=" + hmac.new(secret.encode(), sig_basestring.encode(), hashlib.sha256).hexdigest()
 
     request = factory.post(
-        "/slack/twig-event-callback",
+        "/slack/posthog-code-event-callback",
         data=body,
         content_type="application/json",
         HTTP_X_SLACK_SIGNATURE=signature,
@@ -44,7 +44,7 @@ class TestValidateSlackRequest(TestCase):
         if timestamp == "not-a-number":
             factory = RequestFactory()
             request = factory.post(
-                "/slack/twig-event-callback",
+                "/slack/posthog-code-event-callback",
                 data=body,
                 content_type="application/json",
                 HTTP_X_SLACK_SIGNATURE="v0=fake",
@@ -62,7 +62,7 @@ class TestValidateSlackRequest(TestCase):
     def test_missing_headers(self):
         factory = RequestFactory()
         request = factory.post(
-            "/slack/twig-event-callback",
+            "/slack/posthog-code-event-callback",
             data='{"type": "test"}',
             content_type="application/json",
         )

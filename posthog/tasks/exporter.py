@@ -9,7 +9,7 @@ from celery import current_task, shared_task
 from prometheus_client import Counter, Histogram
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from posthog.event_usage import groups
+from posthog.event_usage import EventSource, groups
 from posthog.models import ExportedAsset
 from posthog.settings import HOGQL_INCREASED_MAX_EXECUTION_TIME
 from posthog.tasks.exports.failure_handler import (
@@ -103,6 +103,7 @@ def export_asset_direct(
     limit: Optional[int] = None,  # For CSV/XLSX: max row count
     max_height_pixels: Optional[int] = None,  # For images: max screenshot height in pixels
     cancellation_event: Optional[threading.Event] = None,  # For async callers to signal cancellation
+    source: Optional[EventSource] = None,  # EventSource value to tag queries with (e.g. "subscription")
 ) -> None:
     from posthog.tasks.exports import csv_exporter, image_exporter
 
@@ -142,6 +143,8 @@ def export_asset_direct(
             )
             raise ExportCancelled("Export was cancelled due to timeout")
 
+    export_source = source or EventSource.EXPORT
+
     @retry(
         retry=retry_if_exception_type(EXCEPTIONS_TO_RETRY),
         stop=stop_after_attempt(4),
@@ -152,9 +155,9 @@ def export_asset_direct(
     def _do_export() -> None:
         _check_cancelled()
         if exported_asset.export_format in (ExportedAsset.ExportFormat.CSV, ExportedAsset.ExportFormat.XLSX):
-            csv_exporter.export_tabular(exported_asset, limit=limit)
+            csv_exporter.export_tabular(exported_asset, limit=limit, source=export_source)
         else:
-            image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels)
+            image_exporter.export_image(exported_asset, max_height_pixels=max_height_pixels, source=export_source)
 
     try:
         _do_export()

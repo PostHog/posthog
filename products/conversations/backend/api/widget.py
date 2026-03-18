@@ -46,6 +46,7 @@ from products.conversations.backend.cache import (
 )
 from products.conversations.backend.events import capture_ticket_created
 from products.conversations.backend.models import Ticket
+from products.conversations.backend.models.constants import ChannelDetail
 
 logger = logging.getLogger(__name__)
 
@@ -143,11 +144,18 @@ class WidgetMessageView(APIView):
                 return Response({"error": "Ticket not found"}, status=status.HTTP_404_NOT_FOUND)
         else:
             # No ticket_id provided - always create a new ticket
+            conversations_settings = team.conversations_settings or {}
+            widget_channel_detail = (
+                ChannelDetail.WIDGET_EMBEDDED
+                if conversations_settings.get("widget_enabled")
+                else ChannelDetail.WIDGET_API
+            )
             ticket = Ticket.objects.create_with_number(
                 team=team,
                 widget_session_id=widget_session_id,
                 distinct_id=distinct_id,
                 channel_source="widget",
+                channel_detail=widget_channel_detail,
                 status="new",
                 anonymous_traits=traits,
                 unread_team_count=1,
@@ -388,8 +396,8 @@ class WidgetTicketsView(APIView):
 
         response_data = {"count": total_count, "results": ticket_list}
 
-        # Cache first page
-        if offset == 0:
+        # Cache first page (skip empty results to avoid stale cache after restore/migration)
+        if offset == 0 and total_count > 0:
             set_cached_tickets(team.id, widget_session_id, response_data, status_filter)
 
         return Response(response_data)

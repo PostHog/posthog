@@ -269,6 +269,23 @@ def team_saved(sender, instance: Team, created, **kwargs):
     refresh_affected_hog_functions.delay(team_id=instance.id)
 
 
+@receiver(post_save, sender="posthog.Cohort")
+def cohort_saved(sender, instance, **kwargs):
+    # When a cohort changes, recompile hog functions for any team that uses
+    # this cohort in their test_account_filters (cohorts are inlined into bytecode).
+    # Deletion is handled separately: the cohort API prevents deleting cohorts
+    # that are referenced in test_account_filters.
+    team = instance.team
+    if team.test_account_filters and any(
+        f.get("type") == "cohort" and f.get("value") == instance.id
+        for f in team.test_account_filters
+        if isinstance(f, dict)
+    ):
+        from posthog.tasks.hog_functions import refresh_affected_hog_functions
+
+        refresh_affected_hog_functions.delay(cohort_id=instance.id)
+
+
 @mutable_receiver([post_save, post_delete], sender=HogFunction)
 def team_inject_web_apps_changd(sender, instance, created=None, **kwargs):
     try:

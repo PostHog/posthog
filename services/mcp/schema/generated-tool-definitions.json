@@ -74,6 +74,306 @@
             "readOnlyHint": false
         }
     },
+    "activity-logs-list": {
+        "description": "List recent activity logs for the project. Shows who changed what and when — includes feature flag updates, insight creations, dashboard modifications, experiment launches, and other project changes. Use scope parameter to filter by resource type (e.g. \"FeatureFlag\", \"Insight\", \"Dashboard\", \"Experiment\", \"Survey\", \"Cohort\"). Use item_id to filter changes for a specific resource. Returns results ordered by most recent first. Each result includes: user (who performed the action with first_name and email), activity (e.g. \"created\", \"updated\", \"deleted\"), scope (entity type like \"FeatureFlag\"), item_id (ID of the affected resource), detail (structured JSON with name, short_id, and a changes array where each change has type, action, field, before, and after values), and created_at timestamp.",
+        "category": "Activity logs",
+        "feature": "activity_logs",
+        "summary": "List activity logs",
+        "title": "List activity logs",
+        "required_scopes": ["activity_log:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "alerts-list": {
+        "description": "List all insight alerts in the project. Returns alerts with their current state, threshold configuration, and timing information. Supports filtering by insight ID via query parameter.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "List alerts",
+        "title": "List alerts",
+        "required_scopes": ["alert:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "alert-get": {
+        "description": "Get a specific alert by ID. Returns the full alert configuration including the last 5 check results, threshold settings, and subscribed users.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Get alert",
+        "title": "Get alert",
+        "required_scopes": ["alert:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "alert-create": {
+        "description": "Create a new alert on an insight. Alerts monitor insight values and notify subscribed users when thresholds are breached. Requires an insight ID, at least one subscribed user, and a threshold configuration. The alert condition determines how the value is evaluated (absolute_value, relative_increase, or relative_decrease).",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Create alert",
+        "title": "Create alert",
+        "required_scopes": ["alert:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "alert-update": {
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, subscribed users, enabled state, calculation interval, and weekend skipping. To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Update alert",
+        "title": "Update alert",
+        "required_scopes": ["alert:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "alert-delete": {
+        "description": "Delete an alert by ID. This permanently removes the alert and all its check history. Subscribed users will no longer receive notifications.",
+        "category": "Alerts",
+        "feature": "alerts",
+        "summary": "Delete alert",
+        "title": "Delete alert",
+        "required_scopes": ["alert:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotations-list": {
+        "description": "List annotations in the current project, newest first. Use this to review existing deployment markers and analysis notes before adding new annotations.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "List annotations",
+        "title": "List annotations",
+        "required_scopes": ["annotation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "annotation-create": {
+        "description": "Create an annotation to mark an important change (for example, a deployment) on charts and trends. Provide a note in `content`, when it happened in `date_marker` (ISO 8601), and whether it is scoped to the current `project` or the whole `organization`.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Create annotation",
+        "title": "Create annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-retrieve": {
+        "description": "Retrieve a single annotation by ID from the current project. Use this when you already know the annotation ID and want complete details.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Retrieve annotation",
+        "title": "Retrieve annotation",
+        "required_scopes": ["annotation:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "annotations-partial-update": {
+        "description": "Update an existing annotation by ID. You can change its text (`content`), when it happened (`date_marker`, ISO 8601), or its visibility scope (`project` or `organization`). Only the fields you provide are updated.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Update annotation",
+        "title": "Update annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "annotation-delete": {
+        "description": "Soft-delete an annotation by ID. This hides the annotation from normal lists while preserving historical records.",
+        "category": "Annotations",
+        "feature": "annotations",
+        "summary": "Delete annotation",
+        "title": "Delete annotation",
+        "required_scopes": ["annotation:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-function-templates-list": {
+        "description": "List available function templates. Templates are pre-built function configurations for common integrations (Slack, webhooks, email, etc.) and transformations (GeoIP, etc.). Filter by type (destination, site_destination, site_app, transformation, etc.) via the 'type' query parameter. Results are sorted by popularity (number of active functions using each template).",
+        "category": "Function templates",
+        "feature": "hog_function_templates",
+        "summary": "List function templates",
+        "title": "List function templates",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cdp-function-templates-retrieve": {
+        "description": "Get a specific function template by its template ID (e.g. 'template-slack', 'template-geoip'). Returns the full template including source code, inputs schema, default filters, and mapping templates. Use this to understand what inputs a template requires before creating a function from it.",
+        "category": "Function templates",
+        "feature": "hog_function_templates",
+        "summary": "Get function template",
+        "title": "Get function template",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cdp-functions-list": {
+        "description": "List all functions (destinations, transformations, site apps, and source webhooks) in the project. Returns each function's name, type, enabled status, execution order, and template info. Filter by type (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, transformation) and enabled status via query parameters.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "List functions",
+        "title": "List functions",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cdp-functions-create": {
+        "description": "Create a new function. Requires 'type' (destination, site_destination, internal_destination, source_webhook, warehouse_source_webhook, site_app, or transformation) and either 'hog' source code or a 'template_id' to derive code from a template. Provide 'inputs_schema' to define configurable parameters and 'inputs' with their values. Use 'filters' to control which events trigger the function. Transformations run during ingestion and have an 'execution_order' field.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Create function",
+        "title": "Create function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-retrieve": {
+        "description": "Get a specific function by ID. Returns the full configuration including source code, inputs schema, input values (secrets are masked), filters, mappings, masking config, and runtime status.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Get function",
+        "title": "Get function",
+        "required_scopes": ["hog_function:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "cdp-functions-partial-update": {
+        "description": "Partially update a function. Can enable/disable the function, change its name, description, source code, inputs, filters, mappings, or masking config. The 'type' field cannot be changed after creation. To delete a function, use the cdp-functions-delete tool instead.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Update function",
+        "title": "Update function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-delete": {
+        "description": "Delete a function by ID (soft delete). The function will no longer appear in lists or process events, but historical data is preserved.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Delete function",
+        "title": "Delete function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-invocations-create": {
+        "description": "Test-invoke a function with a mock event payload. Sends the function configuration and test data to the plugin server for execution and returns logs and status. Use 'mock_async_functions: true' (default) to simulate external calls like fetch() without making real HTTP requests.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Test-invoke function",
+        "title": "Test-invoke function",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "cdp-functions-rearrange-partial-update": {
+        "description": "Update the execution order of transformation functions. Send an 'orders' object mapping function UUIDs to their new execution_order integer values. Only applies to functions with type=transformation. Returns the updated list of transformations.",
+        "category": "Functions",
+        "feature": "hog_functions",
+        "summary": "Reorder transformation execution",
+        "title": "Reorder transformation execution",
+        "required_scopes": ["hog_function:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "cohorts-list": {
         "description": "List all cohorts in the project. Returns both static cohorts (manually defined user lists) and dynamic cohorts (automatically updated based on property filters).",
         "category": "Cohorts",
@@ -164,6 +464,231 @@
             "readOnlyHint": false
         }
     },
+    "dashboards-get-all": {
+        "description": "Get all dashboards in the project with optional filtering by pinned status or search term. Returns name, description, pinned status, tags, and creation metadata.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Get all dashboards",
+        "title": "Get all dashboards",
+        "required_scopes": ["dashboard:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "dashboard-create": {
+        "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Create dashboard",
+        "title": "Create dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-get": {
+        "description": "Get a specific dashboard by ID. Returns the full dashboard including all tiles with their insights and layout information.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Get dashboard",
+        "title": "Get dashboard",
+        "required_scopes": ["dashboard:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "dashboard-update": {
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard",
+        "title": "Update dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-delete": {
+        "description": "Delete a dashboard by ID. The dashboard will be soft-deleted and no longer appear in lists.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Delete dashboard",
+        "title": "Delete dashboard",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "dashboard-reorder-tiles": {
+        "description": "Reorder tiles on a dashboard by providing an array of tile IDs in the desired display order. Computes a 2-column grid layout (6 columns wide, 5 rows tall per tile). First, use dashboard-get to see current tile IDs.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Reorder dashboard tiles",
+        "title": "Reorder dashboard tiles",
+        "required_scopes": ["dashboard:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-list": {
+        "description": "List all data warehouse saved queries (views) in the project. Returns each view's name, materialization status, sync frequency, column schema, latest error, and last run timestamp. Use this to discover available views before querying them in HogQL.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List saved queries",
+        "title": "List saved queries",
+        "required_scopes": ["warehouse_view:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "warehouse-saved-queries-create": {
+        "description": "Create a new data warehouse saved query (view). If a view with the same name already exists, it will be updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced by name in other HogQL queries.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Create saved query",
+        "title": "Create saved query",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-retrieve": {
+        "description": "Get a specific data warehouse saved query (view) by ID. Returns the full view definition including the HogQL query, column schema, materialization status, sync frequency, and run history metadata.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get saved query",
+        "title": "Get saved query",
+        "required_scopes": ["warehouse_view:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "warehouse-saved-queries-partial-update": {
+        "description": "Update an existing data warehouse saved query (view). Can change the name, HogQL query, or sync frequency. Changing the query triggers column re-inference and sets the status to 'modified'. Use sync_frequency to control materialization schedule: '24hour', '12hour', '6hour', '1hour', '30min', or 'never'. IMPORTANT: when updating the query field, you must first retrieve the view to get its latest_history_id, then pass that value as edited_history_id for conflict detection.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Update saved query",
+        "title": "Update saved query",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-destroy": {
+        "description": "Delete a data warehouse saved query (view) by ID. This is a soft delete — the view is marked as deleted and will no longer appear in lists or be queryable in HogQL. Any materialization schedule is also removed. Cannot delete views that have downstream dependencies or views from managed viewsets.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Delete saved query",
+        "title": "Delete saved query",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-materialize-create": {
+        "description": "Enable materialization for a saved query. This creates a physical table from the view's query and sets up a 24-hour sync schedule to keep it refreshed. Materialized views are faster to query but use storage. Use 'warehouse-saved-queries-revert-materialization-create' to undo. Rate limited.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Materialize saved query",
+        "title": "Materialize saved query",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-revert-materialization-create": {
+        "description": "Undo materialization for a saved query. Deletes the materialized table and removes the sync schedule, reverting the view back to a virtual query that runs on each access. The view definition itself is preserved. Rate limited.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Revert materialization",
+        "title": "Revert materialization",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-run-create": {
+        "description": "Trigger a manual materialization run for a saved query. This immediately refreshes the materialized table with the latest data. The view must already be materialized. Use 'warehouse-saved-queries-run-history-retrieve' to check run status.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Run saved query",
+        "title": "Run saved query",
+        "required_scopes": ["warehouse_view:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "warehouse-saved-queries-run-history-retrieve": {
+        "description": "Get the 5 most recent materialization run statuses for a saved query. Each entry includes the run status and timestamp. Use this to monitor whether materialization is running successfully.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Get run history",
+        "title": "Get run history",
+        "required_scopes": ["warehouse_view:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "error-tracking-issues-list": {
         "description": "List all error tracking issues in the project. Returns issues with status, volume, first/last seen timestamps, and assignee info.",
         "category": "Error tracking",
@@ -204,6 +729,81 @@
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "feature-flag-get-all": {
+        "description": "Get feature flags in the current project. Supports list filters including search by feature flag key or name (case-insensitive), then use the returned ID for get/update/delete tools.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get all feature flags",
+        "title": "Get all feature flags",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "feature-flag-get-definition": {
+        "description": "Get a feature flag by ID.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Get feature flag definition",
+        "title": "Get feature flag definition",
+        "required_scopes": ["feature_flag:read"],
+        "new_mcp": false,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "create-feature-flag": {
+        "description": "Create a feature flag in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Create feature flag",
+        "title": "Create feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "update-feature-flag": {
+        "description": "Update a feature flag by ID in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Update feature flag",
+        "title": "Update feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "delete-feature-flag": {
+        "description": "Soft-delete a feature flag by ID in the current project.",
+        "category": "Feature flags",
+        "feature": "flags",
+        "summary": "Delete feature flag",
+        "title": "Delete feature flag",
+        "required_scopes": ["feature_flag:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -264,6 +864,81 @@
         "new_mcp": true,
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "proxy-list": {
+        "description": "List all managed reverse proxies configured for the current organization. Returns each proxy's domain, CNAME target, provisioning status, and the maximum number of proxies allowed by the current plan. Use this to check whether a reverse proxy is set up before recommending one.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "List reverse proxies",
+        "title": "List reverse proxies",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "proxy-get": {
+        "description": "Get full details of a specific reverse proxy by ID. Returns the domain, CNAME target (the DNS record value the user needs to configure), current provisioning status, and any error or warning messages. Use this to debug why a proxy isn't working or to check DNS verification status.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Get reverse proxy details",
+        "title": "Get reverse proxy details",
+        "required_scopes": ["organization:read"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "proxy-create": {
+        "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Create reverse proxy",
+        "title": "Create reverse proxy",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "proxy-retry": {
+        "description": "Retry provisioning a reverse proxy that has failed. Only works for proxies in 'erroring' or 'timed_out' status. Resets the proxy to 'waiting' and restarts the DNS verification and certificate provisioning workflow.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Retry reverse proxy provisioning",
+        "title": "Retry reverse proxy provisioning",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "proxy-delete": {
+        "description": "Delete a managed reverse proxy. For proxies still being set up (waiting, erroring, timed_out), the record is removed immediately. For active proxies, a cleanup workflow is started to remove the provisioned infrastructure.",
+        "category": "Reverse proxy",
+        "feature": "reverse_proxy",
+        "summary": "Delete reverse proxy",
+        "title": "Delete reverse proxy",
+        "required_scopes": ["organization:write"],
+        "new_mcp": true,
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false

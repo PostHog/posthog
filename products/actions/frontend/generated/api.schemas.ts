@@ -315,10 +315,9 @@ export interface DatePropertyFilterApi {
  * * `is_set` - is_set
  * `is_not_set` - is_not_set
  */
-export type ExistencePropertyFilterOperatorEnumApi =
-    (typeof ExistencePropertyFilterOperatorEnumApi)[keyof typeof ExistencePropertyFilterOperatorEnumApi]
+export type Operator3e6EnumApi = (typeof Operator3e6EnumApi)[keyof typeof Operator3e6EnumApi]
 
-export const ExistencePropertyFilterOperatorEnumApi = {
+export const Operator3e6EnumApi = {
     IsSet: 'is_set',
     IsNotSet: 'is_not_set',
 } as const
@@ -360,7 +359,7 @@ export interface ExistencePropertyFilterApi {
 
 * `is_set` - is_set
 * `is_not_set` - is_not_set */
-    operator: ExistencePropertyFilterOperatorEnumApi
+    operator: Operator3e6EnumApi
 }
 
 export type ActionStepPropertyFilterApi =
@@ -537,7 +536,8 @@ export interface ActionApi {
      * @nullable
      */
     pinned_at?: string | null
-    readonly creation_context: string
+    /** @nullable */
+    readonly creation_context: string | null
     _create_in_folder?: string
     /**
      * The effective access level the user has for this object
@@ -592,7 +592,8 @@ export interface PatchedActionApi {
      * @nullable
      */
     pinned_at?: string | null
-    readonly creation_context?: string
+    /** @nullable */
+    readonly creation_context?: string | null
     _create_in_folder?: string
     /**
      * The effective access level the user has for this object

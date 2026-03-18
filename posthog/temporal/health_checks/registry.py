@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 from posthog.temporal.health_checks.models import BatchDetectFn
 
 if TYPE_CHECKING:
+    from posthog.clickhouse.query_tagging import Product
     from posthog.temporal.health_checks.framework import HealthCheckRegistration
 
 HEALTH_CHECKS: dict[str, "HealthCheckRegistration"] = {}
@@ -14,6 +15,10 @@ _DETECT_FNS: dict[str, BatchDetectFn] = {}
 HEALTH_CHECK_MODULES = [
     "products.web_analytics.backend.temporal.health_checks.no_live_events",
     "products.web_analytics.backend.temporal.health_checks.no_pageleave_events",
+    "products.web_analytics.backend.temporal.health_checks.scroll_depth",
+    "products.web_analytics.backend.temporal.health_checks.authorized_urls",
+    "products.web_analytics.backend.temporal.health_checks.reverse_proxy",
+    "products.web_analytics.backend.temporal.health_checks.web_vitals",
 ]
 
 _registry_loaded = False
@@ -25,6 +30,11 @@ def get_detect_fn(kind: str) -> BatchDetectFn:
     if fn is None:
         raise KeyError(f"No detect function registered for kind '{kind}'")
     return fn
+
+
+def get_product(kind: str) -> "Product | None":
+    reg = HEALTH_CHECKS.get(kind)
+    return reg.product if reg is not None else None
 
 
 def ensure_registry_loaded() -> None:

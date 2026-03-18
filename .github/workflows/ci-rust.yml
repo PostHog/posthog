@@ -197,27 +197,13 @@ jobs:
 
             - name: Setup main repo and dependencies
               env:
-                  COMPOSE_FILES: -f ../docker-compose.dev.yml -f ../docker-compose.profiles.yml --profile etcd
+                  COMPOSE_FILE: ../docker-compose.dev.yml:../docker-compose.profiles.yml
+                  COMPOSE_PROFILES: etcd
+                  WAIT_FOR_DOCKER_LAUNCH_RETRIES: 3
+                  WAIT_FOR_DOCKER_LAUNCH_RETRY_DELAY: 10
               run: |
-                  docker compose $COMPOSE_FILES down
-
-                  # Retry docker compose up with exponential backoff to handle transient registry errors
-                  for i in 1 2 3; do
-                    if docker compose $COMPOSE_FILES up -d; then
-                      echo "Docker compose up succeeded"
-                      break
-                    else
-                      if [ $i -lt 3 ]; then
-                        echo "Docker compose up failed (attempt $i/3), retrying in $((i * 10)) seconds..."
-                        sleep $((i * 10))
-                      else
-                        echo "Docker compose up failed after 3 attempts"
-                        exit 1
-                      fi
-                    fi
-                  done
-
-                  COMPOSE_FILE=../docker-compose.dev.yml ../bin/wait-for-docker
+                  ../bin/ci-wait-for-docker launch --down
+                  ../bin/ci-wait-for-docker wait
 
                   echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
 
@@ -251,6 +237,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
@@ -279,6 +266,7 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
               run: |
                   sqlx migrate run --source persons_migrations/
+                  DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' sqlx migrate run --source behavioral_cohorts_migrations/
 
             - name: Download MaxMind Database
               run: |
@@ -358,40 +346,19 @@ jobs:
                   OPENSSL_NO_VENDOR: '1'
               run: cargo check --all-features
 
-    shear:
-        name: Shear Rust services
-        needs: changes
-        if: needs.changes.outputs.rust == 'true'
-        runs-on: depot-ubuntu-22.04-4
-
-        defaults:
-            run:
-                working-directory: rust
-
-        steps:
-            # Checkout project code
-            # Use sparse checkout to only select files in rust directory
-            # Turning off cone mode ensures that files in the project root are not included during checkout
-            - uses: actions/checkout@v6
-              with:
-                  sparse-checkout: |
-                      rust/
-                      proto/
-                  sparse-checkout-cone-mode: false
-                  clean: false
-
             - name: Install cargo-binstall
               uses: cargo-bins/cargo-binstall@5cbf019d8cb9b9d5b086218c41458ea35d817691 # main
 
             - name: Install cargo-shear
               run: cargo binstall --no-confirm cargo-shear@1.1.12
 
-            - run: cargo shear
+            - name: Run cargo shear
+              run: cargo shear
 
     # Collate job - single required status check for branch protection.
     # Individual jobs skip entirely when no Rust changes, saving runner time.
     rust_tests:
-        needs: [changes, build, test, linting, shear]
+        needs: [changes, build, test, linting]
         name: Rust Tests Pass
         runs-on: ubuntu-latest
         if: always()
@@ -422,11 +389,6 @@ jobs:
 
                   if [[ "${{ needs.linting.result }}" != "success" && "${{ needs.linting.result }}" != "skipped" ]]; then
                     echo "Rust linting failed."
-                    exit 1
-                  fi
-
-                  if [[ "${{ needs.shear.result }}" != "success" && "${{ needs.shear.result }}" != "skipped" ]]; then
-                    echo "Rust shear failed."
                     exit 1
                   fi
 

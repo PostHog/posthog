@@ -275,6 +275,11 @@ urlpatterns: list[Any] = [
         name="agentic_authorize",
     ),
     path(
+        "api/agentic/authorize/confirm/",
+        agentic_provisioning_views.agentic_authorize_confirm,
+        name="agentic_authorize_confirm",
+    ),
+    path(
         "api/agentic/oauth/token",
         csrf_exempt(agentic_provisioning_views.oauth_token),
         name="agentic_provisioning_oauth_token",
@@ -298,6 +303,11 @@ urlpatterns: list[Any] = [
         "api/agentic/provisioning/deep_links",
         csrf_exempt(agentic_provisioning_views.deep_links),
         name="agentic_provisioning_deep_links",
+    ),
+    path(
+        "agentic/login",
+        agentic_provisioning_views.agentic_login,
+        name="agentic_login",
     ),
     *admin_urlpatterns,
 ]

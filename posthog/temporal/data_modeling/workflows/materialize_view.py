@@ -7,6 +7,7 @@ from django.conf import settings
 import temporalio.common
 import temporalio.workflow
 import temporalio.exceptions
+from temporalio.exceptions import WorkflowAlreadyStartedError
 from temporalio.workflow import ParentClosePolicy
 
 from posthog.exceptions_capture import capture_exception
@@ -179,12 +180,13 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                         saved_query_id=materialize_result.saved_query_id,
                         table_uri=materialize_result.table_uri,
                     )
+                    ducklake_inputs = DataModelingDuckLakeCopyInputs(
+                        team_id=inputs.team_id, job_id=job_id, models=[model]
+                    )
                     await temporalio.workflow.start_child_workflow(
                         workflow="ducklake-copy.data-modeling",
-                        arg=dataclasses.asdict(
-                            DataModelingDuckLakeCopyInputs(team_id=inputs.team_id, job_id=job_id, models=[model])
-                        ),
-                        id=f"ducklake-copy-data-modeling-{job_id}",
+                        arg=dataclasses.asdict(ducklake_inputs),
+                        id=f"ducklake-copy-data-modeling-{inputs.team_id}-{materialize_result.saved_query_id}",
                         task_queue=settings.DUCKLAKE_TASK_QUEUE,
                         parent_close_policy=ParentClosePolicy.ABANDON,
                         retry_policy=temporalio.common.RetryPolicy(
@@ -192,8 +194,12 @@ class MaterializeViewWorkflow(PostHogWorkflow):
                             non_retryable_error_types=["NondeterminismError"],
                         ),
                     )
+                except WorkflowAlreadyStartedError:
+                    temporalio.workflow.logger.warning(
+                        "DuckLake copy already running, skipping",
+                        saved_query_id=materialize_result.saved_query_id,
+                    )
                 except Exception as ducklake_err:
-                    # ducklake failure shouldn't fail the materialization
                     temporalio.workflow.logger.warning(
                         f"DuckLake copy workflow failed: {str(ducklake_err)}",
                         extra=inputs.properties_to_log,

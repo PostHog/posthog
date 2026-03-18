@@ -23,6 +23,33 @@ _cleanup_tmpfiles() {
 }
 trap _cleanup_tmpfiles EXIT
 
+_strip_ansi() {
+  sed $'s/\x1b\\[[0-9;]*[a-zA-Z]//g' | tr -d '\r'
+}
+
+_save_failure_log() {
+  local label="$1"
+  local tmpfile="$2"
+  local logdir="$FLOX_ENV_CACHE/activation-error-logs"
+  local slug="${label// /-}"
+  local logfile="$logdir/${slug}-$(date +%Y%m%d-%H%M%S).log"
+
+  local log_saved=0
+  # Best-effort: failures here must not abort the script under `set -euo pipefail`.
+  if mkdir -p "$logdir" 2>/dev/null; then
+    {
+      echo "── ${label} (failed) ──"
+      _strip_ansi < "$tmpfile"
+      echo ""
+    } 2>/dev/null > "$logfile" && log_saved=1 || true
+  fi
+
+  printf '    %b%s%b\n' "${C_DIM}" "$(tail -n 15 "$tmpfile" 2>/dev/null | _strip_ansi || true)" "${C_RESET}"
+  if [[ "$log_saved" -eq 1 ]]; then
+    printf '    %bFull log: %s%b\n' "${C_DIM}" "$logfile" "${C_RESET}"
+  fi
+}
+
 # ── Step runner ─────────────────────────────────────────────────────
 # Runs a command with a spinner and live output preview.
 # Usage: run_step "Label" command [args...]
@@ -48,6 +75,7 @@ run_step() {
       echo -e "\r  ${C_GREEN}✓${C_RESET} ${label}"
     else
       echo -e "\r  ${C_RED}✗${C_RESET} ${label}  (failed)"
+      _save_failure_log "$label" "$tmpfile"
       return 1
     fi
     return 0
@@ -106,8 +134,8 @@ run_step() {
     if [[ "$had_output" == true ]]; then printf "\033[2K"; fi
   else
     printf "\r\033[2K  ${C_RED}✗${C_RESET} %-42s %3ds\n" "$label" "$elapsed"
-    # Show last few lines of output on failure
-    echo -e "    ${C_DIM}$(tail -n 3 "$tmpfile" 2>/dev/null)${C_RESET}"
+    # Save failure log and show last few lines of output on failure
+    _save_failure_log "$label" "$tmpfile"
     return $exit_code
   fi
 }
