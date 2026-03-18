@@ -312,7 +312,6 @@ rules:
                         |MessageTemplate
                         |Node
                         |NotificationEvent
-                        |NotificationReadState
                         |Notebook
                         |ObjectMediaPreview
                         |PluginConfig
