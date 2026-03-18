@@ -106,6 +106,13 @@ describe('traceloop middleware', () => {
             const result = reassembleIndexedAttributes(props, 'gen_ai.prompt.', ['role', 'content'], [])
             expect(result).toBeUndefined()
         })
+
+        it('returns undefined when keys match prefix but no fields are recognized', () => {
+            const props: Record<string, unknown> = { 'gen_ai.prompt.0.unknown_field': 'value' }
+            const result = reassembleIndexedAttributes(props, 'gen_ai.prompt.', ['role', 'content'], [])
+            expect(result).toBeUndefined()
+            expect(props['gen_ai.prompt.0.unknown_field']).toBe('value')
+        })
     })
 
     describe('process', () => {

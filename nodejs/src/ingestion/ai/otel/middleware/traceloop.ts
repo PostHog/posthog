@@ -105,13 +105,17 @@ export function reassembleIndexedAttributes(
     }
 
     const sorted = Array.from(entries.values()).sort((a, b) => a.index - b.index)
-    return sorted.map((entry) => {
-        const obj: Record<string, unknown> = { ...entry.fields }
-        for (const [group, nestedEntries] of Object.entries(entry.nested)) {
-            obj[group] = nestedEntries.sort((a, b) => a.index - b.index).map((e) => e.fields)
-        }
-        return obj
-    })
+    const result = sorted
+        .map((entry) => {
+            const obj: Record<string, unknown> = { ...entry.fields }
+            for (const [group, nestedEntries] of Object.entries(entry.nested)) {
+                obj[group] = nestedEntries.sort((a, b) => a.index - b.index).map((e) => e.fields)
+            }
+            return obj
+        })
+        .filter((obj) => Object.keys(obj).length > 0)
+
+    return result.length > 0 ? result : undefined
 }
 
 function process(event: PluginEvent, next: () => void): void {
