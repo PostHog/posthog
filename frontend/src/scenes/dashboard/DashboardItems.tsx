@@ -97,19 +97,12 @@ export function DashboardItems(): JSX.Element {
 
     const { width, containerRef, mounted } = useContainerWidth()
 
-    // Debounce transitions to mobile (xs) breakpoint. React-grid-layout 2.2.2 has a bug
-    // where rapidly crossing the breakpoint (e.g. during desktop resize) corrupts the
-    // internal layout state, causing tiles to stay squashed when the width returns above
-    // the breakpoint. We pass the full width immediately when above the breakpoint, but
-    // delay the drop below it so only genuinely small viewports (mobile) trigger 1-column.
+    // Debounce width changes to the grid. Rapidly crossing the width causes tiles to stay squashed at 1-column
+    // width. Debouncing avoids this and reduces unnecessary re-layouts during resize.
     const [gridWidth, setGridWidth] = useState(width)
     useEffect(() => {
-        if (width >= BREAKPOINTS['sm']) {
-            setGridWidth(width)
-        } else {
-            const timer = setTimeout(() => setGridWidth(width), 300)
-            return () => clearTimeout(timer)
-        }
+        const timer = setTimeout(() => setGridWidth(width), 100)
+        return () => clearTimeout(timer)
     }, [width])
 
     useEffect(() => {
