@@ -329,6 +329,6 @@ class TestSnapshotAndListingThrottlesUseIndependentRates(BaseTest):
         snapshot_throttle = SnapshotsBurstRateThrottle()
         listing_throttle = ListingBurstRateThrottle()
 
-        assert snapshot_throttle._rates_fn is not listing_throttle._rates_fn
-        assert snapshot_throttle._rates_fn() == snapshot_rates()
-        assert listing_throttle._rates_fn() == listing_rates()
+        assert snapshot_throttle._get_rates() == snapshot_rates()
+        assert listing_throttle._get_rates() == listing_rates()
+        assert snapshot_throttle._get_rates() != listing_throttle._get_rates() or snapshot_rates() == listing_rates()

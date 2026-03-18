@@ -6,10 +6,10 @@ import json
 import struct
 import asyncio
 import builtins
-from collections.abc import Callable, Generator
+from collections.abc import Generator
 from contextlib import contextmanager
 from json import JSONDecodeError
-from typing import Any, ClassVar, Literal, cast
+from typing import Any, Literal, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -569,13 +569,14 @@ def get_cached_org_tier(team_id: int) -> str:
 
 
 class _TierAwareReplayThrottle(PersonalApiKeyRateThrottle):
-    _rates_fn: ClassVar[Callable[[], dict[str, dict[str, str]]]]
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        raise NotImplementedError("Subclasses must implement _get_rates")
 
     def _apply_tier_rates(self, tier: str) -> None:
         if self.scope is None:
             raise ValueError("_TierAwareReplayThrottle subclasses must set scope")
         base_scope = self.scope
-        rates = self._rates_fn()
+        rates = self._get_rates()
         resolved_tier = tier if tier in rates else SNAPSHOT_DEFAULT_TIER
         self.rate = rates[resolved_tier][base_scope]
         self.num_requests, self.duration = self.parse_rate(self.rate)
@@ -597,27 +598,35 @@ class _TierAwareReplayThrottle(PersonalApiKeyRateThrottle):
 
 
 class SnapshotsBurstRateThrottle(_TierAwareReplayThrottle):
-    _rates_fn = staticmethod(snapshot_rates)
     scope = "snapshots_burst"
     rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_burst"]
 
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return snapshot_rates()
+
 
 class SnapshotsSustainedRateThrottle(_TierAwareReplayThrottle):
-    _rates_fn = staticmethod(snapshot_rates)
     scope = "snapshots_sustained"
     rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_sustained"]
 
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return snapshot_rates()
+
 
 class ListingBurstRateThrottle(_TierAwareReplayThrottle):
-    _rates_fn = staticmethod(listing_rates)
     scope = "listing_burst"
     rate = LISTING_RATES[SNAPSHOT_DEFAULT_TIER]["listing_burst"]
 
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return listing_rates()
+
 
 class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
-    _rates_fn = staticmethod(listing_rates)
     scope = "listing_sustained"
     rate = LISTING_RATES[SNAPSHOT_DEFAULT_TIER]["listing_sustained"]
+
+    def _get_rates(self) -> dict[str, dict[str, str]]:
+        return listing_rates()
 
 
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
