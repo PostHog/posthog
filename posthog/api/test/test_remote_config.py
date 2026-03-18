@@ -138,3 +138,132 @@ class TestRemoteConfig(APIBaseTest, QueryMatchingTest):
                 f"/array/{self.team.api_token}/array.js", headers={"origin": "https://foo.example.com"}
             )
         assert response.status_code == status.HTTP_200_OK
+
+    def test_session_recording_v1_config(self):
+        """Test that legacy session recording config returns v1 format"""
+        self.team.session_recording_sample_rate = 0.5
+        self.team.session_recording_event_trigger_config = ["pageview", "click"]
+        self.team.session_recording_url_trigger_config = [{"url": "/checkout", "matching": "regex"}]
+        self.team.session_recording_trigger_match_type_config = "any"
+        self.team.session_recording_trigger_groups = None  # No v2 config
+        self.team.save()
+
+        from posthog.models.remote_config import RemoteConfig
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        update_team_remote_config(self.team.id)
+        RemoteConfig.get_hypercache().clear_cache(self.team.api_token)
+
+        response = self.client.get(f"/array/{self.team.api_token}/config")
+        assert response.status_code == status.HTTP_200_OK
+
+        config = response.json()
+        assert config["sessionRecording"]["version"] == 1
+        assert config["sessionRecording"]["sampleRate"] == "0.5"
+        assert config["sessionRecording"]["eventTriggers"] == ["pageview", "click"]
+        assert config["sessionRecording"]["urlTriggers"] == [{"url": "/checkout", "matching": "regex"}]
+        assert config["sessionRecording"]["triggerMatchType"] == "any"
+        # V1 fields should be present
+        assert "sampleRate" in config["sessionRecording"]
+        assert "eventTriggers" in config["sessionRecording"]
+        # V2 fields should NOT be present
+        assert "triggerGroups" not in config["sessionRecording"]
+        assert "groupEvaluationMode" not in config["sessionRecording"]
+
+    def test_session_recording_v2_config(self):
+        """Test that trigger groups config returns v2 format"""
+        self.team.session_recording_trigger_groups = {
+            "version": 2,
+            "groups": [
+                {
+                    "id": "errors",
+                    "name": "Error Tracking",
+                    "sampleRate": 1.0,
+                    "order": 0,
+                    "conditions": {
+                        "matchType": "any",
+                        "events": ["error", "crash"],
+                        "urls": [{"url": "/checkout.*", "matching": "regex"}],
+                    },
+                },
+                {
+                    "id": "feature-test",
+                    "sampleRate": 0.5,
+                    "order": 1,
+                    "conditions": {
+                        "matchType": "all",
+                        "flags": ["new-feature"],
+                    },
+                },
+            ],
+            "groupEvaluationMode": "first_match",
+            "fallbackSampleRate": 0.01,
+        }
+        # Clear legacy fields to ensure v2 is used
+        self.team.session_recording_sample_rate = None
+        self.team.session_recording_event_trigger_config = []
+        self.team.save()
+
+        from posthog.models.remote_config import RemoteConfig
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        update_team_remote_config(self.team.id)
+        RemoteConfig.get_hypercache().clear_cache(self.team.api_token)
+
+        response = self.client.get(f"/array/{self.team.api_token}/config")
+        assert response.status_code == status.HTTP_200_OK
+
+        config = response.json()
+        assert config["sessionRecording"]["version"] == 2
+        assert len(config["sessionRecording"]["triggerGroups"]) == 2
+        assert config["sessionRecording"]["triggerGroups"][0]["id"] == "errors"
+        assert config["sessionRecording"]["triggerGroups"][0]["sampleRate"] == 1.0
+        assert config["sessionRecording"]["triggerGroups"][1]["id"] == "feature-test"
+        assert config["sessionRecording"]["groupEvaluationMode"] == "first_match"
+        assert config["sessionRecording"]["fallbackSampleRate"] == 0.01
+        # V2 fields should be present
+        assert "triggerGroups" in config["sessionRecording"]
+        assert "groupEvaluationMode" in config["sessionRecording"]
+        # V1 fields should NOT be present
+        assert "sampleRate" not in config["sessionRecording"]
+        assert "eventTriggers" not in config["sessionRecording"]
+        assert "linkedFlag" not in config["sessionRecording"]
+        assert "triggerMatchType" not in config["sessionRecording"]
+
+    def test_session_recording_url_blocklist_in_both_versions(self):
+        """Test that URL blocklist is included in both v1 and v2 configs"""
+        url_blocklist = [{"url": "/admin.*", "matching": "regex"}, {"url": "/internal.*", "matching": "regex"}]
+        self.team.session_recording_url_blocklist_config = url_blocklist
+
+        # Test V1 (legacy)
+        self.team.session_recording_sample_rate = 0.5
+        self.team.session_recording_trigger_groups = None
+        self.team.save()
+
+        from posthog.models.remote_config import RemoteConfig
+        from posthog.tasks.remote_config import update_team_remote_config
+
+        update_team_remote_config(self.team.id)
+        RemoteConfig.get_hypercache().clear_cache(self.team.api_token)
+
+        response = self.client.get(f"/array/{self.team.api_token}/config")
+        assert response.status_code == status.HTTP_200_OK
+        config_v1 = response.json()
+        assert config_v1["sessionRecording"]["version"] == 1
+        assert config_v1["sessionRecording"]["urlBlocklist"] == url_blocklist
+
+        # Test V2 (trigger groups)
+        self.team.session_recording_trigger_groups = {
+            "version": 2,
+            "groups": [{"id": "test", "sampleRate": 0.5, "order": 0, "conditions": {"matchType": "any"}}],
+        }
+        self.team.save()
+
+        update_team_remote_config(self.team.id)
+        RemoteConfig.get_hypercache().clear_cache(self.team.api_token)
+
+        response = self.client.get(f"/array/{self.team.api_token}/config")
+        assert response.status_code == status.HTTP_200_OK
+        config_v2 = response.json()
+        assert config_v2["sessionRecording"]["version"] == 2
+        assert config_v2["sessionRecording"]["urlBlocklist"] == url_blocklist
