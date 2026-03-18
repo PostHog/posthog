@@ -5,7 +5,7 @@ from django.utils import timezone
 
 from posthog.models.dashboard import Dashboard
 from posthog.models.insight import generate_insight_filters_hash
-from posthog.models.utils import build_unique_relationship_check
+from posthog.models.utils import UUIDModel, build_unique_relationship_check
 
 
 class Text(models.Model):
@@ -24,7 +24,7 @@ class Text(models.Model):
     team = models.ForeignKey("Team", on_delete=models.CASCADE)
 
 
-class ButtonTile(models.Model):
+class ButtonTile(UUIDModel):
     url = models.CharField(max_length=2000)
     text = models.CharField(max_length=200)
     placement = models.CharField(max_length=10, choices=[("left", "Left"), ("right", "Right")], default="left")
