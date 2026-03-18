@@ -3854,7 +3854,9 @@ export interface TileFilters {
 }
 
 export interface InsightsThresholdBounds {
+    /** Alert fires when the value drops below this number. */
     lower?: number
+    /** Alert fires when the value exceeds this number. */
     upper?: number
 }
 
@@ -3864,6 +3866,7 @@ export enum InsightThresholdType {
 }
 
 export interface InsightThreshold {
+    /** Whether bounds are compared as absolute values or as percentage change from the previous interval. */
     type: InsightThresholdType
     bounds?: InsightsThresholdBounds
 }
@@ -3896,7 +3899,9 @@ export enum AlertCalculationInterval {
 
 export interface TrendsAlertConfig {
     type: 'TrendsAlertConfig'
+    /** Zero-based index of the series in the insight's query to monitor. */
     series_index: integer
+    /** When true, evaluate the current (still incomplete) time interval in addition to completed ones. */
     check_ongoing_interval?: boolean
 }
 
