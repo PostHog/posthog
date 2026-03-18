@@ -35,6 +35,7 @@ const esmModules = [
     '@posthog/hogql-parser',
     'react-markdown',
     'remark-gfm',
+    'hast-util-to-jsx-runtime',
 ]
 function rootDirectories(): string[] {
     return ['<rootDir>/src', '<rootDir>/../products']
