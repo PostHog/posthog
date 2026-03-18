@@ -22,7 +22,6 @@ type DockerContainer struct {
 	Service string
 	Status  string
 	State   string
-	Health  string
 }
 
 type ContainerListMsg struct {
@@ -95,14 +94,12 @@ func FetchContainerList(composeFile string) tea.Cmd {
 				Service string `json:"Service"`
 				Status  string `json:"Status"`
 				State   string `json:"State"`
-				Health  string `json:"Health"`
 			}
 			if json.Unmarshal([]byte(line), &raw) == nil {
 				containers = append(containers, DockerContainer{
 					Service: raw.Service,
 					Status:  raw.Status,
 					State:   raw.State,
-					Health:  raw.Health,
 				})
 			}
 		}
@@ -207,7 +204,7 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 	if sepLen < 1 {
 		sepLen = 1
 	}
-	sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorDarkGrey).Render("  " + strings.Repeat("─", sepLen)))
+	sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorDarkGrey).Render("  " + strings.Repeat("─", width-4)))
 	sb.WriteByte('\n')
 
 	for _, c := range containers {
@@ -221,11 +218,15 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 			stateColor = sharedpalette.ColorYellow
 		}
 
+		svc := c.Service
+		if len(svc) > svcW {
+			svc = svc[:svcW]
+		}
+		sb.WriteString("  ")
+		sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorWhite).Render(fmt.Sprintf("%-*s", svcW, svc)))
+		sb.WriteString("  ")
 		sb.WriteString(lipgloss.NewStyle().Foreground(stateColor).Render(fmt.Sprintf("%-*s", stateW, c.State)))
 		sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorGrey).Render(fmt.Sprintf("  %s", c.Status)))
-		if c.Health != "" {
-			sb.WriteString(lipgloss.NewStyle().Foreground(sharedpalette.ColorGrey).Render(fmt.Sprintf("  (%s)", c.Health)))
-		}
 		sb.WriteByte('\n')
 	}
 

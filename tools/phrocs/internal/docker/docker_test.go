@@ -73,9 +73,9 @@ func TestFetchContainerListParsesAndSorts(t *testing.T) {
 	installFakeDocker(t, `#!/bin/sh
 set -eu
 cat <<'EOF'
-{"Service":"zeta","Status":"Up 10s","State":"running","Health":"healthy"}
+{"Service":"zeta","Status":"Up 10s","State":"running"}
 this-is-not-json
-{"Service":"alpha","Status":"Exited (1)","State":"exited","Health":""}
+{"Service":"alpha","Status":"Exited (1)","State":"exited"}
 EOF
 `)
 
@@ -113,12 +113,12 @@ func TestRenderContainerStatusTableEmpty(t *testing.T) {
 
 func TestRenderContainerStatusTableContainsColumnsAndRows(t *testing.T) {
 	table := RenderContainerStatusTable([]DockerContainer{
-		{Service: "very-long-service-name", State: "running", Status: "Up 10m", Health: "healthy"},
+		{Service: "very-long-service-name", State: "running", Status: "Up 10m"},
 		{Service: "db", State: "exited", Status: "Exited (1)"},
 	}, 36)
 	plain := ansi.Strip(table)
 
-	for _, part := range []string{"SERVICE", "STATE", "STATUS", "db", "healthy"} {
+	for _, part := range []string{"SERVICE", "STATE", "STATUS", "db"} {
 		if !strings.Contains(plain, part) {
 			t.Fatalf("table missing %q:\n%s", part, plain)
 		}
@@ -153,7 +153,7 @@ func TestFetchContainerListUsesComposeArgsShape(t *testing.T) {
 	installFakeDocker(t, fmt.Sprintf(`#!/bin/sh
 set -eu
 printf "%%s\n" "$@" > %q
-echo '{"Service":"one","Status":"Up","State":"running","Health":""}'
+echo '{"Service":"one","Status":"Up","State":"running"}'
 `, argsFile))
 
 	_ = FetchContainerList("docker-compose.dev.yml")()
