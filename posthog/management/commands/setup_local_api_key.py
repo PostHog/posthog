@@ -80,7 +80,7 @@ class Command(BaseCommand):
             elif scopes is not None and existing_key.scopes != scopes:
                 existing_key.scopes = scopes or None
                 existing_key.save(update_fields=["scopes"])
-                print(f"Updated scopes to {scopes} for user '{existing_key.user.email}'")
+                print(f"Updated scopes to {existing_key.scopes} for user '{existing_key.user.email}'")
             else:
                 print(f"API key already exists for user '{existing_key.user.email}'")
             print(f"Key: {DEV_API_KEY}")
