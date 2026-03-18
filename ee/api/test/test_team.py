@@ -20,6 +20,17 @@ from ee.models.rbac.access_control import AccessControl
 def team_enterprise_api_test_factory():
     class TestTeamEnterpriseAPI(APILicensedTest):
         CLASS_DATA_LEVEL_SETUP = False
+        CONFIG_FORCE_ADVANCED_PERMISSIONS_ON_SETUP = True
+
+        def _set_project_default_member_access(self, team: Team) -> None:
+            AccessControl.objects.create(
+                team=team,
+                resource="project",
+                resource_id=str(team.id),
+                organization_member=None,
+                role=None,
+                access_level="member",
+            )
 
         def _assert_activity_log(self, expected: list[dict], team_id: Optional[int] = None) -> None:
             if not team_id:
@@ -42,6 +53,8 @@ def team_enterprise_api_test_factory():
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
 
+            self._set_project_default_member_access(self.team)
+
             if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
                 self.skipTest("Requires advanced permissions")
 
@@ -61,6 +74,8 @@ def team_enterprise_api_test_factory():
             self.organization_membership.level = OrganizationMembership.Level.MEMBER
             self.organization_membership.save()
             team = Team.objects.create(organization=self.organization)
+
+            self._set_project_default_member_access(team)
 
             if not self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS):
                 self.skipTest("Requires advanced permissions")
