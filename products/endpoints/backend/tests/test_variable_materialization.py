@@ -1,7 +1,7 @@
 from typing import Any
 
 import pytest
-from posthog.test.base import APIBaseTest
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
 from posthog.hogql import ast
 
@@ -505,11 +505,9 @@ class TestQueryTransformation(APIBaseTest):
         assert len(var_infos) >= 1
         transformed = transform_query_for_materialization(query, var_infos, self.team)
 
-        # Should have JSONExtractString for properties.os
+        # Should have properties.os as a Field (not JSONExtractString)
         transformed_query = transformed["query"]
-        assert "JSONExtractString" in transformed_query
-        assert "properties" in transformed_query
-        assert "'os'" in transformed_query or '"os"' in transformed_query
+        assert "properties.os" in transformed_query
 
     def test_transform_removes_where_clause(self):
         query = {
@@ -708,9 +706,8 @@ class TestQueryTransformation(APIBaseTest):
         transformed = transform_query_for_materialization(query, var_infos, self.team)
 
         transformed_query = transformed["query"]
-        # Should use JSONExtractString for person.properties
-        assert "JSONExtractString" in transformed_query
-        assert "person" in transformed_query
+        # Should use person.properties.city as a Field
+        assert "person.properties.city" in transformed_query
 
     def test_transform_variable_first_in_and_chain(self):
         query = {
@@ -1337,3 +1334,454 @@ class TestMaterializedReadPath(APIBaseTest):
         )
 
         assert "toDate(toStartOfMonth('2024-01-15'))" in result
+
+
+class TestCTEVariableAnalysis(APIBaseTest):
+    """Test variable analysis for variables inside CTE WHERE clauses."""
+
+    def test_single_cte_with_variable_in_where(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "WITH cte AS (SELECT count() as cnt, event FROM events WHERE event = {variables.event_name} GROUP BY event) SELECT cnt, event FROM cte",
+            "variables": {
+                "var-1": {"code_name": "event_name", "value": "$pageview"},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is True
+        assert reason == "OK"
+        assert len(var_infos) == 1
+        assert var_infos[0].code_name == "event_name"
+        assert var_infos[0].cte_name == "cte"
+
+    def test_variable_in_cte_with_or_condition_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH cte AS (SELECT count() as cnt FROM events WHERE event = {variables.event_name} OR event = '$click' GROUP BY event) "
+                "SELECT cnt FROM cte"
+            ),
+            "variables": {
+                "var-1": {"code_name": "event_name", "value": "$pageview"},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        if can_materialize and var_infos:
+            with pytest.raises(ValueError, match="OR conditions not supported"):
+                transform_query_for_materialization(query, var_infos, self.team)
+
+    def test_two_ctes_one_variable_each_different_vars_allowed(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH cte1 AS (SELECT count() as cnt1 FROM events WHERE event = {variables.event_name} GROUP BY event), "
+                "cte2 AS (SELECT count() as cnt2 FROM events WHERE distinct_id = {variables.user_id} GROUP BY distinct_id) "
+                "SELECT cnt1 FROM cte1"
+            ),
+            "variables": {
+                "var-1": {"code_name": "event_name", "value": "$pageview"},
+                "var-2": {"code_name": "user_id", "value": "user_0"},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        # Each variable is in its own single CTE — this should be allowed
+        assert can_materialize is True
+        assert reason == "OK"
+        assert len(var_infos) == 2
+        code_names = {v.code_name for v in var_infos}
+        assert code_names == {"event_name", "user_id"}
+
+    def test_variable_in_cte_and_top_level_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "WITH cte AS (SELECT count() as cnt FROM events WHERE event = {variables.event_name} GROUP BY event) SELECT cnt FROM cte WHERE event = {variables.event_name}",
+            "variables": {
+                "var-1": {"code_name": "event_name", "value": "$pageview"},
+            },
+        }
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert "both CTE and top-level" in reason
+
+    def test_variable_in_two_different_ctes_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH cte1 AS (SELECT count() as cnt1 FROM events WHERE event = {variables.event_name} GROUP BY event), "
+                "cte2 AS (SELECT count() as cnt2 FROM events WHERE event = {variables.event_name} GROUP BY event) "
+                "SELECT cnt1, cnt2 FROM cte1 CROSS JOIN cte2"
+            ),
+            "variables": {
+                "var-1": {"code_name": "event_name", "value": "$pageview"},
+            },
+        }
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert "multiple CTEs" in reason
+
+    def test_variable_in_cte_having_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "WITH cte AS (SELECT count() as cnt, event FROM events GROUP BY event HAVING cnt > {variables.min_count}) SELECT * FROM cte",
+            "variables": {
+                "var-1": {"code_name": "min_count", "value": "10"},
+            },
+        }
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert "HAVING" in reason
+
+    def test_cte_variable_with_top_level_join_rejected(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH filtered AS (SELECT user_id FROM events WHERE event = {variables.event_name} GROUP BY user_id) "
+                "SELECT p.name FROM persons p LEFT JOIN filtered f ON p.id = f.user_id"
+            ),
+            "variables": {
+                "var-1": {"code_name": "event_name", "value": "$pageview"},
+            },
+        }
+
+        can_materialize, reason, _ = analyze_variables_for_materialization(query)
+
+        assert can_materialize is False
+        assert "JOINs" in reason
+
+    def test_top_level_variable_with_join_still_allowed(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": (
+                "WITH cte AS (SELECT count() as cnt, event FROM events GROUP BY event) "
+                "SELECT c.cnt, p.name FROM cte c JOIN persons p ON 1=1 WHERE c.event = {variables.event_name}"
+            ),
+            "variables": {
+                "var-1": {"code_name": "event_name", "value": "$pageview"},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is True
+        assert var_infos[0].cte_name is None
+
+    def test_top_level_variable_still_works(self):
+        query = {
+            "kind": "HogQLQuery",
+            "query": "WITH cte AS (SELECT count() as cnt, event FROM events GROUP BY event) SELECT cnt, event FROM cte WHERE event = {variables.event_name}",
+            "variables": {
+                "var-1": {"code_name": "event_name", "value": "$pageview"},
+            },
+        }
+
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(query)
+
+        assert can_materialize is True
+        assert len(var_infos) == 1
+        assert var_infos[0].cte_name is None
+
+
+@pytest.mark.usefixtures("unittest_snapshot")
+class TestCTETransformSnapshots(APIBaseTest):
+    """Snapshot tests for CTE variable materialization query transforms.
+
+    Run `pytest --snapshot-update` to regenerate after intentional changes.
+    """
+
+    snapshot: Any
+
+    def _transform(self, query_str: str, variables: dict) -> str:
+        hogql_query = {"kind": "HogQLQuery", "query": query_str, "variables": variables}
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(hogql_query)
+        assert can_materialize, f"Expected materializable, got: {reason}"
+        transformed = transform_query_for_materialization(hogql_query, var_infos, self.team)
+        assert transformed["variables"] == {}
+        assert "{variables" not in transformed["query"]
+        return transformed["query"]
+
+    def test_cte_variable_with_group_by(self):
+        assert (
+            self._transform(
+                "WITH cte AS (SELECT count() as cnt, toStartOfDay(timestamp) as date FROM events WHERE event = {variables.event_name} GROUP BY date) SELECT cnt, date FROM cte",
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            )
+            == self.snapshot
+        )
+
+    def test_cte_variable_without_group_by(self):
+        assert (
+            self._transform(
+                "WITH cte AS (SELECT * FROM events WHERE event = {variables.event_name}) SELECT count() FROM cte",
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            )
+            == self.snapshot
+        )
+
+    def test_top_level_variable_with_cte_present(self):
+        assert (
+            self._transform(
+                "WITH cte AS (SELECT count() as cnt, event FROM events GROUP BY event) SELECT cnt, event FROM cte WHERE event = {variables.event_name}",
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            )
+            == self.snapshot
+        )
+
+    def test_cte_two_variables_same_cte(self):
+        assert (
+            self._transform(
+                "WITH cte AS (SELECT count() as cnt FROM events WHERE event = {variables.event_name} AND distinct_id = {variables.user_id} GROUP BY event, distinct_id) SELECT cnt FROM cte",
+                {
+                    "var-1": {"code_name": "event_name", "value": "$pageview"},
+                    "var-2": {"code_name": "user_id", "value": "u1"},
+                },
+            )
+            == self.snapshot
+        )
+
+    def test_cte_variable_preserves_non_variable_where(self):
+        assert (
+            self._transform(
+                "WITH cte AS (SELECT count() as cnt FROM events WHERE timestamp > '2024-01-01' AND event = {variables.event_name} GROUP BY event) SELECT cnt FROM cte",
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            )
+            == self.snapshot
+        )
+
+    def test_cte_range_variable_deduped_group_by(self):
+        assert (
+            self._transform(
+                "WITH cte AS (SELECT count() as cnt FROM events WHERE hour >= {variables.start_hour} AND hour < {variables.end_hour} GROUP BY hour) SELECT cnt FROM cte",
+                {
+                    "var-1": {"code_name": "start_hour", "value": "10"},
+                    "var-2": {"code_name": "end_hour", "value": "20"},
+                },
+            )
+            == self.snapshot
+        )
+
+    def test_cte_property_variable(self):
+        assert (
+            self._transform(
+                "WITH cte AS (SELECT count() as cnt FROM events WHERE properties.os = {variables.os_name} GROUP BY properties.os) SELECT cnt FROM cte",
+                {"var-1": {"code_name": "os_name", "value": "Mac"}},
+            )
+            == self.snapshot
+        )
+
+    def test_cte_variable_top_level_no_group_by_passthrough(self):
+        assert (
+            self._transform(
+                "WITH cte AS (SELECT count() as cnt, event FROM events WHERE event = {variables.event_name} GROUP BY event) SELECT sum(cnt) FROM cte",
+                {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            )
+            == self.snapshot
+        )
+
+
+class TestMaterializationEquivalence(ClickhouseTestMixin, APIBaseTest):
+    """Verify that querying a materialized table with variable filters returns
+    the same data as running the original query with variables substituted.
+
+    Strategy:
+      1. Insert real events into ClickHouse with varied property values.
+      2. Run the original query with the variable value hard-coded (the "inline" result).
+      3. Run the materialized-transformed query (variable removed from WHERE,
+         added as a column), then filter that result to the desired variable value.
+      4. Assert both results match on the data columns.
+    """
+
+    def setUp(self):
+        super().setUp()
+
+        for event_name in ("$pageview", "$click"):
+            for i in range(5):
+                _create_event(
+                    event=event_name,
+                    distinct_id=f"user_{i % 3}",
+                    team=self.team,
+                    timestamp=f"2026-01-{(i + 1):02d} 12:00:00",
+                    properties={"$browser": "Chrome" if i % 2 == 0 else "Safari", "$os": "Mac" if i < 3 else "Windows"},
+                )
+        flush_persons_and_events()
+
+    def _run_hogql(self, query_str: str) -> list[list]:
+        from posthog.schema import HogQLQuery
+
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+        runner = HogQLQueryRunner(team=self.team, query=HogQLQuery(query=query_str))
+        response = runner.calculate()
+        return sorted([list(row) for row in response.results])
+
+    def _assert_equivalent(self, original_query: str, variables: dict, variable_values: dict):
+        """Run the original (with values substituted) and materialized+filtered queries, assert equality.
+
+        Args:
+            original_query: HogQL with {variables.X} placeholders
+            variables: variable metadata dict for analyze_variables_for_materialization
+            variable_values: dict of code_name -> value to substitute
+        """
+        # 1. Build the "inline" query by substituting variable values directly
+        inline_query = original_query
+        for code_name, value in variable_values.items():
+            inline_query = inline_query.replace("{variables." + code_name + "}", f"'{value}'")
+
+        inline_results = self._run_hogql(inline_query)
+
+        # 2. Transform for materialization
+        hogql_query = {"kind": "HogQLQuery", "query": original_query, "variables": variables}
+        can_materialize, reason, var_infos = analyze_variables_for_materialization(hogql_query)
+        assert can_materialize, f"Expected materializable: {reason}"
+        transformed = transform_query_for_materialization(hogql_query, var_infos, self.team)
+
+        # 3. Run the materialized query (returns all permutations) and get column names
+        var_code_names = {v.code_name for v in var_infos}
+
+        from posthog.schema import HogQLQuery
+
+        from posthog.hogql_queries.hogql_query_runner import HogQLQueryRunner
+
+        runner = HogQLQueryRunner(team=self.team, query=HogQLQuery(query=transformed["query"]))
+        response = runner.calculate()
+        columns = response.columns or []
+
+        var_col_indices = {i for i, col in enumerate(columns) if col in var_code_names}
+        data_col_indices = [i for i in range(len(columns)) if i not in var_col_indices]
+
+        # Build index mapping: code_name -> column position
+        var_col_positions = {col: i for i, col in enumerate(columns) if col in var_code_names}
+
+        filtered_results = []
+        for row in response.results:
+            row_list = list(row)
+            # Check if this row matches all variable values
+            matches = all(row_list[var_col_positions[cn]] == val for cn, val in variable_values.items())
+            if matches:
+                filtered_results.append([row_list[i] for i in data_col_indices])
+
+        filtered_results = sorted(filtered_results)
+        assert inline_results == filtered_results, (
+            f"Inline vs materialized+filtered results differ.\n"
+            f"Inline:       {inline_results}\n"
+            f"Materialized: {filtered_results}"
+        )
+
+    def test_simple_equality_variable(self):
+        self._assert_equivalent(
+            "SELECT count() FROM events WHERE event = {variables.event_name}",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_two_variables(self):
+        self._assert_equivalent(
+            "SELECT count() FROM events WHERE event = {variables.event_name} AND distinct_id = {variables.user_id}",
+            {
+                "var-1": {"code_name": "event_name", "value": "$pageview"},
+                "var-2": {"code_name": "user_id", "value": "user_0"},
+            },
+            {"event_name": "$pageview", "user_id": "user_0"},
+        )
+
+    def test_variable_with_group_by(self):
+        self._assert_equivalent(
+            "SELECT distinct_id, count() FROM events WHERE event = {variables.event_name} GROUP BY distinct_id",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_variable_with_non_variable_where(self):
+        self._assert_equivalent(
+            "SELECT count() FROM events WHERE distinct_id = 'user_0' AND event = {variables.event_name}",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_property_variable(self):
+        self._assert_equivalent(
+            "SELECT count() FROM events WHERE properties.$browser = {variables.browser}",
+            {"var-1": {"code_name": "browser", "value": "Chrome"}},
+            {"browser": "Chrome"},
+        )
+
+    def test_cte_variable(self):
+        self._assert_equivalent(
+            "WITH cte AS (SELECT count() as cnt, distinct_id FROM events WHERE event = {variables.event_name} GROUP BY distinct_id) SELECT cnt, distinct_id FROM cte",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_cte_variable_with_top_level_aggregation(self):
+        self._assert_equivalent(
+            "WITH cte AS (SELECT count() as cnt, distinct_id FROM events WHERE event = {variables.event_name} GROUP BY distinct_id) SELECT sum(cnt) FROM cte",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_cte_two_variables(self):
+        self._assert_equivalent(
+            "WITH cte AS (SELECT count() as cnt FROM events WHERE event = {variables.event_name} AND distinct_id = {variables.user_id} GROUP BY event, distinct_id) SELECT cnt FROM cte",
+            {
+                "var-1": {"code_name": "event_name", "value": "$pageview"},
+                "var-2": {"code_name": "user_id", "value": "user_0"},
+            },
+            {"event_name": "$pageview", "user_id": "user_0"},
+        )
+
+    def test_cte_variable_preserves_non_variable_where(self):
+        self._assert_equivalent(
+            "WITH cte AS (SELECT count() as cnt FROM events WHERE distinct_id = 'user_0' AND event = {variables.event_name} GROUP BY event) SELECT cnt FROM cte",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_cte_property_variable(self):
+        self._assert_equivalent(
+            "WITH cte AS (SELECT count() as cnt FROM events WHERE properties.$browser = {variables.browser} GROUP BY properties.$browser) SELECT cnt FROM cte",
+            {"var-1": {"code_name": "browser", "value": "Chrome"}},
+            {"browser": "Chrome"},
+        )
+
+    def test_cte_variable_without_group_by(self):
+        self._assert_equivalent(
+            "WITH cte AS (SELECT event, distinct_id FROM events WHERE event = {variables.event_name}) SELECT event, distinct_id FROM cte",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_cte_variable_with_order_by(self):
+        self._assert_equivalent(
+            "WITH cte AS (SELECT count() as cnt, event FROM events WHERE event = {variables.event_name} GROUP BY event) SELECT cnt, event FROM cte ORDER BY cnt DESC",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_cte_variable_with_limit(self):
+        self._assert_equivalent(
+            "WITH cte AS (SELECT count() as cnt, event FROM events WHERE event = {variables.event_name} GROUP BY event) SELECT cnt FROM cte LIMIT 5",
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
+
+    def test_cte_multiple_non_variable_ctes(self):
+        self._assert_equivalent(
+            (
+                "WITH cte1 AS (SELECT count() as cnt FROM events GROUP BY event), "
+                "cte2 AS (SELECT count() as cnt2 FROM events WHERE event = {variables.event_name} GROUP BY event) "
+                "SELECT cnt2 FROM cte2"
+            ),
+            {"var-1": {"code_name": "event_name", "value": "$pageview"}},
+            {"event_name": "$pageview"},
+        )
