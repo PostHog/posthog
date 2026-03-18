@@ -331,4 +331,5 @@ class TestSnapshotAndListingThrottlesUseIndependentRates(BaseTest):
 
         assert snapshot_throttle._get_rates() == snapshot_rates()
         assert listing_throttle._get_rates() == listing_rates()
-        assert snapshot_throttle._get_rates() != listing_throttle._get_rates() or snapshot_rates() == listing_rates()
+        assert snapshot_throttle._get_rates() == snapshot_rates()
+        assert listing_throttle._get_rates() == listing_rates()
