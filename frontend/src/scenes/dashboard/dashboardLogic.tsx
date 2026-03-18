@@ -1286,11 +1286,12 @@ export const dashboardLogic = kea<dashboardLogicType>([
                                   }
                                   if (tile.button_tile) {
                                       return {
-                                          type: 'BUTTON_TILE',
-                                          url: tile.button_tile.url,
-                                          text: tile.button_tile.text,
-                                          placement: tile.button_tile.placement,
-                                          style: tile.button_tile.style,
+                                          button_tile: {
+                                              url: tile.button_tile.url,
+                                              text: tile.button_tile.text,
+                                              placement: tile.button_tile.placement,
+                                              style: tile.button_tile.style,
+                                          },
                                           layouts: tile.layouts,
                                           color: tile.color,
                                       }

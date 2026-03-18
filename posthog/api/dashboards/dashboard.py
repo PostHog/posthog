@@ -202,7 +202,6 @@ class ButtonTileSerializer(serializers.ModelSerializer):
         error_messages={"max_length": "Button text cannot exceed 200 characters"},
     )
     placement = serializers.ChoiceField(choices=["left", "right"], default="left")
-    style = serializers.ChoiceField(choices=["primary", "secondary"], default="primary")
 
     class Meta:
         model = ButtonTile
