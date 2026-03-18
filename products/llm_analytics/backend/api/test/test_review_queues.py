@@ -135,7 +135,7 @@ class TestReviewQueuesApi(APIBaseTest):
 
         self.assertEqual(
             exc.exception.detail,
-            {"trace_id": ["This trace is already reviewed and cannot be added to a queue."]},
+            {"trace_id": "This trace is already reviewed and cannot be added to a queue."},
         )
         self.assertFalse(
             ReviewQueueItem.objects.filter(team=self.team, trace_id="trace_reviewed", deleted=False).exists()
