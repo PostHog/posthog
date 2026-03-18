@@ -11,7 +11,7 @@ const httpRequestDuration = new Histogram({
 })
 
 export function httpMetricsMiddleware(req: Request, res: Response, next: NextFunction): void {
-    if (EXCLUDED_PATHS.some((p) => req.path.startsWith(p))) {
+    if (EXCLUDED_PATHS.some((p) => req.path === p || req.path.startsWith(p + '/'))) {
         next()
         return
     }
@@ -20,7 +20,10 @@ export function httpMetricsMiddleware(req: Request, res: Response, next: NextFun
 
     res.on('finish', () => {
         const duration = (performance.now() - start) / 1000
-        const route = req.route?.path ?? 'unmatched'
+        // req.route is only set when Express matches a route handler.
+        // Requests rejected by middleware (e.g. auth 401) also have no route,
+        // so we distinguish them from genuine 404s via status code.
+        const route = req.route?.path ?? (res.statusCode === 404 ? 'unmatched' : 'middleware_rejected')
         httpRequestDuration
             .labels({
                 method: req.method,
