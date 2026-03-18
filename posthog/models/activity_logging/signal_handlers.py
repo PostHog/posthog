@@ -25,6 +25,7 @@ from posthog.models.activity_logging.activity_log import (
     changes_between,
     log_activity,
 )
+from posthog.models.activity_logging.utils import activity_storage
 from posthog.models.experiment import ExperimentHoldout, ExperimentSavedMetric
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.signals import model_activity_signal, mutable_receiver
@@ -355,8 +356,6 @@ def handle_experiment_holdout_change(
 
 @receiver(pre_delete, sender=ExperimentHoldout)
 def handle_experiment_holdout_delete(sender, instance, **kwargs):
-    from posthog.models.activity_logging.utils import activity_storage
-
     log_activity(
         organization_id=instance.team.organization_id,
         team_id=instance.team_id,
