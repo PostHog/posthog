@@ -225,6 +225,7 @@ mod tests {
     use bytes::Bytes;
     use common_cache::NegativeCache;
     use serde_json::json;
+    use serde_json::Value;
 
     #[test]
     fn empty_distinct_id_is_accepted() {
@@ -397,98 +398,70 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_device_id_from_top_level() {
-        let flag_request = FlagRequest {
-            device_id: Some("top-level-device".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(
-            flag_request.extract_device_id(),
-            Some("top-level-device".to_string())
-        );
-    }
+    fn test_extract_device_id() {
+        struct Case {
+            device_id: Option<String>,
+            person_properties: Option<HashMap<String, Value>>,
+            expected: Option<String>,
+        }
 
-    #[test]
-    fn test_extract_device_id_from_person_properties() {
-        let flag_request = FlagRequest {
-            device_id: None,
-            person_properties: Some(HashMap::from([(
-                "$device_id".to_string(),
-                json!("prop-device"),
-            )])),
-            ..Default::default()
-        };
-        assert_eq!(
-            flag_request.extract_device_id(),
-            Some("prop-device".to_string())
-        );
-    }
+        let cases = vec![
+            Case {
+                device_id: Some("top-level-device".to_string()),
+                person_properties: None,
+                expected: Some("top-level-device".to_string()),
+            },
+            Case {
+                device_id: None,
+                person_properties: Some(HashMap::from([(
+                    "$device_id".to_string(),
+                    json!("prop-device"),
+                )])),
+                expected: Some("prop-device".to_string()),
+            },
+            // top-level takes precedence
+            Case {
+                device_id: Some("top-level-device".to_string()),
+                person_properties: Some(HashMap::from([(
+                    "$device_id".to_string(),
+                    json!("prop-device"),
+                )])),
+                expected: Some("top-level-device".to_string()),
+            },
+            // absent entirely
+            Case {
+                device_id: None,
+                person_properties: Some(HashMap::from([(
+                    "other_prop".to_string(),
+                    json!("value"),
+                )])),
+                expected: None,
+            },
+            // empty string in person_properties → None
+            Case {
+                device_id: None,
+                person_properties: Some(HashMap::from([("$device_id".to_string(), json!(""))])),
+                expected: None,
+            },
+            // empty string at top level → should also return None / fall through
+            Case {
+                device_id: Some("".to_string()),
+                person_properties: Some(HashMap::from([(
+                    "$device_id".to_string(),
+                    json!("prop-device"),
+                )])),
+                expected: Some("prop-device".to_string()),
+            },
+        ];
 
-    #[test]
-    fn test_extract_device_id_top_level_takes_precedence() {
-        let flag_request = FlagRequest {
-            device_id: Some("top-level-device".to_string()),
-            person_properties: Some(HashMap::from([(
-                "$device_id".to_string(),
-                json!("prop-device"),
-            )])),
-            ..Default::default()
-        };
-        assert_eq!(
-            flag_request.extract_device_id(),
-            Some("top-level-device".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extract_device_id_none_when_absent() {
-        let flag_request = FlagRequest {
-            device_id: None,
-            person_properties: Some(HashMap::from([(
-                "other_prop".to_string(),
-                json!("value"),
-            )])),
-            ..Default::default()
-        };
-        assert_eq!(flag_request.extract_device_id(), None);
-    }
-
-    #[test]
-    fn test_extract_device_id_ignores_empty_string_top_level() {
-        let flag_request = FlagRequest {
-            device_id: Some("".to_string()),
-            ..Default::default()
-        };
-        assert_eq!(flag_request.extract_device_id(), None);
-    }
-
-    #[test]
-    fn test_extract_device_id_empty_top_level_falls_back_to_properties() {
-        let flag_request = FlagRequest {
-            device_id: Some("".to_string()),
-            person_properties: Some(HashMap::from([(
-                "$device_id".to_string(),
-                json!("prop-device"),
-            )])),
-            ..Default::default()
-        };
-        assert_eq!(
-            flag_request.extract_device_id(),
-            Some("prop-device".to_string())
-        );
-    }
-
-    #[test]
-    fn test_extract_device_id_ignores_empty_string_in_properties() {
-        let flag_request = FlagRequest {
-            device_id: None,
-            person_properties: Some(HashMap::from([(
-                "$device_id".to_string(),
-                json!(""),
-            )])),
-            ..Default::default()
-        };
-        assert_eq!(flag_request.extract_device_id(), None);
+        for case in cases {
+            let flag_request = FlagRequest {
+                device_id: case.device_id,
+                person_properties: case.person_properties,
+                ..Default::default()
+            };
+            assert_eq!(flag_request.extract_device_id(), case.expected);
+        }
     }
 
     #[test]
