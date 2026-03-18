@@ -5,6 +5,7 @@ from django.conf import settings
 
 import boto3
 import posthoganalytics
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, parsers, request, response, serializers, status, viewsets
 
 from posthog.schema import DatabaseSerializedFieldType
@@ -69,6 +70,7 @@ class TableSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["id", "created_by", "created_at", "columns", "external_data_source", "external_schema"]
 
+    @extend_schema_field(serializers.ListField(child=serializers.DictField()))
     def get_columns(self, table: DataWarehouseTable) -> list[SerializedField]:
         database = self.context.get("database", None)
         if not database:
@@ -100,6 +102,7 @@ class TableSerializer(serializers.ModelSerializer):
             for field in serializes_fields
         ]
 
+    @extend_schema_field(serializers.DictField(allow_null=True))
     def get_external_schema(self, instance: DataWarehouseTable):
         from products.data_warehouse.backend.api.external_data_schema import SimpleExternalDataSchemaSerializer
 
