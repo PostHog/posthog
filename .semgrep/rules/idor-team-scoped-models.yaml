@@ -170,6 +170,8 @@ rules:
                               |Text
                               |Threshold
                               |Ticket
+                              |TraceReview
+                              |TraceReviewScore
                               |UploadedMedia
                               |UserInterview
                               |UserRepoPreference
@@ -340,6 +342,8 @@ rules:
                         |Text
                         |Threshold
                         |Ticket
+                        |TraceReview
+                        |TraceReviewScore
                         |UploadedMedia
                         |UserInterview
                         |UserRepoPreference

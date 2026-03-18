@@ -200,6 +200,7 @@ export type SettingId =
     | 'logs'
     | 'logs-json-parse'
     | 'logs-retention'
+    | 'logs-alerting'
     | 'organization-ip-anonymization-default'
     | 'allow-impersonation'
     | 'approval-policies'
