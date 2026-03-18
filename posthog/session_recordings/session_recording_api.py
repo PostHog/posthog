@@ -6,10 +6,10 @@ import json
 import struct
 import asyncio
 import builtins
-from collections.abc import Generator
+from collections.abc import Callable, Generator
 from contextlib import contextmanager
 from json import JSONDecodeError
-from typing import Any, Literal, cast
+from typing import Any, ClassVar, Literal, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
@@ -478,12 +478,14 @@ def stream_from(url: str, headers: dict | None = None) -> Generator[requests.Res
         session.close()
 
 
-SNAPSHOTS_TIER_CACHE_TTL_SECONDS = 12 * 60 * 60
+REPLAY_TIER_CACHE_TTL_SECONDS = 12 * 60 * 60
+# backward compat alias
+SNAPSHOTS_TIER_CACHE_TTL_SECONDS = REPLAY_TIER_CACHE_TTL_SECONDS
 
 SNAPSHOT_DEFAULT_TIER = "free"
 
 
-def _snapshot_rates() -> dict[str, dict[str, str]]:
+def snapshot_rates() -> dict[str, dict[str, str]]:
     return {
         "free": {
             "snapshots_burst": settings.SNAPSHOT_RATE_FREE_BURST,
@@ -500,12 +502,32 @@ def _snapshot_rates() -> dict[str, dict[str, str]]:
     }
 
 
-SNAPSHOT_RATES = _snapshot_rates()
+SNAPSHOT_RATES = snapshot_rates()
+
+
+def listing_rates() -> dict[str, dict[str, str]]:
+    return {
+        "free": {
+            "listing_burst": settings.LISTING_RATE_FREE_BURST,
+            "listing_sustained": settings.LISTING_RATE_FREE_SUSTAINED,
+        },
+        "paid": {
+            "listing_burst": settings.LISTING_RATE_PAID_BURST,
+            "listing_sustained": settings.LISTING_RATE_PAID_SUSTAINED,
+        },
+        "enterprise": {
+            "listing_burst": settings.LISTING_RATE_ENTERPRISE_BURST,
+            "listing_sustained": settings.LISTING_RATE_ENTERPRISE_SUSTAINED,
+        },
+    }
+
+
+LISTING_RATES = listing_rates()
 
 _ENTERPRISE_FEATURE_KEYS = {AvailableFeature.SAML, AvailableFeature.SCIM}
 
 
-def _org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
+def org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
     if not features:
         return "free"
     feature_keys = {f.get("key") for f in features if isinstance(f, dict)}
@@ -515,24 +537,26 @@ def _org_tier_from_features(features: list[dict[str, Any]] | None) -> str:
 
 
 def get_cached_org_tier(team_id: int) -> str:
-    cache_key = f"snapshots_org_tier_{team_id}"
+    cache_key = f"replay_org_tier_{team_id}"
     tier = cache.get(cache_key)
     if tier is not None:
         return tier
 
     features = Organization.objects.filter(team=team_id).values_list("available_product_features", flat=True).first()
 
-    tier = _org_tier_from_features(features)
-    cache.set(cache_key, tier, SNAPSHOTS_TIER_CACHE_TTL_SECONDS)
+    tier = org_tier_from_features(features)
+    cache.set(cache_key, tier, REPLAY_TIER_CACHE_TTL_SECONDS)
     return tier
 
 
-class _TierAwareSnapshotThrottle(PersonalApiKeyRateThrottle):
+class _TierAwareReplayThrottle(PersonalApiKeyRateThrottle):
+    _rates_fn: ClassVar[Callable[[], dict[str, dict[str, str]]]]
+
     def _apply_tier_rates(self, tier: str) -> None:
         if self.scope is None:
-            raise ValueError("_TierAwareSnapshotThrottle subclasses must set scope")
+            raise ValueError("_TierAwareReplayThrottle subclasses must set scope")
         base_scope = self.scope
-        rates = _snapshot_rates()
+        rates = self._rates_fn()
         resolved_tier = tier if tier in rates else SNAPSHOT_DEFAULT_TIER
         self.rate = rates[resolved_tier][base_scope]
         self.num_requests, self.duration = self.parse_rate(self.rate)
@@ -548,19 +572,33 @@ class _TierAwareSnapshotThrottle(PersonalApiKeyRateThrottle):
                 tier = get_cached_org_tier(team_id) if team_id else SNAPSHOT_DEFAULT_TIER
                 self._apply_tier_rates(tier)
             except Exception:
-                logger.exception("snapshot_throttle_tier_lookup_failed")
+                logger.exception("replay_throttle_tier_lookup_failed")
                 self._apply_tier_rates(SNAPSHOT_DEFAULT_TIER)
         return super().allow_request(request, view)
 
 
-class SnapshotsBurstRateThrottle(_TierAwareSnapshotThrottle):
+class SnapshotsBurstRateThrottle(_TierAwareReplayThrottle):
+    _rates_fn = staticmethod(snapshot_rates)
     scope = "snapshots_burst"
     rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_burst"]
 
 
-class SnapshotsSustainedRateThrottle(_TierAwareSnapshotThrottle):
+class SnapshotsSustainedRateThrottle(_TierAwareReplayThrottle):
+    _rates_fn = staticmethod(snapshot_rates)
     scope = "snapshots_sustained"
     rate = SNAPSHOT_RATES[SNAPSHOT_DEFAULT_TIER]["snapshots_sustained"]
+
+
+class ListingBurstRateThrottle(_TierAwareReplayThrottle):
+    _rates_fn = staticmethod(listing_rates)
+    scope = "listing_burst"
+    rate = LISTING_RATES[SNAPSHOT_DEFAULT_TIER]["listing_burst"]
+
+
+class ListingSustainedRateThrottle(_TierAwareReplayThrottle):
+    _rates_fn = staticmethod(listing_rates)
+    scope = "listing_sustained"
+    rate = LISTING_RATES[SNAPSHOT_DEFAULT_TIER]["listing_sustained"]
 
 
 def _length_prefix_blocks(blocks: list[bytes]) -> bytes:
@@ -622,6 +660,11 @@ class SessionRecordingViewSet(
 
     def safely_get_object(self, queryset) -> SessionRecording:
         return SessionRecording.get_or_build(session_id=self.kwargs["pk"], team=self.team)
+
+    def get_throttles(self):
+        if self.action == "list":
+            return [ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
+        return super().get_throttles()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY)
