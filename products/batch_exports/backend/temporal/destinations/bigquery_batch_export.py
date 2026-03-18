@@ -469,8 +469,7 @@ async def verify_impersonated_service_account_ownership(
         await asyncio.sleep(initial_interval * (backoff_factor**attempt))
         attempt += 1
 
-    if f"posthog:{organization_id}" not in description:
-        raise ServiceAccountOwnershipError(service_account_email)
+    raise ServiceAccountOwnershipError(service_account_email)
 
 
 def impersonate_service_account(
