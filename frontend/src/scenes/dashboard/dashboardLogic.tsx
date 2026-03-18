@@ -272,7 +272,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setPageVisibility: (visible: boolean) => ({ visible }),
         setSubscriptionMode: (enabled: boolean, id?: number | 'new') => ({ enabled, id }),
         /** Set the dashboard mode, see DashboardMode for details. */
-        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource | null) => ({ mode, source }),
+        setDashboardMode: (mode: DashboardMode | null, source: DashboardEventSource) => ({ mode, source }),
         /** Make it easier to handle organizing the layout when theres lots of tiles by zooming out */
         setLayoutZoom: (layoutZoom: number) => ({ layoutZoom }),
         /** Optimistic pin/unpin toggle. */
@@ -2279,7 +2279,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 forceRefresh: false,
             })
             if (values.dashboardMode !== DashboardMode.Edit) {
-                actions.setDashboardMode(DashboardMode.Edit, null)
+                actions.setDashboardMode(DashboardMode.Edit, DashboardEventSource.DashboardVariableOverride)
             }
         },
         quickFiltersCommitted: async (_, breakpoint) => {
@@ -2536,24 +2536,24 @@ export const dashboardLogic = kea<dashboardLogicType>([
                 : undefined
             actions.setSubscriptionMode(true, id)
             actions.setTextTileId(null)
-            actions.setDashboardMode(null, null)
+            actions.setDashboardMode(null, DashboardEventSource.Browser)
         },
 
         '/dashboard/:id': () => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
             if (values.dashboardMode === DashboardMode.Sharing) {
-                actions.setDashboardMode(null, null)
+                actions.setDashboardMode(null, DashboardEventSource.Browser)
             }
         },
         '/dashboard/:id/sharing': () => {
             actions.setSubscriptionMode(false, undefined)
             actions.setTextTileId(null)
-            actions.setDashboardMode(DashboardMode.Sharing, null)
+            actions.setDashboardMode(DashboardMode.Sharing, DashboardEventSource.Browser)
         },
         '/dashboard/:id/text-tiles/:textTileId': ({ textTileId }) => {
             actions.setSubscriptionMode(false, undefined)
-            actions.setDashboardMode(null, null)
+            actions.setDashboardMode(null, DashboardEventSource.Browser)
             actions.setTextTileId(textTileId === undefined ? 'new' : textTileId !== 'new' ? Number(textTileId) : 'new')
         },
     })),
