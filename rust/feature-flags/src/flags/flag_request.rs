@@ -189,14 +189,18 @@ impl FlagRequest {
     /// Checks the top-level device_id field first, then falls back to
     /// person_properties.$device_id for SDKs that only send it as a property.
     pub fn extract_device_id(&self) -> Option<String> {
-        self.device_id.clone().or_else(|| {
-            self.person_properties
-                .as_ref()
-                .and_then(|props| props.get("$device_id"))
-                .and_then(|v| v.as_str())
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-        })
+        self.device_id
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                self.person_properties
+                    .as_ref()
+                    .and_then(|props| props.get("$device_id"))
+                    .and_then(|v| v.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+            })
     }
 
     /// Checks if feature flags should be disabled for this request.
@@ -447,6 +451,31 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(flag_request.extract_device_id(), None);
+    }
+
+    #[test]
+    fn test_extract_device_id_ignores_empty_string_top_level() {
+        let flag_request = FlagRequest {
+            device_id: Some("".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(flag_request.extract_device_id(), None);
+    }
+
+    #[test]
+    fn test_extract_device_id_empty_top_level_falls_back_to_properties() {
+        let flag_request = FlagRequest {
+            device_id: Some("".to_string()),
+            person_properties: Some(HashMap::from([(
+                "$device_id".to_string(),
+                json!("prop-device"),
+            )])),
+            ..Default::default()
+        };
+        assert_eq!(
+            flag_request.extract_device_id(),
+            Some("prop-device".to_string())
+        );
     }
 
     #[test]
