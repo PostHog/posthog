@@ -51,13 +51,14 @@ UserPaths.parameters = {
     },
 }
 // The Paths component uses useResizeObserver to measure canvasWidth/canvasHeight, then destroys
-// and recreates the SVG when they change. This causes a race condition where the SVG
-// dimensions may not have stabilized before the snapshot is taken. Wait for both width
-// and height to be stable for 3 consecutive checks (600ms apart) to ensure the SVG
-// has fully settled and won't be recreated by a late ResizeObserver callback.
+// and recreates the SVG when they change (or when theme/data changes). This causes a race
+// condition where the SVG may not have stabilized before the snapshot is taken. Track both
+// dimensions and the SVG element's identity to detect any recreation, requiring 3 consecutive
+// stable checks (600ms apart) before proceeding.
 const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
     let lastWidth = 0
     let lastHeight = 0
+    let lastSvgElement: Element | null = null
     let stableCount = 0
     await waitFor(
         () => {
@@ -69,16 +70,18 @@ const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canva
                 currentWidth === 0 ||
                 currentHeight === 0 ||
                 currentWidth !== lastWidth ||
-                currentHeight !== lastHeight
+                currentHeight !== lastHeight ||
+                svg !== lastSvgElement
             ) {
                 lastWidth = currentWidth
                 lastHeight = currentHeight
+                lastSvgElement = svg
                 stableCount = 0
-                throw new Error('SVG dimensions not yet stable')
+                throw new Error('SVG not yet stable')
             }
             stableCount++
             if (stableCount < 3) {
-                throw new Error('SVG dimensions not yet confirmed stable')
+                throw new Error('SVG not yet confirmed stable')
             }
         },
         { timeout: 8000, interval: 200 }
