@@ -1,14 +1,31 @@
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
+from django.db.models.signals import post_save
+
 from posthog.models import Person
 from posthog.models.person import PersonDistinctId
 from posthog.models.person.missing_person import uuidFromDistinctId
+from posthog.models.person.util import person_created, person_distinct_id_created
 
 
 @patch("posthog.models.person.util.create_person")
 @patch("posthog.models.person.util.create_person_distinct_id")
 class TestSplitPerson(BaseTest):
+    def setUp(self):
+        super().setUp()
+        # Disconnect test-only post_save signals (see posthog/models/person/util.py)
+        # that automatically call create_person/create_person_distinct_id on every
+        # ORM save. split_person publishes to Kafka explicitly, so these signals
+        # would double-count calls and make assertions unreliable.
+        post_save.disconnect(person_created, sender=Person)
+        post_save.disconnect(person_distinct_id_created, sender=PersonDistinctId)
+
+    def tearDown(self):
+        post_save.connect(person_created, sender=Person)
+        post_save.connect(person_distinct_id_created, sender=PersonDistinctId)
+        super().tearDown()
+
     def _create_person_with_distinct_ids(
         self,
         distinct_ids: list[str],
