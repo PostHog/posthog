@@ -124,29 +124,6 @@
   '''
   WITH
       cte AS (SELECT
-              uuid,
-              event,
-              properties,
-              timestamp,
-              distinct_id,
-              elements_chain,
-              created_at,
-              $session_id,
-              $window_id,
-              person_mode,
-              person_id,
-              $group_0,
-              $group_1,
-              $group_2,
-              $group_3,
-              $group_4,
-              elements_chain_href,
-              elements_chain_texts,
-              elements_chain_ids,
-              elements_chain_elements,
-              event_person_id,
-              event_issue_id,
-              issue_id,
               event AS event_name
           FROM
               events)
