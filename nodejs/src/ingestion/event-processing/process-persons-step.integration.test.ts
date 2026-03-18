@@ -44,7 +44,7 @@ describe('createProcessPersonsStep', () => {
         hub = await createHub()
         const organizationId = await createOrganization(hub.postgres)
         teamId = await createTeam(hub.postgres, organizationId)
-        team = (await getTeam(hub, teamId))!
+        team = (await getTeam(hub.postgres, teamId))!
 
         personRepository = new PostgresPersonRepository(hub.postgres)
         personsStore = new BatchWritingPersonsStore(personRepository, hub.kafkaProducer)
@@ -300,7 +300,7 @@ describe('createProcessPersonsStep', () => {
         const enabledTeamId = await createTeam(hub.postgres, organizationId, undefined, {
             extra_settings: JSON.stringify({ person_last_seen_at_enabled: true }),
         })
-        const enabledTeam = (await getTeam(hub, enabledTeamId))!
+        const enabledTeam = (await getTeam(hub.postgres, enabledTeamId))!
 
         await personRepository.createPerson(
             DateTime.utc(),

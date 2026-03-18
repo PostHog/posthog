@@ -12,6 +12,7 @@ export function RetentionCumulativeButton(): JSX.Element | null {
     const { updateInsightFilter } = useActions(insightVizDataLogic(insightProps))
 
     const cumulativeRetention = retentionFilter?.cumulative || false
+    const is24HourWindow = retentionFilter?.timeWindowMode === '24_hour_windows'
 
     if (!canEditInsight) {
         return null
@@ -19,7 +20,7 @@ export function RetentionCumulativeButton(): JSX.Element | null {
 
     return (
         <LemonSegmentedButton
-            value={cumulativeRetention ? 1 : 0}
+            value={!is24HourWindow && cumulativeRetention ? 1 : 0}
             onChange={(value: number) => {
                 updateInsightFilter({ cumulative: value === 1 })
             }}
@@ -32,6 +33,9 @@ export function RetentionCumulativeButton(): JSX.Element | null {
                 {
                     value: 1,
                     label: 'on or after',
+                    disabledReason: is24HourWindow
+                        ? 'Cumulative retention is not supported for 24 hour windows'
+                        : undefined,
                     tooltip: `
                     Retention value is the percentage of users who come back on a specific time period or any of the following time periods.
                     Also known as rolling, or unbounded retention.

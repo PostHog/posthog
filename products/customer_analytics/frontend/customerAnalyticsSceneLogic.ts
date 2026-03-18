@@ -17,6 +17,7 @@ import {
     EventsNode,
     InsightVizNode,
     LifecycleDataWarehouseNode,
+    FunnelsDataWarehouseNode,
     NodeKind,
 } from '~/queries/schema/schema-general'
 import { sceneLogic } from '~/scenes/sceneLogic'
@@ -806,7 +807,10 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             kind: NodeKind.FunnelsQuery,
                             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
-                            series: [signupPageviewSeries as AnyEntityNode, signupSeries as AnyEntityNode],
+                            series: [
+                                signupPageviewSeries as AnyEntityNode<FunnelsDataWarehouseNode>,
+                                signupSeries as AnyEntityNode<FunnelsDataWarehouseNode>,
+                            ],
                             interval: 'week',
                             dateRange: {
                                 date_from: dateRange.date_from,
@@ -864,7 +868,10 @@ export const customerAnalyticsSceneLogic = kea<customerAnalyticsSceneLogicType>(
                             kind: NodeKind.FunnelsQuery,
                             tags: CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS,
                             ...(businessType === 'b2c' ? {} : { aggregation_group_type_index: selectedGroupType }),
-                            series: [signupSeries as AnyEntityNode, paymentSeries as AnyEntityNode],
+                            series: [
+                                signupSeries as AnyEntityNode<FunnelsDataWarehouseNode>,
+                                paymentSeries as AnyEntityNode<FunnelsDataWarehouseNode>,
+                            ],
                             dateRange: {
                                 date_from: dateRange.date_from,
                                 date_to: dateRange.date_to,
