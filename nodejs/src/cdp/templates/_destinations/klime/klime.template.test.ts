@@ -18,6 +18,7 @@ describe('klime template', () => {
         userId: 'user-123',
         groupId: 'group-123',
         include_all_properties: false,
+        userTraits: {},
         properties: {},
     }
 
@@ -27,17 +28,14 @@ describe('klime template', () => {
     }
 
     it('sends a track event with correct shape', async () => {
-        const response = await tester.invoke(
-            { ...defaultInputs, include_all_properties: true },
-            {
-                event: {
-                    uuid: 'event-uuid-001',
-                    event: 'Button Clicked',
-                    properties: { $current_url: 'https://example.com', button: 'signup' },
-                    timestamp: '2024-01-01T00:00:00Z',
-                },
-            }
-        )
+        const response = await tester.invoke(defaultInputs, {
+            event: {
+                uuid: 'event-uuid-001',
+                event: 'Button Clicked',
+                properties: { $current_url: 'https://example.com', button: 'signup' },
+                timestamp: '2024-01-01T00:00:00Z',
+            },
+        })
 
         expect(response.error).toBeUndefined()
         expect(response.finished).toBe(false)
@@ -100,24 +98,18 @@ describe('klime template', () => {
         expect(parseBatchEvent(response).type).toBe('track')
     })
 
-    it.each([
-        [true, { amount: 99.99, currency: 'USD' }],
-        [false, undefined],
-    ])('track properties when include_all_properties is %s', async (includeAll, expected) => {
-        const response = await tester.invoke(
-            { ...defaultInputs, include_all_properties: includeAll },
-            {
-                event: {
-                    uuid: 'uuid-1',
-                    event: 'Purchase',
-                    properties: { $lib: 'web', amount: 99.99, currency: 'USD' },
-                    timestamp: '2024-01-01T00:00:00Z',
-                },
-            }
-        )
+    it('always includes non-$ event properties for track', async () => {
+        const response = await tester.invoke(defaultInputs, {
+            event: {
+                uuid: 'uuid-1',
+                event: 'Purchase',
+                properties: { $lib: 'web', amount: 99.99, currency: 'USD' },
+                timestamp: '2024-01-01T00:00:00Z',
+            },
+        })
 
         expect(response.error).toBeUndefined()
-        expect(parseBatchEvent(response).properties).toEqual(expected)
+        expect(parseBatchEvent(response).properties).toEqual({ amount: 99.99, currency: 'USD' })
     })
 
     it('includes non-$ person properties for identify', async () => {
@@ -140,9 +132,99 @@ describe('klime template', () => {
         expect(parseBatchEvent(response).traits).toEqual({ email: 'test@klime.com' })
     })
 
+    it('sends userTraits as traits on identify events', async () => {
+        const response = await tester.invoke(
+            {
+                ...defaultInputs,
+                action: 'identify',
+                userTraits: { email: 'alice@klime.com', name: 'Alice' },
+            },
+            {
+                event: {
+                    uuid: 'uuid-1',
+                    event: '$identify',
+                    properties: {},
+                    timestamp: '2024-01-01T00:00:00Z',
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(parseBatchEvent(response).traits).toEqual({ email: 'alice@klime.com', name: 'Alice' })
+    })
+
+    it('userTraits does not leak into group events', async () => {
+        const response = await tester.invoke(
+            {
+                ...defaultInputs,
+                action: 'group',
+                groupId: 'org-456',
+                userTraits: { email: 'should-not-appear@klime.com' },
+            },
+            {
+                event: {
+                    uuid: 'uuid-1',
+                    event: '$groupidentify',
+                    properties: {
+                        $group_key: 'org-456',
+                        $group_set: { name: 'Acme Inc' },
+                    },
+                    timestamp: '2024-01-01T00:00:00Z',
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        const batchEvent = parseBatchEvent(response)
+        expect(batchEvent.traits).toEqual({ name: 'Acme Inc' })
+        expect(batchEvent.traits).not.toHaveProperty('email')
+    })
+
+    it('falls back to properties for identify when userTraits is missing (backwards compat)', async () => {
+        const response = await tester.invoke(
+            {
+                ...defaultInputs,
+                action: 'identify',
+                userTraits: {},
+                properties: { email: 'legacy@klime.com', name: 'Legacy User' },
+            },
+            {
+                event: {
+                    uuid: 'uuid-1',
+                    event: '$identify',
+                    properties: {},
+                    timestamp: '2024-01-01T00:00:00Z',
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(parseBatchEvent(response).traits).toEqual({ email: 'legacy@klime.com', name: 'Legacy User' })
+    })
+
+    it('sends no traits when no mappings configured and include_all_properties is false', async () => {
+        const response = await tester.invoke(
+            { ...defaultInputs, action: 'identify' },
+            {
+                event: {
+                    uuid: 'uuid-1',
+                    event: '$identify',
+                    properties: {},
+                    timestamp: '2024-01-01T00:00:00Z',
+                },
+                person: {
+                    properties: { email: 'fallback@klime.com', name: 'Fallback User', plan: 'pro' },
+                },
+            }
+        )
+
+        expect(response.error).toBeUndefined()
+        expect(parseBatchEvent(response).traits).toBeUndefined()
+    })
+
     it('includes non-$ group_set properties for group', async () => {
         const response = await tester.invoke(
-            { ...defaultInputs, action: 'group', groupId: 'org-456', include_all_properties: true },
+            { ...defaultInputs, action: 'group', groupId: 'org-456' },
             {
                 event: {
                     uuid: 'uuid-1',
@@ -163,7 +245,7 @@ describe('klime template', () => {
 
     it('uses $group_key over inputs.groupId for $groupidentify events', async () => {
         const response = await tester.invoke(
-            { ...defaultInputs, action: 'automatic', groupId: 'wrong-group', include_all_properties: true },
+            { ...defaultInputs, action: 'automatic', groupId: 'wrong-group' },
             {
                 event: {
                     uuid: 'uuid-1',
