@@ -215,6 +215,11 @@ CONSTANCE_CONFIG = {
         "Teams that will have web analytics cache warming enabled",
         list[int],
     ),
+    "CLICKHOUSE_ENABLE_ANALYZER_TEAMS": (
+        get_from_env("CLICKHOUSE_ENABLE_ANALYZER_TEAMS", default=[], type_cast=list[int]),
+        "Comma-separated list of team IDs for which ClickHouse allow_experimental_analyzer is enabled",
+        list[int],
+    ),
 }
 
 SETTINGS_ALLOWING_API_OVERRIDE = (
@@ -253,6 +258,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_HEDGED_APP_QUERIES",
+    "CLICKHOUSE_ENABLE_ANALYZER_TEAMS",
     "REDIRECT_APP_TO_US",
     "WEB_ANALYTICS_WARMING_DAYS",
     "WEB_ANALYTICS_WARMING_MIN_QUERY_COUNT",
