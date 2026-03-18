@@ -1,7 +1,5 @@
 import { cleanup } from '@testing-library/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-
 import { NodeKind, TrendsQueryResponse } from '~/queries/schema/schema-general'
 import {
     buildTrendsQuery,
@@ -54,25 +52,26 @@ const compareMock: MockResponse = {
     response: compareResponse,
 }
 
-describe('LineGraph x-axis labels with compare', () => {
+describe('LineGraph', () => {
     afterEach(cleanup)
 
-    it('uses current period dates on x-axis for unstacked bar chart with compare', async () => {
-        renderInsightPage({
-            query: buildTrendsQuery({
-                trendsFilter: { display: ChartDisplayType.ActionsUnstackedBar },
-                compareFilter: { compare: true },
-            }),
-            mocks: { mockResponses: [compareMock] },
-            featureFlags: { [FEATURE_FLAGS.DASHBOARD_TILE_REDESIGN]: true },
+    describe('Compare to previous', () => {
+        it('uses current period dates on x-axis for unstacked bar chart with compare', async () => {
+            renderInsightPage({
+                query: buildTrendsQuery({
+                    trendsFilter: { display: ChartDisplayType.ActionsUnstackedBar },
+                    compareFilter: { compare: true },
+                }),
+                mocks: { mockResponses: [compareMock] },
+            })
+
+            const chart = await waitForChart()
+
+            // trendsDataLogic sorts "previous" first for unstacked bar charts
+            expect(chart.series(0).compareLabel).toBe('previous')
+
+            const firstTickLabel = chart.axes.x.tickLabel(0)
+            expect(firstTickLabel).toBe('Jun 10')
         })
-
-        const chart = await waitForChart()
-
-        // trendsDataLogic sorts "previous" first for unstacked bar charts
-        expect(chart.series(0).compareLabel).toBe('previous')
-
-        const firstTickLabel = chart.axes.x.tickLabel(0)
-        expect(firstTickLabel).toBe('Jun 10')
     })
 })
