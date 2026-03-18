@@ -226,7 +226,7 @@ class FeatureFlagMatcher:
                 )
 
         # Match for holdout super condition
-        # TODO: Flags shouldn't have both super_groups and holdout_groups
+        # TODO: Flags shouldn't have both super_groups and holdout
         # TODO: Validate only multivariant flags to have holdout groups. I could make this implicit by reusing super_groups but
         # this will shoot ourselves in the foot when we extend early access to support variants as well.
         # TODO: Validate holdout variant should have 0% default rollout %?
