@@ -211,12 +211,6 @@ func RenderContainerStatusTable(containers []DockerContainer, width int) string 
 	sb.WriteByte('\n')
 
 	for _, c := range containers {
-		svc := c.Service
-		runes := []rune(svc)
-		if len(runes) > svcW {
-			svc = string(runes[:svcW-1]) + "…"
-		}
-
 		var stateColor color.Color
 		switch c.State {
 		case "running":
