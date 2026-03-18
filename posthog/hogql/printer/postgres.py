@@ -1,3 +1,4 @@
+import hashlib
 from typing import Literal
 
 from posthog.hogql import ast
@@ -8,6 +9,11 @@ from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
 from posthog.hogql.errors import ImpossibleASTError, QueryError
 from posthog.hogql.escape_sql import escape_postgres_identifier
 from posthog.hogql.printer.base import HogQLPrinter
+from posthog.hogql.printer.postgres_functions import (
+    POSTGRES_FUNCTION_HANDLERS_LOWER,
+    POSTGRES_FUNCTION_RENAMES_LOWER,
+    POSTGRES_PASSTHROUGH_FUNCTIONS,
+)
 
 
 class PostgresPrinter(HogQLPrinter):
@@ -20,6 +26,8 @@ class PostgresPrinter(HogQLPrinter):
         pretty: bool = False,
     ):
         super().__init__(context=context, dialect=dialect, stack=stack, settings=settings, pretty=pretty)
+        self._truncated_identifiers: dict[str, str] = {}
+        self._used_truncated_identifiers: set[str] = set()
 
     def visit_field(self, node: ast.Field):
         if node.type is None:
@@ -32,14 +40,110 @@ class PostgresPrinter(HogQLPrinter):
         return self.visit(node.type)
 
     def visit_call(self, node: ast.Call):
+        if node.name in {
+            "toStartOfSecond",
+            "toStartOfMinute",
+            "toStartOfHour",
+            "toStartOfDay",
+            "toStartOfWeek",
+            "toStartOfMonth",
+            "toStartOfQuarter",
+            "toStartOfYear",
+            "toStartOfISOYear",
+        }:
+            return self._visit_to_start_of_call(node)
+
+        if node.name in {"toStartOfFiveMinutes", "toStartOfTenMinutes", "toStartOfFifteenMinutes"}:
+            if len(node.args) != 1:
+                raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+            minute_bucket_sizes: dict[str, int] = {
+                "toStartOfFiveMinutes": 5,
+                "toStartOfTenMinutes": 10,
+                "toStartOfFifteenMinutes": 15,
+            }
+            bucket_arg = self.visit(node.args[0])
+            bucket_size = minute_bucket_sizes[node.name]
+            return (
+                f"date_trunc('hour', {bucket_arg}) + "
+                f"(floor(extract(minute from {bucket_arg}) / {bucket_size})::int * {bucket_size} * interval '1 minute')"
+            )
+
         # No function call validation for postgres
         args = [self.visit(arg) for arg in node.args]
-        return f"{node.name}({', '.join(args)})"
 
-    def _print_table_sql(self, table) -> str:
-        if isinstance(table, DirectPostgresTable):
-            return table.to_printed_postgres(self.context)
-        return table.to_printed_clickhouse(self.context)
+        func_name = node.name.lower()
+
+        handler = POSTGRES_FUNCTION_HANDLERS_LOWER.get(func_name)
+        if handler is not None:
+            return handler(args)
+
+        pg_name = POSTGRES_FUNCTION_RENAMES_LOWER.get(func_name)
+        if pg_name is not None:
+            return f"{pg_name}({', '.join(args)})"
+
+        if func_name in POSTGRES_PASSTHROUGH_FUNCTIONS:
+            return f"{func_name}({', '.join(args)})"
+
+        raise QueryError(
+            f"Function '{node.name}' is not supported in the Postgres dialect. It may only be available in ClickHouse."
+        )
+
+    def _visit_to_start_of_call(self, node: ast.Call) -> str:
+        if len(node.args) == 0:
+            raise QueryError(f"{node.name} expects at least 1 argument in Postgres mode.")
+
+        truncated_arg = self.visit(node.args[0])
+
+        if node.name in {
+            "toStartOfSecond",
+            "toStartOfMinute",
+            "toStartOfHour",
+            "toStartOfMonth",
+            "toStartOfQuarter",
+            "toStartOfYear",
+        }:
+            if len(node.args) != 1:
+                raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+
+            start_of_units: dict[str, str] = {
+                "toStartOfSecond": "second",
+                "toStartOfMinute": "minute",
+                "toStartOfHour": "hour",
+                "toStartOfMonth": "month",
+                "toStartOfQuarter": "quarter",
+                "toStartOfYear": "year",
+            }
+            return f"date_trunc('{start_of_units[node.name]}', {truncated_arg})"
+
+        if node.name == "toStartOfDay":
+            if len(node.args) == 1:
+                return f"date_trunc('day', {truncated_arg})"
+            raise QueryError("toStartOfDay with a timezone override is not supported in Postgres mode.")
+
+        if node.name == "toStartOfWeek":
+            if len(node.args) == 1:
+                week_mode = 0 if self._get_week_start_day().name == "SUNDAY" else 3
+            elif len(node.args) == 2 and isinstance(node.args[1], ast.Constant) and isinstance(node.args[1].value, int):
+                week_mode = node.args[1].value
+            else:
+                raise QueryError("toStartOfWeek only supports literal week modes in Postgres mode.")
+
+            if week_mode in {1, 3}:
+                return f"date_trunc('week', {truncated_arg})"
+            if week_mode == 0:
+                return f"(date_trunc('week', ({truncated_arg} + interval '1 day')) - interval '1 day')"
+            raise QueryError(f"Unsupported toStartOfWeek mode `{week_mode}` in Postgres mode.")
+
+        if node.name == "toStartOfISOYear":
+            if len(node.args) != 1:
+                raise QueryError("toStartOfISOYear expects exactly 1 argument in Postgres mode.")
+
+            return f"date_trunc('week', make_date(extract(isoyear from {truncated_arg})::int, 1, 4)::timestamp)"
+
+        if len(node.args) != 1:
+            raise QueryError(f"{node.name} expects exactly 1 argument in Postgres mode.")
+
+        return f"date_trunc('day', {truncated_arg})"
 
     def visit_and(self, node):
         return f"({' AND '.join([f'({self.visit(expr)})' for expr in node.exprs])})"
@@ -51,7 +155,7 @@ class PostgresPrinter(HogQLPrinter):
         return f"(NOT {self.visit(node.expr)})"
 
     def visit_table_type(self, type: ast.TableType):
-        return self._print_table_sql(type.table)
+        return self._print_table(type.table)
 
     def _visit_in_values(self, node: ast.Expr) -> str:
         if isinstance(node, ast.Tuple):
@@ -108,7 +212,7 @@ class PostgresPrinter(HogQLPrinter):
             raise ImpossibleASTError(f"Unknown CompareOperationOp: {op.name}")
 
     def _print_table_ref(self, table_type: ast.TableType | ast.LazyTableType, node: ast.JoinExpr) -> str:
-        return self._print_table_sql(table_type.table)
+        return self._print_table(table_type.table)
 
     def _ensure_team_id_where_clause(
         self,
@@ -119,10 +223,40 @@ class PostgresPrinter(HogQLPrinter):
         pass
 
     def _print_identifier(self, name: str) -> str:
+        if len(name) > 63 and "__" in name:
+            name = self._truncate_identifier(name)
         return escape_postgres_identifier(name)
+
+    def _truncate_identifier(self, name: str) -> str:
+        existing = self._truncated_identifiers.get(name)
+        if existing:
+            return existing
+
+        digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:12]
+        suffix = f"_{digest}"
+        prefix = name[: 63 - len(suffix)]
+        candidate = f"{prefix}{suffix}"
+
+        counter = 1
+        while candidate in self._used_truncated_identifiers:
+            counter_suffix = f"_{digest}_{counter}"
+            candidate = f"{name[: 63 - len(counter_suffix)]}{counter_suffix}"
+            counter += 1
+
+        self._truncated_identifiers[name] = candidate
+        self._used_truncated_identifiers.add(candidate)
+        return candidate
 
     def _json_property_args(self, chain):
         return [self._print_escaped_string(name) for name in chain]
+
+    def _print_table(self, table) -> str:
+        if isinstance(table, DirectPostgresTable):
+            return (
+                f"{escape_postgres_identifier(table.postgres_schema)}."
+                f"{escape_postgres_identifier(table.postgres_table_name)}"
+            )
+        return table.to_printed_clickhouse(self.context)
 
     def _unsafe_json_extract_trim_quotes(self, unsafe_field, unsafe_args):
         if len(unsafe_args) == 0:

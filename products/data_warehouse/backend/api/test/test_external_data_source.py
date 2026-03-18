@@ -551,7 +551,7 @@ class TestExternalDataSource(APIBaseTest):
         self._create_external_data_source()
         self._create_external_data_source()
 
-        with self.assertNumQueries(27):
+        with self.assertNumQueries(26):
             response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/")
         payload = response.json()
 
@@ -1746,6 +1746,44 @@ class TestExternalDataSource(APIBaseTest):
             assert len(data) == 1
             assert data[0]["id"] == str(job3.pk)
 
+    @parameterized.expand(
+        [
+            ("single_schema", "?schemas=Customers", 1),
+            ("multiple_schemas", "?schemas=Customers&schemas=Invoices", 2),
+            ("no_filter", "", 2),
+        ]
+    )
+    def test_source_jobs_schema_filter(self, _name, query_string, expected_count):
+        source = self._create_external_data_source()
+        schema1 = ExternalDataSchema.objects.create(
+            name="Customers", team_id=self.team.pk, source_id=source.pk, table=None
+        )
+        schema2 = ExternalDataSchema.objects.create(
+            name="Invoices", team_id=self.team.pk, source_id=source.pk, table=None
+        )
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema1,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=100,
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        )
+        ExternalDataJob.objects.create(
+            team=self.team,
+            pipeline=source,
+            schema=schema2,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=200,
+            pipeline_version=ExternalDataJob.PipelineVersion.V1,
+        )
+
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/jobs{query_string}",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert len(response.json()) == expected_count
+
     @patch(
         "posthog.temporal.data_imports.sources.stripe.source.StripeSource.validate_credentials",
         return_value=(True, None),
@@ -1799,25 +1837,30 @@ class TestExternalDataSource(APIBaseTest):
         )
 
         # Update with SSH tunnel config
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
-            data={
-                "job_inputs": {
-                    "ssh_tunnel": {
-                        "enabled": True,
-                        "host": "ssh.example.com",
-                        "port": 22,
-                        "auth_type": {
-                            "selection": "username_password",
-                            "username": "testuser",
-                            "password": "testpass",
-                            "passphrase": "testphrase",
-                            "private_key": "testkey",
-                        },
-                    }
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            return_value=(True, None),
+        ) as mock_validate_credentials:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{str(source.pk)}/",
+                data={
+                    "job_inputs": {
+                        "ssh_tunnel": {
+                            "enabled": True,
+                            "host": "ssh.example.com",
+                            "port": 22,
+                            "auth_type": {
+                                "selection": "password",
+                                "username": "testuser",
+                                "password": "testpass",
+                                "passphrase": "testphrase",
+                                "private_key": "testkey",
+                            },
+                        }
+                    },
                 },
-            },
-        )
+            )
+        mock_validate_credentials.assert_called_once()
 
         assert response.status_code == 200
 
@@ -1826,7 +1869,7 @@ class TestExternalDataSource(APIBaseTest):
         assert source.job_inputs["ssh_tunnel"]["enabled"] == "True"
         assert source.job_inputs["ssh_tunnel"]["host"] == "ssh.example.com"
         assert source.job_inputs["ssh_tunnel"]["port"] == "22"
-        assert source.job_inputs["ssh_tunnel"]["auth"]["type"] == "username_password"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["type"] == "password"
         assert source.job_inputs["ssh_tunnel"]["auth"]["username"] == "testuser"
         assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "testpass"
         assert source.job_inputs["ssh_tunnel"]["auth"]["passphrase"] == "testphrase"
@@ -1846,7 +1889,7 @@ class TestExternalDataSource(APIBaseTest):
         assert ssh_tunnel["host"] == "ssh.example.com"
         assert ssh_tunnel["port"] == "22"
         assert "auth" in ssh_tunnel
-        assert ssh_tunnel["auth"]["selection"] == "username_password"
+        assert ssh_tunnel["auth"]["selection"] == "password"
         assert ssh_tunnel["auth"]["username"] == "testuser"
         # Sensitive fields should not be included in response (to prevent them being echoed back)
         assert "password" not in ssh_tunnel["auth"]
@@ -1904,10 +1947,14 @@ class TestExternalDataSource(APIBaseTest):
         get_data = get_response.json()
 
         # Step 2: PATCH with the exact data from GET (simulating user saving without changes)
-        patch_response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={"job_inputs": get_data["job_inputs"]},
-        )
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            return_value=(True, None),
+        ) as mock_validate_credentials:
+            patch_response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={"job_inputs": get_data["job_inputs"]},
+            )
 
         # Should succeed, not fail with "Required field 'auth' is missing"
         assert patch_response.status_code == 200, (
@@ -1918,8 +1965,13 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["password"] == "db_password"  # Main DB password preserved
         assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"  # SSH password preserved
+        mock_validate_credentials.assert_called_once()
 
-    def test_update_with_null_password_preserves_existing(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_with_null_password_preserves_existing(self, mock_validate_credentials):
         """Regression test: sending password=null should not overwrite stored password."""
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -1957,8 +2009,13 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"  # Host was updated
         assert source.job_inputs["password"] == "original_password"  # Password preserved
+        mock_validate_credentials.assert_called_once()
 
-    def test_update_with_empty_string_password_preserves_existing(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_with_empty_string_password_preserves_existing(self, mock_validate_credentials):
         """Regression test: sending password="" (empty string) should not overwrite stored password.
 
         This reproduces the bug where the frontend form sends an empty string for password
@@ -2000,8 +2057,13 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"  # Host was updated
         assert source.job_inputs["password"] == "original_password"  # Password preserved
+        mock_validate_credentials.assert_called_once()
 
-    def test_update_with_new_password_updates_password(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_with_new_password_updates_password(self, mock_validate_credentials):
         """Test that explicitly providing a new password does update it."""
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -2037,8 +2099,126 @@ class TestExternalDataSource(APIBaseTest):
         # Verify password was actually updated
         source.refresh_from_db()
         assert source.job_inputs["password"] == "new_password"
+        mock_validate_credentials.assert_called_once()
 
-    def test_update_source_without_ssh_tunnel_does_not_crash(self):
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_with_host_change_revalidates_credentials(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_host_only",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "new-host.example.com",
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["host"] == "new-host.example.com"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_with_non_host_job_input_change_revalidates_credentials(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_database_change",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "database": "renamed_db",
+                },
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["database"] == "renamed_db"
+        mock_validate_credentials.assert_called_once()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_without_job_inputs_does_not_revalidate_credentials(self, mock_validate_credentials):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_no_job_input_change",
+            description="before",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "description": "after",
+            },
+        )
+
+        assert response.status_code == 200, response.json()
+        source.refresh_from_db()
+        assert source.description == "after"
+        mock_validate_credentials.assert_not_called()
+
+    @patch(
+        "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_source_without_ssh_tunnel_does_not_crash(self, mock_validate_credentials):
         """Regression test: updating a source that has no ssh_tunnel should not crash."""
         source = ExternalDataSource.objects.create(
             team_id=self.team.pk,
@@ -2076,6 +2256,43 @@ class TestExternalDataSource(APIBaseTest):
         source.refresh_from_db()
         assert source.job_inputs["host"] == "new-host.example.com"
         assert source.job_inputs["password"] == "original_password"
+        mock_validate_credentials.assert_called_once()
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    def test_update_blocks_internal_host(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_internal_host",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "original_password",
+                "schema": "public",
+            },
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "host": "localhost",
+                },
+            },
+        )
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Hosts with internal IP addresses are not allowed"
+
+        source.refresh_from_db()
+        assert source.job_inputs["host"] == "db.example.com"
 
     def test_update_direct_postgres_prefix(self):
         source = ExternalDataSource.objects.create(
@@ -2175,21 +2392,84 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={
-                "job_inputs": {
-                    "ssh_tunnel": {
-                        "enabled": False,
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            return_value=(True, None),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={
+                    "job_inputs": {
+                        "ssh_tunnel": {
+                            "enabled": False,
+                        },
                     },
                 },
-            },
-        )
+            )
 
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json()}"
 
         source.refresh_from_db()
         assert source.job_inputs["password"] == "db_password"
+        assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"
+
+    def test_update_source_with_ssh_tunnel_missing_auth_surfaces_validation_failure(self):
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Postgres",
+            created_by=self.user,
+            prefix="test_no_auth_error",
+            job_inputs={
+                "source_type": "Postgres",
+                "host": "db.example.com",
+                "port": "5432",
+                "database": "mydb",
+                "user": "dbuser",
+                "password": "db_password",
+                "schema": "public",
+                "ssh_tunnel": {
+                    "enabled": "True",
+                    "host": "ssh.example.com",
+                    "port": "22",
+                    "auth": {
+                        "type": "password",
+                        "username": "sshuser",
+                        "password": "ssh_secret_password",
+                        "passphrase": None,
+                        "private_key": None,
+                    },
+                },
+            },
+        )
+
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            return_value=(False, "Mocked credentials failure"),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={
+                    "job_inputs": {
+                        "ssh_tunnel": {
+                            "enabled": False,
+                        },
+                    },
+                },
+            )
+
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": None,
+            "code": "invalid_input",
+            "detail": "Mocked credentials failure",
+            "type": "validation_error",
+        }
+
+        source.refresh_from_db()
+        assert source.job_inputs["ssh_tunnel"]["enabled"] == "True"
         assert source.job_inputs["ssh_tunnel"]["auth"]["password"] == "ssh_secret_password"
 
     def test_update_source_with_ssh_tunnel_enabled_missing_auth(self):
@@ -2225,18 +2505,22 @@ class TestExternalDataSource(APIBaseTest):
             },
         )
 
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={
-                "job_inputs": {
-                    "ssh_tunnel": {
-                        "enabled": True,
-                        "host": "new-ssh.example.com",
-                        "port": 22,
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            return_value=(True, None),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={
+                    "job_inputs": {
+                        "ssh_tunnel": {
+                            "enabled": True,
+                            "host": "new-ssh.example.com",
+                            "port": 22,
+                        },
                     },
                 },
-            },
-        )
+            )
 
         assert response.status_code == 200, f"Expected 200, got {response.status_code}: {response.json()}"
 
@@ -2296,10 +2580,14 @@ class TestExternalDataSource(APIBaseTest):
         assert get_data["job_inputs"]["ssh_tunnel"]["auth"]["username"] == "sshuser"
 
         # Step 2: PATCH with the exact data from GET
-        patch_response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={"job_inputs": get_data["job_inputs"]},
-        )
+        with patch(
+            "posthog.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials",
+            return_value=(True, None),
+        ):
+            patch_response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+                data={"job_inputs": get_data["job_inputs"]},
+            )
 
         # Should succeed, not fail with validation error
         assert patch_response.status_code == 200, (
@@ -2371,25 +2659,30 @@ class TestExternalDataSource(APIBaseTest):
         assert job_inputs["auth_type"]["private_key"] == ""
 
         # Update the source with a new auth type
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
-            data={
-                "job_inputs": {
-                    "role": "my_role",
-                    "schema": "my_schema",
-                    "database": "my_database",
-                    "warehouse": "my_warehouse",
-                    "account_id": "my_account_id",
-                    "auth_type": {
-                        "selection": "keypair",
-                        "user": "my_username",
-                        "private_key": "my_private_key",
-                        "passphrase": "my_passphrase",
-                        "password": "",
-                    },
-                }
-            },
-        )
+        with patch(
+            "posthog.temporal.data_imports.sources.snowflake.source.SnowflakeSource.validate_credentials",
+            return_value=(True, None),
+        ) as mock_validate_credentials:
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
+                data={
+                    "job_inputs": {
+                        "role": "my_role",
+                        "schema": "my_schema",
+                        "database": "my_database",
+                        "warehouse": "my_warehouse",
+                        "account_id": "my_account_id",
+                        "auth_type": {
+                            "selection": "keypair",
+                            "user": "my_username",
+                            "private_key": "my_private_key",
+                            "passphrase": "my_passphrase",
+                            "password": "",
+                        },
+                    }
+                },
+            )
+        mock_validate_credentials.assert_called_once()
 
         assert response.status_code == 200, response.json()
 
@@ -2482,33 +2775,37 @@ class TestExternalDataSource(APIBaseTest):
         assert bq_config.temporary_dataset.temporary_dataset_id == ""
 
         # # Update the source by adding a temporary dataset
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
-            data={
-                "job_inputs": {
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "dataset_id": "dummy_dataset_id",
-                    "project_id": "dummy_project_id",
-                    "region": "",
-                    "client_email": "dummy_client_email",
-                    "temporary-dataset": {"enabled": True, "temporary_dataset_id": "dummy_temporary_dataset_id"},
-                    "dataset_project": {"enabled": False, "dataset_project_id": ""},
-                    "key_file": {
-                        "type": "service_account",
+        with patch(
+            "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+            return_value=(True, None),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
+                data={
+                    "job_inputs": {
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                        "dataset_id": "dummy_dataset_id",
                         "project_id": "dummy_project_id",
-                        "private_key_id": "dummy_private_key_id",
-                        "private_key": "dummy_private_key",
+                        "region": "",
                         "client_email": "dummy_client_email",
-                        "client_id": "dummy_client_id",
-                        "auth_uri": "dummy_auth_uri",
-                        "token_uri": "dummy_token_uri",
-                        "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
-                        "client_x509_cert_url": "dummy_client_x509_cert_url",
-                        "universe_domain": "dummy_universe_domain",
-                    },
-                }
-            },
-        )
+                        "temporary-dataset": {"enabled": True, "temporary_dataset_id": "dummy_temporary_dataset_id"},
+                        "dataset_project": {"enabled": False, "dataset_project_id": ""},
+                        "key_file": {
+                            "type": "service_account",
+                            "project_id": "dummy_project_id",
+                            "private_key_id": "dummy_private_key_id",
+                            "private_key": "dummy_private_key",
+                            "client_email": "dummy_client_email",
+                            "client_id": "dummy_client_id",
+                            "auth_uri": "dummy_auth_uri",
+                            "token_uri": "dummy_token_uri",
+                            "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
+                            "client_x509_cert_url": "dummy_client_x509_cert_url",
+                            "universe_domain": "dummy_universe_domain",
+                        },
+                    }
+                },
+            )
 
         assert response.status_code == 200, response.json()
 
@@ -2530,33 +2827,37 @@ class TestExternalDataSource(APIBaseTest):
         assert bq_config.temporary_dataset.temporary_dataset_id == "dummy_temporary_dataset_id"
 
         # # Update the source by adding dataset project id
-        response = self.client.patch(
-            f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
-            data={
-                "job_inputs": {
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "dataset_id": "dummy_dataset_id",
-                    "project_id": "dummy_project_id",
-                    "region": "",
-                    "client_email": "dummy_client_email",
-                    "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
-                    "dataset_project": {"enabled": True, "dataset_project_id": "other_project_id"},
-                    "key_file": {
-                        "type": "service_account",
+        with patch(
+            "posthog.temporal.data_imports.sources.bigquery.source.BigQuerySource.validate_credentials",
+            return_value=(True, None),
+        ):
+            response = self.client.patch(
+                f"/api/environments/{self.team.pk}/external_data_sources/{source_model.pk}/",
+                data={
+                    "job_inputs": {
+                        "token_uri": "https://oauth2.googleapis.com/token",
+                        "dataset_id": "dummy_dataset_id",
                         "project_id": "dummy_project_id",
-                        "private_key_id": "dummy_private_key_id",
-                        "private_key": "dummy_private_key",
+                        "region": "",
                         "client_email": "dummy_client_email",
-                        "client_id": "dummy_client_id",
-                        "auth_uri": "dummy_auth_uri",
-                        "token_uri": "dummy_token_uri",
-                        "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
-                        "client_x509_cert_url": "dummy_client_x509_cert_url",
-                        "universe_domain": "dummy_universe_domain",
-                    },
-                }
-            },
-        )
+                        "temporary-dataset": {"enabled": False, "temporary_dataset_id": ""},
+                        "dataset_project": {"enabled": True, "dataset_project_id": "other_project_id"},
+                        "key_file": {
+                            "type": "service_account",
+                            "project_id": "dummy_project_id",
+                            "private_key_id": "dummy_private_key_id",
+                            "private_key": "dummy_private_key",
+                            "client_email": "dummy_client_email",
+                            "client_id": "dummy_client_id",
+                            "auth_uri": "dummy_auth_uri",
+                            "token_uri": "dummy_token_uri",
+                            "auth_provider_x509_cert_url": "dummy_auth_provider_x509_cert_url",
+                            "client_x509_cert_url": "dummy_client_x509_cert_url",
+                            "universe_domain": "dummy_universe_domain",
+                        },
+                    }
+                },
+            )
 
         assert response.status_code == 200, response.json()
 

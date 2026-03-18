@@ -163,7 +163,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         if not is_rate_limit_enabled(round(time.time() / 60)):
             return True
 
-        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+        personal_api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
         if personal_api_key_only and request.user.is_authenticated and personal_api_key is None:
             return True
 
@@ -228,7 +228,7 @@ class PersonalApiKeyRateThrottle(SimpleRateThrottle):
         """
         ident = None
         if request.user.is_authenticated:
-            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request)
+            api_key = PersonalAPIKeyAuthentication.find_key_with_source(request, request_data={})
             if api_key is not None:
                 ident = hash_key_value(api_key[0])
             else:
@@ -779,6 +779,34 @@ class RestoreRedeemThrottle(SimpleRateThrottle):
 class CodeInviteThrottle(UserRateThrottle):
     scope = "code_invite"
     rate = "20000/hour"
+
+
+class RunSavedQueryRateThrottle(PersonalApiKeyRateThrottle):
+    # Rate limit running a saved query per saved query per team.
+    # Prevents agents from running the same query repeatedly without reason.
+    scope = "saved_query"
+    rate = "10/minute"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        pk = view.kwargs.get("pk", "")
+        if team_id and pk:
+            return self.cache_format % {"scope": self.scope, "ident": f"{team_id}_{pk}"}
+        return super().get_cache_key(request, view)
+
+
+class MaterializationRateThrottle(PersonalApiKeyRateThrottle):
+    # Rate limit materialization toggle actions (materialize / revert) per saved query per team.
+    # Prevents agents from thrashing materialization state on the same query.
+    scope = "materialization"
+    rate = "5/hour"
+
+    def get_cache_key(self, request, view):
+        team_id = self.safely_get_team_id_from_view(view)
+        pk = view.kwargs.get("pk", "")
+        if team_id and pk:
+            return self.cache_format % {"scope": self.scope, "ident": f"{team_id}_{pk}"}
+        return super().get_cache_key(request, view)
 
 
 class ToolbarOAuthRefreshThrottle(IPThrottle):

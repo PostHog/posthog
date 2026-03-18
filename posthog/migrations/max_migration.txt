@@ -1,1 +1,1 @@
-1039_subscription_dashboard_export_insights
+1052_migrate_legacy_personal_api_key_scopes

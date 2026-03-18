@@ -1,20 +1,18 @@
 import json
 import asyncio
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.db import transaction
 
 import structlog
 import temporalio
-from asgiref.sync import sync_to_async
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
 from posthog.schema import EmbeddingModelName
 
 from posthog.hogql import ast
-from posthog.hogql.query import execute_hogql_query
 
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
@@ -25,7 +23,8 @@ from products.signals.backend.temporal.actionability_judge import (
     ActionabilityJudgeInput,
     actionability_judge_activity,
 )
-from products.signals.backend.temporal.safety_judge import SafetyJudgeInput, safety_judge_activity
+from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
+from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
 from products.signals.backend.temporal.summarize_signals import (
     SummarizeSignalsInput,
     SummarizeSignalsOutput,
@@ -68,7 +67,7 @@ class SignalReportSummaryWorkflow:
         fetch_result: FetchSignalsForReportOutput = await workflow.execute_activity(
             fetch_signals_for_report_activity,
             FetchSignalsForReportInput(team_id=inputs.team_id, report_id=inputs.report_id),
-            start_to_close_timeout=timedelta(minutes=2),
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=3),
         )
 
@@ -101,7 +100,7 @@ class SignalReportSummaryWorkflow:
 
             safety_result, actionability_result = await asyncio.gather(
                 workflow.execute_activity(
-                    safety_judge_activity,
+                    report_safety_judge_activity,
                     SafetyJudgeInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,
@@ -217,7 +216,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
                 document_id,
                 content,
                 metadata,
-                toString(timestamp) as timestamp
+                timestamp
             FROM (
                 SELECT
                     document_id,
@@ -235,7 +234,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
             ORDER BY timestamp ASC
         """
 
-        result = await sync_to_async(execute_hogql_query, thread_sensitive=False)(
+        result = await execute_hogql_query_with_retry(
             query_type="SignalsFetchForReport",
             query=query,
             team=team,
@@ -247,7 +246,12 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
 
         signals = []
         for row in result.results or []:
-            document_id, content, metadata_str, timestamp = row
+            document_id, content, metadata_str, timestamp_raw = row
+            # HogQL returns datetime objects, but defend against strings too
+            if isinstance(timestamp_raw, str):
+                timestamp_raw = datetime.fromisoformat(timestamp_raw.replace("Z", "+00:00"))
+            if timestamp_raw.tzinfo is None:
+                timestamp_raw = timestamp_raw.replace(tzinfo=UTC)
             # Purposefully throw here if we fail - we rely on metadata being correct, and it's not llm generated, so
             # no defensive parsing, we want to fail loudly.
             metadata = json.loads(metadata_str)
@@ -259,7 +263,7 @@ async def fetch_signals_for_report_activity(input: FetchSignalsForReportInput) -
                     source_type=metadata.get("source_type", ""),
                     source_id=metadata.get("source_id", ""),
                     weight=metadata.get("weight", 0.0),
-                    timestamp=timestamp,
+                    timestamp=timestamp_raw,
                     extra=metadata.get("extra", {}),
                 )
             )

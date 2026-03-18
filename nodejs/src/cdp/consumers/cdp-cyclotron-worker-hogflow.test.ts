@@ -68,9 +68,9 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         await resetTestDatabase()
         hub = await createHub()
         personRepository = new PostgresPersonRepository(hub.postgres)
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
         const team2Id = await createTeam(hub.postgres, team.organization_id)
-        team2 = (await getTeam(hub, team2Id))!
+        team2 = (await getTeam(hub.postgres, team2Id))!
 
         processor = new CdpCyclotronWorkerHogFlow(hub, hub)
 

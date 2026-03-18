@@ -12,7 +12,9 @@ use tonic::{Request, Response, Status};
 use crate::consumer_registry::{ConsumerConnection, ConsumerRegistry};
 use crate::grpc::convert;
 use crate::store::KafkaAssignerStore;
-use crate::types::{AssignmentEvent, ConsumerStatus, RegisteredConsumer, TopicConfig};
+use crate::types::{
+    AssignmentEvent, ConsumerStatus, HandoffPhase, RegisteredConsumer, TopicConfig,
+};
 
 /// Kafka connection settings for admin metadata lookups.
 #[derive(Clone)]
@@ -45,7 +47,7 @@ impl KafkaAssignerService {
             store,
             registry,
             kafka_config,
-            64,
+            1024,
             30,
             Duration::from_secs(10),
         )
@@ -123,8 +125,14 @@ impl KafkaAssignerService {
                     )
                 })
                 .await
-                .map_err(|e| Status::internal(format!("metadata fetch task panicked: {e}")))?
-                .map_err(|e| Status::internal(format!("failed to fetch partition count: {e}")))?;
+                .map_err(|e| {
+                    tracing::error!(topic, error = %e, "metadata fetch task panicked");
+                    Status::internal(format!("metadata fetch task panicked: {e}"))
+                })?
+                .map_err(|e| {
+                    tracing::error!(topic, error = %e, "failed to fetch partition count");
+                    Status::internal("failed to fetch Kafka metadata")
+                })?;
 
                 let config = TopicConfig {
                     topic: topic.to_string(),
@@ -187,31 +195,76 @@ impl KafkaAssigner for KafkaAssignerService {
         // Create the channel that bridges the registry to the gRPC stream.
         let (event_tx, event_rx) = mpsc::channel::<AssignmentEvent>(self.stream_channel_size);
 
-        // If the consumer already owns partitions (e.g. reconnecting), send them
-        // as the first message. New consumers get an empty set — skip the no-op.
+        // Always send an Assignment snapshot as the first message to satisfy
+        // the stream contract (service.proto). Consumers rely on receiving a
+        // snapshot before any Warm/Release commands.
         let assignments = self
             .store
             .list_assignments()
             .await
             .map_err(|e| Status::internal(format!("failed to list assignments: {e}")))?;
         let owned = convert::consumer_partitions(&consumer_name, &assignments);
-        if !owned.is_empty() {
-            let initial = AssignmentEvent::Assignment {
-                assigned: owned,
-                unassigned: vec![],
-            };
-            event_tx
-                .send(initial)
-                .await
-                .map_err(|_| Status::internal("failed to send initial assignment"))?;
-        }
+        let initial = AssignmentEvent::Assignment {
+            assigned: owned,
+            unassigned: vec![],
+        };
+        event_tx
+            .send(initial)
+            .await
+            .map_err(|_| Status::internal("failed to send initial assignment"))?;
 
-        // Register in the local consumer registry.
+        // Register in the local consumer registry BEFORE replaying
+        // handoffs. This ensures there is no window where a live handoff
+        // PUT from the relay is dropped (no sender) AND is also absent
+        // from the replay snapshot. Duplicates are safe since warm/release
+        // handling is idempotent.
         self.registry.register(ConsumerConnection {
             consumer_name: consumer_name.clone(),
-            command_tx: event_tx,
+            command_tx: event_tx.clone(),
             lease_id,
         });
+
+        // Replay pending handoffs that involve this consumer.
+        // The relay only forwards etcd watch events, so if a handoff was
+        // created or advanced while this consumer was disconnected (e.g.
+        // during a rolling restart), the command was never delivered.
+        let handoffs = self
+            .store
+            .list_handoffs()
+            .await
+            .map_err(|e| Status::internal(format!("failed to list handoffs: {e}")))?;
+        let pending_warms: Vec<_> = handoffs
+            .iter()
+            .filter(|h| h.phase == HandoffPhase::Warming && h.new_owner == consumer_name)
+            .cloned()
+            .collect();
+        let pending_releases: Vec<_> = handoffs
+            .iter()
+            .filter(|h| h.phase == HandoffPhase::Complete && h.old_owner == consumer_name)
+            .cloned()
+            .collect();
+        if !pending_warms.is_empty() {
+            tracing::info!(
+                consumer = %consumer_name,
+                count = pending_warms.len(),
+                "replaying pending Warming handoffs on reconnect"
+            );
+            event_tx
+                .send(AssignmentEvent::Warm(pending_warms))
+                .await
+                .map_err(|_| Status::internal("failed to send pending warms"))?;
+        }
+        if !pending_releases.is_empty() {
+            tracing::info!(
+                consumer = %consumer_name,
+                count = pending_releases.len(),
+                "replaying pending Complete handoffs (releases) on reconnect"
+            );
+            event_tx
+                .send(AssignmentEvent::Release(pending_releases))
+                .await
+                .map_err(|_| Status::internal("failed to send pending releases"))?;
+        }
 
         tracing::info!(consumer = %consumer_name, "consumer registered via gRPC");
 
@@ -233,8 +286,14 @@ impl KafkaAssigner for KafkaAssignerService {
             async move {
                 let mut event_rx = event_rx;
                 while let Some(event) = event_rx.recv().await {
-                    let cmd = proto::AssignmentCommand::from(&event);
-                    if proto_tx.send(Ok(cmd)).await.is_err() {
+                    let mut failed = false;
+                    for cmd in convert::to_proto_commands(&event) {
+                        if proto_tx.send(Ok(cmd)).await.is_err() {
+                            failed = true;
+                            break;
+                        }
+                    }
+                    if failed {
                         break;
                     }
                 }
@@ -259,13 +318,19 @@ impl KafkaAssigner for KafkaAssignerService {
                 );
             }
 
-            // Cleanup: unregister from local registry and revoke the etcd lease.
+            // Unregister from the local in-memory registry so the server stops
+            // trying to send commands on the dead channel.
+            //
+            // We intentionally do NOT revoke the etcd lease here. Letting it
+            // expire naturally (after consumer_lease_ttl) gives the consumer a
+            // grace period to reconnect — e.g. during a rolling deployment —
+            // without triggering a rebalance. If the consumer reconnects before
+            // the TTL elapses, it overwrites the key with a fresh lease and no
+            // partition movement occurs. If it doesn't come back, the lease
+            // expires and the assigner reassigns its partitions.
             registry.unregister(&name);
-            if let Err(e) = store.revoke_lease(lease_id).await {
-                tracing::warn!(consumer = %name, error = %e, "failed to revoke lease on cleanup");
-            }
 
-            tracing::info!(consumer = %name, "consumer disconnected, cleaned up");
+            tracing::info!(consumer = %name, lease_id, "consumer disconnected, lease will expire via TTL");
         });
 
         Ok(Response::new(ReceiverStream::new(proto_rx)))

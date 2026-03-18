@@ -5,19 +5,15 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, TeamMembershipLevel } from 'lib/constants'
+import { TeamMembershipLevel } from 'lib/constants'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { IntegrationView } from 'lib/integrations/IntegrationView'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
 import { urls } from 'scenes/urls'
 
 import { IntegrationKind, IntegrationType } from '~/types'
 
 export function ReplayIntegrations(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
-    const jiraIntegrationEnabled = featureFlags[FEATURE_FLAGS.REPLAY_JIRA_INTEGRATION]
-
     return (
         <div className="flex flex-col gap-y-6">
             <div>
@@ -32,12 +28,10 @@ export function ReplayIntegrations(): JSX.Element {
                 <h3>GitLab</h3>
                 <GitLabIntegration />
             </div>
-            {jiraIntegrationEnabled && (
-                <div>
-                    <h3>Jira</h3>
-                    <JiraIntegration />
-                </div>
-            )}
+            <div>
+                <h3>Jira</h3>
+                <JiraIntegration />
+            </div>
         </div>
     )
 }

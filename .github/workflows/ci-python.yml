@@ -58,6 +58,8 @@ jobs:
                         - 'services/llm-gateway/**/*.py'
                         # GitHub scripts
                         - '.github/scripts/**/*.py'
+                        # PR approval agent
+                        - 'tools/pr-approval-agent/**'
 
     code-quality:
         needs: changes

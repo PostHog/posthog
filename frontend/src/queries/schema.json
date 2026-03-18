@@ -367,7 +367,8 @@
                 "onboarding",
                 "research",
                 "flags",
-                "llm_analytics"
+                "llm_analytics",
+                "sandbox"
             ],
             "type": "string"
         },
@@ -613,6 +614,16 @@
                 }
             ]
         },
+        "AnyDataWarehouseNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
+                }
+            ]
+        },
         "AnyEntityNode": {
             "anyOf": [
                 {
@@ -623,6 +634,32 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<DataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<LifecycleDataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
                 }
             ]
         },
@@ -979,7 +1016,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation", "notebook", "update", "approval"],
+            "enum": ["status", "message", "conversation", "notebook", "update", "approval", "sandbox"],
             "type": "string"
         },
         "AssistantForm": {
@@ -6746,6 +6783,9 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
@@ -6757,6 +6797,9 @@
                     "format": "date-time",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
@@ -6764,6 +6807,9 @@
                 "next_allowed_client_refresh": {
                     "format": "date-time",
                     "type": "string"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "query_metadata": {
                     "type": "object"
@@ -11394,6 +11440,10 @@
         "DatabaseSchemaQuery": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for schema introspection",
+                    "type": "string"
+                },
                 "kind": {
                     "const": "DatabaseSchemaQuery",
                     "type": "string"
@@ -11463,6 +11513,9 @@
         "DatabaseSchemaSource": {
             "additionalProperties": false,
             "properties": {
+                "access_method": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
                 },
@@ -13164,6 +13217,10 @@
                 },
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
+                },
+                "useQueryV2": {
+                    "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
+                    "type": "boolean"
                 },
                 "version": {
                     "description": "version of the node, used for schema migrations",
@@ -15890,6 +15947,8 @@
                 "link",
                 "live_debugger",
                 "logs",
+                "tracing",
+                "metrics",
                 "workflows",
                 "notebook",
                 "action",
@@ -15949,6 +16008,10 @@
                 },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
+                    "type": "string"
+                },
+                "displayLabel": {
+                    "description": "Display label override — when set, shown in the nav instead of the last segment of `path`",
                     "type": "string"
                 },
                 "flag": {
@@ -17092,7 +17155,7 @@
                 "nodes": {
                     "description": "Entities to combine in this group",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/AnyEntityNode%3CDataWarehouseNode%3E"
                     },
                     "type": "array"
                 },
@@ -17131,6 +17194,12 @@
         "GroupPropertyFilter": {
             "additionalProperties": false,
             "properties": {
+                "group_key_names": {
+                    "additionalProperties": {
+                        "type": "string"
+                    },
+                    "type": "object"
+                },
                 "group_type_index": {
                     "anyOf": [
                         {
@@ -17394,6 +17463,10 @@
         "HogQLAutocomplete": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for running against a specific source",
+                    "type": "string"
+                },
                 "endPosition": {
                     "$ref": "#/definitions/integer",
                     "description": "End position of the editor word"
@@ -17497,6 +17570,10 @@
         "HogQLMetadata": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for running against a specific source",
+                    "type": "string"
+                },
                 "debug": {
                     "description": "Enable more verbose output, usually run from the /debug page",
                     "type": "boolean"
@@ -17638,6 +17715,10 @@
         "HogQLQuery": {
             "additionalProperties": false,
             "properties": {
+                "connectionId": {
+                    "description": "Optional direct external data source id for running against a specific source",
+                    "type": "string"
+                },
                 "explain": {
                     "deprecated": "use modifiers.debug instead",
                     "type": "boolean"
@@ -18819,7 +18900,7 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
-                "slack-twig",
+                "slack-posthog-code",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
@@ -19036,6 +19117,84 @@
             ],
             "type": "object"
         },
+        "LifecycleDataWarehouseNode": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_target_field": {
+                    "type": "string"
+                },
+                "created_at_field": {
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "LifecycleDataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["aggregation_target_field", "created_at_field", "id", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
@@ -19092,6 +19251,10 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "customAggregationTarget": {
+                    "description": "For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups.",
+                    "type": "boolean"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
                     "type": ["number", "null"]
@@ -19147,7 +19310,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/AnyEntityNode%3CLifecycleDataWarehouseNode%3E"
                     },
                     "type": "array"
                 },
@@ -19298,7 +19461,7 @@
             "type": "string"
         },
         "LinkedinAdsTableKeywords": {
-            "enum": ["campaigns"],
+            "enum": ["campaign_groups"],
             "type": "string"
         },
         "LlmEvalSignalExtra": {
@@ -19881,6 +20044,10 @@
                     "$ref": "#/definitions/ConversionGoalFilter",
                     "description": "Draft conversion goal that can be set in the UI without saving"
                 },
+                "drillDownLevel": {
+                    "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel",
+                    "description": "Drill-down hierarchy level: channel, source, or campaign (default)"
+                },
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
@@ -20070,6 +20237,26 @@
             "enum": ["Goal", "Cost per", "const:"],
             "type": "string"
         },
+        "MarketingAnalyticsDrillDownConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "columnAlias": {
+                    "type": "string"
+                },
+                "excludedBaseColumns": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsBaseColumns"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["columnAlias", "excludedBaseColumns"],
+            "type": "object"
+        },
+        "MarketingAnalyticsDrillDownLevel": {
+            "enum": ["channel", "source", "campaign"],
+            "type": "string"
+        },
         "MarketingAnalyticsItem": {
             "additionalProperties": false,
             "properties": {
@@ -20183,6 +20370,10 @@
                         }
                     ],
                     "description": "Draft conversion goal that can be set in the UI without saving"
+                },
+                "drillDownLevel": {
+                    "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel",
+                    "description": "Drill-down hierarchy level: channel, source, or campaign (default)"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -20434,7 +20625,7 @@
                     "additionalProperties": false,
                     "properties": {
                         "campaignTableName": {
-                            "const": "campaigns",
+                            "const": "campaign_groups",
                             "type": "string"
                         },
                         "defaultSources": {
@@ -20469,7 +20660,7 @@
                             "type": "string"
                         },
                         "statsTableName": {
-                            "const": "campaign_stats",
+                            "const": "campaign_group_stats",
                             "type": "string"
                         },
                         "tableExclusions": {
@@ -20483,7 +20674,7 @@
                         },
                         "tableKeywords": {
                             "items": {
-                                "const": "campaigns",
+                                "const": "campaign_groups",
                                 "type": "string"
                             },
                             "maxItems": 1,
@@ -20521,23 +20712,7 @@
                                             "type": "string"
                                         },
                                         {
-                                            "const": "offsite_conversion.fb_pixel_purchase",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "app_custom_event.fb_mobile_purchase",
-                                            "type": "string"
-                                        },
-                                        {
                                             "const": "lead",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "offsite_conversion.fb_pixel_lead",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "onsite_conversion.lead_grouped",
                                             "type": "string"
                                         },
                                         {
@@ -20545,36 +20720,16 @@
                                             "type": "string"
                                         },
                                         {
-                                            "const": "offsite_conversion.fb_pixel_complete_registration",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "app_custom_event.fb_mobile_complete_registration",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "offsite_complete_registration_add_meta_leads",
-                                            "type": "string"
-                                        },
-                                        {
                                             "const": "app_install",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "mobile_app_install",
                                             "type": "string"
                                         },
                                         {
                                             "const": "subscribe",
                                             "type": "string"
-                                        },
-                                        {
-                                            "const": "offsite_conversion.fb_pixel_subscribe",
-                                            "type": "string"
                                         }
                                     ],
-                                    "maxItems": 14,
-                                    "minItems": 14,
+                                    "maxItems": 5,
+                                    "minItems": 5,
                                     "type": "array"
                                 },
                                 "omni": {
@@ -20603,9 +20758,52 @@
                                     "maxItems": 5,
                                     "minItems": 5,
                                     "type": "array"
+                                },
+                                "specific": {
+                                    "items": [
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "onsite_conversion.lead_grouped",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_complete_registration_add_meta_leads",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "mobile_app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_subscribe",
+                                            "type": "string"
+                                        }
+                                    ],
+                                    "maxItems": 9,
+                                    "minItems": 9,
+                                    "type": "array"
                                 }
                             },
-                            "required": ["omni", "fallback"],
+                            "required": ["omni", "fallback", "specific"],
                             "type": "object"
                         },
                         "defaultSources": {
@@ -22130,26 +22328,25 @@
             ]
         },
         "MetaAdsConversionFallbackActionTypes": {
-            "enum": [
-                "purchase",
-                "offsite_conversion.fb_pixel_purchase",
-                "app_custom_event.fb_mobile_purchase",
-                "lead",
-                "offsite_conversion.fb_pixel_lead",
-                "onsite_conversion.lead_grouped",
-                "complete_registration",
-                "offsite_conversion.fb_pixel_complete_registration",
-                "app_custom_event.fb_mobile_complete_registration",
-                "offsite_complete_registration_add_meta_leads",
-                "app_install",
-                "mobile_app_install",
-                "subscribe",
-                "offsite_conversion.fb_pixel_subscribe"
-            ],
+            "enum": ["purchase", "lead", "complete_registration", "app_install", "subscribe"],
             "type": "string"
         },
         "MetaAdsConversionOmniActionTypes": {
             "enum": ["omni_purchase", "omni_lead", "omni_complete_registration", "omni_app_install", "omni_subscribe"],
+            "type": "string"
+        },
+        "MetaAdsConversionSpecificActionTypes": {
+            "enum": [
+                "offsite_conversion.fb_pixel_purchase",
+                "app_custom_event.fb_mobile_purchase",
+                "offsite_conversion.fb_pixel_lead",
+                "onsite_conversion.lead_grouped",
+                "offsite_conversion.fb_pixel_complete_registration",
+                "app_custom_event.fb_mobile_complete_registration",
+                "offsite_complete_registration_add_meta_leads",
+                "mobile_app_install",
+                "offsite_conversion.fb_pixel_subscribe"
+            ],
             "type": "string"
         },
         "MetaAdsDefaultSources": {
@@ -22468,6 +22665,7 @@
                 "GroupNode",
                 "ActionsNode",
                 "DataWarehouseNode",
+                "LifecycleDataWarehouseNode",
                 "EventsQuery",
                 "SessionsQuery",
                 "PersonsNode",
@@ -23501,6 +23699,8 @@
                 "tasks",
                 "teams",
                 "toolbar",
+                "tracing",
+                "metrics",
                 "user_interviews",
                 "visual_review",
                 "web_analytics",
@@ -27799,13 +27999,22 @@
                             "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                             "type": "string"
                         },
+                        "hasMore": {
+                            "type": "boolean"
+                        },
                         "hogql": {
                             "description": "Generated HogQL query.",
                             "type": "string"
                         },
+                        "limit": {
+                            "$ref": "#/definitions/integer"
+                        },
                         "modifiers": {
                             "$ref": "#/definitions/HogQLQueryModifiers",
                             "description": "Modifiers used when performing the query"
+                        },
+                        "offset": {
+                            "$ref": "#/definitions/integer"
                         },
                         "query_status": {
                             "$ref": "#/definitions/QueryStatus",
@@ -28324,6 +28533,9 @@
                     "$ref": "#/definitions/DataWarehouseNode"
                 },
                 {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
+                },
+                {
                     "$ref": "#/definitions/EventsQuery"
                 },
                 {
@@ -28648,7 +28860,7 @@
             "type": "object"
         },
         "QuickFilterContext": {
-            "enum": ["error-tracking-issue-filters", "logs-filters"],
+            "enum": ["dashboards", "error-tracking-issue-filters", "logs-filters"],
             "type": "string"
         },
         "QuickFilterType": {
@@ -32729,9 +32941,17 @@
                     "const": "TeamTaxonomyQuery",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to return"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer",
+                    "description": "Number of rows to skip before returning rows"
                 },
                 "response": {
                     "$ref": "#/definitions/TeamTaxonomyQueryResponse"
@@ -32754,13 +32974,22 @@
                     "description": "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise.",
                     "type": "string"
                 },
+                "hasMore": {
+                    "type": "boolean"
+                },
                 "hogql": {
                     "description": "Generated HogQL query.",
                     "type": "string"
                 },
+                "limit": {
+                    "$ref": "#/definitions/integer"
+                },
                 "modifiers": {
                     "$ref": "#/definitions/HogQLQueryModifiers",
                     "description": "Modifiers used when performing the query"
+                },
+                "offset": {
+                    "$ref": "#/definitions/integer"
                 },
                 "query_status": {
                     "$ref": "#/definitions/QueryStatus",
@@ -35021,6 +35250,7 @@
                 "ScreenName",
                 "InitialChannelType",
                 "InitialReferringDomain",
+                "InitialReferringURL",
                 "InitialUTMSource",
                 "InitialUTMCampaign",
                 "InitialUTMMedium",
@@ -35087,6 +35317,9 @@
                     "type": "boolean"
                 },
                 "includeBounceRate": {
+                    "type": "boolean"
+                },
+                "includeHost": {
                     "type": "boolean"
                 },
                 "includeRevenue": {

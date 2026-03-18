@@ -24,7 +24,6 @@ import { registerResources } from '@/resources'
 import { registerUiAppResources } from '@/resources/ui-apps'
 import INSTRUCTIONS_TEMPLATE_V1 from '@/templates/instructions-v1.md'
 import INSTRUCTIONS_TEMPLATE_V2 from '@/templates/instructions-v2.md'
-import { getToolsFromContext } from '@/tools'
 import type { CloudRegion, Context, State, Tool } from '@/tools/types'
 import type { AnalyticsMetadata, WithAnalytics } from '@/ui-apps/types'
 
@@ -43,6 +42,7 @@ export type RequestProperties = {
     projectId?: string
     clientUserAgent?: string
     readOnly?: boolean
+    transport?: 'streamable-http' | 'sse'
 }
 
 export class MCP extends McpAgent<Env> {
@@ -55,6 +55,8 @@ export class MCP extends McpAgent<Env> {
         region: undefined,
         apiKey: undefined,
         clientName: undefined,
+        aiConsentGiven: undefined,
+        aiConsentFetchedAt: undefined,
     }
 
     _cache: DurableObjectCache<State> | undefined
@@ -209,6 +211,8 @@ export class MCP extends McpAgent<Env> {
 
             await this.resolveClientInfo()
 
+            const clientName = await this.cache.get('clientName')
+
             client.capture({
                 distinctId,
                 event,
@@ -218,9 +222,11 @@ export class MCP extends McpAgent<Env> {
                               $session_id: await this.sessionManager.getSessionUuid(this.requestProperties.sessionId),
                           }
                         : {}),
+                    ...(clientName ? { mcp_oauth_client_name: clientName } : {}),
                     ...(this._mcpClientName ? { mcp_client_name: this._mcpClientName } : {}),
                     ...(this._mcpClientVersion ? { mcp_client_version: this._mcpClientVersion } : {}),
                     ...(this._mcpProtocolVersion ? { mcp_protocol_version: this._mcpProtocolVersion } : {}),
+                    ...(this.requestProperties.transport ? { mcp_transport: this.requestProperties.transport } : {}),
                     ...properties,
                 },
             })
@@ -433,12 +439,20 @@ export class MCP extends McpAgent<Env> {
         await registerUiAppResources(this.server, context)
 
         // Register tools
+        const { getToolsFromContext } = await import('@/tools')
         const allTools = await getToolsFromContext(context, {
             features,
             version,
             excludeTools,
             readOnly,
         })
+
+        // OAuth introspection has now run (triggered by getToolsFromContext → getApiKey),
+        // so update the ApiClient with the verified OAuth client name for header forwarding.
+        const oauthClientName = (await this.cache.get('clientName')) || undefined
+        if (oauthClientName && this._api) {
+            this._api.config.oauthClientName = oauthClientName
+        }
 
         for (const tool of allTools) {
             const typedTool = tool as Tool<z.ZodObject>

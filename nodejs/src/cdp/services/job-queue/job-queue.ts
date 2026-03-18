@@ -6,8 +6,9 @@
 import { DateTime } from 'luxon'
 import { Counter, Gauge } from 'prom-client'
 
-import { HealthCheckResultError, PluginsServerConfig } from '../../../types'
+import { HealthCheckResultError } from '../../../types'
 import { logger } from '../../../utils/logger'
+import { CdpConfig } from '../../config'
 import {
     CYCLOTRON_INVOCATION_JOB_QUEUES,
     CYCLOTRON_JOB_QUEUE_SOURCES,
@@ -17,7 +18,7 @@ import {
     CyclotronJobQueueSource,
 } from '../../types'
 import { CyclotronJobQueueKafka } from './job-queue-kafka'
-import { CyclotronJobQueuePostgres, CyclotronJobQueuePostgresShadow } from './job-queue-postgres'
+import { CyclotronJobQueuePostgres } from './job-queue-postgres'
 import { CyclotronJobQueuePostgresV2 } from './job-queue-postgres-v2'
 import { sanitizeInvocationForPersistence } from './shared'
 
@@ -34,6 +35,7 @@ const counterJobsProcessed = new Counter({
 })
 
 export const JOB_SCHEDULED_AT_FUTURE_THRESHOLD_MS = 10 * 1000 // Any scheduled jobs need to be scheduled this much in the future to be considered for postgres
+const PERCENTAGE_TOLERANCE = 0.001
 
 export type CyclotronJobQueueRoutingEntry = {
     target: CyclotronJobQueueSource
@@ -58,33 +60,25 @@ export class CyclotronJobQueue {
     private jobQueuePostgres: CyclotronJobQueuePostgres
     private jobQueuePostgresV2: CyclotronJobQueuePostgresV2 | null = null
     private jobQueueKafka: CyclotronJobQueueKafka
-    private shadowPostgres: CyclotronJobQueuePostgresShadow | null = null
-    private shadowFailures = 0
-    private shadowCircuitOpenUntil = 0
 
-    constructor(private config: PluginsServerConfig) {
+    constructor(
+        private consumerBatchSize: number,
+        private kafkaClientRack: string | undefined,
+        private config: CdpConfig
+    ) {
         this.producerMapping = getProducerMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_MAPPING)
         this.producerTeamMapping = getProducerTeamMapping(this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_TEAM_MAPPING)
         this.producerForceScheduledToPostgres = this.config.CDP_CYCLOTRON_JOB_QUEUE_PRODUCER_FORCE_SCHEDULED_TO_POSTGRES
-        this.jobQueueKafka = new CyclotronJobQueueKafka(this.config)
-        this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.config)
+        this.jobQueueKafka = new CyclotronJobQueueKafka(this.kafkaClientRack, this.config)
+        this.jobQueuePostgres = new CyclotronJobQueuePostgres(this.consumerBatchSize, this.config)
 
         if (this.config.CYCLOTRON_NODE_DATABASE_URL) {
-            this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.config)
-        }
-
-        if (this.config.CDP_CYCLOTRON_SHADOW_WRITE_ENABLED && this.config.CYCLOTRON_SHADOW_DATABASE_URL) {
-            const shadowConfig = {
-                ...this.config,
-                CYCLOTRON_DATABASE_URL: this.config.CYCLOTRON_SHADOW_DATABASE_URL,
-            }
-            this.shadowPostgres = new CyclotronJobQueuePostgresShadow(shadowConfig)
+            this.jobQueuePostgresV2 = new CyclotronJobQueuePostgresV2(this.consumerBatchSize, this.config)
         }
 
         logger.info('🔄', 'CyclotronJobQueue initialized', {
             producerMapping: this.producerMapping,
             producerTeamMapping: this.producerTeamMapping,
-            shadowWriteEnabled: !!this.shadowPostgres,
             v2Enabled: !!this.jobQueuePostgresV2,
         })
     }
@@ -95,7 +89,7 @@ export class CyclotronJobQueue {
     ): Promise<{ backgroundTask: Promise<any> }> {
         cyclotronBatchUtilizationGauge
             .labels({ queue: this.queue!, source })
-            .set(invocations.length / this.config.CONSUMER_BATCH_SIZE)
+            .set(invocations.length / this.consumerBatchSize)
 
         const result = await this._consumeBatch!(invocations)
         counterJobsProcessed.inc({ queue: this.queue!, source }, invocations.length)
@@ -132,15 +126,6 @@ export class CyclotronJobQueue {
 
         if (targets.has('kafka')) {
             await this.jobQueueKafka.startAsProducer()
-        }
-
-        if (this.shadowPostgres) {
-            await this.shadowPostgres.startAsProducer().catch((err) => {
-                logger.warn('Shadow cyclotron producer failed to start, disabling shadow writes', {
-                    error: err.message,
-                })
-                this.shadowPostgres = null
-            })
         }
     }
 
@@ -185,7 +170,6 @@ export class CyclotronJobQueue {
             this.jobQueuePostgres.stopProducer(),
             this.jobQueuePostgresV2?.stopProducer(),
             this.jobQueueKafka.stopProducer(),
-            this.shadowPostgres?.stopProducer(),
         ])
     }
 
@@ -261,27 +245,6 @@ export class CyclotronJobQueue {
             this.jobQueuePostgresV2?.queueInvocations(postgresV2Invocations),
             this.jobQueueKafka.queueInvocations(kafkaInvocations),
         ])
-
-        if (this.shadowPostgres && Date.now() >= this.shadowCircuitOpenUntil) {
-            const hogInvocations = sanitized.filter((x) => x.queue === 'hog')
-            if (!hogInvocations.length) {
-                return
-            }
-            void this.shadowPostgres
-                .queueInvocations(hogInvocations)
-                .then(() => {
-                    this.shadowFailures = 0
-                })
-                .catch((err) => {
-                    this.shadowFailures++
-                    if (this.shadowFailures >= 5) {
-                        this.shadowCircuitOpenUntil = Date.now() + 60_000
-                        this.shadowFailures = 0
-                        logger.warn('Shadow cyclotron circuit breaker opened')
-                    }
-                    logger.warn('Shadow cyclotron write failed', { error: err.message, stack: err.stack })
-                })
-        }
     }
 
     public async dequeueInvocations(invocations: CyclotronJobInvocation[]) {
@@ -461,7 +424,7 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
     for (const [queue, entries] of Object.entries(routing)) {
         if (entries.length > 1) {
             const sum = entries.reduce((acc, e) => acc + e.percentage, 0)
-            if (Math.abs(sum - 1) > 0.001) {
+            if (Math.abs(sum - 1) > PERCENTAGE_TOLERANCE) {
                 throw new Error(`Invalid mapping for queue ${queue}: percentages must sum to 1 (got ${sum})`)
             }
         }
@@ -471,20 +434,61 @@ export function getProducerMapping(stringMapping: string): CyclotronJobQueueRout
 }
 
 /**
- * Same as getProducerMapping but with a team check too.
- * So for example `1:*:kafka,2:*:postgres` would result in team 1 using kafka and team 2 using postgres
+ * Same as getProducerMapping but with a team prefix.
+ * Entries for the same team are grouped together before parsing.
+ *
+ * Format: `TEAM:QUEUE:TARGET[:PERCENTAGE],...`
+ *
+ * For queue-specific overrides with percentages < 1, the remainder is automatically
+ * filled from the team's `*` default.
+ *
+ * Example: `79155:*:kafka,79155:hog:postgres-v2:0.001` results in team 79155 routing
+ * 0.1% of hog jobs to postgres-v2 and 99.9% to kafka (remainder filled from team's `*`).
  */
 export function getProducerTeamMapping(stringMapping: string): CyclotronJobQueueTeamRouting {
     if (!stringMapping) {
         return {}
     }
 
-    const routing: CyclotronJobQueueTeamRouting = {}
-    const parts = stringMapping.split(',')
-
-    for (const part of parts) {
+    // Group parts by team ID
+    const teamParts: Record<string, string[]> = {}
+    for (const part of stringMapping.split(',')) {
         const [team, ...rest] = part.split(':')
-        routing[team] = getProducerMapping(rest.join(':'))
+        if (!team || rest.length < 2) {
+            throw new Error(`Invalid team mapping: ${part} - expected format TEAM:QUEUE:TARGET[:PERCENTAGE]`)
+        }
+        if (!teamParts[team]) {
+            teamParts[team] = []
+        }
+        teamParts[team].push(rest.join(':'))
+    }
+
+    const routing: CyclotronJobQueueTeamRouting = {}
+
+    for (const [team, groupedParts] of Object.entries(teamParts)) {
+        const teamRouting = getProducerMapping(groupedParts.join(','))
+
+        // Fill remainder for queues where percentages don't sum to 1,
+        // using the team's `*` default to fill the gap
+        for (const [queue, entries] of Object.entries(teamRouting)) {
+            if (queue === '*') {
+                continue
+            }
+            const sum = entries.reduce((acc, e) => acc + e.percentage, 0)
+            if (sum < 1 - PERCENTAGE_TOLERANCE) {
+                const fallbackEntries = teamRouting['*']
+                const remainder = 1 - sum
+                const fallbackSum = fallbackEntries.reduce((acc, e) => acc + e.percentage, 0)
+                for (const fallback of fallbackEntries) {
+                    entries.push({
+                        target: fallback.target,
+                        percentage: (fallback.percentage / fallbackSum) * remainder,
+                    })
+                }
+            }
+        }
+
+        routing[team] = teamRouting
     }
 
     return routing

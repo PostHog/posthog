@@ -16,7 +16,9 @@ logger = get_logger(__name__)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)
-def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Optional[int] = None) -> int:
+def refresh_affected_hog_functions(
+    team_id: Optional[int] = None, action_id: Optional[int] = None, cohort_id: Optional[int] = None
+) -> int:
     from posthog.models.hog_functions.hog_function import HogFunction
 
     affected_hog_functions: list[HogFunction] = []
@@ -29,7 +31,27 @@ def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Opt
             .filter(team_id=action.team_id)
             .filter(filters__contains={"actions": [{"id": str(action_id)}]})
         )
-    elif team_id:
+    elif cohort_id:
+        from posthog.models.cohort import Cohort
+
+        try:
+            cohort = Cohort.objects.select_related("team").get(id=cohort_id)
+        except Cohort.DoesNotExist:
+            # Cohort was deleted between signal firing and task execution — nothing to refresh
+            return 0
+        team = cohort.team
+
+        # Check if this team references the cohort in its test_account_filters
+        uses_cohort = any(
+            f.get("type") == "cohort" and f.get("value") == cohort.id for f in (team.test_account_filters or [])
+        )
+        if not uses_cohort:
+            return 0
+
+        team_id = team.id
+
+    # For both cohort_id and team_id paths, find hog functions with test account filters enabled
+    if team_id and not affected_hog_functions:
         affected_hog_functions = list(
             HogFunction.objects.select_related("team")
             .filter(team_id=team_id)
@@ -37,7 +59,7 @@ def refresh_affected_hog_functions(team_id: Optional[int] = None, action_id: Opt
         )
 
     if team_id is None:
-        raise Exception("Either team_id or action_id must be provided")
+        raise Exception("Either team_id, action_id, or cohort_id must be provided")
 
     if not affected_hog_functions:
         return 0

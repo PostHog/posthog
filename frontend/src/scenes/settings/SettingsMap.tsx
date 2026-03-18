@@ -1,8 +1,8 @@
 import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 import { ErrorTrackingAlerting } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/ErrorTrackingAlerting'
+import { AssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/assignment_rules/AssignmentRules'
+import { GroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/grouping_rules/GroupingRules'
 import { Releases } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/releases/Releases'
-import { AutoAssignmentRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/AutoAssignmentRules'
-import { CustomGroupingRules } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/CustomGroupingRules'
 import { SpikeDetectionSettings } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/spike_detection/SpikeDetectionSettings'
 import { SymbolSets } from '@posthog/products-error-tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/SymbolSets'
 import { LLMProviderKeysSettings } from '@posthog/products-llm-analytics/frontend/settings/LLMProviderKeysSettings'
@@ -38,10 +38,8 @@ import {
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { CustomerAnalyticsDashboardEvents } from 'products/customer_analytics/frontend/scenes/CustomerAnalyticsConfigurationScene/events/CustomerAnalyticsDashboardEvents'
-import {
-    ExceptionAutocaptureToggle,
-    ExceptionSuppressionRules,
-} from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
+import { ExceptionAutocaptureToggle } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/exception_autocapture/ExceptionAutocaptureSettings'
+import { SuppressionRules } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/suppression_rules/SuppressionRules'
 
 import { IntegrationsList } from '../../lib/integrations/IntegrationsList'
 import {
@@ -80,6 +78,7 @@ import { MarketingAnalyticsSettingsWrapper } from './environment/MarketingAnalyt
 import MCPServerSettings from './environment/MCPServerSettings'
 import { PathCleaningFiltersConfig } from './environment/PathCleaningFiltersConfig'
 import { PersonDisplayNameProperties } from './environment/PersonDisplayNameProperties'
+import { PostHogCodeSlackIntegration } from './environment/PostHogCodeSlackIntegration'
 import { ReplayIntegrations } from './environment/ReplayIntegrations'
 import { SDKSetupInstructions } from './environment/SDKSetupInstructions'
 import {
@@ -105,7 +104,6 @@ import {
     WebSnippetV2,
 } from './environment/TeamSettings'
 import { ProjectAccountFiltersSetting } from './environment/TestAccountFiltersConfig'
-import { TwigSlackIntegration } from './environment/TwigSlackIntegration'
 import { UsageMetricsConfig } from './environment/UsageMetricsConfig'
 import { WebAnalyticsEnablePreAggregatedTables } from './environment/WebAnalyticsAPISetting'
 import { WebhookIntegration } from './environment/WebhookIntegration'
@@ -329,14 +327,14 @@ export const SETTINGS_MAP: SettingSection[] = [
     },
     {
         level: 'environment',
-        id: 'environment-twig',
-        title: 'Twig',
+        id: 'environment-posthog-code',
+        title: 'PostHog Code',
         flag: 'TASKS',
         settings: [
             {
-                id: 'integration-twig-slack',
+                id: 'integration-posthog-code-slack',
                 title: 'Slack integration',
-                component: <TwigSlackIntegration />,
+                component: <PostHogCodeSlackIntegration />,
             },
         ],
     },
@@ -667,7 +665,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Cookieless server hash mode',
                 description:
                     'Enable cookieless tracking using a privacy-preserving hash to count unique users without cookies. You must enable this here before enabling cookieless in posthog-js.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/cookieless-tracking',
+                docsUrl: 'https://posthog.com/tutorials/cookieless-tracking',
                 component: <CookielessServerHashModeSetting />,
                 keywords: ['cookie', 'privacy', 'gdpr', 'tracking', 'consent'],
             },
@@ -676,7 +674,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 title: 'Bounce rate duration',
                 description:
                     'Set how long a user can stay on a page (in seconds) before the session is not counted as a bounce. Default is 10 seconds.',
-                docsUrl: 'https://posthog.com/docs/web-analytics/bounce-rate',
+                docsUrl: 'https://posthog.com/tutorials/bounce-rate',
                 component: <BounceRateDurationSetting />,
                 keywords: ['bounce', 'session', 'duration', 'seconds'],
             },
@@ -997,15 +995,6 @@ export const SETTINGS_MAP: SettingSection[] = [
                 keywords: ['crash', 'bug', 'exception', 'stack trace'],
             },
             {
-                id: 'error-tracking-suppression-rules',
-                title: 'Suppression rules',
-                description:
-                    'Filter autocaptured exceptions by type or message to skip capturing certain exceptions in the web SDK.',
-                platformSupport: FEATURE_SUPPORT.errorTrackingSuppressionRules,
-                component: <ExceptionSuppressionRules />,
-                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
-            },
-            {
                 id: 'error-tracking-alerting',
                 title: 'Alerting',
                 description: 'Configure alerts to get notified when new errors occur or error rates spike.',
@@ -1022,15 +1011,23 @@ export const SETTINGS_MAP: SettingSection[] = [
                 id: 'error-tracking-auto-assignment',
                 title: 'Auto assignment rules',
                 description: 'Automatically assign errors to team members based on rules you define.',
-                component: <AutoAssignmentRules />,
+                component: <AssignmentRules />,
                 keywords: ['assign', 'owner', 'team', 'rule', 'routing'],
             },
             {
                 id: 'error-tracking-custom-grouping',
                 title: 'Custom grouping rules',
                 description: 'Define rules for how errors are grouped together into issues.',
-                component: <CustomGroupingRules />,
+                component: <GroupingRules />,
                 keywords: ['group', 'merge', 'fingerprint', 'dedup'],
+            },
+            {
+                id: 'error-tracking-suppression-rules',
+                title: 'Suppression rules',
+                description:
+                    'Drop exceptions by type or message before they create issues. Rules are evaluated both client-side and server-side.',
+                component: <SuppressionRules />,
+                keywords: ['filter', 'ignore', 'suppress', 'exception', 'type', 'message'],
             },
             {
                 id: 'error-tracking-integrations',

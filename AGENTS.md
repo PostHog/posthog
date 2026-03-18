@@ -12,7 +12,6 @@
 - Environment:
   - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
-  - If local hooks fail with missing Husky bootstrap files (for example `.husky/_/husky.sh`) or missing `lint-staged`, run `pnpm install --frozen-lockfile --filter=.` once in the repo root
 - Tests:
   - All tests: `pytest`
   - Single test: `pytest path/to/test.py::TestClass::test_method`
@@ -56,6 +55,10 @@ Examples:
 - `chore(ci): update GitHub Actions workflow`
 - `chore: update AGENTS.md instructions`
 
+### PR descriptions
+
+Follow the PR description template in `.github/pull_request_template.md` when creating or updating PR descriptions. Keep the descriptions of changes higher-level, focusing on key details for the human reviewer to evaluate the rationale for the approach, and the overall architecture.
+
 ### Rules
 
 - Scope is optional but encouraged when the change is specific to a feature area
@@ -86,6 +89,7 @@ See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep secur
 - Error handling: Prefer explicit error handling with typed errors
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
 - Comments: explain _why_, not _what_ — if the reason isn't important, skip the comment
+- Comments: when refactoring or moving code, preserve existing comments unless they are explicitly made obsolete by the change
 - Python tests: do not add doc comments
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
 - Tests: prefer parameterized tests (use the `parameterized` library in Python) — if you're writing multiple assertions for variations of the same logic, it should be parameterized

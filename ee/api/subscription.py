@@ -16,6 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.constants import AvailableFeature
 from posthog.models import Insight
+from posthog.models.integration import Integration
 from posthog.models.subscription import Subscription, unsubscribe_using_token
 from posthog.permissions import PremiumFeaturePermission
 from posthog.security.url_validation import is_url_allowed
@@ -47,6 +48,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
     created_by = UserBasicSerializer(read_only=True)
     invite_message = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+    integration_id = serializers.IntegerField(required=False, allow_null=True)
     dashboard_export_insights = DashboardExportInsightsField(required=False)
 
     class Meta:
@@ -71,6 +73,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "title",
             "summary",
             "next_delivery_date",
+            "integration_id",
             "invite_message",
         ]
         read_only_fields = [
@@ -95,8 +98,22 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         self._validate_dashboard_export_subscription(attrs)
 
-        # SSRF protection for webhook subscriptions
         target_type = attrs.get("target_type") or (self.instance.target_type if self.instance else None)
+        integration_id = attrs.get("integration_id") or (self.instance.integration_id if self.instance else None)
+
+        if target_type == Subscription.SubscriptionTarget.SLACK:
+            if not integration_id:
+                raise ValidationError({"integration_id": ["A Slack integration is required for Slack subscriptions."]})
+            try:
+                integration = Integration.objects.get(id=integration_id, team_id=self.context["team_id"])
+            except Integration.DoesNotExist:
+                raise ValidationError(
+                    {"integration_id": ["This integration does not exist or does not belong to your team."]}
+                )
+            if integration.kind != "slack":
+                raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
+
+        # SSRF protection for webhook subscriptions
         target_value = attrs.get("target_value") or (self.instance.target_value if self.instance else None)
         if target_type == Subscription.SubscriptionTarget.WEBHOOK and target_value:
             allowed, error = is_url_allowed(target_value)

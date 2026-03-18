@@ -17,11 +17,13 @@ from posthog.schema import DateRange, LogAttributesQuery, LogsQuery, LogValuesQu
 
 from posthog.api.mixins import PydanticModelMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.event_usage import get_request_analytics_properties
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import User
 from posthog.models.exported_asset import ExportedAsset
 from posthog.tasks.exporter import export_asset
 
+from products.logs.backend.alerts_api import LogsAlertViewSet
 from products.logs.backend.explain import LogExplainViewSet
 from products.logs.backend.has_logs_query_runner import HasLogsQueryRunner
 from products.logs.backend.log_attributes_query_runner import LogAttributesQueryRunner
@@ -29,7 +31,7 @@ from products.logs.backend.log_values_query_runner import LogValuesQueryRunner
 from products.logs.backend.logs_query_runner import CachedLogsQueryResponse, LogsQueryResponse, LogsQueryRunner
 from products.logs.backend.sparkline_query_runner import SparklineQueryRunner
 
-__all__ = ["LogsViewSet", "LogExplainViewSet"]
+__all__ = ["LogsViewSet", "LogExplainViewSet", "LogsAlertViewSet"]
 
 LOGS_MAX_EXPORT_ROWS = 10_000
 
@@ -89,6 +91,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         if after_cursor:
             logs_query_params["after"] = after_cursor
         query = LogsQuery(**logs_query_params)
+        analytics_props = get_request_analytics_properties(request)
 
         def results_generator(query: LogsQuery, logs_query_params: dict):
             """
@@ -101,7 +104,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
 
             Of logs at a time, stopping if we hit the limit first (most queries hit it in the first 3 minutes)
             """
-            runner = LogsQueryRunner(query, self.team, request=request)
+            runner = LogsQueryRunner(query, self.team)
 
             qdr = runner.query_date_range
             date_range_length = qdr.date_to() - qdr.date_from()
@@ -155,22 +158,20 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
                         }
                     )
 
-                return LogsQueryRunner(slice_query, self.team, request=request), LogsQueryRunner(
-                    remainder_query, self.team, request=request
-                )
+                return LogsQueryRunner(slice_query, self.team), LogsQueryRunner(remainder_query, self.team)
 
             # Skip time-slicing for live tailing - we're always only looking at the most recent 1-2 minutes
             # Note: cursor pagination no longer skips time-slicing because we narrow the date range
             # to end at the cursor timestamp, allowing time-slicing to work on the remaining range.
             if live_logs_checkpoint:
-                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
                 yield from response.results
                 return
 
             # if we're searching more than 20 minutes, first fetch the first 3 minutes of logs and see if that hits the limit
             if date_range_length > dt.timedelta(minutes=20):
                 recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=3), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
                 limit -= len(response.results)
                 yield from response.results
                 if limit <= 0:
@@ -180,7 +181,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             # otherwise if we're searching more than 4 hours search the next hour
             if date_range_length > dt.timedelta(hours=4):
                 recent_runner, runner = runner_slice(runner, dt.timedelta(minutes=60), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
                 limit -= len(response.results)
                 yield from response.results
                 if limit <= 0:
@@ -190,14 +191,14 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             # otherwise if we're searching more than 24 hours search the next 6 hours
             if date_range_length > dt.timedelta(hours=24):
                 recent_runner, runner = runner_slice(runner, dt.timedelta(hours=6), query.orderBy)
-                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+                response = recent_runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
                 limit -= len(response.results)
                 yield from response.results
                 if limit <= 0:
                     return
                 runner.query.limit = limit
 
-            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS, analytics_props=analytics_props)
             yield from response.results
 
         results = list(results_generator(query, logs_query_params))
@@ -239,8 +240,11 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sparklineBreakdownBy=query_data.get("sparklineBreakdownBy"),
         )
 
-        runner = SparklineQueryRunner(team=self.team, query=query, request=request)
-        response = runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        runner = SparklineQueryRunner(team=self.team, query=query)
+        response = runner.run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+            analytics_props=get_request_analytics_properties(request),
+        )
         assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
         return Response(response.results, status=status.HTTP_200_OK)
 

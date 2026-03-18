@@ -88,6 +88,9 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
         // Signal emission
         setSignalEmission: (enabled: boolean) => ({ enabled }),
 
+        // Tab navigation
+        setActiveTab: (tab: string) => ({ tab }),
+
         // Evaluation management actions
         saveEvaluation: true,
         saveEvaluationSuccess: (evaluation: EvaluationConfig) => ({ evaluation }),
@@ -340,6 +343,14 @@ export const llmEvaluationLogic = kea<llmEvaluationLogicType>([
             {
                 toggleSummaryExpanded: (state) => !state,
                 generateEvaluationSummarySuccess: () => true,
+            },
+        ],
+        activeTab: [
+            'configuration' as string,
+            {
+                setActiveTab: (_, { tab }) => tab,
+                // Show runs tab for existing evaluations, configuration for new
+                loadEvaluationSuccess: (_, { evaluation }) => (evaluation?.id ? 'runs' : 'configuration'),
             },
         ],
     }),

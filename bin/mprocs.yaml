@@ -32,19 +32,23 @@ procs:
 
     backend:
         shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-backend'
-        # no capability - always_required via intent-map.yaml
+        ready_pattern: 'Listening at'
+        # no capability: always_required via intent-map.yaml
 
     celery-worker:
         shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-celery worker'
         capability: celery_workers
+        ready_pattern: 'celery@'
 
     celery-beat:
         shell: 'uv sync --active && bin/wait-for-docker && bin/check_ducklake_up && ./bin/start-celery beat'
         capability: celery_scheduler
+        ready_pattern: 'celery beat'
 
     nodejs:
         shell: 'bin/wait-for-docker && bin/check_ducklake_up && ./bin/posthog-node'
         capability: event_ingestion
+        ready_pattern: 'All systems go'
         # Node.js capabilities are controlled via NODEJS_CAPABILITY_GROUPS env var
         # Set by hogli dev:generate based on selected nodejs_* capabilities
         # Valid groups: cdp_workflows, realtime_cohorts, session_replay, logs, feature_flags
@@ -53,17 +57,20 @@ procs:
     frontend:
         shell: './bin/start-frontend'
         autorestart: true
-        # no capability - always_required via intent-map.yaml
+        ready_pattern: 'VITE.*ready in'
+        # no capability: always_required via intent-map.yaml
 
     typegen:
         shell: 'cd frontend && pnpm run typegen:watch'
         autostart: false
         ask_skip: true # wizard asks if user wants to skip this
+        ready_pattern: 'Starting TypeScript watch mode'
 
     temporal-worker:
         shell: |-
             bin/wait-for-docker temporal && \
             bin/check_ducklake_up && \
+            python manage.py register_temporal_search_attributes && \
             if [ -n "$TEMPORAL_DISABLE_HOT_RELOAD" ] || ! command -v nodemon >/dev/null 2>&1; then \
                 python manage.py start_temporal_worker --task-queue development-task-queue; \
             else \
@@ -71,39 +78,44 @@ procs:
             fi
         capability: temporal_workflows
 
+    recording-rasterizer:
+        shell: |-
+            bin/wait-for-docker temporal && \
+            bin/temporal-recording-rasterizer-worker
+        capability: recording_rasterizer
+        ready_pattern: 'Worker started on queue'
+        env:
+            VIDEO_EXPORT_OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
+            VIDEO_EXPORT_OBJECT_STORAGE_REGION: 'us-east-1'
+            AWS_ACCESS_KEY_ID: 'object_storage_root_user'
+            AWS_SECRET_ACCESS_KEY: 'object_storage_root_password'
+
     dagster:
         shell: |-
             bin/wait-for-docker && \
             bin/check_ducklake_up && \
             dagster dev --workspace $DAGSTER_HOME/workspace.yaml -p $DAGSTER_UI_PORT
         capability: dagster_pipelines
+        ready_pattern: 'Launching Dagster services'
 
     docker-compose:
-        shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && docker compose -f docker-compose.dev.yml logs --tail=0 -f'
+        shell: 'docker compose -f docker-compose.dev.yml up --pull always -d && echo "docker-compose ready" && docker compose -f docker-compose.dev.yml logs --tail=100 -f'
         capability: core_infra
-        # also always_required via intent-map.yaml
+        ready_pattern: 'docker-compose ready'
 
     cyclotron-janitor:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service cyclotron-janitor
         capability: cyclotron
-
-    cyclotron-janitor-shadow:
-        shell: |-
-            bin/wait-for-docker && \
-            DATABASE_URL=postgres://posthog:posthog@localhost:5432/cyclotron_shadow \
-            BIND_PORT=3304 \
-            JANITOR_ID=shadow-janitor \
-            SHARD_ID=shadow \
-            bin/start-rust-service cyclotron-janitor
-        capability: cyclotron
+        ready_pattern: 'Running janitor loop'
 
     cymbal:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service cymbal
         capability: error_symbolication
+        ready_pattern: 'Server started and listening on *'
 
     embedding-worker:
         shell: |-
@@ -111,42 +123,49 @@ procs:
             bin/start-rust-service embedding-worker
         autostart: false
         capability: embedding_service
+        ready_pattern: 'Generated embedding'
 
     feature-flags:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service feature-flags
         capability: flag_evaluation
+        ready_pattern: 'listening on *'
 
     livestream:
         shell: |-
-            bin/wait-for-docker && \
+            bin/wait-for-docker redis-cluster && \
             bin/start-go-service livestream
         capability: livestream
+        ready_pattern: 'Livestream service ready'
 
     property-defs-rs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service property-defs-rs
         capability: property_definitions
+        ready_pattern: 'Subscribed to topic: *'
 
     capture:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service capture
         capability: event_ingestion
+        ready_pattern: 'listening on *'
 
     capture-replay:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service capture-replay
         capability: replay_storage
+        ready_pattern: 'listening on *'
 
     capture-ai:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service capture-ai
         capability: ai_capture
+        ready_pattern: 'listening on *'
 
     batch-import-worker:
         shell: |-
@@ -159,17 +178,19 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service personhog-replica
         capability: personhog
+        ready_pattern: 'Metrics server listening on *'
 
     personhog-router:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service personhog-router
         capability: personhog
+        ready_pattern: 'Metrics server listening on *'
 
     llm-gateway:
         shell: 'bin/wait-for-docker && bin/start-llm-gateway'
-        autostart: true
         capability: llm_gateway
+        ready_pattern: 'Application startup complete'
         env:
             LLM_GATEWAY_DEBUG: 'true'
             LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'
@@ -179,10 +200,12 @@ procs:
     mcp:
         shell: 'bin/start-mcp-server'
         capability: mcp_server
+        ready_pattern: 'Ready on *'
 
     mcp-ui-apps:
         shell: 'cd services/mcp && pnpm run build:ui-apps -- --watch'
         capability: mcp_server
+        ready_pattern: 'Initial build complete'
 
     stripe-app:
         shell: 'bin/start-stripe-app'
@@ -191,25 +214,26 @@ procs:
     migrate-postgres:
         shell: 'bin/wait-for-docker && bin/check_ducklake_up && bin/migrate --scope=postgres'
         capability: core_infra
+        ready_pattern: 'All migrations completed successfully'
 
     migrate-clickhouse:
         shell: 'bin/wait-for-docker && bin/check_ducklake_up && bin/migrate --scope=clickhouse'
         capability: core_infra
+        ready_pattern: 'All migrations completed successfully'
 
     migrate-cyclotron:
         shell: 'bin/wait-for-docker && bin/migrate --scope=cyclotron'
         capability: cyclotron
-
-    migrate-cyclotron-shadow:
-        shell: 'bin/wait-for-docker && bin/migrate --scope=cyclotron-shadow'
-        capability: cyclotron
+        ready_pattern: 'All migrations completed successfully'
 
     migrate-persons-db:
         shell: 'bin/wait-for-docker && bin/migrate --scope=persons'
+        ready_pattern: 'All migrations completed successfully'
         # no capability - optional migration
 
     migrate-behavioral-cohorts:
         shell: 'bin/wait-for-docker && bin/migrate --scope=behavioral-cohorts'
+        ready_pattern: 'All migrations completed successfully'
         # no capability - optional migration
 
     generate-demo-data:
@@ -218,6 +242,7 @@ procs:
             bin/check_ducklake_up && \
             ./manage.py generate_demo_data
         autostart: false
+        ready_pattern: 'Demo data ready'
         # no capability - manual start
 
     sync-feature-flags:
@@ -226,16 +251,19 @@ procs:
             bin/check_ducklake_up && \
             ./manage.py sync_feature_flags
         autostart: false
+        ready_pattern: 'Feature flag sync complete'
         # no capability - manual start
 
     storybook:
         shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
+        ready_pattern: 'Storybook *'
         # no capability - manual start
 
     hedgebox-dummy:
-        shell: 'bin/wait-for-docker && cd hedgebox-dummy && pnpm install && pnpm run dev'
+        shell: 'bin/wait-for-docker && cd tools/hedgebox-dummy && pnpm install && pnpm run dev'
         autostart: false
+        ready_pattern: 'Ready in *'
         # no capability - manual start
 
     warehouse-sources-load:
@@ -243,6 +271,7 @@ procs:
             bin/wait-for-docker && \
             python manage.py run_warehouse_sources_load --health-port 8090 --batch-size 100 --consumer-group warehouse-sources-load-dev
         autostart: false
+        ready_pattern: 'health_server_started'
         # no capability - manual start
 
 mouse_scroll_speed: 1

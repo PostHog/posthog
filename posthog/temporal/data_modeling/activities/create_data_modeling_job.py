@@ -24,7 +24,7 @@ class CreateDataModelingJobInputs:
 @database_sync_to_async
 def _create_data_modeling_job(inputs: CreateDataModelingJobInputs, workflow_id: str, workflow_run_id: str) -> str:
     node = Node.objects.prefetch_related("saved_query").get(
-        id=inputs.node_id, team_id=inputs.team_id, dag_id_text=inputs.dag_id
+        id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id
     )
     job = DataModelingJob.objects.create(
         team_id=inputs.team_id,

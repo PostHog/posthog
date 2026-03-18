@@ -94,7 +94,7 @@ jobs:
         # Let the initial task tell us to not run (currently very blunt)
         needs:
             - plan
-        if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') }}
+        if: ${{ fromJson(needs.plan.outputs.val).ci.github.artifacts_matrix.include != null && (needs.plan.outputs.publishing == 'true' || fromJson(needs.plan.outputs.val).ci.github.pr_run_mode == 'upload') && (!github.event.pull_request || github.event.pull_request.head.repo.full_name == github.repository) }}
         strategy:
             fail-fast: false
             # Target platforms/runners are computed by dist in create-release.

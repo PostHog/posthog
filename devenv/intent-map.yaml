@@ -63,6 +63,11 @@ capabilities:
         requires: [core_infra]
         docker_profiles: [temporal]
 
+    recording_rasterizer:
+        description: 'Temporal worker that records session replays to video'
+        requires: [temporal_workflows]
+        docker_profiles: []
+
     dagster_pipelines:
         description: 'Dagster data pipeline orchestration'
         requires: [core_infra]
@@ -82,6 +87,12 @@ capabilities:
         description: 'Vector embedding worker for AI features'
         requires: [core_infra]
         docker_profiles: []
+
+    llm_analytics_sentiment:
+        description: 'Sentiment classification model for LLM Analytics (installs torch, optimum ~2GB)'
+        requires: [temporal_workflows]
+        docker_profiles: []
+        uv_groups: [sentiment]
 
     livestream:
         description: 'Real-time event streaming'
@@ -179,6 +190,7 @@ intents:
                 celery_workers,
                 temporal_workflows,
                 nodejs_session_replay,
+                recording_rasterizer,
             ]
 
     feature_flags:
@@ -194,12 +206,22 @@ intents:
                 property_definitions,
                 celery_workers,
                 nodejs_feature_flags,
+                nodejs_cdp,
                 dagster_pipelines,
+                temporal_workflows,
             ]
 
     llm_analytics:
         description: 'LLM/AI observability and analytics'
-        capabilities: [event_ingestion, ai_capture, llm_gateway, property_definitions, temporal_workflows]
+        capabilities:
+            [
+                event_ingestion,
+                ai_capture,
+                llm_gateway,
+                property_definitions,
+                temporal_workflows,
+                llm_analytics_sentiment,
+            ]
 
     web_analytics:
         description: 'Web analytics, traffic analysis, and heatmaps'

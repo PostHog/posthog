@@ -284,6 +284,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
     logs: MinimalLogEntry[]
     metrics: MinimalAppMetric[]
     capturedPostHogEvents: HogFunctionCapturedEvent[]
+    warehouseWebhookPayloads: WarehouseWebhookPayload[]
     execResult?: unknown
 }
 
@@ -444,6 +445,12 @@ export type HogFunctionCapturedEvent = {
     distinct_id: string
     timestamp: string
     properties: Record<string, any>
+}
+
+export type WarehouseWebhookPayload = {
+    team_id: number
+    schema_id: string
+    payload: Record<string, any>
 }
 
 export type Response = {

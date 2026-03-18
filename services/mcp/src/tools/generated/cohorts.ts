@@ -47,12 +47,7 @@ const cohortsList = (): ToolBase<typeof CohortsListSchema, unknown> => ({
     },
 })
 
-const CohortsCreateSchema = CohortsCreateBody.omit({
-    groups: true,
-    deleted: true,
-    _create_in_folder: true,
-    _create_static_person_ids: true,
-})
+const CohortsCreateSchema = CohortsCreateBody.omit({ _create_in_folder: true, _create_static_person_ids: true })
 
 const cohortsCreate = (): ToolBase<typeof CohortsCreateSchema, Schemas.Cohort & { _posthogUrl: string }> => ({
     name: 'cohorts-create',
@@ -119,7 +114,7 @@ const cohortsRetrieve = (): ToolBase<typeof CohortsRetrieveSchema, Schemas.Cohor
 })
 
 const CohortsPartialUpdateSchema = CohortsPartialUpdateParams.omit({ project_id: true }).extend(
-    CohortsPartialUpdateBody.omit({ groups: true, _create_in_folder: true, _create_static_person_ids: true }).shape
+    CohortsPartialUpdateBody.omit({ _create_in_folder: true, _create_static_person_ids: true }).shape
 )
 
 const cohortsPartialUpdate = (): ToolBase<

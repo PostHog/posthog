@@ -1,3 +1,5 @@
+import { MOCK_TEAM_ID } from 'lib/api.mock'
+
 import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
@@ -32,7 +34,7 @@ describe('createExperimentLogic', () => {
 
         useMocks({
             post: {
-                '/api/projects/@current/experiments': async (req) => {
+                [`/api/projects/${MOCK_TEAM_ID}/experiments`]: async (req) => {
                     const body = (await req.json()) as Experiment
                     if (!body.name || !body.description) {
                         return [400, { detail: 'Validation error' }]

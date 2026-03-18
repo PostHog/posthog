@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import api from 'lib/api'
+import { showApprovalRequiredToast } from 'scenes/approvals/ApprovalRequiredBanner'
 import { NEW_FLAG } from 'scenes/feature-flags/featureFlagLogic'
 import {
     FeatureFlagsTab,
@@ -11,8 +13,13 @@ import {
 } from 'scenes/feature-flags/featureFlagsLogic'
 import { urls } from 'scenes/urls'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { FeatureFlagType } from '~/types'
+
+jest.mock('scenes/approvals/ApprovalRequiredBanner', () => ({
+    showApprovalRequiredToast: jest.fn(),
+}))
 
 describe('flagMatchesSearch', () => {
     const flag = { ...NEW_FLAG, id: 1, key: 'my-feature', name: 'My Feature Flag' } as FeatureFlagType
@@ -112,5 +119,67 @@ describe('the feature flags logic', () => {
         }).toMatchValues({
             activeTab: FeatureFlagsTab.HISTORY,
         })
+    })
+})
+
+describe('updateFeatureFlag 409 handling', () => {
+    let logic: ReturnType<typeof featureFlagsLogic.build>
+
+    beforeEach(() => {
+        useMocks({
+            get: {
+                '/api/projects/:projectId/feature_flags/': () => [
+                    200,
+                    {
+                        results: [{ id: 1, key: 'test-flag', active: false }],
+                        count: 1,
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        logic = featureFlagsLogic()
+        logic.mount()
+    })
+
+    afterEach(() => {
+        logic?.unmount()
+        jest.restoreAllMocks()
+    })
+
+    it.each([
+        { active: true, expected: 'enable this feature flag' },
+        { active: false, expected: 'disable this feature flag' },
+    ])(
+        'shows approval toast with "$expected" when toggling active=$active gets a 409',
+        async ({ active, expected }) => {
+            const error = { status: 409, data: { change_request_id: 'cr-123' } }
+            jest.spyOn(api, 'update').mockRejectedValueOnce(error)
+
+            logic.actions.updateFeatureFlag({ id: 1, payload: { active } })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(showApprovalRequiredToast).toHaveBeenCalledWith('cr-123', expected)
+        }
+    )
+
+    it('does not show approval toast for non-409 errors', async () => {
+        const error = { status: 500, data: { detail: 'Internal server error' } }
+        jest.spyOn(api, 'update').mockRejectedValueOnce(error)
+
+        logic.actions.updateFeatureFlag({ id: 1, payload: { active: true } })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(showApprovalRequiredToast).not.toHaveBeenCalled()
+    })
+
+    it('does not show approval toast for 409 without change_request_id', async () => {
+        const error = { status: 409, data: { detail: 'Conflict' } }
+        jest.spyOn(api, 'update').mockRejectedValueOnce(error)
+
+        logic.actions.updateFeatureFlag({ id: 1, payload: { active: true } })
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(showApprovalRequiredToast).not.toHaveBeenCalled()
     })
 })

@@ -13,6 +13,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     name: 'Test Team',
     anonymize_ips: false,
     api_token: 'test-api-token',
+    secret_api_token: null,
     slack_incoming_webhook: null,
     session_recording_opt_in: true,
     person_processing_opt_out: null,
@@ -24,6 +25,7 @@ const createTestTeam = (overrides: Partial<Team> = {}): Team => ({
     timezone: 'UTC',
     available_features: [],
     drop_events_older_than_seconds: null,
+    extra_settings: null,
     ...overrides,
 })
 
