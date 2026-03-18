@@ -34,6 +34,7 @@ class Capability:
     description: str
     requires: list[str] = field(default_factory=list)
     docker_profiles: list[str] = field(default_factory=list)
+    uv_groups: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -76,6 +77,7 @@ class IntentMap:
                 description=cap_data.get("description", ""),
                 requires=cap_data.get("requires", []),
                 docker_profiles=cap_data.get("docker_profiles", []),
+                uv_groups=cap_data.get("uv_groups", []),
             )
 
         intents = {}
@@ -102,6 +104,7 @@ class ResolvedEnvironment:
     capabilities: set[str]
     intents: set[str]
     docker_profiles: set[str] = field(default_factory=set)
+    uv_groups: set[str] = field(default_factory=set)
     overrides_applied: dict[str, list[str]] = field(default_factory=dict)
     unit_provenance: dict[str, str] = field(default_factory=dict)  # unit -> reason
     skip_autostart: set[str] = field(default_factory=set)  # units to include but not auto-start
@@ -114,6 +117,10 @@ class ResolvedEnvironment:
     def get_docker_profiles_list(self) -> list[str]:
         """Get sorted list of docker profiles for consistent output."""
         return sorted(self.docker_profiles)
+
+    def get_uv_groups_list(self) -> list[str]:
+        """Get sorted list of uv dependency groups for consistent output."""
+        return sorted(self.uv_groups)
 
     def get_unit_reason(self, unit: str) -> str:
         """Get human-readable reason why a unit is included."""
@@ -189,6 +196,9 @@ class IntentResolver:
         # 4. Capabilities → Docker profiles
         docker_profiles = self._capabilities_to_docker_profiles(expanded_capabilities)
 
+        # 4b. Capabilities → UV dependency groups
+        uv_groups = self._capabilities_to_uv_groups(expanded_capabilities)
+
         # 5. Apply include overrides
         for unit in include_units:
             if unit not in units:
@@ -219,6 +229,7 @@ class IntentResolver:
             capabilities=expanded_capabilities,
             intents=set(intents),
             docker_profiles=docker_profiles,
+            uv_groups=uv_groups,
             overrides_applied=overrides_applied,
             unit_provenance=unit_provenance,
             skip_autostart=set(skip_autostart),
@@ -311,6 +322,16 @@ class IntentResolver:
 
         return profiles
 
+    def _capabilities_to_uv_groups(self, capabilities: set[str]) -> set[str]:
+        """Map capabilities to their uv dependency groups."""
+        groups: set[str] = set()
+
+        for cap_name in capabilities:
+            capability = self.intent_map.capabilities[cap_name]
+            groups.update(capability.uv_groups)
+
+        return groups
+
     def get_available_intents(self) -> list[tuple[str, str]]:
         """Get list of available intents with descriptions."""
         return [(name, intent.description) for name, intent in sorted(self.intent_map.intents.items())]
@@ -347,6 +368,12 @@ class IntentResolver:
                 lines.append(f"  • {profile}")
         else:
             lines.append("\nDocker profiles: (core only)")
+
+        # UV groups
+        if resolved.uv_groups:
+            lines.append("\nPython dependency groups:")
+            for group in sorted(resolved.uv_groups):
+                lines.append(f"  • {group}")
 
         # Units
         lines.append("\nProcesses to start:")

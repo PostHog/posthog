@@ -1,6 +1,6 @@
 use std::fmt::Display;
 
-use axum::async_trait;
+use async_trait::async_trait;
 use posthog_symbol_data::{read_symbol_data, ProguardMapping};
 
 use crate::{

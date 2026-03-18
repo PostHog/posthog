@@ -91,7 +91,7 @@ ERROR_TOKEN_REFRESH_FAILED = "TOKEN_REFRESH_FAILED"
 class Integration(models.Model):
     class IntegrationKind(models.TextChoices):
         SLACK = "slack"
-        SLACK_TWIG = "slack-twig"
+        SLACK_POSTHOG_CODE = "slack-posthog-code"
         SALESFORCE = "salesforce"
         HUBSPOT = "hubspot"
         GOOGLE_PUBSUB = "google-pubsub"
@@ -224,7 +224,7 @@ POSTHOG_SLACK_SCOPE = ",".join(
 class OauthIntegration:
     supported_kinds = [
         "slack",
-        "slack-twig",
+        "slack-posthog-code",
         "salesforce",
         "hubspot",
         "google-ads",
@@ -273,15 +273,15 @@ class OauthIntegration:
                 id_path="team.id",
                 name_path="team.name",
             )
-        elif kind == "slack-twig":
-            if not settings.SLACK_TWIG_CLIENT_ID or not settings.SLACK_TWIG_CLIENT_SECRET:
-                raise NotImplementedError("Twig Slack app not configured")
+        elif kind == "slack-posthog-code":
+            if not settings.SLACK_POSTHOG_CODE_CLIENT_ID or not settings.SLACK_POSTHOG_CODE_CLIENT_SECRET:
+                raise NotImplementedError("PostHog Code Slack app not configured")
 
             return OauthConfig(
                 authorize_url="https://slack.com/oauth/v2/authorize",
                 token_url="https://slack.com/api/oauth.v2.access",
-                client_id=settings.SLACK_TWIG_CLIENT_ID,
-                client_secret=settings.SLACK_TWIG_CLIENT_SECRET,
+                client_id=settings.SLACK_POSTHOG_CODE_CLIENT_ID,
+                client_secret=settings.SLACK_POSTHOG_CODE_CLIENT_SECRET,
                 scope="app_mentions:read,channels:read,groups:read,channels:history,groups:history,chat:write,reactions:write,users:read,users:read.email",
                 id_path="team.id",
                 name_path="team.name",
@@ -920,7 +920,7 @@ class SlackIntegration:
     integration: Integration
 
     def __init__(self, integration: Integration) -> None:
-        if integration.kind not in ("slack", "slack-twig"):
+        if integration.kind not in ("slack", "slack-posthog-code"):
             raise Exception("SlackIntegration init called with Integration with wrong 'kind'")
 
         self.integration = integration
@@ -1018,11 +1018,11 @@ class SlackIntegration:
         return config
 
     @classmethod
-    def twig_slack_config(cls) -> dict[str, str]:
+    def posthog_code_slack_config(cls) -> dict[str, str]:
         return {
-            "SLACK_TWIG_CLIENT_ID": settings.SLACK_TWIG_CLIENT_ID,
-            "SLACK_TWIG_CLIENT_SECRET": settings.SLACK_TWIG_CLIENT_SECRET,
-            "SLACK_TWIG_SIGNING_SECRET": settings.SLACK_TWIG_SIGNING_SECRET,
+            "SLACK_POSTHOG_CODE_CLIENT_ID": settings.SLACK_POSTHOG_CODE_CLIENT_ID,
+            "SLACK_POSTHOG_CODE_CLIENT_SECRET": settings.SLACK_POSTHOG_CODE_CLIENT_SECRET,
+            "SLACK_POSTHOG_CODE_SIGNING_SECRET": settings.SLACK_POSTHOG_CODE_SIGNING_SECRET,
         }
 
 

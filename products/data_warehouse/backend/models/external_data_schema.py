@@ -66,6 +66,7 @@ class ExternalDataSchema(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     sync_frequency_interval = models.DurationField(default=timedelta(hours=6), null=True, blank=True)
     sync_time_of_day = models.TimeField(null=True, blank=True, help_text="Time of day to run the sync (UTC)")
     initial_sync_complete = models.BooleanField(default=False)
+    description = models.CharField(max_length=1000, null=True, blank=True)
 
     __repr__ = sane_repr("name")
 
@@ -376,10 +377,20 @@ def get_all_schemas_for_source_id(source_id: str, team_id: int):
 
 
 def sync_old_schemas_with_new_schemas(
-    new_schemas: list[str], source_id: str, team_id: int
+    new_schemas: list[str],
+    source_id: str,
+    team_id: int,
+    descriptions: dict[str, str | None] | None = None,
 ) -> tuple[list[str], list[str]]:
     old_schemas = get_all_schemas_for_source_id(source_id=source_id, team_id=team_id)
     old_schemas_names = [schema.name for schema in old_schemas]
+
+    if descriptions:
+        for old_schema in old_schemas:
+            new_description = descriptions.get(old_schema.name)
+            if old_schema.description != new_description:
+                old_schema.description = new_description
+                old_schema.save(update_fields=["description", "updated_at"])
 
     schemas_to_create = [schema for schema in new_schemas if schema not in old_schemas_names]
 
@@ -396,7 +407,8 @@ def sync_old_schemas_with_new_schemas(
         if deleted_obj is not None:
             deleted_obj.deleted = False
             deleted_obj.deleted_at = None
-            deleted_obj.save(update_fields=["deleted", "deleted_at", "updated_at"])
+            deleted_obj.description = descriptions.get(schema) if descriptions else None
+            deleted_obj.save(update_fields=["deleted", "deleted_at", "description", "updated_at"])
             actually_created.append(schema)
             continue
 
@@ -405,7 +417,10 @@ def sync_old_schemas_with_new_schemas(
             source_id=source_id,
             name=schema,
             deleted=False,
-            defaults={"should_sync": False},
+            defaults={
+                "should_sync": False,
+                "description": descriptions.get(schema) if descriptions else None,
+            },
         )
         if created:
             actually_created.append(schema)

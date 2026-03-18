@@ -81,6 +81,7 @@ export enum NodeKind {
     GroupNode = 'GroupNode',
     ActionsNode = 'ActionsNode',
     DataWarehouseNode = 'DataWarehouseNode',
+    LifecycleDataWarehouseNode = 'LifecycleDataWarehouseNode',
     EventsQuery = 'EventsQuery',
     SessionsQuery = 'SessionsQuery',
     PersonsNode = 'PersonsNode',
@@ -246,6 +247,7 @@ export type QuerySchema =
     | ActionsNode // old actions API endpoint
     | PersonsNode // old persons API endpoint
     | DataWarehouseNode
+    | LifecycleDataWarehouseNode
     | EventsQuery
     | SessionsQuery
     | ActorsQuery
@@ -763,19 +765,30 @@ export interface DataWarehouseNode extends EntityNode {
     dw_source_type?: string
 }
 
+export interface LifecycleDataWarehouseNode extends EntityNode {
+    id: string
+    kind: NodeKind.LifecycleDataWarehouseNode
+    table_name: string
+    timestamp_field: string
+    aggregation_target_field: string
+    created_at_field: string
+}
+
 export interface ActionsNode extends EntityNode {
     kind: NodeKind.ActionsNode
     id: integer
 }
 
-export type AnyEntityNode = EventsNode | ActionsNode | DataWarehouseNode
+export type AnyEntityNode<WarehouseNode = DataWarehouseNode> = EventsNode | ActionsNode | WarehouseNode
 
-export interface GroupNode extends EntityNode {
+export type AnyDataWarehouseNode = DataWarehouseNode | LifecycleDataWarehouseNode
+
+export interface GroupNode<WarehouseNode = DataWarehouseNode> extends EntityNode {
     kind: NodeKind.GroupNode
     /** Group of entities combined with AND/OR operator */
     operator: FilterLogicalOperator
     /** Entities to combine in this group */
-    nodes: AnyEntityNode[]
+    nodes: AnyEntityNode<WarehouseNode>[]
     limit?: integer
     /** Columns to order by */
     orderBy?: string[]
@@ -2016,9 +2029,11 @@ export interface LifecycleQuery extends InsightsQueryBase<LifecycleQueryResponse
      */
     interval?: IntervalType
     /** Events and actions to include */
-    series: AnyEntityNode[]
+    series: AnyEntityNode<LifecycleDataWarehouseNode>[]
     /** Properties specific to the lifecycle insight */
     lifecycleFilter?: LifecycleFilter
+    /** For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups. */
+    customAggregationTarget?: boolean
 }
 
 export interface ActorsQueryResponse extends AnalyticsQueryResponseBase {
@@ -2220,6 +2235,7 @@ export interface WebStatsTableQuery extends WebAnalyticsQueryBase<WebStatsTableQ
     includeScrollDepth?: boolean // automatically sets includeBounceRate to true
     includeBounceRate?: boolean
     includeAvgTimeOnPage?: boolean
+    includeHost?: boolean
     limit?: integer
     offset?: integer
 }
@@ -2924,6 +2940,7 @@ export type FileSystemIconType =
     | 'live_debugger'
     | 'logs'
     | 'tracing'
+    | 'metrics'
     | 'workflows'
     | 'notebook'
     | 'action'
@@ -2992,6 +3009,8 @@ export interface FileSystemImport extends Omit<FileSystemEntry, 'id'> {
     reason?: UserProductListReason
     /** Custom reason text for custom product suggestion (from UserProductList) */
     reasonText?: string | null
+    /** Display label override — when set, shown in the nav instead of the last segment of `path` */
+    displayLabel?: string
 }
 
 export interface FileSystemViewLogEntry {
@@ -4486,6 +4505,8 @@ export interface MarketingAnalyticsTableQuery extends Omit<
     compareFilter?: CompareFilter
     /** Filter by integration type */
     integrationFilter?: IntegrationFilter
+    /** Drill-down hierarchy level: channel, source, or campaign (default) */
+    drillDownLevel?: MarketingAnalyticsDrillDownLevel
 }
 
 export interface MarketingAnalyticsItem extends WebAnalyticsItemBase<number | string> {
@@ -4525,6 +4546,8 @@ export interface MarketingAnalyticsAggregatedQuery extends Omit<
     draftConversionGoal?: ConversionGoalFilter
     /** Filter by integration IDs */
     integrationFilter?: IntegrationFilter
+    /** Drill-down hierarchy level: channel, source, or campaign (default) */
+    drillDownLevel?: MarketingAnalyticsDrillDownLevel
 }
 
 /** Columns for non-integrated conversions table */
@@ -4719,6 +4742,12 @@ export interface MarketingAnalyticsConfig {
     campaign_field_preferences?: Record<string, CampaignFieldPreference>
 }
 
+export enum MarketingAnalyticsDrillDownLevel {
+    Channel = 'channel',
+    Source = 'source',
+    Campaign = 'campaign',
+}
+
 export enum MarketingAnalyticsBaseColumns {
     Id = 'ID',
     Campaign = 'Campaign',
@@ -4732,6 +4761,37 @@ export enum MarketingAnalyticsBaseColumns {
     ReportedConversionValue = 'Reported Conversion Value',
     ReportedROAS = 'Reported ROAS',
     CostPerReportedConversion = 'Cost per Reported Conversion',
+}
+
+export type MarketingAnalyticsDrillDownConfig = {
+    columnAlias: string
+    excludedBaseColumns: MarketingAnalyticsBaseColumns[]
+}
+
+export const MARKETING_ANALYTICS_DRILL_DOWN_CONFIG: Record<
+    MarketingAnalyticsDrillDownLevel,
+    MarketingAnalyticsDrillDownConfig
+> = {
+    [MarketingAnalyticsDrillDownLevel.Channel]: {
+        columnAlias: 'Channel',
+        excludedBaseColumns: [
+            MarketingAnalyticsBaseColumns.Id,
+            MarketingAnalyticsBaseColumns.Campaign,
+            MarketingAnalyticsBaseColumns.Source,
+        ],
+    },
+    [MarketingAnalyticsDrillDownLevel.Source]: {
+        columnAlias: 'Source',
+        excludedBaseColumns: [
+            MarketingAnalyticsBaseColumns.Id,
+            MarketingAnalyticsBaseColumns.Campaign,
+            MarketingAnalyticsBaseColumns.Source,
+        ],
+    },
+    [MarketingAnalyticsDrillDownLevel.Campaign]: {
+        columnAlias: MarketingAnalyticsBaseColumns.Campaign,
+        excludedBaseColumns: [],
+    },
 }
 
 export enum MarketingAnalyticsConstants {
@@ -5485,6 +5545,7 @@ export enum ProductKey {
     TEAMS = 'teams',
     TOOLBAR = 'toolbar',
     TRACING = 'tracing',
+    METRICS = 'metrics',
     USER_INTERVIEWS = 'user_interviews',
     VISUAL_REVIEW = 'visual_review',
     WEB_ANALYTICS = 'web_analytics',

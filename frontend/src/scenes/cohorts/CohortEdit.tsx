@@ -22,6 +22,7 @@ import { cn } from 'lib/utils/css-classes'
 import { cohortEditLogic } from 'scenes/cohorts/cohortEditLogic'
 import { CohortCriteriaGroups } from 'scenes/cohorts/CohortFilters/CohortCriteriaGroups'
 import { COHORT_TYPE_OPTIONS } from 'scenes/cohorts/CohortFilters/constants'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { urls } from 'scenes/urls'
 
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
@@ -96,6 +97,7 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
     } = useValues(logic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openSidePanel } = useActions(sidePanelStateLogic)
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
 
     const isNewCohort = cohort.id === 'new' || cohort.id === undefined
     const dataNodeLogicKey = createCohortDataNodeLogicKey(cohort.id)
@@ -175,6 +177,17 @@ export function CohortEdit({ id, attachTo, tabId }: CohortEditProps): JSX.Elemen
                         >
                             <IconCopy /> Duplicate as static cohort
                         </ButtonPrimitive>
+
+                        {!isNewCohort && canCopyToProject && (
+                            <ButtonPrimitive
+                                menuItem
+                                onClick={() => router.actions.push(urls.resourceTransfer('Cohort', cohort.id))}
+                                data-attr="cohort-copy-to-project"
+                                tooltip="Copy this cohort to another project"
+                            >
+                                <IconCopy /> Copy to another project
+                            </ButtonPrimitive>
+                        )}
 
                         {!cohort.is_static && featureFlags[FEATURE_FLAGS.COHORT_CALCULATION_HISTORY] && (
                             <ButtonPrimitive

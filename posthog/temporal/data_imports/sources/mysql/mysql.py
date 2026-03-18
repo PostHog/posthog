@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import math
+import datetime
 import collections
 from collections.abc import Callable, Iterator
 from contextlib import _GeneratorContextManager
@@ -13,6 +14,7 @@ import pyarrow as pa
 import pymysql
 import pymysql.converters
 from dlt.common.normalizers.naming.snake_case import NamingConvention
+from pymysql.constants import FIELD_TYPE
 from pymysql.cursors import Cursor, SSCursor
 from structlog.types import FilteringBoundLogger
 
@@ -30,6 +32,45 @@ from posthog.temporal.data_imports.pipelines.pipeline.utils import (
 from posthog.temporal.data_imports.sources.common.sql import Column, Table
 
 from products.data_warehouse.backend.types import IncrementalFieldType, PartitionSettings
+
+
+def _safe_convert_date(obj: Any) -> datetime.date | None:
+    """Convert MySQL date, returning None for invalid dates like '0000-00-00'."""
+    if isinstance(obj, (bytes, bytearray)):
+        obj = obj.decode("utf-8")
+    try:
+        parts = obj.split("-", 2)
+        return datetime.date(int(parts[0]), int(parts[1]), int(parts[2]))
+    except (ValueError, IndexError, AttributeError):
+        return None
+
+
+def _safe_convert_datetime(obj: Any) -> datetime.datetime | None:
+    """Convert MySQL datetime/timestamp, returning None for invalid values like '0000-00-00 00:00:00'."""
+    if isinstance(obj, (bytes, bytearray)):
+        obj = obj.decode("utf-8")
+    try:
+        date_part, time_part = obj.split(" ", 1)
+        date_values = [int(x) for x in date_part.split("-", 2)]
+        time_parts = time_part.split(":", 2)
+        hours = int(time_parts[0])
+        minutes = int(time_parts[1])
+        # Handle optional microseconds
+        sec_parts = time_parts[2].split(".", 1)
+        seconds = int(sec_parts[0])
+        microseconds = int(sec_parts[1].ljust(6, "0")) if len(sec_parts) > 1 else 0
+        return datetime.datetime(date_values[0], date_values[1], date_values[2], hours, minutes, seconds, microseconds)
+    except (ValueError, IndexError, AttributeError):
+        return None
+
+
+# Custom conversions that return None for MySQL zero dates instead of raw strings
+_MYSQL_SAFE_CONVERSIONS: dict[type[object] | int, Any] = {
+    **pymysql.converters.conversions,
+    FIELD_TYPE.DATE: _safe_convert_date,
+    FIELD_TYPE.DATETIME: _safe_convert_datetime,
+    FIELD_TYPE.TIMESTAMP: _safe_convert_datetime,
+}
 
 
 def filter_mysql_incremental_fields(
@@ -312,9 +353,13 @@ class MySQLColumn(Column):
             case "varchar" | "char" | "text" | "mediumtext" | "longtext":
                 arrow_type = pa.string()
             case "date":
+                # MySQL allows zero dates ('0000-00-00') which become None,
+                # so date columns must always be nullable in the Arrow schema
                 arrow_type = pa.date32()
+                return pa.field(self.name, arrow_type, nullable=True)
             case "datetime" | "timestamp":
                 arrow_type = pa.timestamp("us")
+                return pa.field(self.name, arrow_type, nullable=True)
             case "time":
                 arrow_type = pa.time64("us")
             case "boolean" | "bool":
@@ -517,6 +562,7 @@ def mysql_source(
             password=password,
             connect_timeout=5,
             ssl_ca=ssl_ca,
+            conv=_MYSQL_SAFE_CONVERSIONS,
         ) as connection:
             with connection.cursor() as cursor:
                 inner_query, inner_query_args = _build_query(
@@ -566,6 +612,7 @@ def mysql_source(
                 connect_timeout=5,
                 ssl_ca=ssl_ca,
                 init_command=init_command,
+                conv=_MYSQL_SAFE_CONVERSIONS,
             ) as connection:
                 with connection.cursor(SSCursor) as cursor:
                     query, args = _build_query(

@@ -147,8 +147,18 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
     latest_history_id = serializers.SerializerMethodField(read_only=True)
     last_run_at = serializers.SerializerMethodField(read_only=True)
     managed_viewset_kind = serializers.SerializerMethodField(read_only=True)
-    edited_history_id = serializers.CharField(write_only=True, required=False, allow_null=True)
-    soft_update = serializers.BooleanField(write_only=True, required=False, allow_null=True)
+    edited_history_id = serializers.CharField(
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text="Activity log ID from the last known edit. Used for conflict detection.",
+    )
+    soft_update = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        allow_null=True,
+        help_text="If true, skip column inference and validation. For saving drafts.",
+    )
 
     class Meta:
         model = DataWarehouseSavedQuery
@@ -186,6 +196,12 @@ class DataWarehouseSavedQuerySerializer(DataWarehouseSavedQuerySerializerMixin, 
         ]
         extra_kwargs = {
             "soft_update": {"write_only": True},
+            "name": {
+                "help_text": "Unique name for the view. Used as the table name in HogQL queries and the node name in the data modeling Node.",
+            },
+            "query": {
+                "help_text": 'HogQL query definition as a JSON object with a "query" key containing the SQL string and a "kind" key containing the query type. Example: {"query": "SELECT * FROM events LIMIT 100", "kind": "HogQLQuery"}',
+            },
         }
 
     def get_latest_history_id(self, view: DataWarehouseSavedQuery):
@@ -488,9 +504,13 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
                 ),
             )
             .exclude(deleted=True)
-            .exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
             .order_by(self.ordering)
         )
+
+        # Hide endpoint-origin saved queries from the list view — they belong to the endpoints UI.
+        # Allow retrieve so the Node detail page can fetch them by ID.
+        if self.action == "list":
+            base_queryset = base_queryset.exclude(origin=DataWarehouseSavedQuery.Origin.ENDPOINT)
 
         # Detect whether we should include managed views in the queryset
         is_managed_viewset_enabled = posthoganalytics.feature_enabled(
@@ -585,6 +605,7 @@ class DataWarehouseSavedQueryViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
     @action(
         methods=["POST"],
         detail=True,
+        required_scopes=["warehouse_view:write"],
         throttle_classes=[RunSavedQueryRateThrottle],
     )
     def run(self, request: request.Request, *args, **kwargs) -> response.Response:

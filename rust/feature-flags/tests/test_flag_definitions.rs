@@ -170,10 +170,7 @@ async fn test_personal_api_key_authentication_invalid_key() {
     let body: Value = serde_json::from_str(&body_text).unwrap();
     assert_eq!(body["type"], "authentication_error");
     assert_eq!(body["code"], "authentication_failed");
-    assert_eq!(
-        body["detail"],
-        "Personal API key found in request Authorization header is invalid."
-    );
+    assert_eq!(body["detail"], "Personal API key is invalid.");
     assert_eq!(body["attr"], Value::Null);
 }
 
@@ -1720,4 +1717,100 @@ async fn test_flag_definitions_billing_limited_returns_402() {
     let body: serde_json::Value = serde_json::from_str(&body_text).unwrap();
     assert_eq!(body["type"], "quota_limited");
     assert_eq!(body["code"], "payment_required");
+}
+
+#[rstest::rstest]
+#[case::read_scope(Some(vec!["feature_flag:read"]), true, 200)]
+#[case::write_scope(Some(vec!["feature_flag:write"]), true, 200)]
+#[case::null_scopes_full_access(None, true, 200)]
+#[case::wildcard_scope(Some(vec!["*"]), true, 200)]
+#[case::wrong_scope(Some(vec!["insight:read"]), true, 401)]
+#[case::wrong_team(Some(vec!["feature_flag:read"]), false, 401)]
+#[tokio::test]
+async fn test_flag_definitions_project_secret_api_key(
+    #[case] scopes: Option<Vec<&str>>,
+    #[case] same_team: bool,
+    #[case] expected_status: u16,
+) {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    let team = context.insert_new_team(None).await.unwrap();
+
+    let key_team_id = if same_team {
+        team.id
+    } else {
+        let other_team = context.insert_new_team(None).await.unwrap();
+        other_team.id
+    };
+
+    let raw_key = context
+        .create_project_secret_api_key(key_team_id, "Test Key", scopes)
+        .await
+        .unwrap();
+
+    if expected_status == 200 {
+        context.populate_cache_for_team(team.id).await.unwrap();
+    }
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {raw_key}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        expected_status,
+        "Response body: {}",
+        response.text().await.unwrap()
+    );
+}
+
+#[tokio::test]
+async fn test_flag_definitions_with_legacy_secret_token_fallback() {
+    use feature_flags::{config::Config, utils::test_utils::TestContext};
+    use reqwest;
+
+    let config = Config::default_test_config();
+    let context = TestContext::new(Some(&config)).await;
+
+    // create_team_with_secret_token creates a legacy phs_ token on posthog_team
+    let (team, secret_token, _) = context
+        .create_team_with_secret_token(None, None, None)
+        .await
+        .unwrap();
+
+    // Do NOT insert a project secret API key — the phs_ token should fall back to legacy
+    context.populate_cache_for_team(team.id).await.unwrap();
+
+    let server = common::ServerHandle::for_config(config.clone()).await;
+    let client = reqwest::Client::new();
+
+    let response = client
+        .get(format!(
+            "http://{}/flags/definitions?token={}",
+            server.addr, team.api_token
+        ))
+        .header("Authorization", format!("Bearer {secret_token}"))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(
+        response.status(),
+        200,
+        "Response body: {}",
+        response.text().await.unwrap()
+    );
 }
