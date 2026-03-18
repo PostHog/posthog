@@ -1156,10 +1156,10 @@ class BigQueryInsertInputs(BatchExportInsertInputs):
     project_id: str
     dataset_id: str
     table_id: str
-    private_key: str
-    private_key_id: str
-    token_uri: str
-    client_email: str
+    private_key: str | None = None
+    private_key_id: str | None = None
+    token_uri: str | None = None
+    client_email: str | None = None
     use_json_type: bool = False
     integration_id: int | None = None
 
@@ -1273,6 +1273,15 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
 
         else:
             # TODO: Migrate everyone and remove this
+            if (
+                inputs.private_key is None
+                or inputs.private_key_id is None
+                or inputs.token_uri is None
+                or inputs.client_email is None
+            ):
+                # If this ever happens then it's fine to fail.
+                # Mostly here for the type checkers
+                raise ValueError("Missing required values")
             bq_client = BigQueryClient.from_service_account_inputs(
                 inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, inputs.project_id
             )
