@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
+	"github.com/posthog/posthog/phrocs/internal/docker"
 )
 
 // Orchestrates all processes for the dev environment
@@ -21,7 +22,12 @@ func NewManager(cfg *config.Config) *Manager {
 	byName := make(map[string]*Process, len(names))
 
 	for _, name := range names {
-		proc := NewProcess(name, cfg.Procs[name], cfg.Scrollback)
+		pcfg := cfg.Procs[name]
+		// Strip trailing "docker compose ... logs" from docker-compose shells
+		if docker.IsDockerComposeShell(pcfg.Shell) {
+			pcfg.Shell = docker.StripComposeLogsTail(pcfg.Shell)
+		}
+		proc := NewProcess(name, pcfg, cfg.Scrollback)
 		procs = append(procs, proc)
 		byName[name] = proc
 	}

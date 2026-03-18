@@ -78,6 +78,9 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
         if (params.config !== undefined) {
             body['config'] = params.config
         }
+        if (params.detector_config !== undefined) {
+            body['detector_config'] = params.detector_config
+        }
         if (params.calculation_interval !== undefined) {
             body['calculation_interval'] = params.calculation_interval
         }
@@ -124,6 +127,9 @@ const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, Schemas.Alert> => ({
         }
         if (params.config !== undefined) {
             body['config'] = params.config
+        }
+        if (params.detector_config !== undefined) {
+            body['detector_config'] = params.detector_config
         }
         if (params.calculation_interval !== undefined) {
             body['calculation_interval'] = params.calculation_interval
