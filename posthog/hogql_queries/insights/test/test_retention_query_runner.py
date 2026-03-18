@@ -4,6 +4,7 @@ from typing import Optional
 from zoneinfo import ZoneInfo
 
 from freezegun import freeze_time
+from rest_framework.exceptions import ValidationError
 from posthog.test.base import (
     APIBaseTest,
     ClickhouseTestMixin,
@@ -6614,6 +6615,25 @@ class TestClickhouseRetentionGroupAggregation(ClickhouseTestMixin, APIBaseTest):
         cohort_row = next(row for row in result if row.get("breakdown_value") == str(cohort1.pk))
         self.assertEqual(cohort_row["values"][0]["count"], 1)  # Interval 0
         self.assertEqual(cohort_row["values"][1]["count"], 0)  # Interval 1
+
+    def test_retention_24h_window_rejects_cumulative(self):
+        with self.assertRaisesMessage(
+            ValidationError,
+            "Cumulative retention is not supported for 24 hour windows.",
+        ):
+            RetentionQueryRunner(
+                team=self.team,
+                query={
+                    "dateRange": {"date_from": _date(0), "date_to": _date(10)},
+                    "retentionFilter": {
+                        "targetEntity": {"id": "$pageview", "type": "events"},
+                        "returningEntity": {"id": "$pageview", "type": "events"},
+                        "totalIntervals": 3,
+                        "timeWindowMode": "24_hour_windows",
+                        "cumulative": True,
+                    },
+                },
+            )
 
     def test_custom_brackets_day_period(self):
         """
