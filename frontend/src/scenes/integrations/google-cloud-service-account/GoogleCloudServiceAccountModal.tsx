@@ -61,9 +61,11 @@ export const GoogleCloudServiceAccountModal = (props: GoogleCloudServiceAccountS
                         </LemonField>
                     ) : (
                         <>
-                            <p className="text-sm text-primary">
-                                PostHog will impersonate the service account you configure here with one of our own. You
-                                must grant the PostHog service account the following permissions:
+                            <div className="text-sm text-primary">
+                                <p>
+                                    PostHog will impersonate the service account you configure here with one of our own. You
+                                    must grant the PostHog service account the following permissions:
+                                </p>
                                 <ul>
                                     <li>
                                         <code>roles/iam.serviceAccountTokenCreator</code>: To allow impersonating.
@@ -73,7 +75,7 @@ export const GoogleCloudServiceAccountModal = (props: GoogleCloudServiceAccountS
                                         ownership.
                                     </li>
                                 </ul>
-                            </p>
+                            </div>
 
                             <p className="text-sm text-warning">
                                 In order to identify you as the owner of this service account, you must include{' '}

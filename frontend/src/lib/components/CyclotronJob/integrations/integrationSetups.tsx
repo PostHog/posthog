@@ -1,6 +1,7 @@
 import { AzureBlobSetupModal } from 'scenes/integrations/azure-blob/AzureBlobSetupModal'
 import { DatabricksSetupModal } from 'scenes/integrations/databricks/DatabricksSetupModal'
 import { GitLabSetupModal } from 'scenes/integrations/gitlab/GitLabSetupModal'
+import { GoogleCloudServiceAccountModal } from 'scenes/integrations/google-cloud-service-account/GoogleCloudServiceAccountModal'
 import { urls } from 'scenes/urls'
 
 import { ChannelSetupModal } from 'products/workflows/frontend/Channels/ChannelSetupModal'
@@ -61,7 +62,7 @@ registerIntegrationSetup({
         onClick: () => openModal('google-cloud-service-account'),
     }),
     SetupModal: ({ isOpen, integration, onComplete }) => (
-        <DatabricksSetupModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
+        <GoogleCloudServiceAccountModal isOpen={isOpen} integration={integration} onComplete={onComplete} />
     ),
 })
 
