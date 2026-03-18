@@ -90,6 +90,7 @@ rules:
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
+                              |EvaluationContext
                               |Edge
                               |Endpoint
                               |EnterpriseEventDefinition
@@ -100,6 +101,7 @@ rules:
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
                               |ErrorTrackingSpikeDetectionConfig
+                              |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
@@ -126,7 +128,6 @@ rules:
                               |Integration
                               |Link
                               |LiveDebuggerBreakpoint
-                              |LogsAlertCheck
                               |LogsAlertConfiguration
                               |LLMModelConfiguration
                               |LLMPrompt
@@ -148,6 +149,7 @@ rules:
                               |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
+                              |ScoreDefinition
                               |SavedHeatmap
                               |ScheduledChange
                               |SessionGroupSummary
@@ -168,6 +170,8 @@ rules:
                               |Text
                               |Threshold
                               |Ticket
+                              |TraceReview
+                              |TraceReviewScore
                               |UploadedMedia
                               |UserInterview
                               |UserRepoPreference
@@ -259,6 +263,7 @@ rules:
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
+                        |EvaluationContext
                         |Edge
                         |Endpoint
                         |EnterpriseEventDefinition
@@ -269,6 +274,7 @@ rules:
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
                         |ErrorTrackingSpikeDetectionConfig
+                        |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
@@ -315,6 +321,7 @@ rules:
                         |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
+                        |ScoreDefinition
                         |SavedHeatmap
                         |ScheduledChange
                         |SessionGroupSummary
@@ -335,6 +342,8 @@ rules:
                         |Text
                         |Threshold
                         |Ticket
+                        |TraceReview
+                        |TraceReviewScore
                         |UploadedMedia
                         |UserInterview
                         |UserRepoPreference
@@ -580,6 +589,7 @@ rules:
                           (?x)(
                               DashboardPrivilege
                               |PersonalAPIKey
+                              |ScoreDefinitionVersion
                               |WebauthnCredential
                           )$
                 - focus-metavariable: $SINK
@@ -629,6 +639,7 @@ rules:
                     (?x)(
                         DashboardPrivilege
                         |PersonalAPIKey
+                        |ScoreDefinitionVersion
                         |WebauthnCredential
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)

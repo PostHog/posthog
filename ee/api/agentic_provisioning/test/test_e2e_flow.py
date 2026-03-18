@@ -1,6 +1,6 @@
 import time
 from datetime import timedelta
-from urllib.parse import urlencode
+from urllib.parse import parse_qs, urlencode, urlparse
 
 from django.test import override_settings
 from django.utils import timezone
@@ -68,7 +68,7 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         # 5. Provision a resource
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/resources",
-            data={"service_id": "product_analytics"},
+            data={"service_id": "analytics"},
             token=access_token,
         )
         assert res.status_code == 200
@@ -98,15 +98,30 @@ class TestE2EProvisioningFlow(StripeProvisioningTestBase):
         rotated_api_key = res.json()["complete"]["access_configuration"]["api_key"]
         assert rotated_api_key != original_api_key
 
-        # 8. Deep link
+        # 8. Deep link — create and use it to login
         res = self._post_signed_with_bearer(
             "/api/agentic/provisioning/deep_links",
             data={"purpose": "dashboard"},
             token=access_token,
         )
         assert res.status_code == 200
-        assert "url" in res.json()
+        deep_link_url = res.json()["url"]
         assert "expires_at" in res.json()
+
+        parsed = urlparse(deep_link_url)
+        deep_link_token = parse_qs(parsed.query)["token"][0]
+
+        login_res = self.client.get(f"/agentic/login?token={deep_link_token}")
+        assert login_res.status_code == 302
+        assert "/project/" in login_res["Location"]
+
+        me_res = self.client.get("/api/users/@me/")
+        assert me_res.status_code == 200
+        assert me_res.json()["email"] == "e2e-test@example.com"
+
+        reuse_res = self.client.get(f"/agentic/login?token={deep_link_token}")
+        assert reuse_res.status_code == 302
+        assert "expired_or_invalid_token" in reuse_res["Location"]
 
         # 9. Refresh the token
         refresh_body = urlencode({"grant_type": "refresh_token", "refresh_token": refresh_token}).encode()

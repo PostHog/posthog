@@ -1,7 +1,7 @@
 import {
     IconApps,
     IconBug,
-    IconCode2,
+    IconEndpoints,
     IconCursor,
     IconDashboard,
     IconDatabase,
@@ -37,12 +37,13 @@ export function ScopeIcon(props: { scope: APIScopeObject }): JSX.Element | null 
         case 'early_access_feature':
             return <IconRocket />
         case 'endpoint':
-            return <IconCode2 />
+            return <IconEndpoints />
         case 'error_tracking':
             return <IconWarning />
         case 'event_definition':
             return <IconApps />
         case 'experiment':
+        case 'experiment_saved_metric':
             return <IconFlask />
         case 'external_data_source':
             return <IconDatabase />

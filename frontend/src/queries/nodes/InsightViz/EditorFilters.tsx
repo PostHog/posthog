@@ -325,6 +325,7 @@ export function EditorFilters({ query, showing, embedded }: EditorFiltersProps):
                                   <span>Breakdown attribution</span>
                                   <Tooltip
                                       closeDelayMs={200}
+                                      interactive
                                       title={
                                           <div className="deprecated-space-y-2">
                                               <div>

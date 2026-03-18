@@ -294,3 +294,16 @@ class SessionStrategy(ActorStrategy):
 
     def input_columns(self) -> list[str]:
         return ["session"]
+
+    def filter_conditions(self) -> list[ast.Expr]:
+        where_exprs: list[ast.Expr] = []
+
+        search = self.query.search.strip() if self.query.search else None
+        if search:
+            where_exprs.append(
+                parse_expr(
+                    "person_id in (select id from persons where ilike(properties.email, {search}) or ilike(properties.name, {search}))",
+                    {"search": ast.Constant(value=f"%{search}%")},
+                )
+            )
+        return where_exprs

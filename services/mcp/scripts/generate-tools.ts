@@ -169,9 +169,17 @@ function resolveResponseType(operation: OpenApiOperation, knownTypes: Set<string
         if (!responseContent?.schema) {
             continue
         }
-        const schema = responseContent.schema
+        const schema = responseContent.schema as Record<string, unknown>
         if ('$ref' in schema && schema.$ref) {
-            const schemaName = schema.$ref.replace('#/components/schemas/', '')
+            const schemaName = (schema.$ref as string).replace('#/components/schemas/', '')
+            if (knownTypes.has(schemaName)) {
+                return `Schemas.${schemaName}`
+            }
+        }
+        // Handle array responses (e.g. list endpoints with pagination_class = None)
+        const items = schema.items as Record<string, unknown> | undefined
+        if (schema.type === 'array' && items && '$ref' in items && items.$ref) {
+            const schemaName = (items.$ref as string).replace('#/components/schemas/', '')
             if (knownTypes.has(schemaName)) {
                 return `Schemas.${schemaName}`
             }
@@ -241,12 +249,20 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
     const excludeSet = new Set(config.exclude_params ?? [])
     const includeSet = config.include_params ? new Set(config.include_params) : undefined
 
-    // Path params (always omit project_id)
-    const pathParams = (resolved.operation.parameters ?? []).filter((p) => p.in === 'path' && p.name !== 'project_id')
+    // Path params (omit project_id and organization_id — these are auto-resolved)
+    const allPathParams = (resolved.operation.parameters ?? []).filter((p) => p.in === 'path')
+    const autoResolvedParams = ['project_id', 'organization_id']
+    const pathParams = allPathParams.filter((p) => !autoResolvedParams.includes(p.name))
     if (pathParams.length > 0) {
         const importName = `${pascal}Params`
         orvalImports.push(importName)
-        schemaParts.push(`${importName}.omit({ project_id: true })`)
+        const omitKeys = autoResolvedParams.filter((k) => allPathParams.some((p) => p.name === k))
+        if (omitKeys.length > 0) {
+            const omitObj = omitKeys.map((k) => `${k}: true`).join(', ')
+            schemaParts.push(`${importName}.omit({ ${omitObj} })`)
+        } else {
+            schemaParts.push(importName)
+        }
         for (const p of pathParams) {
             pathParamNames.push(p.name)
         }
@@ -312,13 +328,16 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
                         continue
                     }
 
-                    // Auto-exclude underscore-prefixed fields
-                    if (name.startsWith('_')) {
-                        bodyOmitFields.add(name)
+                    // exclude_params are removed at the Orval schema level by
+                    // applyNestedExclusions in generate-orval-schemas.mjs, so
+                    // they won't exist in the Zod schema. Skip them here to
+                    // avoid generating .omit() calls for nonexistent fields.
+                    if (excludeSet.has(name)) {
                         continue
                     }
-                    // Apply exclude_params / include_params
-                    if (excludeSet.has(name)) {
+
+                    // Auto-exclude underscore-prefixed fields
+                    if (name.startsWith('_')) {
                         bodyOmitFields.add(name)
                         continue
                     }
@@ -385,13 +404,14 @@ function composeToolSchema(config: ToolConfig, resolved: ResolvedOperation, spec
 
 /** Extract path parameter names from a URL pattern (e.g., {id} from /api/projects/{project_id}/actions/{id}/) */
 function extractPathParams(urlPattern: string): string[] {
+    const autoResolved = new Set(['project_id', 'organization_id'])
     const matches = urlPattern.match(/\{(\w+)\}/g) ?? []
-    return matches.map((m) => m.slice(1, -1)).filter((name) => name !== 'project_id')
+    return matches.map((m) => m.slice(1, -1)).filter((name) => !autoResolved.has(name))
 }
 
-/** Build a template literal expression for the API path, interpolating project_id and path params */
+/** Build a template literal expression for the API path, interpolating auto-resolved IDs and path params */
 function buildPathExpr(urlPath: string, pathParamNames: string[], paramAccessPrefix = ''): string {
-    let pathExpr = `\`${urlPath.replace('{project_id}', '${projectId}')}\``
+    let pathExpr = `\`${urlPath.replace('{project_id}', '${projectId}').replace('{organization_id}', '${orgId}')}\``
     for (const pn of pathParamNames) {
         pathExpr = pathExpr.replace(`{${pn}}`, `\${${paramAccessPrefix}${pn}}`)
     }
@@ -402,8 +422,9 @@ function buildPathExpr(urlPath: string, pathParamNames: string[], paramAccessPre
 // Response enrichment templates
 // ------------------------------------------------------------------
 
-function buildEnrichment(config: ToolConfig, category: CategoryConfig): string {
-    const baseUrl = `\${context.api.getProjectBaseUrl(projectId)}${category.url_prefix}`
+function buildEnrichment(config: ToolConfig, category: CategoryConfig, needsProjectId: boolean): string {
+    const projectIdExpr = needsProjectId ? 'projectId' : `'@current'`
+    const baseUrl = `\${context.api.getProjectBaseUrl(${projectIdExpr})}${category.url_prefix}`
 
     if (config.list && config.enrich_url) {
         const { prefix, field } = parseEnrichUrl(config.enrich_url)
@@ -472,9 +493,18 @@ function generateToolCode(
 
     const pathExpr = buildPathExpr(resolved.path, composition.pathParamNames, 'params.')
 
+    // Determine which auto-resolved IDs this operation needs
+    const needsProjectId = resolved.path.includes('{project_id}')
+    const needsOrgId = resolved.path.includes('{organization_id}')
+
     // Build handler body
     let handlerBody = ''
-    handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
+    if (needsOrgId) {
+        handlerBody += `        const orgId = await context.stateManager.getOrgID()\n`
+    }
+    if (needsProjectId) {
+        handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
+    }
 
     // Soft-delete overrides the HTTP method: use PATCH { deleted: true } instead of DELETE.
     // This is necessary for endpoints backed by ForbidDestroyModel (e.g. actions).
@@ -508,7 +538,7 @@ function generateToolCode(
     handlerBody += `        })\n`
 
     // Response enrichment — adds _posthogUrl for "View in PostHog" links
-    handlerBody += buildEnrichment(config, category)
+    handlerBody += buildEnrichment(config, category, needsProjectId)
 
     // Compute the result type for the ToolBase generic parameter
     let resultType: string
@@ -529,13 +559,16 @@ function generateToolCode(
         metaBlock = `    _meta: {\n        ui: {\n            resourceUri: '${config.ui_resource_uri}',\n        },\n    },\n`
     }
 
+    const paramsUsed = hasBody || hasQuery || composition.pathParamNames.length > 0
+    const unusedParamsComment = paramsUsed ? '' : '// eslint-disable-next-line no-unused-vars\n'
+
     const code = `
 ${schemaDecl}
 
 const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ({
     name: '${toolName}',
     schema: ${schemaName},
-    handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
+    ${unusedParamsComment}handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
 ${handlerBody}    },
 ${metaBlock}})
 `
@@ -564,8 +597,16 @@ function generateCustomSchemaToolCode(
     const useBody = ['POST', 'PATCH', 'PUT'].includes(resolved.method)
     const responseType = resolveResponseType(resolved.operation, knownTypes)
 
+    const needsProjectId = resolved.path.includes('{project_id}')
+    const needsOrgId = resolved.path.includes('{organization_id}')
+
     let handlerBody = ''
-    handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
+    if (needsOrgId) {
+        handlerBody += `        const orgId = await context.stateManager.getOrgID()\n`
+    }
+    if (needsProjectId) {
+        handlerBody += `        const projectId = await context.stateManager.getProjectId()\n`
+    }
 
     if (pathParamNames.length > 0) {
         const destructured = pathParamNames.map((p) => `${p}, `).join('')
@@ -592,7 +633,7 @@ function generateCustomSchemaToolCode(
     }
     handlerBody += `        })\n`
 
-    handlerBody += buildEnrichment(config, category)
+    handlerBody += buildEnrichment(config, category, needsProjectId)
 
     const code = `
 const ${schemaName} = ${config.input_schema}
@@ -729,6 +770,7 @@ function generateDefinitionsJson(
                     openWorldHint: true,
                     readOnlyHint: toolConfig.annotations.readOnly,
                 },
+                ...(toolConfig.requires_ai_consent ? { requires_ai_consent: true } : {}),
             }
         }
     }
@@ -782,14 +824,13 @@ function main(): void {
     }
 
     // Barrel index
-    const imports = generatedModules
-        .map((m) => `import { GENERATED_TOOLS as ${toCamelCase(m)} } from './${m}'`)
-        .join('\n')
-    const spreads = generatedModules.map((m) => `    ...${toCamelCase(m)},`).join('\n')
+    const sortedModules = [...generatedModules].sort()
+    const imports = sortedModules.map((m) => `import { GENERATED_TOOLS as ${toCamelCase(m)} } from './${m}'`).join('\n')
+    const spreads = sortedModules.map((m) => `    ...${toCamelCase(m)},`).join('\n')
     const barrelCode = `// AUTO-GENERATED — do not edit
-${imports}
-
 import type { ToolBase, ZodObjectAny } from '@/tools/types'
+
+${imports}
 
 export const GENERATED_TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
 ${spreads}

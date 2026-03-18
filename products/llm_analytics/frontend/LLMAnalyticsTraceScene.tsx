@@ -36,6 +36,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconArrowDown, IconArrowUp } from 'lib/lemon-ui/icons'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
@@ -76,9 +77,14 @@ import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { llmPlaygroundPromptsLogic } from './playground/llmPlaygroundPromptsLogic'
 import { SearchHighlight } from './SearchHighlight'
+import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
 import { SummaryViewDisplay } from './summary-view/SummaryViewDisplay'
 import { TextViewDisplay } from './text-view/TextViewDisplay'
 import { exportTraceToClipboard } from './traceExportUtils'
+import { TraceReviewButton } from './traceReviews/TraceReviewButton'
+import { traceReviewModalLogic } from './traceReviews/traceReviewModalLogic'
+import { traceReviewsLazyLoaderLogic } from './traceReviews/traceReviewsLazyLoaderLogic'
+import { getTraceReviewTagItems, TraceReviewTooltipContent } from './traceReviews/TraceReviewValue'
 import { usePosthogAIBillingCalculations } from './usePosthogAIBillingCalculations'
 import {
     formatLLMCost,
@@ -186,6 +192,7 @@ export function LLMAnalyticsTraceScene({ tabId }: { tabId?: string }): JSX.Eleme
 function TraceSceneWrapper(): JSX.Element {
     const traceLogic = useMountedLogic(llmAnalyticsTraceLogic)
     const traceDataLogic = useMountedLogic(llmAnalyticsTraceDataLogic)
+    useMountedLogic(traceReviewsLazyLoaderLogic)
     const { searchQuery, commentCount } = useValues(traceLogic)
     const { searchParams } = useValues(router)
     const {
@@ -292,17 +299,33 @@ function TraceSceneWrapper(): JSX.Element {
 
 function Chip({
     title,
+    tooltipTitle,
     children,
     icon,
+    type,
+    onClick,
+    className,
 }: {
-    title: string
+    title: React.ReactNode
+    tooltipTitle?: React.ReactNode
     children: React.ReactNode
     icon?: JSX.Element
+    type?: LemonTagProps['type']
+    onClick?: () => void
+    className?: string
 }): JSX.Element {
+    const screenReaderTitle = typeof title === 'string' ? title : null
+
     return (
-        <Tooltip title={title}>
-            <LemonTag size="medium" className="bg-surface-primary" icon={icon}>
-                <span className="sr-only">{title}</span>
+        <Tooltip title={tooltipTitle ?? title}>
+            <LemonTag
+                size="small"
+                className={classNames('bg-surface-primary', className)}
+                icon={icon}
+                type={type}
+                onClick={onClick}
+            >
+                {screenReaderTitle ? <span className="sr-only">{screenReaderTitle}</span> : null}
                 {children}
             </LemonTag>
         </Tooltip>
@@ -316,6 +339,73 @@ function UsageChip({ event }: { event: LLMTraceEvent | LLMTrace }): JSX.Element 
             {usage}
         </Chip>
     ) : null
+}
+
+function TraceReviewMetadata({ traceId }: { traceId: string }): JSX.Element {
+    const modalLogic = useMountedLogic(traceReviewModalLogic({ traceId }))
+    const { openModal } = useActions(modalLogic)
+    const {
+        getTraceReview,
+        isTraceLoading: isTraceReviewLoading,
+        didTraceReviewLoadFail,
+    } = useValues(traceReviewsLazyLoaderLogic)
+    const { ensureReviewsLoaded } = useActions(traceReviewsLazyLoaderLogic)
+
+    const traceReview = getTraceReview(traceId)
+    const traceReviewLoading = isTraceReviewLoading(traceId)
+    const traceReviewLoadFailed = didTraceReviewLoadFail(traceId)
+
+    useEffect(() => {
+        if (!traceId || traceReview !== undefined || traceReviewLoading || traceReviewLoadFailed) {
+            return
+        }
+
+        ensureReviewsLoaded([traceId])
+    }, [ensureReviewsLoaded, traceId, traceReview, traceReviewLoadFailed, traceReviewLoading])
+
+    if (traceReviewLoadFailed) {
+        return (
+            <>
+                <Chip title="Failed to load the review status.">Review unavailable</Chip>
+                <TraceReviewButton traceId={traceId} />
+            </>
+        )
+    }
+
+    if (traceReviewLoading || traceReview === undefined) {
+        return <Chip title="Loading the review status.">Checking review...</Chip>
+    }
+
+    if (traceReview === null) {
+        return (
+            <>
+                <Chip title="This trace has not been reviewed yet." type="muted" onClick={openModal}>
+                    Not reviewed
+                </Chip>
+                <TraceReviewButton traceId={traceId} />
+            </>
+        )
+    }
+
+    const reviewTooltip = <TraceReviewTooltipContent review={traceReview} />
+    const reviewTagItems = getTraceReviewTagItems({ review: traceReview, maxVisibleScores: 3 })
+
+    return (
+        <>
+            {reviewTagItems.map((item) => (
+                <Chip
+                    key={item.key}
+                    title={item.label}
+                    tooltipTitle={reviewTooltip}
+                    type={item.type}
+                    onClick={openModal}
+                >
+                    {item.label}
+                </Chip>
+            ))}
+            <TraceReviewButton traceId={traceId} />
+        </>
+    )
 }
 
 function TraceMetadata({
@@ -341,10 +431,14 @@ function TraceMetadata({
     const { ensureSentimentLoaded } = useActions(llmSentimentLazyLoaderLogic)
 
     const showSentiment = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT]
+    const showTraceReview = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
     const sentimentResult = showSentiment ? getTraceSentiment(trace.id) : undefined
     const sentimentLoading = showSentiment ? isTraceLoading(trace.id) : false
     if (showSentiment && sentimentResult === undefined && !sentimentLoading) {
-        ensureSentimentLoaded(trace.id)
+        ensureSentimentLoaded(trace.id, {
+            dateFrom: trace.createdAt,
+            dateTo: dayjs(trace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
+        })
     }
 
     const cached = personsCache[trace.distinctId]
@@ -409,6 +503,7 @@ function TraceMetadata({
                     {formatLLMCost(trace.totalCost)}
                 </Chip>
             )}
+            {showTraceReview ? <TraceReviewMetadata traceId={trace.id} /> : null}
             {showBillingInfo && typeof billedTotalUsd === 'number' && billedTotalUsd > 0 && (
                 <Chip title="Billed total" icon={<span className="text-base">💰</span>}>
                     billed: {formatLLMCost(billedTotalUsd)}
@@ -613,7 +708,10 @@ const TreeNode = React.memo(function TraceNode({
     const isGeneration = isLLMEvent(item) && (item as LLMTraceEvent).event === '$ai_generation'
     const genSentiment = showSentiment && isGeneration ? getGenerationSentiment(item.id) : undefined
     if (showSentiment && isGeneration && genSentiment === undefined && !isGenerationLoading(item.id)) {
-        ensureGenerationSentimentLoaded(item.id)
+        ensureGenerationSentimentLoaded(item.id, {
+            dateFrom: topLevelTrace.createdAt,
+            dateTo: dayjs(topLevelTrace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
+        })
     }
 
     const children = [
@@ -1288,6 +1386,12 @@ function DisplayOptionsSelect(): JSX.Element {
             label: 'Expand all',
             tooltip: 'Show all messages and full conversation history',
             'data-attr': 'llma-trace-display-expand-all',
+        },
+        {
+            value: DisplayOption.ExpandUserOnly,
+            label: 'Expand user only',
+            tooltip: 'Show only user messages in expanded view',
+            'data-attr': 'llma-trace-display-expand-user-only',
         },
         {
             value: DisplayOption.CollapseExceptOutputAndLastInput,

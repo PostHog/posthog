@@ -3,6 +3,8 @@ import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { SessionManager } from '@/lib/SessionManager'
 import { StateManager } from '@/lib/StateManager'
 import type { InsightQuery } from '@/schema/query'
+import { GENERATED_TOOL_MAP } from '@/tools/generated'
+import { TOOL_MAP } from '@/tools/index'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 export const API_BASE_URL = process.env.TEST_POSTHOG_API_BASE_URL || 'http://localhost:8010'
@@ -68,7 +70,11 @@ export async function cleanupResources(
 ): Promise<void> {
     for (const flagId of resources.featureFlags) {
         try {
-            await client.featureFlags({ projectId }).delete({ flagId })
+            await client.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/feature_flags/${flagId}/`,
+                body: { deleted: true },
+            })
         } catch (error) {
             console.warn(`Failed to cleanup feature flag ${flagId}:`, error)
         }
@@ -86,7 +92,11 @@ export async function cleanupResources(
 
     for (const dashboardId of resources.dashboards) {
         try {
-            await client.dashboards({ projectId }).delete({ dashboardId })
+            await client.request({
+                method: 'PATCH',
+                path: `/api/projects/${projectId}/dashboards/${dashboardId}/`,
+                body: { deleted: true },
+            })
         } catch (error) {
             console.warn(`Failed to cleanup dashboard ${dashboardId}:`, error)
         }
@@ -135,15 +145,36 @@ export function parseToolResponse(result: any): any {
     return result
 }
 
+/**
+ * Look up a tool by name. When called with a single argument, searches the
+ * combined hand-written and generated tool maps. When called with a tool map
+ * as the first argument, searches only that map.
+ */
+export function getToolByName(name: string): ToolBase<ZodObjectAny>
 export function getToolByName(
     toolMap: Record<string, () => ToolBase<ZodObjectAny>>,
-    toolName: string
+    name: string
+): ToolBase<ZodObjectAny>
+export function getToolByName(
+    nameOrMap: string | Record<string, () => ToolBase<ZodObjectAny>>,
+    maybeName?: string
 ): ToolBase<ZodObjectAny> {
-    const toolFactory = toolMap[toolName]
-    if (!toolFactory) {
-        throw new Error(`Tool not found in map: ${toolName}`)
+    let toolMap: Record<string, () => ToolBase<ZodObjectAny>>
+    let name: string
+
+    if (typeof nameOrMap === 'string') {
+        toolMap = { ...TOOL_MAP, ...GENERATED_TOOL_MAP }
+        name = nameOrMap
+    } else {
+        toolMap = nameOrMap
+        name = maybeName!
     }
-    return toolFactory()
+
+    const factory = toolMap[name]
+    if (!factory) {
+        throw new Error(`Tool "${name}" not found`)
+    }
+    return factory()
 }
 
 export function generateUniqueKey(prefix: string): string {

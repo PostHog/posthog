@@ -52,6 +52,7 @@ from ee.hogai.api.serializers import ConversationSerializer
 from ee.hogai.chat_agent import AssistantGraph
 from ee.hogai.core.executor import AgentExecutor
 from ee.hogai.queue import ConversationQueueMessage, ConversationQueueStore, QueueFullError, build_queue_message
+from ee.hogai.sandbox.executor import handle_sandbox_message
 from ee.hogai.stream.redis_stream import get_conversation_stream_key
 from ee.hogai.utils.aio import async_to_sync
 from ee.hogai.utils.sse import AssistantSSESerializer
@@ -94,6 +95,7 @@ class MessageSerializer(MessageMinimalSerializer):
     trace_id = serializers.UUIDField(required=True)
     session_id = serializers.CharField(required=False)
     agent_mode = serializers.ChoiceField(required=False, choices=[mode.value for mode in AgentMode])
+    is_sandbox = serializers.BooleanField(required=False, default=False)
     resume_payload = serializers.JSONField(required=False, allow_null=True)
 
     def validate(self, attrs):
@@ -352,6 +354,11 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
         is_idle = conversation.status == Conversation.Status.IDLE
         has_message = serializer.validated_data.get("message") is not None
         has_resume_payload = serializer.validated_data.get("resume_payload") is not None
+        is_sandbox = (
+            serializer.validated_data.get("is_sandbox", False)
+            or serializer.validated_data.get("agent_mode") == AgentMode.SANDBOX
+        )
+
         if conversation.type == Conversation.Type.DEEP_RESEARCH:
             if not is_new_conversation and is_idle and has_message and not has_resume_payload:
                 conversation.type = Conversation.Type.ASSISTANT
@@ -360,13 +367,23 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
             else:
                 is_research = True
 
-        if has_message and not is_idle:
+        if has_message and not is_idle and not is_sandbox:
             raise Conflict("Cannot resume streaming with a new message")
         # If the frontend is trying to resume streaming for a finished conversation, return a conflict error
         if not has_message and conversation.status == Conversation.Status.IDLE and not has_resume_payload:
             raise exceptions.ValidationError("Cannot continue streaming from an idle conversation")
 
         is_impersonated = is_impersonated_session(request)
+
+        if is_sandbox and has_message:
+            return handle_sandbox_message(
+                conversation=conversation,
+                conversation_id=str(conversation_id),
+                content=serializer.validated_data["content"],
+                user=cast(User, request.user),
+                team=self.team,
+                is_new_conversation=is_new_conversation,
+            )
 
         workflow_inputs: ChatAgentWorkflowInputs | ResearchAgentWorkflowInputs
         workflow_class: type[ChatAgentWorkflow] | type[ResearchAgentWorkflow]
@@ -506,7 +523,10 @@ class ConversationViewSet(TeamAndOrgViewSetMixin, ListModelMixin, RetrieveModelM
     def cancel(self, request: Request, *args, **kwargs):
         conversation = self.get_object()
 
-        if conversation.status in [Conversation.Status.CANCELING, Conversation.Status.IDLE]:
+        # IDLE is intentionally not short-circuited: during the handoff between the main
+        # workflow completing and a queued workflow starting, the status is briefly IDLE
+        # even though a queued Temporal workflow may be running.
+        if conversation.status == Conversation.Status.CANCELING:
             return Response(status=status.HTTP_204_NO_CONTENT)
 
         async def cancel_workflow():

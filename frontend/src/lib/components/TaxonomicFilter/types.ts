@@ -256,6 +256,16 @@ export type ListFuse = Fuse<{
     item: EventDefinition | CohortType
 }> // local alias for typegen
 
+export interface SkeletonItem {
+    _skeleton: true
+    group: TaxonomicFilterGroupType
+    groupName: string
+}
+
+export function isSkeletonItem(item: unknown): item is SkeletonItem {
+    return typeof item === 'object' && item !== null && '_skeleton' in item
+}
+
 export type TaxonomicDefinitionTypes =
     | EventDefinition
     | PropertyDefinition

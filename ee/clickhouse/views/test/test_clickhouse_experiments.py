@@ -29,6 +29,55 @@ class TestExperimentCRUD(APILicensedTest):
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
+    def test_can_list_eligible_feature_flags(self) -> None:
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="eligible-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="wrong-order-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            created_by=self.user,
+            key="single-variant-flag",
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 100},
+                    ]
+                },
+            },
+        )
+
+        response = self.client.get(f"/api/projects/{self.team.id}/experiments/eligible_feature_flags/?order=key")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json()["count"], 1)
+        self.assertEqual([flag["key"] for flag in response.json()["results"]], ["eligible-flag"])
+
     @parameterized.expand(
         [
             ("draft", "draft"),
@@ -99,7 +148,7 @@ class TestExperimentCRUD(APILicensedTest):
             format="json",
         ).json()
 
-        with self.assertNumQueries(FuzzyInt(19, 20)):
+        with self.assertNumQueries(FuzzyInt(18, 22)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -116,7 +165,7 @@ class TestExperimentCRUD(APILicensedTest):
                 format="json",
             ).json()
 
-        with self.assertNumQueries(FuzzyInt(23, 24)):
+        with self.assertNumQueries(FuzzyInt(18, 22)):
             response = self.client.get(f"/api/projects/{self.team.id}/experiments")
             self.assertEqual(response.status_code, status.HTTP_200_OK)
 
@@ -535,6 +584,10 @@ class TestExperimentCRUD(APILicensedTest):
             created_ff.filters["holdout_groups"],
             [{"properties": [], "rollout_percentage": 20, "variant": f"holdout-{holdout_id}"}],
         )
+        self.assertEqual(
+            created_ff.filters["holdout"],
+            {"id": holdout_id, "exclusion_percentage": 20},
+        )
 
         exp_id = response.json()["id"]
 
@@ -569,6 +622,10 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(
             created_ff.filters["holdout_groups"],
             [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
+        )
+        self.assertEqual(
+            created_ff.filters["holdout"],
+            {"id": holdout_2_id, "exclusion_percentage": 5},
         )
 
         # update parameters
@@ -606,6 +663,10 @@ class TestExperimentCRUD(APILicensedTest):
             [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
         )
         self.assertEqual(
+            created_ff.filters["holdout"],
+            {"id": holdout_2_id, "exclusion_percentage": 5},
+        )
+        self.assertEqual(
             created_ff.filters["multivariate"]["variants"],
             [
                 {"key": "control", "name": "Control Group", "rollout_percentage": 33},
@@ -627,6 +688,7 @@ class TestExperimentCRUD(APILicensedTest):
 
         created_ff = FeatureFlag.objects.get(key=ff_key)
         self.assertEqual(created_ff.filters["holdout_groups"], None)
+        self.assertEqual(created_ff.filters["holdout"], None)
 
         # try adding invalid holdout
         response = self.client.patch(
@@ -663,6 +725,10 @@ class TestExperimentCRUD(APILicensedTest):
             created_ff.filters["holdout_groups"],
             [{"properties": [], "rollout_percentage": 5, "variant": f"holdout-{holdout_2_id}"}],
         )
+        self.assertEqual(
+            created_ff.filters["holdout"],
+            {"id": holdout_2_id, "exclusion_percentage": 5},
+        )
 
     def test_saved_metrics(self):
         response = self.client.post(
@@ -684,11 +750,14 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment saved metric")
         self.assertEqual(response.json()["description"], "Test description")
+        saved_metric_uuid = response.json()["query"]["uuid"]
+        self.assertTrue(saved_metric_uuid)
         self.assertEqual(
             response.json()["query"],
             {
                 "kind": "ExperimentTrendsQuery",
                 "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "uuid": saved_metric_uuid,
             },
         )
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
@@ -731,6 +800,7 @@ class TestExperimentCRUD(APILicensedTest):
             {
                 "kind": "ExperimentTrendsQuery",
                 "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "uuid": saved_metric_uuid,
             },
         )
 
@@ -2164,6 +2234,7 @@ class TestExperimentCRUD(APILicensedTest):
                 },
                 "aggregation_group_type_index": None,
                 "holdout_groups": None,
+                "holdout": None,
             },
         )
 
@@ -2221,6 +2292,7 @@ class TestExperimentCRUD(APILicensedTest):
                 },
                 "aggregation_group_type_index": None,
                 "holdout_groups": None,
+                "holdout": None,
             },
         )
 
@@ -2289,6 +2361,7 @@ class TestExperimentCRUD(APILicensedTest):
                 },
                 "aggregation_group_type_index": None,
                 "holdout_groups": None,
+                "holdout": None,
             },
         )
 

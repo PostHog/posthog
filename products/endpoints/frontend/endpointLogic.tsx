@@ -206,8 +206,7 @@ export const endpointLogic = kea<endpointLogicType>([
                     actions.createEndpointSuccess(response)
                 } catch (error: any) {
                     console.error('Failed to create endpoint:', error)
-                    const queryError = error.attr === 'query' ? error.detail : null
-                    actions.createEndpointFailure(queryError)
+                    actions.createEndpointFailure(error.detail || null)
                 }
             },
             createEndpointSuccess: ({ response }) => {

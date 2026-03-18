@@ -74,6 +74,7 @@ export interface MinimalFeatureFlagApi {
 * `device_id` - Device ID */
     bucketing_identifier?: BucketingIdentifierEnumApi | BlankEnumApi | NullEnumApi | null
     readonly evaluation_tags: readonly string[]
+    readonly evaluation_contexts: readonly string[]
 }
 
 /**
@@ -98,7 +99,10 @@ export const StageEnumApi = {
 export interface EarlyAccessFeatureApi {
     readonly id: string
     readonly feature_flag: MinimalFeatureFlagApi
-    /** @maxLength 200 */
+    /**
+     * The name of the early access feature.
+     * @maxLength 200
+     */
     name: string
     description?: string
     stage: StageEnumApi
@@ -119,7 +123,10 @@ export interface PaginatedEarlyAccessFeatureListApi {
 
 export interface EarlyAccessFeatureSerializerCreateOnlyApi {
     readonly id: string
-    /** @maxLength 200 */
+    /**
+     * The name of the early access feature.
+     * @maxLength 200
+     */
     name: string
     description?: string
     stage: StageEnumApi
@@ -135,7 +142,10 @@ export interface EarlyAccessFeatureSerializerCreateOnlyApi {
 export interface PatchedEarlyAccessFeatureApi {
     readonly id?: string
     readonly feature_flag?: MinimalFeatureFlagApi
-    /** @maxLength 200 */
+    /**
+     * The name of the early access feature.
+     * @maxLength 200
+     */
     name?: string
     description?: string
     stage?: StageEnumApi

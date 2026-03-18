@@ -322,6 +322,7 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             validated_data["prefix"] = instance.prefix
 
         existing_job_inputs = instance.job_inputs or {}
+        job_inputs_were_submitted = "job_inputs" in validated_data
         incoming_job_inputs = validated_data.get("job_inputs", {})
 
         source_type_model = ExternalDataSourceType(instance.source_type)
@@ -369,6 +370,11 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
 
         source_config: Config = source.parse_config(new_job_inputs)
         validated_data["job_inputs"] = source_config.to_dict()
+
+        if job_inputs_were_submitted:
+            credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
+            if not credentials_valid:
+                raise ValidationError(credentials_error or "Invalid credentials")
 
         updated_source: ExternalDataSource = super().update(instance, validated_data)
 
@@ -490,7 +496,6 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             for key, value in payload.items():
                 if isinstance(value, str):
                     payload[key] = value.strip()
-
         source_type_model = ExternalDataSourceType(source_type)
         source = SourceRegistry.get_source(source_type_model)
         is_valid, errors = source.validate_config(payload)
@@ -872,9 +877,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         instance: ExternalDataSource = self.get_object()
         after = request.query_params.get("after", None)
         before = request.query_params.get("before", None)
+        schemas = request.query_params.getlist("schemas")
 
         jobs = instance.jobs.filter(billable=True).prefetch_related("schema").order_by("-created_at")
 
+        if schemas:
+            jobs = jobs.filter(schema__name__in=schemas)
         if after:
             after_date = parser.parse(after)
             jobs = jobs.filter(created_at__gt=after_date)

@@ -409,61 +409,51 @@ class TestQueryRunner(BaseTest):
             mock_cache_manager.get_cache_data.assert_called_once()
             mock_cache_manager.set_cache_data.assert_called_once()
 
-    def test_query_execution_metrics_on_success(self):
+    @parameterized.expand(
+        [
+            ("success", None, None, 1, 0),
+            ("error_result", "error", None, 1, 0),
+            ("exception", "raise", ValueError, 0, 1),
+        ]
+    )
+    def test_query_execution_metrics(self, _name, calculate_mode, expected_exception, success_delta, failure_delta):
         from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
 
         TestQueryRunner = self.setup_test_query_runner_class()
+        if calculate_mode == "error":
+            TestQueryRunner.calculate = lambda self: TheTestBasicQueryResponse(results=[], error="Some error occurred")
+        elif calculate_mode == "raise":
+
+            def calculate_raises(self):
+                raise ValueError("Query execution failed")
+
+            TestQueryRunner.calculate = calculate_raises
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        before_success = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get()
+        before_success = QUERY_EXECUTION_TOTAL.labels(
+            query_type="TestQuery", category="success", error_type="none"
+        )._value.get()
+        before_failure = QUERY_EXECUTION_TOTAL.labels(
+            query_type="TestQuery", category="error", error_type="ValueError"
+        )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
-        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-
-        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get() - before_success == 1
-        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
-
-    def test_query_execution_metrics_on_error_result(self):
-        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
-
-        TestQueryRunner = self.setup_test_query_runner_class()
-
-        def calculate_with_error(self):
-            return TheTestBasicQueryResponse(results=[], error="Some error occurred")
-
-        TestQueryRunner.calculate = calculate_with_error
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-
-        before_success = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get()
-        before_failure = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get()
-        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
-
-        runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
-
-        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get() - before_success == 1
-        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get() - before_failure == 0
-        assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
-
-    def test_query_execution_metrics_on_exception(self):
-        from posthog.hogql_queries.query_runner import QUERY_EXECUTION_DURATION, QUERY_EXECUTION_TOTAL
-
-        TestQueryRunner = self.setup_test_query_runner_class()
-
-        def calculate_raises(self):
-            raise ValueError("Query execution failed")
-
-        TestQueryRunner.calculate = calculate_raises
-        runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
-
-        before_success = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get()
-        before_failure = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get()
-        before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
-
-        with pytest.raises(ValueError):
+        if expected_exception:
+            with pytest.raises(expected_exception):
+                runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        else:
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get() - before_success == 0
-        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get() - before_failure == 1
+        assert (
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="success", error_type="none")._value.get()
+            - before_success
+            == success_delta
+        )
+        assert (
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="error", error_type="ValueError")._value.get()
+            - before_failure
+            == failure_delta
+        )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() > before_duration_sum
 
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
@@ -475,16 +465,26 @@ class TestQueryRunner(BaseTest):
         with freeze_time(datetime(2023, 2, 4, 13, 37, 42)):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
-        before_success = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get()
-        before_failure = QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get()
+        before_success = QUERY_EXECUTION_TOTAL.labels(
+            query_type="TestQuery", category="success", error_type="none"
+        )._value.get()
+        before_failure = QUERY_EXECUTION_TOTAL.labels(
+            query_type="TestQuery", category="error", error_type="ValueError"
+        )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
         # Cache is fresh (< 10 min old), so this hits the cache without recalculating
         with freeze_time(datetime(2023, 2, 4, 13, 38, 0)):
             runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
-        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success")._value.get() == before_success
-        assert QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure")._value.get() == before_failure
+        assert (
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="success", error_type="none")._value.get()
+            == before_success
+        )
+        assert (
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="error", error_type="ValueError")._value.get()
+            == before_failure
+        )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum
 
 
