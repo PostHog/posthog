@@ -1,10 +1,13 @@
 import json
 from typing import Any
 
+import pytest
+
 import polars as pl
 
 from ee.billing.dags.customer_archetype import (
     AccountClassification,
+    _hash_sf_record,
     apply_confidence_threshold,
     build_salesforce_records,
     compute_use_case_adoption,
@@ -76,8 +79,6 @@ def _make_multi_account_df(rows: list[dict]) -> pl.DataFrame:
 
 
 class TestComputeUseCaseAdoption:
-    """Test the deterministic MRR → adoption level helper."""
-
     def test_product_intelligence_sums_correct_columns(self):
         df = _make_account_df(
             latest_product_analytics_mrr=200.0,
@@ -324,3 +325,53 @@ class TestBuildSalesforceRecords:
         # Should still produce a record but with None use case fields
         assert len(records) == 1
         assert records[0]["customer_use_case_product_intelligence__c"] is None
+
+
+# --------------------------------------------------------------------------- #
+# MRR boundary values
+# --------------------------------------------------------------------------- #
+
+
+class TestUseCaseAdoptionBoundaries:
+    @pytest.mark.parametrize(
+        "mrr,expected",
+        [
+            (0, "None"),
+            (0.01, "Experimental"),
+            (99.99, "Experimental"),
+            (100, "Adopted"),
+            (499.99, "Adopted"),
+            (500, "Significant"),
+            (10_000, "Significant"),
+        ],
+    )
+    def test_mrr_boundary_values(self, mrr: float, expected: str):
+        df = _make_account_df(latest_feature_flags_mrr=mrr)
+        result = compute_use_case_adoption(df)
+        assert result["uc_release_eng"][0] == expected
+
+    def test_null_mrr_treated_as_zero(self):
+        df = _make_account_df(latest_feature_flags_mrr=None)
+        result = compute_use_case_adoption(df)
+        assert result["uc_release_eng"][0] == "None"
+
+
+# --------------------------------------------------------------------------- #
+# Hash determinism
+# --------------------------------------------------------------------------- #
+
+
+class TestHashDeterminism:
+    def test_same_record_produces_same_hash(self):
+        record = {"Id": "001", "customer_archetype__c": "AI Native", "customer_stage__c": "Scaled"}
+        assert _hash_sf_record(record) == _hash_sf_record(record)
+
+    def test_key_order_does_not_affect_hash(self):
+        record_a = {"Id": "001", "customer_archetype__c": "AI Native", "z_field": 1}
+        record_b = {"z_field": 1, "Id": "001", "customer_archetype__c": "AI Native"}
+        assert _hash_sf_record(record_a) == _hash_sf_record(record_b)
+
+    def test_different_values_produce_different_hashes(self):
+        record_a = {"Id": "001", "customer_archetype__c": "AI Native"}
+        record_b = {"Id": "001", "customer_archetype__c": "Cloud Native"}
+        assert _hash_sf_record(record_a) != _hash_sf_record(record_b)

@@ -28,6 +28,10 @@ from ee.billing.salesforce_enrichment.salesforce_client import get_salesforce_cl
 
 ARCHETYPE_TEAM_ID = 2
 
+# MRR thresholds for use case adoption levels (in dollars)
+MRR_THRESHOLD_SIGNIFICANT = 500
+MRR_THRESHOLD_ADOPTED = 100
+
 
 class ArchetypeClassificationConfig(dagster.Config):
     llm_max_workers: int = 20
@@ -226,9 +230,9 @@ def compute_use_case_adoption(df: pl.DataFrame) -> pl.DataFrame:
     for use_case, mrr_cols in USE_CASE_MRR_MAPPING.items():
         total_mrr = pl.sum_horizontal(*[pl.col(c).fill_null(0) for c in mrr_cols])
         adoption = (
-            pl.when(total_mrr >= 500)
+            pl.when(total_mrr >= MRR_THRESHOLD_SIGNIFICANT)
             .then(pl.lit("Significant"))
-            .when(total_mrr >= 100)
+            .when(total_mrr >= MRR_THRESHOLD_ADOPTED)
             .then(pl.lit("Adopted"))
             .when(total_mrr > 0)
             .then(pl.lit("Experimental"))
@@ -362,7 +366,7 @@ def _classify_batch(client: Any, batch: list[dict[str, Any]]) -> list[AccountCla
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": user_prompt},
         ],
-        temperature=1,
+        temperature=0.3,
         response_format={"type": "json_object"},
         timeout=180,
     )
