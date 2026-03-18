@@ -8,6 +8,6 @@ workspace = true
 
 [dependencies]
 axum = { workspace = true }
-metrics = { workspace = true }
 metrics-exporter-prometheus = { workspace = true }
 tokio = { workspace = true }
+metrics = { workspace = true }

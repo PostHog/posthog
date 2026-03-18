@@ -5,7 +5,8 @@ pub use routing::{DataCategory, OperationType, RouteDecision};
 use std::sync::Arc;
 use std::time::Instant;
 
-use metrics::{counter, gauge, histogram};
+use metrics::{counter, histogram};
+use personhog_common::grpc::ClientInFlightGuard;
 use personhog_proto::personhog::leader::v1::{
     UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
 };
@@ -39,21 +40,11 @@ macro_rules! call_backend {
         )
         .increment(1);
 
-        gauge!(
-            "personhog_router_client_requests_in_flight",
-            "backend" => "replica"
-        )
-        .increment(1.0);
+        let _in_flight = ClientInFlightGuard::new("replica");
 
         let start = Instant::now();
         let result = $self.replica_backend.$method($request).await;
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
-
-        gauge!(
-            "personhog_router_client_requests_in_flight",
-            "backend" => "replica"
-        )
-        .decrement(1.0);
 
         histogram!(
             "personhog_router_backend_duration_ms",

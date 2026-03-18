@@ -114,6 +114,26 @@ pub fn tracked_tcp_incoming(
     })
 }
 
+/// Drop guard that decrements a client-side in-flight gauge on drop,
+/// ensuring cancellation-safety for outbound request tracking.
+pub struct ClientInFlightGuard {
+    pub backend: &'static str,
+}
+
+impl ClientInFlightGuard {
+    pub fn new(backend: &'static str) -> Self {
+        gauge!("personhog_router_client_requests_in_flight", "backend" => backend).increment(1.0);
+        Self { backend }
+    }
+}
+
+impl Drop for ClientInFlightGuard {
+    fn drop(&mut self) {
+        gauge!("personhog_router_client_requests_in_flight", "backend" => self.backend)
+            .decrement(1.0);
+    }
+}
+
 /// Errors that indicate the listener cannot recover and the stream should terminate.
 fn is_fatal_accept_error(e: &io::Error) -> bool {
     const EMFILE: i32 = 24;
