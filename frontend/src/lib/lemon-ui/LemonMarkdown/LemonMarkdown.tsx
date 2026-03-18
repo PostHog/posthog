@@ -108,7 +108,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
 
     return (
         /* eslint-disable-next-line react/forbid-elements */
-        <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkMentions]}>
+        <ReactMarkdown components={components} remarkPlugins={[remarkGfm, remarkMentions]} skipHtml>
             {children}
         </ReactMarkdown>
     )

@@ -20,13 +20,13 @@ type MentionNode =
       }
 
 export default function remarkMentions() {
-    const replaceMention = (value: string, mentionType: string, id: string): MentionNode => {
+    const replaceMention = (value: string, mentionType: string, id: string): MentionNode[] => {
         const nodes = []
 
         // Separate leading white space
         if (value.indexOf('@') > 0) {
             nodes.push({
-                type: 'text',
+                type: 'text' as const,
                 value: value.substring(0, value.indexOf('@')),
             })
         }
