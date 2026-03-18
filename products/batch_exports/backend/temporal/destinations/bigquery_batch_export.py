@@ -1153,9 +1153,9 @@ def _get_merge_settings(
 class BigQueryInsertInputs(BatchExportInsertInputs):
     """Inputs for BigQuery."""
 
-    project_id: str
     dataset_id: str
     table_id: str
+    project_id: str | None = None
     private_key: str | None = None
     private_key_id: str | None = None
     token_uri: str | None = None
@@ -1182,13 +1182,24 @@ async def _get_google_cloud_service_account_integration(
 @handle_non_retryable_errors(NON_RETRYABLE_ERROR_TYPES)
 async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs) -> BatchExportResult:
     """Activity streams data from ClickHouse to BigQuery."""
+    google_cloud_integration = await _get_google_cloud_service_account_integration(inputs)
+    if google_cloud_integration is not None:
+        project_id = google_cloud_integration.project_id
+    else:
+        if inputs.project_id is None:
+            # Mostly here for the type checkers
+            # TODO: Remove this once everyone is on an integration
+            raise ValueError("Missing required values")
+
+        project_id = inputs.project_id
+
     bind_contextvars(
         team_id=inputs.team_id,
         destination="BigQuery",
         data_interval_start=inputs.data_interval_start,
         data_interval_end=inputs.data_interval_end,
         batch_export_id=inputs.batch_export_id,
-        project_id=inputs.project_id,
+        project_id=project_id,
         dataset_id=inputs.dataset_id,
         table_id=inputs.table_id,
     )
@@ -1198,7 +1209,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         "Batch exporting range %s - %s to BigQuery: %s.%s.%s",
         inputs.data_interval_start or "START",
         inputs.data_interval_end or "END",
-        inputs.project_id,
+        project_id,
         inputs.dataset_id,
         inputs.table_id,
     )
@@ -1253,7 +1264,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         target_table = BigQueryTable.from_arrow_schema(
             record_batch_schema,
             table_id=inputs.table_id,
-            project_id=inputs.project_id,
+            project_id=project_id,
             dataset_id=inputs.dataset_id,
             primary_key=merge_settings.primary_key if merge_settings else (),
             version_key=merge_settings.version_key if merge_settings else (),
@@ -1283,7 +1294,7 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 # Mostly here for the type checkers
                 raise ValueError("Missing required values")
             bq_client = BigQueryClient.from_service_account_inputs(
-                inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, inputs.project_id
+                inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, project_id
             )
 
         async with bq_client:

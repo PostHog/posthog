@@ -300,9 +300,9 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
 class BigQueryBatchExportInputs(BaseBatchExportInputs):
     """Inputs for BigQuery export workflow."""
 
-    project_id: str
     dataset_id: str
     table_id: str = "events"
+    project_id: str | None = None
     private_key: str | None = None
     private_key_id: str | None = None
     token_uri: str | None = None

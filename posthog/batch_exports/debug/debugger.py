@@ -529,6 +529,7 @@ class BatchExportsDebugger:
                     or bigquery_inputs.private_key_id is None
                     or bigquery_inputs.token_uri is None
                     or bigquery_inputs.client_email is None
+                    or bigquery_inputs.project_id is None
                 ):
                     # TODO: Support integration model/service account impersonation.
                     raise ValueError("Missing required values")
