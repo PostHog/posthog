@@ -1,6 +1,7 @@
 import { Tabs } from '@base-ui/react/tabs'
 import { cva } from 'cva'
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 import { lazy, Suspense, useRef } from 'react'
 
 import { IconApps, IconChat, IconChevronRight, IconSearch } from '@posthog/icons'
@@ -148,13 +149,17 @@ export function Nav(): JSX.Element {
 
                         <ButtonPrimitive
                             iconOnly
+                            data-attr="nav-search"
                             tooltip={
                                 <>
                                     <span>Search</span> <RenderKeybind keybind={[keyBinds.search]} />
                                 </>
                             }
                             tooltipPlacement={isLayoutNavCollapsed ? 'right' : undefined}
-                            onClick={() => toggleCommand()}
+                            onClick={() => {
+                                posthog.capture('nav search clicked')
+                                toggleCommand()
+                            }}
                         >
                             <IconSearch className="size-4 text-secondary" />
                         </ButtonPrimitive>
@@ -167,7 +172,12 @@ export function Nav(): JSX.Element {
                                 tooltip="Chat"
                                 tooltipPlacement="right"
                                 active={activePanelIdentifier === 'Chat'}
-                                onClick={() => handlePanelTriggerClick('Chat')}
+                                onClick={() => {
+                                    posthog.capture('nav chat panel toggled', {
+                                        is_open: activePanelIdentifier !== 'Chat',
+                                    })
+                                    handlePanelTriggerClick('Chat')
+                                }}
                             >
                                 <span
                                     className={cn(
@@ -192,7 +202,10 @@ export function Nav(): JSX.Element {
                 <Tabs.Root
                     className="z-[var(--z-main-nav)] flex flex-col flex-1 overflow-hidden"
                     value={isLayoutNavCollapsed && navExperimentActiveTab === 'chat' ? 'home' : navExperimentActiveTab}
-                    onValueChange={(value) => setNavExperimentTab(value as NavExperimentTab)}
+                    onValueChange={(value) => {
+                        posthog.capture('nav tab clicked', { tab: value })
+                        setNavExperimentTab(value as NavExperimentTab)
+                    }}
                     orientation={isLayoutNavCollapsed ? 'vertical' : 'horizontal'}
                 >
                     {!isLayoutNavCollapsed && (
