@@ -13,6 +13,7 @@ import { template as pixelTemplate } from '~/cdp/templates/_sources/pixel/pixel.
 import { template as incomingWebhookTemplate } from '~/cdp/templates/_sources/webhook/incoming_webhook.template'
 import { CyclotronJobInvocationHogFunction, CyclotronJobInvocationResult, HogFunctionType } from '~/cdp/types'
 import { HogFlow } from '~/schema/hogflow'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { forSnapshot } from '~/tests/helpers/snapshots'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
@@ -113,7 +114,7 @@ describe('SourceWebhooksConsumer', () => {
 
         beforeEach(async () => {
             hub.CDP_WATCHER_OBSERVE_RESULTS_BUFFER_TIME_MS = 50
-            api = new CdpApi(hub, hub)
+            api = new CdpApi(hub, createCdpConsumerDeps(hub))
             mockExecuteSpy = jest.spyOn(api['cdpSourceWebhooksConsumer']['hogExecutor'], 'execute')
             mockQueueInvocationsSpy = jest.spyOn(
                 api['cdpSourceWebhooksConsumer']['cyclotronJobQueue'],

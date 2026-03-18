@@ -70,6 +70,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "incremental_field_type",
             "sync_frequency",
             "sync_time_of_day",
+            "description",
         ]
 
         read_only_fields = [
@@ -79,6 +80,7 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
             "last_synced_at",
             "latest_error",
             "status",
+            "description",
         ]
 
     def get_status(self, schema: ExternalDataSchema) -> str | None:

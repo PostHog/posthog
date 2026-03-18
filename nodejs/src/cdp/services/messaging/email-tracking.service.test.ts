@@ -10,6 +10,7 @@ import { insertHogFunction } from '~/cdp/_tests/fixtures'
 import { CdpApi } from '~/cdp/cdp-api'
 import { HogFunctionType } from '~/cdp/types'
 import { KAFKA_APP_METRICS_2 } from '~/config/kafka-topics'
+import { createCdpConsumerDeps } from '~/tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '~/tests/helpers/sql'
 import { closeHub, createHub } from '~/utils/db/hub'
 import { UUIDT } from '~/utils/utils'
@@ -42,7 +43,7 @@ describe('EmailTrackingService', () => {
         let server: Server
 
         beforeEach(async () => {
-            api = new CdpApi(hub, hub)
+            api = new CdpApi(hub, createCdpConsumerDeps(hub))
             app = setupExpressApp()
             app.use('/', api.router())
             server = app.listen(0, () => {})
