@@ -3,10 +3,10 @@ use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
+use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_proto::personhog::replica::v1::person_hog_replica_server::PersonHogReplicaServer;
 use tonic::transport::Server;
 use tracing::level_filters::LevelFilter;

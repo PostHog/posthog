@@ -99,16 +99,30 @@ impl Connected for TrackedTcpStream {
 /// Each accepted connection increments `grpc_server_connections` and decrements
 /// it when the connection is closed. Use with `tonic::transport::Server`'s
 /// `serve_with_incoming_shutdown`.
+///
+/// The stream terminates on fatal accept errors (e.g. EMFILE, permission denied)
+/// so the server shuts down cleanly rather than spinning on unrecoverable failures.
 pub fn tracked_tcp_incoming(
     listener: TcpListener,
 ) -> impl futures::Stream<Item = Result<TrackedTcpStream, io::Error>> {
     unfold(listener, |listener| async move {
-        let result = listener
-            .accept()
-            .await
-            .map(|(stream, _addr)| TrackedTcpStream::new(stream));
-        Some((result, listener))
+        match listener.accept().await {
+            Ok((stream, _addr)) => Some((Ok(TrackedTcpStream::new(stream)), listener)),
+            Err(e) if is_fatal_accept_error(&e) => None,
+            Err(e) => Some((Err(e), listener)),
+        }
     })
+}
+
+/// Errors that indicate the listener cannot recover and the stream should terminate.
+fn is_fatal_accept_error(e: &io::Error) -> bool {
+    const EMFILE: i32 = 24;
+    const ENFILE: i32 = 23;
+
+    matches!(
+        e.kind(),
+        io::ErrorKind::PermissionDenied | io::ErrorKind::InvalidInput
+    ) || matches!(e.raw_os_error(), Some(EMFILE) | Some(ENFILE))
 }
 
 // ============================================================

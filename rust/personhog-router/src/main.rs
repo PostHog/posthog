@@ -2,10 +2,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{routing::get, Router};
-use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
+use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use personhog_proto::personhog::service::v1::person_hog_service_server::PersonHogServiceServer;
 use personhog_router::backend::ReplicaBackend;
 use personhog_router::config::Config;
