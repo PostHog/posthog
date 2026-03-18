@@ -1201,6 +1201,49 @@ export interface GitHubReposResponseApi {
     repositories: GitHubRepoApi[]
 }
 
+export interface ProjectSecretAPIKeyApi {
+    readonly id: string
+    /** @maxLength 40 */
+    label: string
+    readonly value: string
+    /** @nullable */
+    readonly mask_value: string | null
+    readonly created_at: string
+    /** @nullable */
+    readonly created_by: number | null
+    /** @nullable */
+    readonly last_used_at: string | null
+    /** @nullable */
+    readonly last_rolled_at: string | null
+    scopes: string[]
+}
+
+export interface PaginatedProjectSecretAPIKeyListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ProjectSecretAPIKeyApi[]
+}
+
+export interface PatchedProjectSecretAPIKeyApi {
+    readonly id?: string
+    /** @maxLength 40 */
+    label?: string
+    readonly value?: string
+    /** @nullable */
+    readonly mask_value?: string | null
+    readonly created_at?: string
+    /** @nullable */
+    readonly created_by?: number | null
+    /** @nullable */
+    readonly last_used_at?: string | null
+    /** @nullable */
+    readonly last_rolled_at?: string | null
+    scopes?: string[]
+}
+
 /**
  * * `DateTime` - DateTime
  * `String` - String
@@ -1981,6 +2024,17 @@ export type IntegrationsGithubBranchesRetrieveParams = {
      * @minLength 1
      */
     repo: string
+}
+
+export type ProjectSecretApiKeysListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type PropertyDefinitionsListParams = {
