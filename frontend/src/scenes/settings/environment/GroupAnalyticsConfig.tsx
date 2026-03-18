@@ -3,6 +3,8 @@ import { useActions, useValues } from 'kea'
 import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonInput, Link } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { GroupsAccessStatus, groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
@@ -55,6 +57,10 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
     const { setSingular, setPlural, reset, save, deleteGroupType } = useActions(groupAnalyticsConfigLogic)
 
     const { groupsAccessStatus, needsUpgradeForGroups } = useValues(groupsAccessLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
 
     if (needsUpgradeForGroups) {
         return <GroupsIntroduction />
@@ -82,6 +88,7 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                             groupType.group_type
                         }
                         onChange={(e) => setSingular(groupType.group_type_index, e)}
+                        disabledReason={restrictedReason}
                     />
                 )
             },
@@ -98,6 +105,7 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                             `${groupType.group_type}(s)`
                         }
                         onChange={(e) => setPlural(groupType.group_type_index, e)}
+                        disabledReason={restrictedReason}
                     />
                 )
             },
@@ -118,6 +126,7 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
                                 groupTypeName: groupType.group_type,
                             })
                         }
+                        disabledReason={restrictedReason}
                     />
                 )
             },
@@ -142,12 +151,12 @@ export function GroupAnalyticsConfig(): JSX.Element | null {
             <div className="flex gap-2 mt-4">
                 <LemonButton
                     type="primary"
-                    disabledReason={!hasChanges && 'Make some changes before saving'}
+                    disabledReason={hasChanges ? restrictedReason : 'Make some changes before saving'}
                     onClick={save}
                 >
                     Save
                 </LemonButton>
-                <LemonButton disabledReason={!hasChanges && 'Revert any changes made'} onClick={reset}>
+                <LemonButton disabledReason={hasChanges ? restrictedReason : 'Revert any changes made'} onClick={reset}>
                     Cancel
                 </LemonButton>
             </div>

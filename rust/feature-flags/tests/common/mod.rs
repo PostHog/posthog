@@ -29,7 +29,7 @@ impl ServerHandle {
         let notify = Arc::new(Notify::new());
         let shutdown = notify.clone();
 
-        let rayon_dispatcher = RayonDispatcher::new(2);
+        let rayon_dispatcher = RayonDispatcher::new(2, None);
         tokio::spawn(async move {
             serve(config, listener, rayon_dispatcher, async move {
                 notify.notified().await
@@ -232,6 +232,7 @@ impl ServerHandle {
                 non_persons_writer: non_persons_writer.clone(),
                 persons_reader: persons_reader.clone(),
                 persons_writer: persons_writer.clone(),
+                behavioral_cohorts_reader: None,
                 test_before_acquire: *config.test_before_acquire,
             });
 
@@ -328,7 +329,7 @@ impl ServerHandle {
                 flags_with_cohorts_hypercache_reader,
                 team_hypercache_reader,
                 config_hypercache_reader,
-                RayonDispatcher::new(2),
+                RayonDispatcher::new(2, None),
                 NegativeCache::new(10_000, 300),
                 config,
             );

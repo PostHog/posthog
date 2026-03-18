@@ -48,16 +48,12 @@ export const UserPaths: Story = createInsightStory(
 UserPaths.parameters = {
     testOptions: {
         waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
-        // Snapshot only the path visualization canvas, not the surrounding page chrome
-        // (InsightPageHeader, SceneTitleSection, etc.) which changes frequently and causes
-        // recurring snapshot drift on master (~30% failure rate).
-        snapshotTargetSelector: '.Paths',
     },
 }
 // The Paths component uses useResizeObserver to measure canvasWidth, then destroys
 // and recreates the SVG when it changes. This causes a race condition where the SVG
 // width may not have stabilized before the snapshot is taken. Wait for it to settle.
-UserPaths.play = async ({ canvasElement }) => {
+const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
     let lastWidth = 0
     await waitFor(
         () => {
@@ -71,4 +67,28 @@ UserPaths.play = async ({ canvasElement }) => {
         { timeout: 3000, interval: 200 }
     )
 }
+UserPaths.play = waitForPathsCanvasToStabilize
+
+export const UserPathsEdit: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
+    'edit'
+)
+UserPathsEdit.parameters = {
+    testOptions: {
+        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
+    },
+}
+UserPathsEdit.play = waitForPathsCanvasToStabilize
+
+export const UserPathsEditViewports: Story = createInsightStory(
+    require('../../mocks/fixtures/api/projects/team_id/insights/userPaths.json'),
+    'edit'
+)
+UserPathsEditViewports.parameters = {
+    testOptions: {
+        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
+        viewportWidths: ['medium', 'wide', 'superwide'],
+    },
+}
+UserPathsEditViewports.play = waitForPathsCanvasToStabilize
 /* eslint-enable @typescript-eslint/no-var-requires */

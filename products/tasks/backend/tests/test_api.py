@@ -573,7 +573,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
+        integration = Integration.objects.create(
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
+        )
 
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -608,7 +610,9 @@ class TestTaskRunAPI(BaseTaskAPITest):
 
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
-        integration = Integration.objects.create(team=self.team, kind="slack-twig", integration_id="T_SLACK", config={})
+        integration = Integration.objects.create(
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
+        )
 
         SlackThreadTaskMapping.objects.create(
             team=self.team,
@@ -633,10 +637,29 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(input_arg.run_id, str(run.id))
         self.assertEqual(input_arg.slack_thread_context["integration_id"], integration.pk)
 
-    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    @patch("products.tasks.backend.api.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_enqueues_slack_relay_workflow(self, mock_execute_relay):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        mock_execute_relay.return_value = "relay-1"
+
+        integration = Integration.objects.create(
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
         mock_execute_relay.return_value = "relay-1"
 
         response = self.client.post(
@@ -653,7 +676,22 @@ class TestTaskRunAPI(BaseTaskAPITest):
             delete_progress=True,
         )
 
-    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    @patch("products.tasks.backend.api.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_skips_when_no_slack_mapping(self, mock_execute_relay):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            {"text": "Which license should I use?"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"status": "skipped"})
+        mock_execute_relay.assert_not_called()
+
+    @patch("products.tasks.backend.api.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_skips_for_terminal_run(self, mock_execute_relay):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
@@ -668,7 +706,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.json(), {"status": "skipped"})
         mock_execute_relay.assert_not_called()
 
-    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow")
+    @patch("products.tasks.backend.api.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_rejects_blank_text(self, mock_execute_relay):
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
@@ -682,10 +720,41 @@ class TestTaskRunAPI(BaseTaskAPITest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
         mock_execute_relay.assert_not_called()
 
-    @patch("products.tasks.backend.api.execute_twig_agent_relay_workflow", side_effect=Exception("temporal down"))
+    @patch(
+        "products.tasks.backend.api.execute_posthog_code_agent_relay_workflow", side_effect=Exception("temporal down")
+    )
     def test_relay_message_returns_503_on_enqueue_failure(self, mock_execute_relay):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
         task = self.create_task()
         run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        integration = Integration.objects.create(
+            team=self.team, kind="slack-posthog-code", integration_id="T_SLACK", config={}
+        )
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C456",
+            thread_ts="5678.1234",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U456",
+        )
 
         response = self.client.post(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",

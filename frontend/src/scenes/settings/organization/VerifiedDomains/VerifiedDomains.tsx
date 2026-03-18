@@ -23,6 +23,7 @@ import { AvailableFeature, OrganizationDomainType } from '~/types'
 import { AddDomainModal } from './AddDomainModal'
 import { ConfigureSAMLModal } from './ConfigureSAMLModal'
 import { ConfigureSCIMModal } from './ConfigureSCIMModal'
+import { ScimLogsModal } from './ScimLogsModal'
 import { SSOSelect } from './SSOSelect'
 import { verifiedDomainsLogic } from './verifiedDomainsLogic'
 import { VerifyDomainModal } from './VerifyDomainModal'
@@ -68,8 +69,14 @@ function VerifiedDomainsTable(): JSX.Element {
         isSAMLAvailable,
         isSCIMAvailable,
     } = useValues(verifiedDomainsLogic)
-    const { updateDomain, deleteVerifiedDomain, setVerifyModal, setConfigureSAMLModalId, setConfigureSCIMModalId } =
-        useActions(verifiedDomainsLogic)
+    const {
+        updateDomain,
+        deleteVerifiedDomain,
+        setVerifyModal,
+        setConfigureSAMLModalId,
+        setConfigureSCIMModalId,
+        setScimLogsModalId,
+    } = useActions(verifiedDomainsLogic)
     const { preflight } = useValues(preflightLogic)
 
     const restrictionReason = useRestrictedArea({
@@ -259,6 +266,15 @@ function VerifiedDomainsTable(): JSX.Element {
                                                 Configure SCIM
                                             </LemonButton>
                                         )}
+                                        {isSCIMAvailable && (
+                                            <LemonButton
+                                                onClick={() => setScimLogsModalId(id)}
+                                                fullWidth
+                                                disabledReason={restrictionReason}
+                                            >
+                                                View SCIM logs
+                                            </LemonButton>
+                                        )}
                                     </>
                                 )}
                                 <LemonButton
@@ -303,6 +319,7 @@ function VerifiedDomainsTable(): JSX.Element {
             <AddDomainModal />
             <ConfigureSAMLModal />
             <ConfigureSCIMModal />
+            <ScimLogsModal />
             <VerifyDomainModal />
         </div>
     )

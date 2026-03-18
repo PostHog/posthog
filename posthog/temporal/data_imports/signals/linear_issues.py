@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from structlog import get_logger
@@ -82,11 +83,55 @@ def linear_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         source_id=str(issue_id),
         description=f"{title}\n{description}",
         weight=1.0,
-        extra={k: v for k, v in record.items() if k in EXTRA_FIELDS},
+        extra=_build_extra(record),
     )
 
 
+def _parse_json_field(field_name: str, raw_value: Any, record: dict[str, Any]) -> Any:
+    if raw_value is None:
+        return None
+    if not isinstance(raw_value, str):
+        msg = f"Linear issue {field_name} field has unexpected type {type(raw_value).__name__}: {raw_value!r}"
+        logger.exception(msg, record=record, signals_type="data-import-signals")
+        raise ValueError(msg)
+    try:
+        return json.loads(raw_value)
+    except (json.JSONDecodeError, TypeError) as e:
+        msg = f"Linear issue {field_name} field is not valid JSON: {raw_value!r}"
+        logger.exception(msg, record=record, signals_type="data-import-signals")
+        raise ValueError(msg) from e
+
+
+def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
+    raw = {k: v for k, v in record.items() if k in EXTRA_FIELDS}
+    extra: dict[str, Any] = {}
+    for k in ("url", "identifier", "number", "priority", "priority_label", "created_at", "updated_at"):
+        extra[k] = raw[k]
+    parsed_labels = _parse_json_field("labels", raw.get("labels"), record)
+    if parsed_labels is None:
+        extra["labels"] = []
+    elif isinstance(parsed_labels, dict):
+        nodes = parsed_labels.get("nodes", [])
+        extra["labels"] = [n["name"] for n in nodes if isinstance(n, dict) and "name" in n]
+    else:
+        msg = f"Linear issue labels field has unexpected shape: {raw.get('labels')!r}"
+        logger.exception(msg, record=record, signals_type="data-import-signals")
+        raise ValueError(msg)
+    parsed_state = _parse_json_field("state", raw.get("state"), record)
+    if isinstance(parsed_state, dict):
+        extra["state_name"] = parsed_state.get("name")
+        extra["state_type"] = parsed_state.get("type")
+    else:
+        extra["state_name"] = None
+        extra["state_type"] = None
+    parsed_team = _parse_json_field("team", raw.get("team"), record)
+    extra["team_name"] = parsed_team.get("name") if isinstance(parsed_team, dict) else None
+    return extra
+
+
 LINEAR_ISSUES_CONFIG = SignalSourceTableConfig(
+    source_product="linear",
+    source_type="issue",
     emitter=linear_issue_emitter,
     partition_field="created_at",
     partition_field_is_datetime_string=True,

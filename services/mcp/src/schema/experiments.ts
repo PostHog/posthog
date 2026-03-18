@@ -1,7 +1,6 @@
 import { v4 as uuidv4 } from 'uuid'
 import { z } from 'zod'
 
-import { FeatureFlagSchema } from './flags'
 import {
     ExperimentCreateSchema as ToolExperimentCreateSchema,
     ExperimentUpdateInputSchema as ToolExperimentUpdateInputSchema,
@@ -10,6 +9,17 @@ import {
 const ExperimentType = ['web', 'product'] as const
 
 const ExperimentConclusion = ['won', 'lost', 'inconclusive', 'stopped_early', 'invalid'] as const
+
+const FeatureFlagSchema = z.object({
+    id: z.number(),
+    key: z.string(),
+    name: z.string(),
+    description: z.string().nullish(),
+    filters: z.any().nullish(),
+    active: z.boolean(),
+    tags: z.array(z.string()).optional(),
+    updated_at: z.string().nullish(),
+})
 
 /**
  * This is the schema for the experiment metric base properties.
@@ -467,60 +477,85 @@ export const ExperimentExposureQueryResponseSchema = z.object({
 
 export type ExperimentExposureQueryResponse = z.infer<typeof ExperimentExposureQueryResponseSchema>
 
-export const ExperimentResultsResponseSchema = z
-    .object({
-        experiment: ExperimentSchema.pick({
-            id: true,
-            name: true,
-            description: true,
-            feature_flag_key: true,
-            start_date: true,
-            end_date: true,
-            metrics: true,
-            metrics_secondary: true,
-            parameters: true, // Pick parameters to extract variants
-        }).transform((data) => ({
-            id: data.id,
-            name: data.name,
-            description: data.description,
-            feature_flag_key: data.feature_flag_key,
-            metrics: data.metrics,
-            metrics_secondary: data.metrics_secondary,
-            start_date: data.start_date,
-            end_date: data.end_date,
-            status: data.start_date ? (data.end_date ? 'completed' : 'running') : 'draft',
-            variants: data.parameters?.feature_flag_variants || [],
-        })),
-        exposures: ExperimentExposureQueryResponseSchema,
-        primaryMetricsResults: z.array(z.any()),
-        secondaryMetricsResults: z.array(z.any()),
-    })
-    .transform(({ experiment, exposures, primaryMetricsResults, secondaryMetricsResults }) => {
-        return {
-            experiment,
-            exposures,
-            metrics: {
-                primary: {
-                    count: primaryMetricsResults.length,
-                    results: primaryMetricsResults
-                        .map((result, index) => ({
-                            index,
-                            data: result,
-                        }))
-                        .filter((item) => item.data !== null),
-                },
-                secondary: {
-                    count: secondaryMetricsResults.length,
-                    results: secondaryMetricsResults
-                        .map((result, index) => ({
-                            index,
-                            data: result,
-                        }))
-                        .filter((item) => item.data !== null),
-                },
-            },
+export interface ExperimentResultsSummary {
+    experiment: {
+        id: number
+        name: string
+        description?: string | null | undefined
+        feature_flag_key: string
+        metrics?: unknown[] | null | undefined
+        metrics_secondary?: unknown[] | null | undefined
+        start_date?: string | null | undefined
+        end_date?: string | null | undefined
+        status: 'draft' | 'running' | 'completed'
+        variants: Array<{
+            key: string
+            name?: string | null | undefined
+            rollout_percentage?: number | null | undefined
+        }>
+    }
+    exposures: ExperimentExposureQueryResponse
+    metrics: {
+        primary: {
+            count: number
+            results: Array<{ index: number; data: unknown }>
         }
-    })
+        secondary: {
+            count: number
+            results: Array<{ index: number; data: unknown }>
+        }
+    }
+}
+
+export function transformExperimentResults(input: {
+    experiment: Experiment
+    exposures: ExperimentExposureQueryResponse
+    primaryMetricsResults: unknown[]
+    secondaryMetricsResults: unknown[]
+}): ExperimentResultsSummary {
+    const { experiment, exposures, primaryMetricsResults, secondaryMetricsResults } = input
+
+    const transformedExperiment = {
+        id: experiment.id,
+        name: experiment.name,
+        description: experiment.description,
+        feature_flag_key: experiment.feature_flag_key,
+        metrics: experiment.metrics,
+        metrics_secondary: experiment.metrics_secondary,
+        start_date: experiment.start_date,
+        end_date: experiment.end_date,
+        status: (experiment.start_date ? (experiment.end_date ? 'completed' : 'running') : 'draft') as
+            | 'draft'
+            | 'running'
+            | 'completed',
+        variants: experiment.parameters?.feature_flag_variants || [],
+    }
+
+    return {
+        experiment: transformedExperiment,
+        exposures,
+        metrics: {
+            primary: {
+                count: primaryMetricsResults.length,
+                results: primaryMetricsResults
+                    .map((result, index) => ({
+                        index,
+                        data: result,
+                    }))
+                    .filter((item) => item.data !== null),
+            },
+            secondary: {
+                count: secondaryMetricsResults.length,
+                results: secondaryMetricsResults
+                    .map((result, index) => ({
+                        index,
+                        data: result,
+                    }))
+                    .filter((item) => item.data !== null),
+            },
+        },
+    }
+}
 
 /**
  * Schema for updating existing experiments

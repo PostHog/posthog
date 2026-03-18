@@ -8,68 +8,169 @@ set -euo pipefail
 # Always checks core services (db, redis7, kafka, clickhouse).
 # Pass extra service names as arguments, e.g.: bin/wait-for-docker temporal
 
-COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.dev.yml}"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+DEFAULT_COMPOSE_FILE="${REPO_ROOT}/docker-compose.dev.yml"
 TIMEOUT="${WAIT_FOR_DOCKER_TIMEOUT:-300}"
 
 SERVICES=(db redis7 kafka clickhouse)
 SERVICES+=("$@")
 
-# CI workflows launch `docker compose up -d &` so image pulls run in
-# parallel with dependency installs.  If compose is still pulling when we
-# start checking health, the 300 s timeout burns on image downloads
-# instead of actual service startup.  Wait for any running compose
-# process to finish first so the timeout only measures health-check time.
-COMPOSE_WAIT_TIMEOUT="${WAIT_FOR_COMPOSE_TIMEOUT:-600}"
-if pgrep -f "docker compose.*up" >/dev/null 2>&1; then
-    echo "docker compose is still running (likely pulling images) — waiting for it to finish…"
-    compose_wait_start=$SECONDS
-    while pgrep -f "docker compose.*up" >/dev/null 2>&1; do
-        if [ $(( SECONDS - compose_wait_start )) -ge "$COMPOSE_WAIT_TIMEOUT" ]; then
-            echo "Timed out after ${COMPOSE_WAIT_TIMEOUT}s waiting for docker compose to finish. Proceeding anyway."
+unique_services=()
+for svc in "${SERVICES[@]}"; do
+    already_present=0
+    for existing_svc in "${unique_services[@]:-}"; do
+        if [ "$existing_svc" = "$svc" ]; then
+            already_present=1
             break
         fi
-        sleep 2
     done
-    echo "docker compose wait done after $(( SECONDS - compose_wait_start ))s."
-fi
+    if [ "$already_present" -eq 0 ]; then
+        unique_services+=("$svc")
+    fi
+done
+SERVICES=("${unique_services[@]}")
+
+compose() {
+    local compose_files=()
+    local compose_args=()
+    local compose_file
+    local separator
+
+    if [ -n "${COMPOSE_FILE:-}" ]; then
+        separator="${COMPOSE_PATH_SEPARATOR:-:}"
+        IFS="$separator" read -r -a compose_files <<< "$COMPOSE_FILE"
+        for compose_file in "${compose_files[@]}"; do
+            if [ -n "$compose_file" ]; then
+                compose_args+=(-f "$compose_file")
+            fi
+        done
+        env -u COMPOSE_FILE docker compose "${compose_args[@]}" "$@"
+    else
+        docker compose -f "$DEFAULT_COMPOSE_FILE" "$@"
+    fi
+}
+
+get_container_id() {
+    compose ps -q "$1" 2>/dev/null || true
+}
+
+get_service_state() {
+    local svc="$1"
+    local container_id status
+
+    container_id=$(get_container_id "$svc")
+    if [ -z "$container_id" ]; then
+        echo "missing"
+        return
+    fi
+
+    status=$(docker inspect --format='{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$container_id" 2>/dev/null || echo "unknown")
+    echo "$status $container_id"
+}
+
+service_is_ready() {
+    [ "$1" = "healthy" ] || [ "$1" = "running" ]
+}
+
+print_service_diagnostics() {
+    local svc="$1"
+    local elapsed="$2"
+    local status="$3"
+    local container_id="$4"
+
+    echo ""
+    echo "=========================================="
+    echo "TIMEOUT: ${TIMEOUT}s waiting for $svc"
+    echo "Last observed state after ${elapsed}s: ${status}"
+    echo "=========================================="
+    if [ -z "$container_id" ]; then
+        echo "Container for '$svc' does not exist yet."
+        echo ""
+        echo "docker compose ps $svc:"
+        compose ps "$svc" 2>&1 || true
+    else
+        echo "Container exists (id=${container_id:0:12}) but readiness state is: $status"
+        echo ""
+        echo "Last 20 lines of container logs:"
+        docker logs --tail 20 "$container_id" 2>&1 || true
+        echo ""
+        echo "Health check log:"
+        docker inspect --format='{{if .State.Health}}{{range .State.Health.Log}}{{.Output}}{{end}}{{else}}no health check configured{{end}}' "$container_id" 2>&1 | tail -5 || true
+    fi
+    echo "=========================================="
+}
 
 SECONDS=0
-for svc in "${SERVICES[@]}"; do
-    while true; do
-        if [ "$SECONDS" -ge "$TIMEOUT" ]; then
-            echo ""
-            echo "=========================================="
-            echo "TIMEOUT: ${TIMEOUT}s waiting for $svc"
-            echo "=========================================="
-            container_id=$(docker compose -f "$COMPOSE_FILE" ps -q "$svc" 2>/dev/null || true)
-            if [ -z "$container_id" ]; then
-                echo "Container for '$svc' does not exist — docker compose may still be pulling the image."
-                echo ""
-                echo "docker compose ps:"
-                docker compose -f "$COMPOSE_FILE" ps 2>&1 || true
-            else
-                status=$(docker inspect --format='{{.State.Health.Status}}' "$container_id" 2>/dev/null || echo "unknown")
-                echo "Container exists (id=${container_id:0:12}) but health status is: $status"
-                echo ""
-                echo "Last 20 lines of container logs:"
-                docker logs --tail 20 "$container_id" 2>&1 || true
-                echo ""
-                echo "Health check log:"
-                docker inspect --format='{{range .State.Health.Log}}{{.Output}}{{end}}' "$container_id" 2>&1 | tail -5 || true
-            fi
-            echo "=========================================="
-            exit 1
-        fi
-        container_id=$(docker compose -f "$COMPOSE_FILE" ps -q "$svc" 2>/dev/null || true)
-        if [ -n "$container_id" ]; then
-            status=$(docker inspect --format='{{.State.Health.Status}}' "$container_id" 2>/dev/null || echo "starting")
-            if [ "$status" = "healthy" ]; then
-                break
-            fi
-        fi
-        echo "Waiting for $svc... (${SECONDS}s)"
-        sleep 1
-    done
+last_progress_log=-5
+timed_out_services=()
+timed_out_elapsed=()
+timed_out_statuses=()
+timed_out_container_ids=()
+service_done=()
+
+for idx in "${!SERVICES[@]}"; do
+    service_done[idx]=0
 done
 
-echo "All services healthy in ${SECONDS}s."
+while true; do
+    pending_count=0
+    pending_summary=()
+
+    for idx in "${!SERVICES[@]}"; do
+        if [ "${service_done[idx]}" -eq 1 ]; then
+            continue
+        fi
+
+        svc="${SERVICES[$idx]}"
+        elapsed=$SECONDS
+        service_state=$(get_service_state "$svc")
+        status=${service_state%% *}
+        container_id=""
+        if [ "$service_state" != "$status" ]; then
+            container_id=${service_state#* }
+        fi
+
+        if service_is_ready "$status"; then
+            echo "$svc is ready after ${elapsed}s."
+            service_done[idx]=1
+            continue
+        fi
+
+        if [ "$elapsed" -ge "$TIMEOUT" ]; then
+            timed_out_services+=("$svc")
+            timed_out_elapsed+=("$elapsed")
+            timed_out_statuses+=("$status")
+            timed_out_container_ids+=("$container_id")
+            service_done[idx]=1
+            continue
+        fi
+
+        pending_count=$(( pending_count + 1 ))
+        pending_summary+=("$svc=${status}(${elapsed}s)")
+    done
+
+    if [ "$pending_count" -eq 0 ]; then
+        break
+    fi
+
+    if [ $(( SECONDS - last_progress_log )) -ge 5 ]; then
+        echo "Waiting for: ${pending_summary[*]}"
+        last_progress_log=$SECONDS
+    fi
+
+    sleep 1
+done
+
+if [ "${#timed_out_services[@]}" -gt 0 ]; then
+    for idx in "${!timed_out_services[@]}"; do
+        print_service_diagnostics \
+            "${timed_out_services[$idx]}" \
+            "${timed_out_elapsed[$idx]}" \
+            "${timed_out_statuses[$idx]}" \
+            "${timed_out_container_ids[$idx]}"
+    done
+    exit 1
+fi
+
+echo "All services ready in ${SECONDS}s."

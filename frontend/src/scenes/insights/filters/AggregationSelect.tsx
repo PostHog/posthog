@@ -8,8 +8,8 @@ import { GroupIntroductionFooter } from 'scenes/groups/GroupsIntroduction'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 
 import { groupsModel } from '~/models/groupsModel'
-import { FunnelsQuery } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isInsightQueryNode, isStickinessQuery } from '~/queries/utils'
+import { FunnelsQuery, LifecycleQuery } from '~/queries/schema/schema-general'
+import { isFunnelsQuery, isInsightQueryNode, isLifecycleQuery, isStickinessQuery } from '~/queries/utils'
 import { InsightLogicProps } from '~/types'
 
 export function getHogQLValue(groupIndex?: number | null, aggregationQuery?: string | null): string {
@@ -31,20 +31,23 @@ export function hogQLToFilterValue(value?: string): { groupIndex?: number; aggre
 }
 
 const UNIQUE_USERS = 'person_id'
+export const CUSTOM_DATA_WAREHOUSE_ITEMS = '__custom_data_warehouse_items__'
 
 type AggregationSelectProps = {
     insightProps: InsightLogicProps
     className?: string
     hogqlAvailable?: boolean
     value?: string
+    disabledReason?: string
 }
 
 export function AggregationSelect({
     insightProps,
     className,
     hogqlAvailable,
+    disabledReason,
 }: AggregationSelectProps): JSX.Element | null {
-    const { querySource } = useValues(insightVizDataLogic(insightProps))
+    const { querySource, isLifecycle, hasOnlyDataWarehouseSeries } = useValues(insightVizDataLogic(insightProps))
     const { updateQuerySource } = useActions(insightVizDataLogic(insightProps))
 
     const { groupTypes, aggregationLabel } = useValues(groupsModel)
@@ -54,10 +57,15 @@ export function AggregationSelect({
         return null
     }
 
-    const value = getHogQLValue(
-        isStickinessQuery(querySource) ? undefined : querySource.aggregation_group_type_index,
-        isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelAggregateByHogQL : undefined
-    )
+    const showCustomDataWarehouseItemsOption = isLifecycle && hasOnlyDataWarehouseSeries
+    const value =
+        isLifecycleQuery(querySource) && querySource.customAggregationTarget
+            ? CUSTOM_DATA_WAREHOUSE_ITEMS
+            : getHogQLValue(
+                  isStickinessQuery(querySource) ? undefined : querySource.aggregation_group_type_index,
+                  isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelAggregateByHogQL : undefined
+              )
+
     const onChange = (value: string): void => {
         const { aggregationQuery, groupIndex } = hogQLToFilterValue(value)
         if (isFunnelsQuery(querySource)) {
@@ -65,6 +73,18 @@ export function AggregationSelect({
                 aggregation_group_type_index: groupIndex,
                 funnelsFilter: { ...querySource.funnelsFilter, funnelAggregateByHogQL: aggregationQuery },
             } as FunnelsQuery)
+        } else if (isLifecycleQuery(querySource)) {
+            if (value === CUSTOM_DATA_WAREHOUSE_ITEMS) {
+                updateQuerySource({
+                    customAggregationTarget: true,
+                    aggregation_group_type_index: undefined,
+                } as LifecycleQuery)
+            } else {
+                updateQuerySource({
+                    aggregation_group_type_index: groupIndex,
+                    customAggregationTarget: undefined,
+                } as LifecycleQuery)
+            }
         } else {
             updateQuerySource({ aggregation_group_type_index: groupIndex } as FunnelsQuery)
         }
@@ -92,6 +112,15 @@ export function AggregationSelect({
                 value: `$group_${groupType.group_type_index}`,
                 label: `Unique ${aggregationLabel(groupType.group_type_index).plural}`,
             })
+        })
+    }
+
+    if (showCustomDataWarehouseItemsOption) {
+        optionSections[0].options.push({
+            value: CUSTOM_DATA_WAREHOUSE_ITEMS,
+            label: 'Custom entities',
+            tooltip:
+                'Custom entities from your data warehouse instead of persons or groups. This option is only available for insights with data warehouse only series.',
         })
     }
 
@@ -137,6 +166,7 @@ export function AggregationSelect({
                     onChange(newValue)
                 }
             }}
+            disabledReason={disabledReason}
             data-attr="retention-aggregation-selector"
             dropdownMatchSelectWidth={false}
             options={optionSections}

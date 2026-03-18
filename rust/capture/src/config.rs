@@ -242,6 +242,15 @@ pub struct Config {
     #[envconfig(default = "256")]
     pub body_read_chunk_size_kb: usize,
 
+    /// Enable dual-write of exception events to the error tracking pipeline.
+    #[envconfig(default = "false")]
+    pub error_tracking_dual_write_enabled: bool,
+
+    /// Sample rate for error tracking dual-write (0.0 to 100.0).
+    /// Only applies when dual-write is enabled.
+    #[envconfig(default = "0.0")]
+    pub error_tracking_dual_write_sample_rate: f64,
+
     #[envconfig(nested = true)]
     pub continuous_profiling: ContinuousProfilingConfig,
 }
@@ -261,6 +270,8 @@ pub struct KafkaConfig {
     pub kafka_hosts: String,
     #[envconfig(default = "events_plugin_ingestion")]
     pub kafka_topic: String,
+    #[envconfig(default = "ingestion-traces")]
+    pub kafka_traces_topic: String,
     #[envconfig(default = "events_plugin_ingestion_overflow")]
     pub kafka_overflow_topic: String,
     #[envconfig(default = "events_plugin_ingestion_historical")]
@@ -269,6 +280,8 @@ pub struct KafkaConfig {
     pub kafka_client_ingestion_warning_topic: String,
     #[envconfig(default = "exceptions_ingestion")]
     pub kafka_exceptions_topic: String,
+    #[envconfig(default = "error_tracking_events")]
+    pub kafka_error_tracking_topic: String,
     #[envconfig(default = "heatmaps_ingestion")]
     pub kafka_heatmaps_topic: String,
     #[envconfig(default = "session_recording_snapshot_item_overflow")]

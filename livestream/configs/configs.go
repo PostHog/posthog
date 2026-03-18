@@ -25,9 +25,11 @@ type SessionRecordingConfig struct {
 }
 
 type RedisConfig struct {
-	Address string `mapstructure:"address"`
-	Port    string `mapstructure:"port"`
-	TLS     bool   `mapstructure:"tls"`
+	Address         string `mapstructure:"address"`
+	Port            string `mapstructure:"port"`
+	TLS             bool   `mapstructure:"tls"`
+	FlushIntervalMs int    `mapstructure:"flush_interval_ms"`
+	UsePubSub       bool   `mapstructure:"use_pub_sub"`
 }
 
 type Config struct {
@@ -63,6 +65,7 @@ func InitConfigs(filename, configPath string) {
 	viper.SetDefault("kafka.group_id", "livestream")
 	viper.SetDefault("kafka.session_recording_enabled", true)
 	viper.SetDefault("session_recording.max_lru_entries", 2_000_000_000)
+	viper.SetDefault("redis.flush_interval_ms", 500)
 
 	if err := viper.ReadInConfig(); err != nil {
 		if _, ok := err.(viper.ConfigFileNotFoundError); ok {
@@ -75,10 +78,10 @@ func InitConfigs(filename, configPath string) {
 	viper.SetEnvPrefix("livestream") // will be uppercased automatically
 	replacer := strings.NewReplacer(".", "_")
 	viper.SetEnvKeyReplacer(replacer)
-	
+
 	// Core settings
-	_ = viper.BindEnv("debug")       // LIVESTREAM_DEBUG
-	_ = viper.BindEnv("parallelism") // LIVESTREAM_PARALLELISM
+	_ = viper.BindEnv("debug")              // LIVESTREAM_DEBUG
+	_ = viper.BindEnv("parallelism")        // LIVESTREAM_PARALLELISM
 	_ = viper.BindEnv("cors_allow_origins") // LIVESTREAM_CORS_ALLOW_ORIGINS
 
 	// GEO settings
@@ -107,9 +110,11 @@ func InitConfigs(filename, configPath string) {
 	_ = viper.BindEnv("session_recording.max_lru_entries") // LIVESTREAM_SESSION_RECORDING_MAX_LRU_ENTRIES
 
 	// Redis settings
-	_ = viper.BindEnv("redis.address") // LIVESTREAM_REDIS_ADDRESS
-	_ = viper.BindEnv("redis.port")    // LIVESTREAM_REDIS_PORT
-	_ = viper.BindEnv("redis.tls")     // LIVESTREAM_REDIS_TLS
+	_ = viper.BindEnv("redis.address")           // LIVESTREAM_REDIS_ADDRESS
+	_ = viper.BindEnv("redis.port")              // LIVESTREAM_REDIS_PORT
+	_ = viper.BindEnv("redis.tls")               // LIVESTREAM_REDIS_TLS
+	_ = viper.BindEnv("redis.flush_interval_ms") // LIVESTREAM_REDIS_FLUSH_INTERVAL_MS
+	_ = viper.BindEnv("redis.use_pub_sub")       // LIVESTREAM_REDIS_USE_PUB_SUB
 }
 
 func LoadConfig() (*Config, error) {
@@ -156,6 +161,11 @@ func LoadConfig() (*Config, error) {
 	}
 	if config.Kafka.GroupID == "" {
 		return nil, errors.New("kafka.group_id must be set")
+	}
+
+	if config.Redis.FlushIntervalMs < 50 {
+		log.Printf("redis.flush_interval_ms=%d is below minimum 50, using default 500", config.Redis.FlushIntervalMs)
+		config.Redis.FlushIntervalMs = 500
 	}
 
 	return &config, nil

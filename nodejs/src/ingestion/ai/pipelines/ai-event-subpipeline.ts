@@ -1,5 +1,6 @@
 import { Message } from 'node-rdkafka'
 
+import { createProcessGroupsStep } from '~/ingestion/event-processing/process-groups-step'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import { HogTransformerService } from '../../../cdp/hog-transformations/hog-transformer.service'
@@ -107,7 +108,8 @@ export function createAiEventSubpipeline<TInput extends AiEventSubpipelineInput,
                 })),
             ])
         )
-        .pipe(createPrepareEventStep(teamManager, groupTypeManager, groupStore, options))
+        .pipe(createPrepareEventStep())
+        .pipe(createProcessGroupsStep(teamManager, groupTypeManager, groupStore, options))
         .pipe(createCreateEventStep(EVENTS_OUTPUT))
         .pipe(createSplitAiEventsStep(splitAiEventsConfig))
         .pipe(

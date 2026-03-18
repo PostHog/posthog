@@ -347,7 +347,7 @@ body:not(.storybook-test-runner) {
     .LemonTable__cell--pinned {
         position: sticky !important; // Important to override .LemonTable--with-ribbon's rule, which has more specificity
         left: 0;
-        z-index: 1;
+        z-index: 6; // Higher than the scrollable shadow
         overflow: visible !important;
 
         // Replicate .scrollable style for sticky cells
@@ -362,7 +362,7 @@ body:not(.storybook-test-runner) {
         }
     }
 
-    .ScrollableShadows--left {
+    .ScrollableShadows[data-overflow-x-start] {
         .LemonTable__cell--sticky::before,
         .LemonTable__header--sticky::before,
         .LemonTable__cell--pinned::before,

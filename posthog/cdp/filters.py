@@ -9,14 +9,135 @@ from posthog.hogql.property import action_to_expr, ast, property_to_expr
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.action.action import Action
+from posthog.models.cohort.cohort import Cohort
 from posthog.models.team.team import Team
+
+COHORT_FILTER_TYPES = frozenset({"cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"})
+
+
+class CohortInlineError(Exception):
+    """Raised when cohort test account filters can't be inlined for real-time use."""
+
+    def __init__(self, reasons: list[str]):
+        self.reasons = reasons
+        super().__init__("Can't use cohorts in real-time filters")
+
+
+def _is_cohort_filter(prop: dict) -> bool:
+    return isinstance(prop, dict) and prop.get("type") in COHORT_FILTER_TYPES
+
+
+def _check_only_person_properties(properties: Any) -> set[str]:
+    """Walk a cohort's filter property tree and return any non-person leaf types found.
+
+    Returns an empty set if all leaves are person property filters.
+    """
+    non_person_types: set[str] = set()
+
+    def _walk(node: Any) -> None:
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+            return
+        if not isinstance(node, dict):
+            return
+
+        node_type = node.get("type")
+
+        if node_type in ("AND", "OR"):
+            values = node.get("values")
+            if isinstance(values, list):
+                for v in values:
+                    _walk(v)
+            return
+
+        if node_type != "person":
+            non_person_types.add(node_type or "<unknown>")
+
+    _walk(properties)
+    return non_person_types
+
+
+def _try_inline_cohort_filter(prop: dict, team: Team) -> tuple[list[ast.Expr], None] | tuple[None, str]:
+    """Try to inline a cohort test account filter as person property expressions.
+
+    Returns (exprs, None) on success, or (None, reason) on failure.
+    """
+    cohort_id = prop.get("value")
+    if cohort_id is None:
+        return None, "cohort filter has no value"
+
+    try:
+        # nosemgrep: idor-lookup-without-team (scoped by team__project_id)
+        cohort = Cohort.objects.get(id=cohort_id, team__project_id=team.project_id)
+    except Cohort.DoesNotExist:
+        return None, f"cohort id={cohort_id} not found"
+
+    if cohort.is_static:
+        return (
+            None,
+            f"cohort '{cohort.name}' (id={cohort_id}) is a static cohort — static cohort membership can't be evaluated in real-time filters",
+        )
+
+    cohort_properties = (cohort.filters or {}).get("properties")
+    if not cohort_properties:
+        return None, f"cohort '{cohort.name}' (id={cohort_id}) has no properties defined"
+
+    non_person_types = _check_only_person_properties(cohort_properties)
+
+    if non_person_types:
+        types_str = ", ".join(sorted(non_person_types))
+        return None, (
+            f"cohort '{cohort.name}' (id={cohort_id}) contains {types_str} filters — "
+            f"only cohorts with exclusively person property filters can be used in real-time filters"
+        )
+
+    # Reuse cohort_filters_to_expr which walks the same AND/OR tree structure.
+    # Since _check_only_person_properties already validated only person leaves exist,
+    # the behavioral/fallback branches in cohort_filters_to_expr are unreachable here.
+    expr = cohort_filters_to_expr({"properties": cohort_properties}, team)
+    # If the tree was empty/trivial, treat as if no properties
+    if isinstance(expr, ast.Constant) and expr.value is True:
+        return None, f"cohort '{cohort.name}' (id={cohort_id}) has no person property filters"
+
+    is_negated = prop.get("negation") or prop.get("operator") == "not_in"
+    if is_negated:
+        result_expr: ast.Expr = ast.Not(expr=expr)
+        return [result_expr], None
+
+    return [expr], None
 
 
 def _build_test_account_filters(filters: dict, team: Team) -> list[ast.Expr]:
-    """Build filters to exclude test account events."""
+    """Build filters to exclude test account events.
+
+    For cohort filters that only contain person properties, inline the properties
+    directly so they work in real-time bytecode filters (which can't do cohort lookups).
+    """
     if not filters.get("filter_test_accounts", False):
         return []
-    return [property_to_expr(property, team) for property in team.test_account_filters]
+
+    result: list[ast.Expr] = []
+    inline_failures: list[str] = []
+    for prop in team.test_account_filters:
+        if _is_cohort_filter(prop):
+            exprs, reason = _try_inline_cohort_filter(prop, team)
+            if exprs is not None:
+                result.extend(exprs)
+                continue
+            # Cohort couldn't be inlined — record the reason and skip the standard
+            # path (property_to_expr would generate a CohortMembership node that
+            # the bytecode compiler will reject anyway).
+            if reason:
+                inline_failures.append(reason)
+            continue
+        # Non-cohort filter — use standard path
+        result.append(property_to_expr(prop, team))
+
+    if inline_failures:
+        raise CohortInlineError(inline_failures)
+
+    return result
 
 
 def _build_global_property_filters(filters: dict, team: Team) -> list[ast.Expr]:
@@ -150,6 +271,11 @@ class SelectFinder(TraversingVisitor):
         return visitor.found
 
 
+def _internal_user_settings_url(team_id: int) -> str:
+    site_url = settings.SITE_URL.rstrip("/")
+    return f"{site_url}/project/{team_id}/settings/project#internal-user-filtering"
+
+
 def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optional[dict[int, Action]] = None) -> dict:
     filters = filters or {}
     try:
@@ -168,34 +294,30 @@ def compile_filters_bytecode(filters: Optional[dict], team: Team, actions: Optio
             raise Exception(f"Filter compilation errors: {error_messages}")
         if "bytecode_error" in filters:
             del filters["bytecode_error"]
+    except CohortInlineError as e:
+        settings_url = _internal_user_settings_url(team.id)
+        details = "; ".join(e.reasons)
+        filters["bytecode"] = None
+        filters["bytecode_error"] = (
+            f"Your internal/test user filters include cohorts that can't be used in real-time filters: "
+            f"{details}. "
+            f"Either switch to a cohort that only uses person properties, "
+            f"or replace the cohort with inline person property filters. "
+            f"Update your filters at: {settings_url}"
+        )
     except Exception as e:
         error_msg = str(e)
 
-        # Check if the error is about cohorts and if test account filters are involved
-        if "Can't use cohorts in real-time filters" in error_msg and filters.get("filter_test_accounts", False):
-            # Check if team has cohort filters in test account filters
-            if team.test_account_filters:
-                cohort_filters = [
-                    f
-                    for f in team.test_account_filters
-                    if isinstance(f, dict)
-                    and f.get("type") in ["cohort", "static-cohort", "precalculated-cohort", "dynamic-cohort"]
-                ]
-                if cohort_filters:
-                    # Extract cohort information for the error message
-                    cohort_info = []
-                    for cohort_filter in cohort_filters:
-                        value = cohort_filter.get("value")
-                        if value:
-                            cohort_info.append(f"cohort id={value}")
-
-                    cohort_names = " (" + ", ".join(cohort_info) + ")" if cohort_info else ""
-                    site_url = settings.SITE_URL.rstrip("/")
-                    error_msg = (
-                        f"Can't use cohorts in real-time filters. "
-                        f"Update your filters at: {site_url}/project/{team.id}/settings/project#internal-user-filtering. "
-                        f"Please inline the relevant expressions{cohort_names}."
-                    )
+        # Cohort errors from sources other than test account filters (e.g. global
+        # property filters referencing a cohort) still hit the bytecode compiler's
+        # generic "Can't use cohorts in real-time filters" error.
+        if "Can't use cohorts in real-time filters" in error_msg:
+            settings_url = _internal_user_settings_url(team.id)
+            error_msg = (
+                f"Cohort membership can't be evaluated in real-time filters. "
+                f"Replace cohorts with equivalent inline person property filters. "
+                f"Update your filters at: {settings_url}"
+            )
 
         filters["bytecode"] = None
         filters["bytecode_error"] = error_msg

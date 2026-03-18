@@ -2,17 +2,22 @@ import { useActions, useValues } from 'kea'
 
 import { LemonSwitch, Link } from '@posthog/lemon-ui'
 
-import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { revenueAnalyticsSettingsLogic } from './revenueAnalyticsSettingsLogic'
 
 export function FilterTestAccountsConfiguration(): JSX.Element {
     const { filterTestAccounts } = useValues(revenueAnalyticsSettingsLogic)
     const { updateFilterTestAccounts } = useActions(revenueAnalyticsSettingsLogic)
+    const restrictedReason = useRestrictedArea({
+        scope: RestrictionScope.Project,
+        minimumAccessLevel: TeamMembershipLevel.Admin,
+    })
+
     return (
         <SceneSection
             title="Filter out internal and test users from revenue analytics"
@@ -24,17 +29,13 @@ export function FilterTestAccountsConfiguration(): JSX.Element {
                 </>
             }
         >
-            <AccessControlAction
-                resourceType={AccessControlResourceType.RevenueAnalytics}
-                minAccessLevel={AccessControlLevel.Editor}
-            >
-                <LemonSwitch
-                    onChange={updateFilterTestAccounts}
-                    checked={filterTestAccounts}
-                    label="Filter out internal and test users"
-                    bordered
-                />
-            </AccessControlAction>
+            <LemonSwitch
+                onChange={updateFilterTestAccounts}
+                checked={filterTestAccounts}
+                label="Filter out internal and test users"
+                bordered
+                disabledReason={restrictedReason}
+            />
         </SceneSection>
     )
 }

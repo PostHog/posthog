@@ -16,7 +16,7 @@ from posthog.hogql_queries.insights.funnels.funnel_query_context import FunnelQu
 from posthog.hogql_queries.insights.utils.utils import get_start_of_interval_hogql, get_start_of_interval_hogql_str
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
-from posthog.models.cohort.cohort import Cohort
+from posthog.queries.breakdown_props import NOT_IN_COHORT_ID, get_breakdown_cohort_name
 from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp, get_interval_func_ch
 from posthog.utils import DATERANGE_MAP, relative_date_parse
 
@@ -67,6 +67,11 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         if "uuid" not in self._extra_event_fields:
             self._extra_event_fields.append("uuid")
 
+        # When aggregating by non person property (e.g. session_id)
+        # add the person_id so we can later fetch the person data
+        if self._is_session_aggregation() and "person_id" not in self._extra_event_fields:
+            self._extra_event_fields.append("person_id")
+
     def get_step_counts_query(self):
         max_steps = self.context.max_steps
         return self._get_step_counts_query(
@@ -82,6 +87,11 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
         return int(
             self.context.funnelWindowInterval * DATERANGE_MAP[self.context.funnelWindowIntervalUnit].total_seconds()
         )
+
+    def _person_id_select(self) -> str:
+        if self._is_session_aggregation():
+            return "any(person_id) as person_id,"
+        return ""
 
     def matched_event_select(self):
         if self._include_matched_events():
@@ -171,6 +181,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 af_tuple.2 as success_bool,
                 af_tuple.3 as breakdown,
                 {self.matched_event_select()}
+                {self._person_id_select()}
                 aggregation_target as aggregation_target
             FROM {{inner_event_query}}
             GROUP BY aggregation_target
@@ -197,6 +208,22 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             if breakdown_limit:
                 limit = min(breakdown_limit * len(self._date_range().all_values()), limit)
 
+            not_in_cohort_union = ""
+            extra_placeholders: dict[str, ast.Expr] = {}
+            if self.should_add_not_in_cohort_group:
+                not_in_cohort_union = """
+                    UNION ALL
+                    SELECT
+                        entrance_period_start,
+                        0 as reached_from_step_count,
+                        0 as reached_to_step_count,
+                        {not_in_cohort_id} as prop
+                    FROM
+                        ({not_in_cohort_fill_query})
+                """
+                extra_placeholders["not_in_cohort_fill_query"] = fill_query
+                extra_placeholders["not_in_cohort_id"] = ast.Constant(value=NOT_IN_COHORT_ID)
+
             s = parse_select(
                 f"""
             SELECT
@@ -214,7 +241,8 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                     breakdown as prop
                 FROM
                     ({{inner_select}})
-                GROUP BY entrance_period_start, breakdown) as data
+                GROUP BY entrance_period_start, breakdown
+                {not_in_cohort_union}) as data
             GROUP BY
                 fill.entrance_period_start,
                 data.prop
@@ -224,7 +252,7 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                 fill.entrance_period_start ASC
             LIMIT {limit}
             """,
-                {"fill_query": fill_query, "inner_select": inner_select},
+                {"fill_query": fill_query, "inner_select": inner_select, **extra_placeholders},
             )
         else:
             s = parse_select(
@@ -288,6 +316,8 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
             *self._matching_events(),
             *([ast.Field(chain=[field]) for field in extra_fields or []]),
         ]
+        if self._is_session_aggregation():
+            select.append(ast.Alias(alias="person_id", expr=ast.Field(chain=["person_id"])))
         select_from = ast.JoinExpr(table=self._inner_aggregation_query())
 
         where = ast.And(
@@ -333,14 +363,18 @@ class FunnelTrendsUDF(FunnelUDFMixin, FunnelBase):
                     isinstance(breakdown_value, list) and all(isinstance(item, str) for item in breakdown_value)
                 ):
                     serialized_result.update({"breakdown_value": (breakdown_value)})
-                else:
+                elif isinstance(breakdown_value, (int, float)):
                     serialized_result.update(
                         {
-                            "breakdown_value": Cohort.objects.get(
-                                pk=breakdown_value, team__project_id=self.context.team.project_id
-                            ).name
+                            "breakdown_value": get_breakdown_cohort_name(
+                                int(breakdown_value),
+                                self.context.team,
+                                not_in_cohort_name=self._not_in_cohort_name,
+                            )
                         }
                     )
+                else:
+                    serialized_result.update({"breakdown_value": str(breakdown_value)})
 
             summary.append(serialized_result)
 

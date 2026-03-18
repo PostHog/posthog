@@ -45,7 +45,7 @@ export function IntegrationChoice({
         if (!integrationsLoading && !value && integrationsOfKind?.length) {
             onChange?.(integrationsOfKind[0].id)
         }
-    }, [integrationsLoading])
+    }, [integrationsLoading, onChange, integrationsOfKind?.length, value, integrationsOfKind])
 
     if (!kind) {
         return null

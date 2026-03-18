@@ -1,4 +1,4 @@
-import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, key, listeners, path, propsChanged, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import { DEFAULT_UNIVERSAL_GROUP_FILTER } from 'lib/components/UniversalFilters/universalFiltersLogic'
@@ -23,6 +23,7 @@ export const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 
 export interface LogsViewerFiltersLogicProps {
     id: string
+    initialFilters?: Partial<LogsViewerFilters>
 }
 
 export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
@@ -162,4 +163,25 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             actions.setFilterGroup({ ...values.filters.filterGroup, values: [newGroup] }, false)
         },
     })),
+
+    propsChanged(({ actions, props: logicProps }, oldProps) => {
+        if (logicProps.initialFilters && logicProps.initialFilters !== oldProps.initialFilters) {
+            actions.setFilters(logicProps.initialFilters, false)
+        } else if (!logicProps.initialFilters && oldProps.initialFilters) {
+            actions.setFilters(
+                {
+                    searchTerm: '',
+                    severityLevels: DEFAULT_SEVERITY_LEVELS,
+                    serviceNames: DEFAULT_SERVICE_NAMES,
+                },
+                false
+            )
+        }
+    }),
+
+    afterMount(({ actions, props: logicProps }) => {
+        if (logicProps.initialFilters) {
+            actions.setFilters(logicProps.initialFilters, false)
+        }
+    }),
 ])

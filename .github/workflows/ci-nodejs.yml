@@ -76,6 +76,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -113,6 +116,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Install package.json dependencies with pnpm
               env:
@@ -167,12 +173,17 @@ jobs:
               continue-on-error: true
 
             - name: Stop/Start stack with Docker Compose
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: dev_tools,localstack
               run: |
-                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile localstack down
-                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml --profile dev_tools --profile localstack up -d
+                  bin/ci-wait-for-docker launch --down
 
             - name: Wait for Docker services
-              run: bin/wait-for-docker
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml:docker-compose.profiles.yml
+                  COMPOSE_PROFILES: dev_tools,localstack
+              run: bin/ci-wait-for-docker wait
 
             - name: Add Kafka and ClickHouse to /etc/hosts
               run: echo "127.0.0.1 kafka clickhouse" | sudo tee -a /etc/hosts
@@ -188,6 +199,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install rust
@@ -227,7 +239,9 @@ jobs:
               with:
                   node-version: 24.13.0
                   cache: pnpm
-                  cache-dependency-path: pnpm-lock.yaml
+                  cache-dependency-path: |
+                      pnpm-lock.yaml
+                      .github/workflows/ci-nodejs.yml
 
             - name: Download MaxMind Database
               run: |
@@ -245,13 +259,17 @@ jobs:
 
             - name: Fetch base branch for diff
               if: github.event_name == 'pull_request'
-              run: git fetch origin ${{ github.base_ref }} --depth=1
+              env:
+                  BASE_REF: ${{ github.base_ref }}
+              run: git fetch origin "$BASE_REF" --depth=1
 
             - name: Check for migrations in this PR
               id: check_migrations
               if: github.event_name == 'pull_request'
+              env:
+                  BASE_REF: ${{ github.base_ref }}
               run: |
-                  if git diff --name-only origin/${{ github.base_ref }}..HEAD | grep -E '(migrations/|rust/.*migrate)'; then
+                  if git diff --name-only "origin/$BASE_REF..HEAD" | grep -E '(migrations/|rust/.*migrate)'; then
                     echo "has_migrations=true" >> $GITHUB_OUTPUT
                   else
                     echo "has_migrations=false" >> $GITHUB_OUTPUT

@@ -7,6 +7,7 @@ from django.db import models
 from django.utils import timezone
 
 from django_deprecate_fields import deprecate_field
+from prometheus_client import Counter
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
@@ -20,6 +21,14 @@ PERSONAL_API_KEY_MODES_TO_TRY: tuple[tuple[ModeType, Optional[int]], ...] = (
 )
 
 LEGACY_PERSONAL_API_KEY_SALT = "posthog_personal_api_key"
+LEGACY_HASH_PREFIX = f"{PBKDF2PasswordHasher.algorithm}$"
+SHA256_HASH_PREFIX = "sha256$"
+
+PERSONAL_API_KEY_AUTH_COUNTER = Counter(
+    "personal_api_key_hash_mode_total",
+    "Successful personal API key authentications by hash mode",
+    labelnames=["hash_mode"],
+)
 
 
 def hash_key_value(value: str, mode: ModeType = "sha256", iterations: Optional[int] = None) -> str:
@@ -36,7 +45,7 @@ def hash_key_value(value: str, mode: ModeType = "sha256", iterations: Optional[i
     # Inspiration on why no salt:
     # https://github.com/jazzband/django-rest-knox/issues/188
     value = hashlib.sha256(value.encode()).hexdigest()
-    return f"sha256${value}"  # Following format from Django's PBKDF2PasswordHasher
+    return f"{SHA256_HASH_PREFIX}{value}"  # Following format from Django's PBKDF2PasswordHasher
 
 
 class PersonalAPIKey(ModelActivityMixin, models.Model):

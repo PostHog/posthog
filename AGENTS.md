@@ -2,6 +2,7 @@
 
 ## Codebase Structure
 
+- Key entry points: `posthog/api/__init__.py` (URL routing), `posthog/settings/web.py` (Django settings, INSTALLED_APPS), `products/` (product apps)
 - [Monorepo layout](docs/internal/monorepo-layout.md) - high-level directory structure (products, services, common)
 - [Products README](products/README.md) - how to create and structure products
 - [Products architecture](products/architecture.md) - DTOs, facades, isolated testing
@@ -9,10 +10,8 @@
 ## Commands
 
 - Environment:
-  - Auto-detect flox environment before running terminal commands
-  - If flox is available, and you run into trouble executing commands, try with `flox activate -- bash -c "<command>"` pattern
+  - Use flox when available — prefer `flox activate -- bash -c "<command>"` if commands fail
     - Never use `flox activate` in interactive sessions (it hangs if you try)
-  - If local hooks fail with missing Husky bootstrap files (for example `.husky/_/husky.sh`) or missing `lint-staged`, run `pnpm install --frozen-lockfile --filter=.` once in the repo root
 - Tests:
   - All tests: `pytest`
   - Single test: `pytest path/to/test.py::TestClass::test_method`
@@ -28,6 +27,8 @@
 - Build:
   - Frontend: `pnpm --filter=@posthog/frontend build`
   - Start dev: `./bin/start`
+- OpenAPI/types: `hogli build:openapi` (regenerate after changing serializers/viewsets)
+- New product: `bin/hogli product:bootstrap <name>`
 - LSP: Pyright is configured against the flox venv. Prefer LSP (`goToDefinition`, `findReferences`, `hover`) over grep when navigating or refactoring Python code.
 
 ## Commits and Pull Requests
@@ -54,6 +55,10 @@ Examples:
 - `chore(ci): update GitHub Actions workflow`
 - `chore: update AGENTS.md instructions`
 
+### PR descriptions
+
+Follow the PR description template in `.github/pull_request_template.md` when creating or updating PR descriptions. Keep the descriptions of changes higher-level, focusing on key details for the human reviewer to evaluate the rationale for the approach, and the overall architecture.
+
 ### Rules
 
 - Scope is optional but encouraged when the change is specific to a feature area
@@ -62,103 +67,33 @@ Examples:
 
 ## Security
 
-### SQL Security
-
-- **Never** use f-strings with user-controlled values in SQL queries - this creates SQL injection vulnerabilities
-- Use parameterized queries for all VALUES: `cursor.execute("SELECT * FROM t WHERE id = %s", [id])`
-- Table/column names from Django ORM metadata (`model._meta.db_table`) are trusted sources
-- For ClickHouse identifiers, use `escape_clickhouse_identifier()` from `posthog/hogql/escape_sql.py`
-- When raw SQL is necessary with dynamic table/column names:
-
-  ```python
-  # Build query string separately from execution, document why identifiers are safe
-  table = model._meta.db_table  # Trusted: from Django ORM metadata
-  query = f"SELECT COUNT(*) FROM {table} WHERE team_id = %s"
-  cursor.execute(query, [team_id])  # Values always parameterized
-  ```
-
-### HogQL Security
-
-HogQL queries use `parse_expr()`, `parse_select()`, and `parse_order_expr()`. Two patterns exist:
-
-**Vulnerable pattern** - User data interpolated INTO a HogQL template:
-
-```python
-# User data embedded in f-string - can escape context!
-parse_expr(f"field = '{self.query.value}'")  # VULNERABLE
-```
-
-**Safe patterns**:
-
-```python
-# User provides ENTIRE expression - no context to escape
-parse_expr(self.query.expression)  # SAFE - HogQL parser validates syntax
-
-# User data wrapped in ast.Constant placeholder
-parse_expr("{x}", placeholders={"x": ast.Constant(value=self.query.field)})  # SAFE
-```
-
-**Why direct pass-through is safe**: When users provide the entire HogQL expression (not data embedded in a template), there's no string context to escape from. The HogQL parser validates syntax and rejects malformed input.
-
-**Sanitizers** (for use in placeholders):
-
-- `ast.Constant(value=...)` - wraps values safely
-- `ast.Tuple(exprs=...)` - for lists of values
-
-### Semgrep Rules
-
-Run `semgrep --config .semgrep/rules/hogql-no-fstring.yaml .` to check for HogQL injection issues.
-
-Two rules:
-
-1. `hogql-injection-taint` - Flags user data (`self.query.*`, etc.) interpolated into f-strings passed to parse functions (HIGH confidence)
-2. `hogql-fstring-audit` - Flags all f-strings in parse functions for manual review (LOW confidence)
-
-**When semgrep flags your code:**
-
-- If user data is interpolated into f-string → wrap with `ast.Constant()` in placeholders
-- If f-string uses safe values (loop index, enum, dict lookup) → add `# nosemgrep: <rule-id>` with explanation
-
-**Running tests:**
-
-```bash
-# Local install
-semgrep --test .semgrep/rules/
-
-# Or via Docker
-docker run --rm -v "${PWD}:/src" semgrep/semgrep semgrep --test /src/.semgrep/rules/
-```
+See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep security guidelines.
 
 ## Architecture guidelines
 
-- API views should declare request/response schemas — prefer `@validated_request` from `posthog.api.mixins` or `@extend_schema` from drf-spectacular
-- Django serializers are the source of truth for frontend API types — `hogli build:openapi` generates TypeScript via drf-spectacular + Orval. Generated files (`api.schemas.ts`, `api.ts`) live in `frontend/src/generated/core/` and `products/{product}/frontend/generated/` — don't edit them manually, change serializers and rerun. See `docs/published/type-system.md` for the full pipeline
-- New features should live in `products/` — read [products/README.md](products/README.md) for layout and setup. When _creating a new_ product, follow [products/architecture.md](products/architecture.md) (DTOs, facades, isolation). Most existing products are legacy moves and don't use this architecture yet — match the patterns already in the product you're editing
+- API views should declare request/response schemas — prefer `@validated_request` from `posthog.api.mixins` or `@extend_schema` from drf-spectacular. Plain `ViewSet` methods that validate manually need `@extend_schema(request=YourSerializer)` — without it, drf-spectacular can't discover the request body and generated code gets empty schemas
+- Django serializers are the source of truth for frontend API types — `hogli build:openapi` generates TypeScript via drf-spectacular + Orval. Generated files (`api.schemas.ts`, `api.ts`) live in `frontend/src/generated/core/` and `products/{product}/frontend/generated/` — don't edit them manually, change serializers and rerun. See [type system guide](docs/published/handbook/engineering/type-system.md) for the full pipeline
+- MCP tools are generated from the same OpenAPI spec — see [implementing MCP tools](docs/published/handbook/engineering/ai/implementing-mcp-tools.md) for the YAML config and codegen workflow
+- When touching a viewset or serializer, ensure schema annotations are present (`@extend_schema` or `@validated_request` on viewset methods, `help_text` on serializer fields) — these flow into generated frontend types and MCP tool schemas
+- New features should live in `products/` — read [products/README.md](products/README.md) for layout and setup. When _creating a new_ product, follow [products/architecture.md](products/architecture.md) (DTOs, facades, isolation)
 - Always filter querysets by `team_id` — in serializers, access the team via `self.context["get_team"]()`
 - **Do not add domain-specific fields to the `Team` model.** Use a Team Extension model instead — see `posthog/models/team/README.md` for the pattern and helpers
 
-## Important rules for Code Style
+## Code Style
 
-- Python: Use type hints, follow mypy strict rules
+- Python: Use type hints (mypy-strict style)
 - Frontend: TypeScript required, explicit return types
 - Frontend: If there is a kea logic file, write all business logic there, avoid React hooks at all costs.
 - Imports: Use oxfmt import sorting (automatically runs on format), avoid direct dayjs imports (use lib/dayjs)
 - CSS: Use tailwind utility classes instead of inline styles
 - Error handling: Prefer explicit error handling with typed errors
 - Naming: Use descriptive names, camelCase for JS/TS, snake_case for Python
-- Comments: should not duplicate the code below, don't tell me "this finds the shortest username" tell me _why_ that is important, if it isn't important don't add a comment, almost never add a comment
+- Comments: explain _why_, not _what_ — if the reason isn't important, skip the comment
+- Comments: when refactoring or moving code, preserve existing comments unless they are explicitly made obsolete by the change
 - Python tests: do not add doc comments
 - jest tests: when writing jest tests, prefer a single top-level describe block in a file
-- any tests: prefer to use parameterized tests, think carefully about what input and output look like so that the tests exercise the system and explain the code to the future traveller
-- Python tests: in python use the parameterized library for parameterized tests, every time you are tempted to add more than one assertion to a test consider (really carefully) if it should be a parameterized test instead
-- always remember that there is a tension between having the fewest parts to code (a simple system) and having the most understandable code (a maintainable system). structure code to balance these two things.
-- Separation of concerns: Keep different responsibilities in different places (data/logic/presentation, safety checks/policies, etc.)
+- Tests: prefer parameterized tests (use the `parameterized` library in Python) — if you're writing multiple assertions for variations of the same logic, it should be parameterized
 - Reduce nesting: Use early returns, guard clauses, and helper methods to avoid deeply nested code
-- Avoid over-engineering: Don't apply design patterns just because you know them
-- Start simple, iterate: Build minimal solution first, add complexity only when demanded
-
-## General
-
 - Markdown: prefer semantic line breaks; no hard wrapping
 - Use American English spelling
 - When mentioning PostHog products, the product names should use Sentence casing, not Title Casing. For example, 'Product analytics', not 'Product Analytics'. Any other buttons, tab text, tooltips, etc should also all use Sentence casing. For example, 'Save as view' instead of 'Save As View'.

@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, Link, lemonToast } from '@posthog/lemon-ui'
 
 import api, { getJSONOrNull } from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { LemonBannerAction } from 'lib/lemon-ui/LemonBanner/LemonBanner'
 import { lemonBannerLogic } from 'lib/lemon-ui/LemonBanner/lemonBannerLogic'
@@ -856,7 +856,7 @@ export const billingLogic = kea<billingLogicType>([
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
-                    if (values.featureFlags[hideProductFlag] === true) {
+                    if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
                         return false
                     }
                     if (isBillingAlertDismissed(values.currentOrganization?.id, x.type, billingPeriodEnd)) {
@@ -896,7 +896,7 @@ export const billingLogic = kea<billingLogicType>([
                         return false
                     }
                     const hideProductFlag = `billing_hide_product_${x.type}`
-                    if (values.featureFlags[hideProductFlag] === true) {
+                    if (values.featureFlags[hideProductFlag as FeatureFlagKey] === true) {
                         return false
                     }
                     if (

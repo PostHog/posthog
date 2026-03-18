@@ -19,6 +19,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { toSentenceCase } from 'lib/utils'
 import { couponLogic } from 'scenes/coupons/couponLogic'
+import { membersLogic } from 'scenes/organization/membersLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -57,6 +58,7 @@ export function Billing(): JSX.Element {
     const { featureFlags } = useValues(featureFlagLogic)
     const { location, searchParams } = useValues(router)
     const { activeCoupons, couponsOverviewLoading } = useValues(couponLogic({}))
+    const { memberCount } = useValues(membersLogic)
 
     const restrictionReason = useRestrictedArea({
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -231,7 +233,7 @@ export function Billing(): JSX.Element {
                 <h2>Products</h2>
             </div>
 
-            {(featureFlags[FEATURE_FLAGS.REORDER_PLATFORM_ADDON_BILLING_SECTION] === 'test-top-of-page'
+            {(memberCount >= 5
                 ? [
                       platformAndSupportProduct,
                       ...(products?.filter((product) => product.type !== ProductKey.PLATFORM_AND_SUPPORT) ?? []),

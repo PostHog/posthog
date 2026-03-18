@@ -1,6 +1,6 @@
 import posthog from 'posthog-js'
 
-import { objectCleanWithEmpty } from 'lib/utils'
+import { isKeyOf, objectCleanWithEmpty } from 'lib/utils'
 import { transformLegacyHiddenLegendKeys } from 'scenes/funnels/funnelUtils'
 import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 import {
@@ -30,12 +30,14 @@ import {
     InsightQueryNode,
     InsightsQueryBase,
     LifecycleFilter,
+    LifecycleDataWarehouseNode,
     MathType,
     NodeKind,
     PathsFilter,
     RetentionFilter,
     StickinessFilter,
     TrendsFilter,
+    AnyDataWarehouseNode,
 } from '~/queries/schema/schema-general'
 import {
     isFunnelsQuery,
@@ -65,6 +67,7 @@ import {
     PathsFilterType,
     RetentionEntity,
     RetentionFilterType,
+    TrendsDataWarehouseFilter,
     TrendsFilterType,
     isDataWarehouseFilter,
     isGroupFilter,
@@ -104,12 +107,17 @@ export type FilterTypeActionsAndEvents = {
     groups?: ActionFilter[]
 }
 
+type DataWarehouseNodeKind = NodeKind.DataWarehouseNode | NodeKind.LifecycleDataWarehouseNode
+type LifecycleDataWarehouseFilter = DataWarehouseFilter &
+    Pick<LifecycleDataWarehouseNode, 'aggregation_target_field' | 'created_at_field'>
+
 export const legacyEntityToNode = (
-    entity: ActionFilter | DataWarehouseFilter,
+    entity: ActionFilter | DataWarehouseFilter | LifecycleDataWarehouseFilter,
     includeProperties: boolean,
-    mathAvailability: MathAvailability
+    mathAvailability: MathAvailability,
+    dataWarehouseNodeKind: DataWarehouseNodeKind = NodeKind.DataWarehouseNode
 ): AnyEntityNode | GroupNode => {
-    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode | GroupNode> = {
+    let shared: Partial<EventsNode | ActionsNode | DataWarehouseNode | LifecycleDataWarehouseNode | GroupNode> = {
         name: entity.name || undefined,
         custom_name: entity.custom_name || undefined,
     }
@@ -117,11 +125,18 @@ export const legacyEntityToNode = (
     if (isDataWarehouseFilter(entity)) {
         shared = {
             ...shared,
-            id_field: entity.id_field || undefined,
             timestamp_field: entity.timestamp_field || undefined,
-            distinct_id_field: entity.distinct_id_field || undefined,
             table_name: entity.table_name || undefined,
-        } as DataWarehouseNode
+            ...(dataWarehouseNodeKind === NodeKind.LifecycleDataWarehouseNode
+                ? {
+                      aggregation_target_field: (entity as LifecycleDataWarehouseFilter).aggregation_target_field,
+                      created_at_field: (entity as LifecycleDataWarehouseFilter).created_at_field,
+                  }
+                : {
+                      id_field: (entity as TrendsDataWarehouseFilter).id_field || undefined,
+                      distinct_id_field: (entity as TrendsDataWarehouseFilter).distinct_id_field || undefined,
+                  }),
+        } as DataWarehouseNode | LifecycleDataWarehouseNode
     }
 
     if (isGroupFilter(entity)) {
@@ -129,7 +144,12 @@ export const legacyEntityToNode = (
             ...shared,
             operator: entity.operator || undefined,
             nodes: (entity.nestedFilters || []).map((v) =>
-                legacyEntityToNode(v as ActionFilter | DataWarehouseFilter, includeProperties, mathAvailability)
+                legacyEntityToNode(
+                    v as ActionFilter | DataWarehouseFilter | LifecycleDataWarehouseFilter,
+                    includeProperties,
+                    mathAvailability,
+                    dataWarehouseNodeKind
+                )
             ),
         } as GroupNode
     }
@@ -189,7 +209,7 @@ export const legacyEntityToNode = (
     } else if (entity.type === 'data_warehouse') {
         return setLatestVersionsOnQuery(
             objectCleanWithEmpty({
-                kind: NodeKind.DataWarehouseNode,
+                kind: dataWarehouseNodeKind,
                 id: entity.id,
                 ...shared,
             })
@@ -230,18 +250,27 @@ type FilterTypeActionsAndEventsWithoutGroups = Omit<FilterTypeActionsAndEvents, 
 export function actionsAndEventsToSeries(
     filters: FilterTypeActionsAndEventsWithGroups,
     includeProperties: boolean,
-    includeMath: MathAvailability
+    includeMath: MathAvailability,
+    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode
 ): (AnyEntityNode | GroupNode)[]
 export function actionsAndEventsToSeries(
     filters: FilterTypeActionsAndEventsWithoutGroups,
     includeProperties: boolean,
-    includeMath: MathAvailability
+    includeMath: MathAvailability,
+    dataWarehouseNodeKind: NodeKind.LifecycleDataWarehouseNode
+): AnyEntityNode<LifecycleDataWarehouseNode>[]
+export function actionsAndEventsToSeries(
+    filters: FilterTypeActionsAndEventsWithoutGroups,
+    includeProperties: boolean,
+    includeMath: MathAvailability,
+    dataWarehouseNodeKind?: NodeKind.DataWarehouseNode
 ): AnyEntityNode[]
 export function actionsAndEventsToSeries(
     { actions, events, data_warehouse, new_entity, groups }: FilterTypeActionsAndEvents,
     includeProperties: boolean,
-    includeMath: MathAvailability
-): (AnyEntityNode | GroupNode)[] {
+    includeMath: MathAvailability,
+    dataWarehouseNodeKind: DataWarehouseNodeKind = NodeKind.DataWarehouseNode
+): (AnyEntityNode<AnyDataWarehouseNode> | GroupNode<AnyDataWarehouseNode>)[] {
     const series: (AnyEntityNode | GroupNode)[] = [
         ...(actions || []),
         ...(events || []),
@@ -250,7 +279,7 @@ export function actionsAndEventsToSeries(
         ...(groups || []),
     ]
         .sort((a, b) => (a.order || b.order ? (!a.order ? -1 : !b.order ? 1 : a.order - b.order) : 0))
-        .map((f) => legacyEntityToNode(f, includeProperties, includeMath))
+        .map((f) => legacyEntityToNode(f, includeProperties, includeMath, dataWarehouseNodeKind))
 
     return series
 }
@@ -294,16 +323,17 @@ export const sanitizeRetentionEntity = (entity: RetentionEntity | undefined): Re
     if (!entity) {
         return undefined
     }
-    const record = { ...entity }
-    for (const key of Object.keys(record)) {
-        if (!['id', 'kind', 'name', 'type', 'order', 'uuid', 'custom_name'].includes(key)) {
-            delete record[key]
-        }
+
+    const { id, kind, name, type, order, uuid, custom_name } = entity
+    return {
+        ...('id' in entity ? { id } : {}),
+        ...('kind' in entity ? { kind } : {}),
+        ...('name' in entity ? { name } : {}),
+        ...('type' in entity ? { type } : {}),
+        ...('order' in entity ? { order } : {}),
+        ...('uuid' in entity ? { uuid } : {}),
+        ...('custom_name' in entity ? { custom_name } : {}),
     }
-    if ('id' in record && record.type === 'actions') {
-        record.id = Number(record.id)
-    }
-    return record
 }
 
 const processBool = (value: string | boolean | null | undefined): boolean | undefined => {
@@ -331,6 +361,9 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
 
     if (!filters.insight) {
         throw new Error('filtersToQueryNode expects "insight"')
+    }
+    if (!isKeyOf(filters.insight, insightTypeToNodeKind)) {
+        throw new Error(`insightTypeToNodeKind has no key ${filters.insight}`)
     }
 
     const query: InsightsQueryBase<AnalyticsQueryResponseBase> = {
@@ -362,11 +395,21 @@ export const filtersToQueryNode = (filters: Partial<FilterType>): InsightQueryNo
         }
 
         const { events, actions, data_warehouse, groups } = filters
-        query.series = actionsAndEventsToSeries(
-            { actions, events, data_warehouse, groups } as any,
-            includeProperties,
-            includeMath
-        )
+        if (isLifecycleQuery(query)) {
+            query.series = actionsAndEventsToSeries(
+                { actions, events, data_warehouse, groups } as any,
+                includeProperties,
+                includeMath,
+                NodeKind.LifecycleDataWarehouseNode
+            )
+        } else {
+            query.series = actionsAndEventsToSeries(
+                { actions, events, data_warehouse, groups } as any,
+                includeProperties,
+                includeMath,
+                NodeKind.DataWarehouseNode
+            )
+        }
         query.interval = filters.interval
     }
 

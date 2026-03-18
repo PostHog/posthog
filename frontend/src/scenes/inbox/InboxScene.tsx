@@ -11,6 +11,7 @@ import {
     IconGear,
     IconInfo,
     IconNotification,
+    IconRefresh,
     IconSearch,
     IconSparkles,
     IconWarning,
@@ -41,12 +42,12 @@ import { IconArrowDown } from 'lib/lemon-ui/icons'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
-import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { statusBadgeColor } from 'scenes/debug/signals/helpers'
 import type { SignalNode } from 'scenes/debug/signals/types'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
+import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -243,7 +244,7 @@ function ReportListPane(): JSX.Element {
         reportsHasMore,
     } = useValues(inboxSceneLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
-    const { setSearchQuery, loadMoreReports } = useActions(inboxSceneLogic)
+    const { setSearchQuery, loadMoreReports, loadReports } = useActions(inboxSceneLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
     const scrollRef = useRef<HTMLDivElement>(null)
     const [isScrollable, setIsScrollable] = useState(false)
@@ -274,79 +275,84 @@ function ReportListPane(): JSX.Element {
                     'hidden @3xl/main-content-container:block'
             )}
         >
-            <div className="relative h-full">
-                <LemonTableLoader loading={reportsLoading && reports.length > 0} placement="top" />
-                <div ref={scrollRef} className="h-full p-3 overflow-y-auto">
-                    <div className="flex gap-2 sticky top-0 z-10 mb-2">
-                        <LemonInput
-                            type="search"
-                            placeholder="Search reports..."
-                            prefix={<IconSearch />}
-                            value={searchQuery}
-                            onChange={setSearchQuery}
-                            size="small"
-                            fullWidth
-                            disabledReason={
-                                reportsLoading && reports.length === 0 && !searchQuery ? 'Loading reports...' : null
-                            }
-                        />
-                        <StatusFilter />
-                    </div>
-                    {hasNoSources && filteredReports.length > 0 && (
-                        <LemonBanner
-                            type="info"
-                            action={{ children: 'Set up sources now', onClick: openSourcesModal, icon: <IconGear /> }}
-                            className="mb-2"
-                        >
-                            No signal sources enabled currently.
-                            <br />
-                            Set up sources to get new reports automatically.
-                        </LemonBanner>
+            <div ref={scrollRef} className="h-full p-3 overflow-y-auto">
+                <div className="flex gap-2 sticky top-0 z-10 mb-2">
+                    <LemonInput
+                        type="search"
+                        placeholder="Search reports..."
+                        prefix={<IconSearch />}
+                        value={searchQuery}
+                        onChange={setSearchQuery}
+                        size="small"
+                        fullWidth
+                        disabledReason={
+                            reportsLoading && reports.length === 0 && !searchQuery ? 'Loading reports...' : null
+                        }
+                    />
+                    <StatusFilter />
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconRefresh />}
+                        loading={reportsLoading}
+                        onClick={() => loadReports()}
+                        tooltip="Refresh reports"
+                    />
+                </div>
+                {hasNoSources && filteredReports.length > 0 && (
+                    <LemonBanner
+                        type="info"
+                        action={{ children: 'Set up sources now', onClick: openSourcesModal, icon: <IconGear /> }}
+                        className="mb-2"
+                    >
+                        No signal sources enabled currently.
+                        <br />
+                        Set up sources to get new reports automatically.
+                    </LemonBanner>
+                )}
+                <div className="flex flex-col gap-2">
+                    {reportsLoading && reports.length === 0 ? (
+                        <div className="relative overflow-hidden max-h-[calc(100vh-14rem)]">
+                            <ReportListSkeleton />
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-primary to-transparent" />
+                        </div>
+                    ) : filteredReports.length === 0 ? (
+                        <div className="relative overflow-hidden max-h-[calc(100vh-14rem)]">
+                            <ReportListSkeleton active={false} />
+                            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-primary to-transparent" />
+                            <div className="absolute inset-0 flex flex-col items-center justify-center">
+                                <p className="text-sm text-secondary font-medium m-0 cursor-default">
+                                    {searchQuery || statusFilters.length > 0
+                                        ? 'No reports matching filters.'
+                                        : 'No reports yet.'}
+                                </p>
+                            </div>
+                        </div>
+                    ) : (
+                        <>
+                            {filteredReports.map((report: SignalReport) => (
+                                <ReportListItem key={report.id} report={report} />
+                            ))}
+                            {reportsHasMore && (
+                                <LemonButton
+                                    type="secondary"
+                                    size="small"
+                                    fullWidth
+                                    center
+                                    loading={reportsLoading}
+                                    onClick={() => loadMoreReports()}
+                                    className="mt-1"
+                                >
+                                    Load more
+                                </LemonButton>
+                            )}
+                            {isScrollable && filteredReports.length > 0 && !reportsHasMore && (
+                                <Tooltip title="You've reached the end, friend." delayMs={0} placement="right">
+                                    <PopUpBinocularsHog className="-mb-3.5 mt-1 w-16 self-center h-auto object-bottom" />
+                                </Tooltip>
+                            )}
+                        </>
                     )}
-                    <div className="flex flex-col gap-2">
-                        {reportsLoading && reports.length === 0 ? (
-                            <div className="relative overflow-hidden max-h-[calc(100vh-14rem)]">
-                                <ReportListSkeleton />
-                                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-primary to-transparent" />
-                            </div>
-                        ) : filteredReports.length === 0 ? (
-                            <div className="relative overflow-hidden max-h-[calc(100vh-14rem)]">
-                                <ReportListSkeleton active={false} />
-                                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-primary to-transparent" />
-                                <div className="absolute inset-0 flex flex-col items-center justify-center">
-                                    <p className="text-sm text-secondary font-medium m-0 cursor-default">
-                                        {searchQuery || statusFilters.length > 0
-                                            ? 'No reports matching filters.'
-                                            : 'No reports yet.'}
-                                    </p>
-                                </div>
-                            </div>
-                        ) : (
-                            <>
-                                {filteredReports.map((report: SignalReport) => (
-                                    <ReportListItem key={report.id} report={report} />
-                                ))}
-                                {reportsHasMore && (
-                                    <LemonButton
-                                        type="secondary"
-                                        size="small"
-                                        fullWidth
-                                        center
-                                        loading={reportsLoading}
-                                        onClick={() => loadMoreReports()}
-                                        className="mt-1"
-                                    >
-                                        Load more
-                                    </LemonButton>
-                                )}
-                                {isScrollable && filteredReports.length > 0 && !reportsHasMore && (
-                                    <Tooltip title="You've reached the end, friend." delayMs={0} placement="right">
-                                        <PopUpBinocularsHog className="-mb-3.5 mt-1 w-16 self-center h-auto object-bottom" />
-                                    </Tooltip>
-                                )}
-                            </>
-                        )}
-                    </div>
                 </div>
             </div>
         </ResizableElement>
@@ -445,7 +451,8 @@ function ReportDetailPane(): JSX.Element {
         selectedReportSignals,
         reportSignalsLoading,
     } = useValues(inboxSceneLogic)
-    const { deleteReport, setActiveDetailTab } = useActions(inboxSceneLogic)
+    const { deleteReport, reingestReport, setActiveDetailTab } = useActions(inboxSceneLogic)
+    const { user } = useValues(userLogic)
     const { hasNoSources } = useValues(signalSourcesLogic)
     const { openSourcesModal } = useActions(signalSourcesLogic)
 
@@ -544,6 +551,27 @@ function ReportDetailPane(): JSX.Element {
                                 overlay={
                                     <LemonMenuOverlay
                                         items={[
+                                            ...(user?.is_staff
+                                                ? [
+                                                      {
+                                                          label: 'Re-ingest signals',
+                                                          onClick: () =>
+                                                              LemonDialog.open({
+                                                                  title: `Re-ingest signals from "${selectedReport.title}"?`,
+                                                                  className: 'max-w-120',
+                                                                  description:
+                                                                      'This will delete the report, then re-run all its signals through the grouping pipeline. Signals may end up in different reports.',
+                                                                  primaryButton: {
+                                                                      children: 'Re-ingest signals',
+                                                                      onClick: () => reingestReport(selectedReport.id),
+                                                                  },
+                                                                  secondaryButton: {
+                                                                      children: 'Cancel',
+                                                                  },
+                                                              }),
+                                                      },
+                                                  ]
+                                                : []),
                                             {
                                                 label: 'Delete report & signals',
                                                 status: 'danger',
@@ -552,7 +580,7 @@ function ReportDetailPane(): JSX.Element {
                                                         title: `Delete report "${selectedReport.title}"?`,
                                                         className: 'max-w-120',
                                                         description:
-                                                            'This will soft-delete all signals in this report and remove the report. Report deletion cannot be undone.',
+                                                            'This will delete all signals in this report and remove the report. Report deletion cannot be undone.',
                                                         primaryButton: {
                                                             children: 'Delete report & signals',
                                                             status: 'danger',

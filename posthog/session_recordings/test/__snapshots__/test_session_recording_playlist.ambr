@@ -856,6 +856,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -917,6 +918,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -985,6 +987,7 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -1076,6 +1079,7 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")
@@ -1844,6 +1848,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -1905,6 +1910,7 @@
   '''
   SELECT "posthog_datawarehousesavedquery"."created_by_id",
          "posthog_datawarehousesavedquery"."created_at",
+         "posthog_datawarehousesavedquery"."updated_at",
          "posthog_datawarehousesavedquery"."deleted",
          "posthog_datawarehousesavedquery"."deleted_at",
          "posthog_datawarehousesavedquery"."id",
@@ -1973,6 +1979,7 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled",
          "posthog_externaldatasourcerevenueanalyticsconfig"."external_data_source_id",
          "posthog_externaldatasourcerevenueanalyticsconfig"."enabled",
@@ -2027,6 +2034,7 @@
          "posthog_externaldatasource"."are_tables_created",
          "posthog_externaldatasource"."prefix",
          "posthog_externaldatasource"."description",
+         "posthog_externaldatasource"."access_method",
          "posthog_externaldatasource"."revenue_analytics_enabled"
   FROM "posthog_datawarehousetable"
   LEFT OUTER JOIN "posthog_datawarehousecredential" ON ("posthog_datawarehousetable"."credential_id" = "posthog_datawarehousecredential"."id")

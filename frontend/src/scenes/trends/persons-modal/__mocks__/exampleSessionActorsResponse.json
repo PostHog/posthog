@@ -1,0 +1,124 @@
+{
+    "results": [
+        {
+            "people": [
+                {
+                    "type": "session",
+                    "id": "018fd3a2-4b1c-7def-8a9b-1234567890ab",
+                    "created_at": "2024-06-15T10:30:00Z",
+                    "properties": {
+                        "$session_duration": 342
+                    },
+                    "matched_recordings": [],
+                    "value_at_data_point": null,
+                    "person": {
+                        "type": "person",
+                        "id": "018339dc-735e-0000-fd6a-963eda28b90d",
+                        "distinct_ids": ["mortgage2056@yandex.com"],
+                        "is_identified": true,
+                        "properties": {
+                            "name": "Francisco Elliott",
+                            "email": "mortgage2056@yandex.com",
+                            "$browser": "Chrome",
+                            "$os": "Mac OS X",
+                            "$device_type": "Desktop"
+                        },
+                        "created_at": "2024-01-10T08:00:00Z",
+                        "matched_recordings": [],
+                        "value_at_data_point": null
+                    }
+                },
+                {
+                    "type": "session",
+                    "id": "018fd4b1-2c3d-7abc-9e1f-abcdef012345",
+                    "created_at": "2024-06-15T14:15:00Z",
+                    "properties": {
+                        "$session_duration": 87
+                    },
+                    "matched_recordings": [],
+                    "value_at_data_point": null,
+                    "person": {
+                        "type": "person",
+                        "id": "017ea83f-d611-0000-f12f-4c381820a4bb",
+                        "distinct_ids": ["tribune1998@yandex.com"],
+                        "is_identified": true,
+                        "properties": {
+                            "email": "tribune1998@yandex.com",
+                            "$browser": "Firefox",
+                            "$os": "Windows",
+                            "$device_type": "Desktop"
+                        },
+                        "created_at": "2024-02-05T12:00:00Z",
+                        "matched_recordings": [],
+                        "value_at_data_point": null
+                    }
+                },
+                {
+                    "type": "session",
+                    "id": "018fd5c2-3d4e-7bcd-af20-bcdef1234567",
+                    "created_at": "2024-06-16T09:00:00Z",
+                    "properties": {
+                        "$session_duration": 1205
+                    },
+                    "matched_recordings": [],
+                    "value_at_data_point": null,
+                    "person": {
+                        "type": "person",
+                        "id": "01815c0d-40f3-0000-943c-51fd7a15cf9f",
+                        "distinct_ids": ["satellite1974@protonmail.com"],
+                        "is_identified": true,
+                        "properties": {
+                            "name": "Robbyn Stokes",
+                            "email": "satellite1974@protonmail.com",
+                            "$browser": "Safari",
+                            "$os": "iOS",
+                            "$device_type": "Mobile"
+                        },
+                        "created_at": "2024-03-20T16:30:00Z",
+                        "matched_recordings": [],
+                        "value_at_data_point": null
+                    }
+                },
+                {
+                    "type": "session",
+                    "id": "018fd6d3-4e5f-7cde-b031-cdef23456789",
+                    "created_at": "2024-06-16T11:45:00Z",
+                    "properties": {
+                        "$session_duration": 45
+                    },
+                    "matched_recordings": [],
+                    "value_at_data_point": null,
+                    "person": {}
+                },
+                {
+                    "type": "session",
+                    "id": "018fd7e4-5f60-7def-c142-def345678901",
+                    "created_at": "2024-06-17T08:20:00Z",
+                    "properties": {
+                        "$session_duration": 560
+                    },
+                    "matched_recordings": [],
+                    "value_at_data_point": null,
+                    "person": {
+                        "type": "person",
+                        "id": "0184d5da-3700-0000-f627-b0d796598231",
+                        "distinct_ids": ["enlarge2075@yandex.com"],
+                        "is_identified": false,
+                        "properties": {
+                            "$browser": "Chrome",
+                            "$os": "Android",
+                            "$device_type": "Mobile"
+                        },
+                        "created_at": "2024-04-01T10:00:00Z",
+                        "matched_recordings": [],
+                        "value_at_data_point": null
+                    }
+                }
+            ],
+            "count": 5
+        }
+    ],
+    "next": null,
+    "initial": "/api/projects/1/persons/funnel/?funnel_aggregate_by_hogql=properties.%24session_id",
+    "missing_persons": 0
+}

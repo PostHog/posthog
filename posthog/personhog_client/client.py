@@ -8,7 +8,7 @@ from django.conf import settings
 import grpc
 import structlog
 
-from posthog.personhog_client.interceptor import MetricsInterceptor
+from posthog.personhog_client.interceptor import ClientNameInterceptor, MetricsInterceptor
 from posthog.personhog_client.proto import (
     CheckCohortMembershipRequest,
     CohortMembershipResponse,
@@ -47,6 +47,7 @@ class PersonHogClient:
     def __init__(
         self,
         addr: str,
+        client_name: str = "posthog-django",
         timeout_ms: int = 5000,
         keepalive_time_ms: int = 30_000,
         keepalive_timeout_ms: int = 5_000,
@@ -68,7 +69,9 @@ class PersonHogClient:
             ("grpc.enable_retries", 1),
         ]
         channel = grpc.insecure_channel(addr, options=options)
-        self._channel = grpc.intercept_channel(channel, MetricsInterceptor())
+        self._channel = grpc.intercept_channel(
+            channel, ClientNameInterceptor(client_name), MetricsInterceptor(client_name)
+        )
         self._stub = PersonHogServiceStub(self._channel)
         self._timeout = timeout_ms / 1000.0
 
@@ -163,8 +166,10 @@ def get_personhog_client() -> Optional[PersonHogClient]:
                     return None
 
                 timeout_ms = getattr(settings, "PERSONHOG_TIMEOUT_MS", 5000)
+                client_name = getattr(settings, "OTEL_SERVICE_NAME", None) or "posthog-django"
                 _client = PersonHogClient(
                     addr=addr,
+                    client_name=client_name,
                     timeout_ms=timeout_ms,
                     keepalive_time_ms=getattr(settings, "PERSONHOG_KEEPALIVE_TIME_MS", 30_000),
                     keepalive_timeout_ms=getattr(settings, "PERSONHOG_KEEPALIVE_TIMEOUT_MS", 5_000),

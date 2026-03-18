@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonButton, LemonSelect, LemonSelectOptions, LemonTag } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonModal } from 'lib/lemon-ui/LemonModal'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -19,6 +20,7 @@ export interface ConfigurePinnedTabsModalProps {
 }
 
 export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTabsModalProps): JSX.Element {
+    const isAIFirst = useFeatureFlag('AI_FIRST')
     const { tabs, homepage } = useValues(sceneLogic)
     const { currentTeam } = useValues(teamLogic)
     const { rawDashboards, nameSortedDashboards, dashboardsLoading } = useValues(dashboardsModel)
@@ -28,6 +30,8 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
     const homepageTabForDisplay = homepage ? (tabs.find((tab) => tab.id === homepage.id) ?? homepage) : null
     const isUsingProjectDefault = !homepage
     const isUsingNewTabHomepage = homepage?.sceneId === Scene.NewTab
+    const isUsingDefaultDashboard =
+        homepage?.sceneId === Scene.Dashboard && homepage?.id?.startsWith('homepage-dashboard-')
 
     const projectDefaultDashboardId = currentTeam?.primary_dashboard ?? null
     const projectDefaultDashboard =
@@ -39,8 +43,16 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
 
     const homepageDisplayTitle = homepageTabForDisplay
         ? homepageTabForDisplay.customTitle || homepageTabForDisplay.title
-        : "Project's default dashboard"
-    const homepageSubtitle = isUsingProjectDefault ? projectDefaultSubtitle : isUsingNewTabHomepage ? 'Search' : null
+        : isAIFirst
+          ? 'Home'
+          : "Project's default dashboard"
+    const homepageSubtitle = isUsingProjectDefault
+        ? isAIFirst
+            ? 'Default'
+            : projectDefaultSubtitle
+        : isUsingNewTabHomepage
+          ? 'Search'
+          : null
 
     const projectDefaultDashboardOptions: LemonSelectOptions<number | null> = [
         { value: null, label: 'No default dashboard / show the "new tab" page' },
@@ -173,22 +185,75 @@ export function ConfigurePinnedTabsModal({ isOpen, onClose }: ConfigurePinnedTab
                             </div>
                         </div>
                         <div className="flex flex-wrap gap-2">
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                onClick={() => setHomepage(null)}
-                                disabled={isUsingProjectDefault}
-                            >
-                                Use default dashboard
-                            </LemonButton>
-                            <LemonButton
-                                size="small"
-                                type="secondary"
-                                onClick={() => setHomepage(newTabHomepage)}
-                                disabled={isUsingNewTabHomepage}
-                            >
-                                Use new tab page
-                            </LemonButton>
+                            {isAIFirst ? (
+                                <>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => setHomepage(null)}
+                                        disabled={isUsingProjectDefault}
+                                    >
+                                        Home
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => {
+                                            const dashboardId = currentTeam?.primary_dashboard
+                                            if (dashboardId) {
+                                                setHomepage({
+                                                    id: `homepage-dashboard-${dashboardId}`,
+                                                    pathname: urls.dashboard(dashboardId),
+                                                    search: '',
+                                                    hash: '',
+                                                    title: 'Default dashboard',
+                                                    iconType: 'dashboard',
+                                                    active: false,
+                                                    pinned: true,
+                                                    sceneId: Scene.Dashboard,
+                                                    sceneKey: `dashboard-${dashboardId}`,
+                                                    sceneParams: emptySceneParams,
+                                                })
+                                            }
+                                        }}
+                                        disabled={isUsingDefaultDashboard || !currentTeam?.primary_dashboard}
+                                        disabledReason={
+                                            !currentTeam?.primary_dashboard
+                                                ? 'No default dashboard configured'
+                                                : undefined
+                                        }
+                                    >
+                                        Default dashboard
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => setHomepage(newTabHomepage)}
+                                        disabled={isUsingNewTabHomepage}
+                                    >
+                                        Search
+                                    </LemonButton>
+                                </>
+                            ) : (
+                                <>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => setHomepage(null)}
+                                        disabled={isUsingProjectDefault}
+                                    >
+                                        Use default dashboard
+                                    </LemonButton>
+                                    <LemonButton
+                                        size="small"
+                                        type="secondary"
+                                        onClick={() => setHomepage(newTabHomepage)}
+                                        disabled={isUsingNewTabHomepage}
+                                    >
+                                        Use new tab page
+                                    </LemonButton>
+                                </>
+                            )}
                         </div>
                     </div>
                 </section>

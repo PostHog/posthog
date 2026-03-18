@@ -2,7 +2,7 @@
     "$schema": "https://stripe.com/stripe-app.schema.json",
     "id": "com.posthog.stripe",
     "name": "PostHog",
-    "version": "0.1.1",
+    "version": "0.1.4",
     "icon": "./assets/logomark.png",
     "declarations": {
         "distribution_type": "public",
@@ -77,10 +77,10 @@
         "stripe_api_access_type": "oauth"
     },
     "provisioning": {
-        "base_url": "https://app.posthog.com/api/agentic/",
-        "oauth_token_endpoint": "https://oauth.posthog.com/oauth/token",
+        "base_url": "https://us.posthog.com/api/agentic/",
+        "oauth_token_endpoint": "https://us.posthog.com/api/agentic/oauth/token",
         "oauth_client_id": "3pFZtlNOg7UEBtr8t0rBAEbI8E4GBf1YqIC2L4jJ",
-        "oauth_client_secret_secret_store_key": "posthog_access_token",
+        "oauth_client_secret_secret_store_key": "oauth_client_secret",
         "account_configuration_schema": "{\"type\":\"object\",\"properties\":{\"region\":{\"type\":\"string\",\"enum\":[\"US\",\"EU\"],\"description\":\"Which PostHog region to connect the Stripe account to\"}},\"required\":[\"region\"],\"additionalProperties\":false}"
     },
     "ui_extension": {

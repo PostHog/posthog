@@ -1,3 +1,4 @@
+import json
 from typing import Any
 
 from structlog import get_logger
@@ -36,10 +37,10 @@ An issue is ACTIONABLE if it describes:
 An issue is NOT_ACTIONABLE if it is:
 - A bot-generated issue (dependency bumps, stale-bot closures, CI notifications, release automation)
 - Spam, abuse, or profanity with no real feedback
-- A meta/tracking issue with no feedback (release checklists, sprint trackers)
+- A meta/tracking issue with no substantive feedback — issues that contain only a title and a bare link or a short reminder without describing a problem, use case, or solution (release checklists, sprint trackers, experiment-to-do notes)
 - A duplicate that only says "same as #X" with no new information
 
-When in doubt, classify as ACTIONABLE. GitHub issues are filed intentionally, so err on the side of capturing the signal.
+When in doubt, classify as ACTIONABLE. GitHub issues are filed intentionally, so err on the side of capturing the signal. However, if an issue clearly matches one of the NOT_ACTIONABLE categories above, classify it as NOT_ACTIONABLE regardless.
 
 <issue>
 {description}
@@ -78,11 +79,37 @@ def github_issue_emitter(team_id: int, record: dict[str, Any]) -> SignalEmitterO
         source_id=str(issue_id),
         description=f"{title}\n{body}",
         weight=1.0,
-        extra={k: v for k, v in record.items() if k in EXTRA_FIELDS},
+        extra=_build_extra(record),
     )
 
 
+def _build_extra(record: dict[str, Any]) -> dict[str, Any]:
+    extra = {k: v for k, v in record.items() if k in EXTRA_FIELDS}
+    raw_labels = extra.get("labels")
+    if raw_labels is None:
+        extra["labels"] = []
+    elif isinstance(raw_labels, str):
+        try:
+            parsed = json.loads(raw_labels)
+        except (json.JSONDecodeError, TypeError) as e:
+            msg = f"GitHub issue labels field is not valid JSON: {raw_labels!r}"
+            logger.exception(msg, record=record, signals_type="data-import-signals")
+            raise ValueError(msg) from e
+        if not isinstance(parsed, list):
+            msg = f"GitHub issue labels field is not a JSON array: {raw_labels!r}"
+            logger.exception(msg, record=record, signals_type="data-import-signals")
+            raise ValueError(msg)
+        extra["labels"] = [label["name"] for label in parsed if isinstance(label, dict) and "name" in label]
+    else:
+        msg = f"GitHub issue labels field has unexpected type {type(raw_labels).__name__}: {raw_labels!r}"
+        logger.exception(msg, record=record, signals_type="data-import-signals")
+        raise ValueError(msg)
+    return extra
+
+
 GITHUB_ISSUES_CONFIG = SignalSourceTableConfig(
+    source_product="github",
+    source_type="issue",
     emitter=github_issue_emitter,
     partition_field="created_at",
     partition_field_is_datetime_string=True,

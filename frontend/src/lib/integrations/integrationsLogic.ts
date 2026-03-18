@@ -6,10 +6,12 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
-import { fromParamsGivenUrl } from 'lib/utils'
+import { fromParamsGivenUrl, isKeyOf } from 'lib/utils'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 
+import { integrationsGithubReposRetrieve } from '~/generated/core/api'
+import type { GitHubRepoApi } from '~/generated/core/api.schemas'
 import { EmailIntegrationDomainGroupedType, IntegrationKind, IntegrationType } from '~/types'
 
 import { ChannelType } from 'products/workflows/frontend/Channels/MessageChannels'
@@ -92,7 +94,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                         formData.append('kind', kind)
                         formData.append('key', key)
                         const response = await api.integrations.create(formData)
-                        const responseWithIcon = { ...response, icon_url: ICONS[kind] ?? ICONS['google-pubsub'] }
+                        const responseWithIcon = {
+                            ...response,
+                            icon_url: isKeyOf(kind, ICONS) ? ICONS[kind] : ICONS['google-pubsub'],
+                        }
 
                         // run onChange after updating the integrations loader
                         window.setTimeout(() => callback?.(responseWithIcon), 0)
@@ -117,10 +122,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
             },
         ],
         githubRepositories: [
-            {} as Record<number, string[]>,
+            {} as Record<number, GitHubRepoApi[]>,
             {
                 loadGitHubRepositories: async ({ integrationId }) => {
-                    const response = await api.integrations.githubRepositories(integrationId)
+                    const response = await integrationsGithubReposRetrieve('@current', integrationId)
                     return {
                         ...values.githubRepositories,
                         [integrationId]: response.repositories || [],
@@ -144,7 +149,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
 
                     await api.integrations.create({
                         kind: 'github',
-                        config: { installation_id },
+                        config: { installation_id, state: stateToken },
                     })
 
                     actions.loadIntegrations()
@@ -245,10 +250,10 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return integrations?.filter((x) => x.kind == 'slack')
             },
         ],
-        twigSlackIntegrations: [
+        posthogCodeSlackIntegrations: [
             (s) => [s.integrations],
             (integrations) => {
-                return integrations?.filter((x) => x.kind === 'slack-twig')
+                return integrations?.filter((x) => x.kind === 'slack-posthog-code')
             },
         ],
         getIntegrationsByKind: [
@@ -265,16 +270,22 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 return preflight?.slack_service?.available
             },
         ],
-        twigSlackAvailable: [
+        posthogCodeSlackAvailable: [
             (s) => [s.preflight],
             (preflight) => {
-                return preflight?.twig_slack_service?.available
+                return preflight?.posthog_code_slack_service?.available
             },
         ],
         getGitHubRepositories: [
             (s) => [s.githubRepositories],
             (githubRepositories) => {
-                return (integrationId: number) => githubRepositories[integrationId] || []
+                return (integrationId: number) => (githubRepositories[integrationId] || []).map((r) => r.name)
+            },
+        ],
+        getGitHubRepositoriesFull: [
+            (s) => [s.githubRepositories],
+            (githubRepositories) => {
+                return (integrationId: number): GitHubRepoApi[] => githubRepositories[integrationId] || []
             },
         ],
 

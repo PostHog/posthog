@@ -7,6 +7,7 @@ from django.core.cache import cache
 from django.db.models import Manager
 
 import orjson
+import posthoganalytics
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from loginas.utils import is_impersonated_session
@@ -130,6 +131,27 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
             if validated_data["hidden"] and validated_data["verified"]:
                 raise serializers.ValidationError("An event cannot be both hidden and verified")
 
+        if validated_data.get("enforcement_mode") == "reject":
+            request = self.context.get("request")
+            if not request or not request.user:
+                raise serializers.ValidationError(
+                    'Setting schema enforcement mode to "reject" requires an authenticated request'
+                )
+            user = request.user
+            org = self.context["get_organization"]()
+            org_id = str(org.id) if org else ""
+            flag_enabled = posthoganalytics.feature_enabled(
+                "schema-enforcement-reject",
+                str(user.distinct_id),
+                groups={"organization": org_id},
+                group_properties={"organization": {"id": org_id}},
+                only_evaluate_locally=False,
+            )
+            if not flag_enabled:
+                raise serializers.ValidationError(
+                    'Setting schema enforcement mode to "reject" requires the schema-enforcement-reject feature flag'
+                )
+
         return validated_data
 
     def create(self, validated_data):
@@ -156,7 +178,7 @@ class EventDefinitionSerializer(TaggedItemSerializerMixin, serializers.ModelSeri
         # Report user action for analytics
         if request and request.user:
             report_user_action(
-                cast(User, request.user),
+                request.user,
                 "event definition created",
                 {"name": event_definition.name},
                 team=view.team,
@@ -199,6 +221,11 @@ class EventDefinitionViewSet(
 
         params = {"project_id": self.project_id, "is_posthog_event": "$%", **search_kwargs}
         order_expressions = self._ordering_params_from_request()
+        has_explicit_ordering = "ordering" in self.request.GET
+        has_search_terms = bool(search and search.strip())
+
+        if has_search_terms and not has_explicit_ordering:
+            order_expressions = [("length(name)", "ASC"), *order_expressions]
 
         event_definition_object_manager: Manager
         if EE_AVAILABLE:
@@ -397,9 +424,8 @@ class EventDefinitionViewSet(
         instance: EventDefinition = self.get_object()
         instance_id: str = str(instance.id)
         self.perform_destroy(instance)
-        # Casting, since an anonymous use CANNOT access this endpoint
         report_user_action(
-            cast(User, request.user),
+            request.user,
             "event definition deleted",
             {"name": instance.name},
             team=self.team,

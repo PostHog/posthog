@@ -14,7 +14,8 @@ message Person {
   int64 created_at = 7;
   int64 version = 8;
   bool is_identified = 9;
-  bool is_user_id = 10;
+  optional bool is_user_id = 10;
+  optional int64 last_seen_at = 11;
 }
 
 // DistinctIdWithVersion pairs a distinct_id with its version for consistency tracking

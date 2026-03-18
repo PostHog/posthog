@@ -5,7 +5,6 @@ import { useEffect } from 'react'
 import { IconPencil, IconX } from '@posthog/icons'
 import { LemonSelect, Spinner } from '@posthog/lemon-ui'
 
-import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
@@ -13,6 +12,7 @@ import { urls } from 'scenes/urls'
 
 import { Query } from '~/queries/Query/Query'
 
+import { CustomerJourneysEmptyState } from 'products/customer_analytics/frontend/components/CustomerJourneys/CustomerJourneysEmptyState'
 import { customerJourneysLogic } from 'products/customer_analytics/frontend/components/CustomerJourneys/customerJourneysLogic'
 import { customerProfileLogic } from 'products/customer_analytics/frontend/customerProfileLogic'
 
@@ -44,7 +44,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
         if (activeJourney) {
             setTitlePlaceholder(`Customer journey - ${activeJourney.name}`)
         }
-    }, [activeJourney?.name])
+    }, [setTitlePlaceholder, activeJourney])
 
     useOnMountEffect(() => {
         setMenuItems([
@@ -71,14 +71,7 @@ const Component = ({ attributes }: NotebookNodeProps<NotebookNodeCustomerJourney
     }
 
     if (journeyOptions.length === 0) {
-        return (
-            <EmptyMessage
-                title="No customer journeys configured"
-                description="Add funnel insights as customer journeys to see how this customer moves through your product."
-                buttonText="Configure journeys"
-                buttonTo={urls.customerAnalyticsJourneys()}
-            />
-        )
+        return <CustomerJourneysEmptyState embedded />
     }
 
     if (!isJourneysEnabled || !expanded || !filteredQuery) {

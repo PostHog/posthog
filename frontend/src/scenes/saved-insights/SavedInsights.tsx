@@ -22,6 +22,8 @@ import {
     IconPlusSmall,
     IconRetention,
     IconRetentionHeatmap,
+    IconHeart,
+    IconHeartFilled,
     IconStar,
     IconStarFilled,
     IconStickiness,
@@ -166,6 +168,12 @@ export const QUERY_TYPES_METADATA: Record<NodeKind, InsightTypeMetadata> = {
     [NodeKind.DataWarehouseNode]: {
         name: 'Data Warehouse',
         description: 'List and explore data warehouse tables.',
+        icon: IconTableChart,
+        inMenu: true,
+    },
+    [NodeKind.LifecycleDataWarehouseNode]: {
+        name: 'Lifecycle Data Warehouse',
+        description: 'List and explore lifecycle data warehouse tables.',
         icon: IconTableChart,
         inMenu: true,
     },
@@ -694,6 +702,7 @@ export function SavedInsights(): JSX.Element {
     const { currentProjectId } = useValues(projectLogic)
     const summarizeInsight = useSummarizeInsight()
     const showHomeTab = useFeatureFlag('PRODUCT_ANALYTICS_HOME_TAB')
+    const isAIFirst = useFeatureFlag('AI_FIRST')
 
     const { tab } = filters
 
@@ -727,7 +736,13 @@ export function SavedInsights(): JSX.Element {
                                 onClick={() => updateFavoritedInsight(insight, !insight.favorited)}
                                 icon={
                                     insight.favorited ? (
-                                        <IconStarFilled className="text-warning" />
+                                        isAIFirst ? (
+                                            <IconHeartFilled className="text-danger" />
+                                        ) : (
+                                            <IconStarFilled className="text-warning" />
+                                        )
+                                    ) : isAIFirst ? (
+                                        <IconHeart className="text-secondary" />
                                     ) : (
                                         <IconStar className="text-secondary" />
                                     )

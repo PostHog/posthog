@@ -23,7 +23,7 @@ MOCK_ZENDESK_TICKET_RECORD: dict = {
     "id": 42,
     "url": "https://testcorp.zendesk.com/api/v2/tickets/42.json",
     "via": '{"channel":"api","source":{"from":{},"rel":null,"to":{}}}',
-    "tags": [],
+    "tags": '["ack_email_sent","escalated","medium"]',
     "type": None,
     "fields": "[]",
     "status": "open",

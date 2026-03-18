@@ -1,5 +1,9 @@
+import { memo } from 'react'
+
+import { objectsEqual } from 'lib/utils'
+
 import { ElementRect } from '~/toolbar/types'
-import { inBounds } from '~/toolbar/utils'
+import { EMPTY_STYLE, inBounds, rectEqual } from '~/toolbar/utils'
 
 const heatmapLabelStyle = {
     lineHeight: '14px',
@@ -17,40 +21,50 @@ interface AutocaptureElementLabelProps extends React.PropsWithoutRef<JSX.Intrins
     align?: 'left' | 'right'
 }
 
-export function AutocaptureElementLabel({
-    rect,
-    style = {},
-    align = 'right',
-    children,
-    ...props
-}: AutocaptureElementLabelProps): JSX.Element | null {
-    if (!rect) {
-        return null
-    }
+export const AutocaptureElementLabel = memo(
+    function AutocaptureElementLabel({
+        rect,
+        style = EMPTY_STYLE,
+        align = 'right',
+        children,
+        ...props
+    }: AutocaptureElementLabelProps): JSX.Element | null {
+        if (!rect) {
+            return null
+        }
 
-    const width = typeof children === 'string' ? children.length * 10 + 4 : 14
+        const width = typeof children === 'string' ? children.length * 10 + 4 : 14
 
-    return (
-        <div
-            className="absolute"
-            // eslint-disable-next-line react/forbid-dom-props
-            style={{
-                top: `${inBounds(
-                    window.pageYOffset - 1,
-                    rect.top - 7 + window.pageYOffset,
-                    window.pageYOffset + window.innerHeight - 14
-                )}px`,
-                left: `${inBounds(
-                    window.pageXOffset,
-                    rect.left + (align === 'left' ? 10 : rect.width) - width + window.pageXOffset,
-                    window.pageXOffset + window.innerWidth - 14
-                )}px`,
-                ...heatmapLabelStyle,
-                ...style,
-            }}
-            {...props}
-        >
-            {children}
-        </div>
-    )
-}
+        return (
+            <div
+                className="absolute"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{
+                    top: `${inBounds(
+                        window.pageYOffset - 1,
+                        rect.top - 7 + window.pageYOffset,
+                        window.pageYOffset + window.innerHeight - 14
+                    )}px`,
+                    left: `${inBounds(
+                        window.pageXOffset,
+                        rect.left + (align === 'left' ? 10 : rect.width) - width + window.pageXOffset,
+                        window.pageXOffset + window.innerWidth - 14
+                    )}px`,
+                    ...heatmapLabelStyle,
+                    ...style,
+                }}
+                {...props}
+            >
+                {children}
+            </div>
+        )
+    },
+    // Handlers are intentionally excluded: the sole caller (Elements.tsx) closes over
+    // stable kea actions (selectElement, setHoverElement) and per-element refs that
+    // don't change for a given key, so comparing them would only defeat memoization.
+    (prev, next) =>
+        rectEqual(prev.rect, next.rect) &&
+        objectsEqual(prev.style ?? EMPTY_STYLE, next.style ?? EMPTY_STYLE) &&
+        prev.align === next.align &&
+        prev.children === next.children
+)

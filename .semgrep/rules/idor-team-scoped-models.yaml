@@ -90,17 +90,18 @@ rules:
                               |DataWarehouseTable
                               |DesktopRecording
                               |EarlyAccessFeature
+                              |EvaluationContext
                               |Edge
                               |Endpoint
                               |EnterpriseEventDefinition
                               |EnterprisePropertyDefinition
                               |ErrorTrackingAssignmentRule
-                              |ErrorTrackingAutoCaptureControls
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
                               |ErrorTrackingRelease
                               |ErrorTrackingSpikeDetectionConfig
+                              |ErrorTrackingSpikeEvent
                               |ErrorTrackingStackFrame
                               |ErrorTrackingSuppressionRule
                               |ErrorTrackingSymbolSet
@@ -127,6 +128,7 @@ rules:
                               |Integration
                               |Link
                               |LiveDebuggerBreakpoint
+                              |LogsAlertConfiguration
                               |LLMModelConfiguration
                               |LLMPrompt
                               |LLMProviderKey
@@ -144,8 +146,10 @@ rules:
                               |QueryTabState
                               |QuickFilter
                               |QuickFilterContext
+                              |Repo
                               |RepoRoutingRule
                               |SandboxEnvironment
+                              |ScoreDefinition
                               |SavedHeatmap
                               |ScheduledChange
                               |SessionGroupSummary
@@ -166,6 +170,8 @@ rules:
                               |Text
                               |Threshold
                               |Ticket
+                              |TraceReview
+                              |TraceReviewScore
                               |UploadedMedia
                               |UserInterview
                               |UserRepoPreference
@@ -257,17 +263,18 @@ rules:
                         |DataWarehouseTable
                         |DesktopRecording
                         |EarlyAccessFeature
+                        |EvaluationContext
                         |Edge
                         |Endpoint
                         |EnterpriseEventDefinition
                         |EnterprisePropertyDefinition
                         |ErrorTrackingAssignmentRule
-                        |ErrorTrackingAutoCaptureControls
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
                         |ErrorTrackingRelease
                         |ErrorTrackingSpikeDetectionConfig
+                        |ErrorTrackingSpikeEvent
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
@@ -311,8 +318,10 @@ rules:
                         |QueryTabState
                         |QuickFilter
                         |QuickFilterContext
+                        |Repo
                         |RepoRoutingRule
                         |SandboxEnvironment
+                        |ScoreDefinition
                         |SavedHeatmap
                         |ScheduledChange
                         |SessionGroupSummary
@@ -333,6 +342,8 @@ rules:
                         |Text
                         |Threshold
                         |Ticket
+                        |TraceReview
+                        |TraceReviewScore
                         |UploadedMedia
                         |UserInterview
                         |UserRepoPreference
@@ -578,6 +589,7 @@ rules:
                           (?x)(
                               DashboardPrivilege
                               |PersonalAPIKey
+                              |ScoreDefinitionVersion
                               |WebauthnCredential
                           )$
                 - focus-metavariable: $SINK
@@ -627,6 +639,7 @@ rules:
                     (?x)(
                         DashboardPrivilege
                         |PersonalAPIKey
+                        |ScoreDefinitionVersion
                         |WebauthnCredential
                     )$
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ...)

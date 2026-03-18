@@ -1,15 +1,17 @@
 import type { ApiClient } from '@/api/client'
 import { ErrorCode } from '@/lib/errors'
+import { sanitizeHeaderValue } from '@/lib/utils'
 import type { ApiUser } from '@/schema/api'
 import type { State } from '@/tools/types'
 
 import type { ScopedCache } from './cache/ScopedCache'
 
+const AI_CONSENT_TTL_MS = 4 * 60 * 60 * 1000 // 4 hours
+
 export class StateManager {
     private _cache: ScopedCache<State>
     private _api: ApiClient
     private _user?: ApiUser
-
     constructor(cache: ScopedCache<State>, api: ApiClient) {
         this._cache = cache
         this._api = api
@@ -40,7 +42,7 @@ export class StateManager {
         const introspectionResult = await this._api.oauth().introspect({ token: this._api.config.apiToken })
 
         if (!introspectionResult.success) {
-            throw new Error(`Failed to get API key: ${introspectionResult.error.message}`)
+            throw new Error(ErrorCode.INVALID_API_KEY)
         }
 
         if (!introspectionResult.data.active) {
@@ -49,8 +51,9 @@ export class StateManager {
 
         const { scope, scoped_teams, scoped_organizations, client_name } = introspectionResult.data
 
-        if (client_name) {
-            await this._cache.set('clientName', client_name)
+        const sanitizedClientName = sanitizeHeaderValue(client_name)
+        if (sanitizedClientName) {
+            await this._cache.set('clientName', sanitizedClientName)
         }
 
         return {
@@ -161,5 +164,39 @@ export class StateManager {
         }
 
         return projectId
+    }
+
+    async invalidateAiConsent(): Promise<void> {
+        await this._cache.delete('aiConsentGiven')
+        await this._cache.delete('aiConsentFetchedAt')
+    }
+
+    async getAiConsentGiven(): Promise<boolean | undefined> {
+        const fetchedAt = await this._cache.get('aiConsentFetchedAt')
+        const isExpired = !fetchedAt || Date.now() - fetchedAt > AI_CONSENT_TTL_MS
+        if (!isExpired) {
+            const cached = await this._cache.get('aiConsentGiven')
+            if (cached !== undefined) {
+                return cached
+            }
+        }
+
+        try {
+            const orgId = await this.getOrgID()
+            if (!orgId) {
+                return undefined
+            }
+
+            const orgResult = await this._api.organizations().get({ orgId })
+            if (orgResult.success) {
+                const org = orgResult.data as { is_ai_data_processing_approved?: boolean | null }
+                const consent = !!org.is_ai_data_processing_approved
+                await this._cache.set('aiConsentGiven', consent)
+                await this._cache.set('aiConsentFetchedAt', Date.now())
+                return consent
+            }
+        } catch {}
+
+        return undefined
     }
 }

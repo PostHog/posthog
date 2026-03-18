@@ -33,9 +33,9 @@ export const PropertyGroupOperatorApi = {
  * `in` - in
  * `not_in` - not_in
  */
-export type OperatorEnumApi = (typeof OperatorEnumApi)[keyof typeof OperatorEnumApi]
+export type PropertyItemOperatorEnumApi = (typeof PropertyItemOperatorEnumApi)[keyof typeof PropertyItemOperatorEnumApi]
 
-export const OperatorEnumApi = {
+export const PropertyItemOperatorEnumApi = {
     Exact: 'exact',
     IsNot: 'is_not',
     Icontains: 'icontains',
@@ -91,9 +91,9 @@ export const NullEnumApi = {} as const
  * `flag` - flag
  * `workflow_variable` - workflow_variable
  */
-export type PropertyItemTypeEnumApi = (typeof PropertyItemTypeEnumApi)[keyof typeof PropertyItemTypeEnumApi]
+export type Type19aEnumApi = (typeof Type19aEnumApi)[keyof typeof Type19aEnumApi]
 
-export const PropertyItemTypeEnumApi = {
+export const Type19aEnumApi = {
     Event: 'event',
     EventMetadata: 'event_metadata',
     Feature: 'feature',
@@ -124,9 +124,9 @@ export interface PropertyItemApi {
     /** Key of the property you're filtering on. For example `email` or `$current_url` */
     key: string
     /** Value of your filter. For example `test@example.com` or `https://example.com/test/`. Can be an array for an OR query, like `["test@example.com","ok@example.com"]` */
-    value: string
-    operator?: OperatorEnumApi | BlankEnumApi | NullEnumApi | null
-    type?: PropertyItemTypeEnumApi | BlankEnumApi
+    value: string | number | boolean | (string | number)[]
+    operator?: PropertyItemOperatorEnumApi | BlankEnumApi | NullEnumApi | null
+    type?: Type19aEnumApi | BlankEnumApi
 }
 
 export interface PropertyApi {

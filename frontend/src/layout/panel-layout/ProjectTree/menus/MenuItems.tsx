@@ -1,10 +1,19 @@
 import { useActions, useValues } from 'kea'
 import { useState } from 'react'
 
-import { IconChevronRight } from '@posthog/icons'
+import {
+    IconArrowRight,
+    IconChevronRight,
+    IconEye,
+    IconPencil,
+    IconShortcut,
+    IconStar,
+    IconTrash,
+} from '@posthog/icons'
 
 import { linkToLogic } from 'lib/components/FileSystem/LinkTo/linkToLogic'
 import { moveToLogic } from 'lib/components/FileSystem/MoveTo/moveToLogic'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import {
@@ -60,6 +69,7 @@ export function MenuItems({
     showSelectMenuOption = true,
 }: MenuItemsProps): JSX.Element {
     const [uniqueKey] = useState(() => `project-tree-${counter++}`)
+    const isAIFirst = useFeatureFlag('AI_FIRST')
     const { shortcutNonFolderPaths } = useValues(projectTreeDataLogic)
     const { deleteShortcut, addShortcutItem } = useActions(projectTreeDataLogic)
     const { groupTypes } = useValues(groupAnalyticsConfigLogic)
@@ -201,7 +211,9 @@ export function MenuItems({
                         data-attr="tree-item-menu-create-shortcut-button"
                     >
                         <ButtonPrimitive menuItem>
-                            Create {pluralize(checkedItemCountNumeric, 'shortcut')} here
+                            {isAIFirst
+                                ? `Star ${pluralize(checkedItemCountNumeric, 'selected item')} here`
+                                : `Create ${pluralize(checkedItemCountNumeric, 'shortcut')} here`}
                         </ButtonPrimitive>
                     </MenuItem>
                     <MenuSeparator />
@@ -243,12 +255,26 @@ export function MenuItems({
                         }}
                         data-attr="tree-item-menu-remove-from-shortcuts-button"
                     >
-                        <ButtonPrimitive menuItem>Remove from shortcuts</ButtonPrimitive>
+                        <ButtonPrimitive menuItem variant="danger" forceVariant>
+                            {isAIFirst ? (
+                                <>
+                                    <IconStar className="size-4 text-inherit" /> Remove from starred
+                                </>
+                            ) : (
+                                'Remove from shortcuts'
+                            )}
+                        </ButtonPrimitive>
                     </MenuItem>
                 ) : isItemAlreadyInShortcut ? (
                     <MenuItem asChild disabled={true} data-attr="tree-item-menu-add-to-shortcuts-disabled-button">
                         <ButtonPrimitive menuItem disabled={true}>
-                            Already in shortcuts panel
+                            {isAIFirst ? (
+                                <>
+                                    <IconStar className="size-4 text-tertiary" /> Already starred
+                                </>
+                            ) : (
+                                'Already in shortcuts panel'
+                            )}
                         </ButtonPrimitive>
                     </MenuItem>
                 ) : root !== 'custom-products://' ? (
@@ -262,7 +288,15 @@ export function MenuItems({
                         }}
                         data-attr="tree-item-menu-add-to-shortcuts-button"
                     >
-                        <ButtonPrimitive menuItem>Add to shortcuts panel</ButtonPrimitive>
+                        <ButtonPrimitive menuItem>
+                            {isAIFirst ? (
+                                <>
+                                    <IconStar className="size-4 text-tertiary" /> Add to starred
+                                </>
+                            ) : (
+                                'Add to shortcuts panel'
+                            )}
+                        </ButtonPrimitive>
                     </MenuItem>
                 ) : null
             ) : null}
@@ -306,7 +340,9 @@ export function MenuItems({
                         }
                     }}
                 >
-                    <ButtonPrimitive menuItem>Move to...</ButtonPrimitive>
+                    <ButtonPrimitive menuItem>
+                        <IconArrowRight className="size-4 text-tertiary" /> Move to...
+                    </ButtonPrimitive>
                 </MenuItem>
             ) : null}
 
@@ -325,7 +361,10 @@ export function MenuItems({
                         }
                     }}
                 >
-                    <ButtonPrimitive menuItem>Create shortcut in...</ButtonPrimitive>
+                    <ButtonPrimitive menuItem>
+                        <IconShortcut className="size-4 text-tertiary" />
+                        Create shortcut in...
+                    </ButtonPrimitive>
                 </MenuItem>
             ) : null}
 
@@ -340,7 +379,9 @@ export function MenuItems({
                     }}
                     data-attr="tree-item-menu-rename-button"
                 >
-                    <ButtonPrimitive menuItem>Rename</ButtonPrimitive>
+                    <ButtonPrimitive menuItem>
+                        <IconPencil className="size-4 text-tertiary" /> Rename
+                    </ButtonPrimitive>
                 </MenuItem>
             ) : null}
 
@@ -353,7 +394,9 @@ export function MenuItems({
                     }}
                     data-attr="tree-item-menu-show-original-button"
                 >
-                    <ButtonPrimitive menuItem>Show original</ButtonPrimitive>
+                    <ButtonPrimitive menuItem>
+                        <IconEye className="size-4 text-tertiary" /> Show original
+                    </ButtonPrimitive>
                 </MenuItem>
             ) : null}
 
@@ -370,7 +413,9 @@ export function MenuItems({
                     }}
                     data-attr="tree-item-menu-delete-shortcut-button"
                 >
-                    <ButtonPrimitive menuItem>Delete shortcut</ButtonPrimitive>
+                    <ButtonPrimitive variant="danger" forceVariant menuItem>
+                        <IconTrash className="size-4 text-inherit" /> Delete shortcut
+                    </ButtonPrimitive>
                 </MenuItem>
             ) : item.record?.path &&
               item.record?.type === 'folder' &&
@@ -387,7 +432,9 @@ export function MenuItems({
                     }}
                     data-attr="tree-item-menu-delete-folder-button"
                 >
-                    <ButtonPrimitive menuItem>Delete folder</ButtonPrimitive>
+                    <ButtonPrimitive menuItem variant="danger" forceVariant>
+                        <IconTrash className="size-4 text-inherit" /> Delete folder
+                    </ButtonPrimitive>
                 </MenuItem>
             ) : item.record?.path && (item.id.startsWith('project/') || item.id.startsWith('project://')) ? (
                 <MenuItem
@@ -402,7 +449,9 @@ export function MenuItems({
                     }}
                     data-attr="tree-item-menu-delete-item-button"
                 >
-                    <ButtonPrimitive menuItem>Delete</ButtonPrimitive>
+                    <ButtonPrimitive menuItem variant="danger" forceVariant>
+                        <IconTrash className="size-4 text-inherit" /> Delete
+                    </ButtonPrimitive>
                 </MenuItem>
             ) : root === 'persons://' && item.record?.category === 'Groups' && item.record?.href ? (
                 <MenuItem

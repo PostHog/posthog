@@ -8,7 +8,7 @@ use cymbal::{
     symbol_store::BlobClient,
 };
 
-use axum::async_trait;
+use async_trait::async_trait;
 use mockall::mock;
 use rdkafka::message::ToBytes;
 use reqwest::StatusCode;

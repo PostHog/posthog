@@ -804,7 +804,7 @@ kvPairList: kvPair (COMMA kvPair)* COMMA?;
 // SELECT statement
 select: (selectSetStmt | selectStmt | hogqlxTagElement) EOF;
 selectStmtWithParens: selectStmt | LPAREN selectSetStmt RPAREN | placeholder;
-subsequentSelectSetClause: (EXCEPT ALL | EXCEPT | UNION ALL | UNION DISTINCT | INTERSECT ALL | INTERSECT DISTINCT | INTERSECT) selectStmtWithParens;
+subsequentSelectSetClause: (EXCEPT ALL | EXCEPT | UNION ALL (BY NAME)? | UNION DISTINCT (BY NAME)? | UNION (BY NAME)? | INTERSECT ALL | INTERSECT DISTINCT | INTERSECT) selectStmtWithParens;
 selectSetStmt: selectStmtWithParens (subsequentSelectSetClause)*;
 selectStmt:
     with=withClause?

@@ -1,4 +1,5 @@
 import abc
+import threading
 from typing import Any, Optional, Union
 
 from django.conf import settings
@@ -421,6 +422,44 @@ def get_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3
     return object_storage_client().get_presigned_post(
         bucket=settings.OBJECT_STORAGE_BUCKET, file_key=file_key, conditions=conditions, expiration=expiration
     )
+
+
+_accelerated_presigned_client: Optional[Any] = None
+_accelerated_client_lock = threading.Lock()
+
+
+def _get_accelerated_presigned_client() -> Optional[Any]:
+    global _accelerated_presigned_client
+    if _accelerated_presigned_client is None and settings.OBJECT_STORAGE_TRANSFER_ACCELERATION:
+        with _accelerated_client_lock:
+            if _accelerated_presigned_client is None:
+                s3_config = Config(
+                    signature_version="s3v4",
+                    connect_timeout=1,
+                    retries={"max_attempts": 1},
+                    s3={"use_accelerate_endpoint": True},
+                )
+                _accelerated_presigned_client = client(
+                    "s3",
+                    aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                    config=s3_config,
+                    region_name=settings.OBJECT_STORAGE_REGION,
+                )
+    return _accelerated_presigned_client
+
+
+def get_accelerated_presigned_post(file_key: str, conditions: list[Any], expiration: int = 3600) -> Optional[dict]:
+    accelerated = _get_accelerated_presigned_client()
+    if accelerated:
+        try:
+            return accelerated.generate_presigned_post(
+                settings.OBJECT_STORAGE_BUCKET, file_key, Conditions=conditions, ExpiresIn=expiration
+            )
+        except Exception as e:
+            logger.exception("object_storage.get_accelerated_presigned_post_failed", file_name=file_key, error=e)
+            capture_exception(e)
+    return get_presigned_post(file_key=file_key, conditions=conditions, expiration=expiration)
 
 
 def head_object(file_key: str, bucket: str = settings.OBJECT_STORAGE_BUCKET) -> Optional[dict]:

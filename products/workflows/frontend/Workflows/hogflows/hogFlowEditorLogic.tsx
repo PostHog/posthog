@@ -153,20 +153,13 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
     connect(() => ({
         values: [
             workflowLogic,
-            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById', 'draftDeletedActionIds'],
+            ['workflow', 'edgesByActionId', 'hogFunctionTemplatesById'],
             optOutCategoriesLogic(),
             ['categories', 'categoriesLoading'],
         ],
         actions: [
             workflowLogic,
-            [
-                'setWorkflowInfo',
-                'setWorkflowAction',
-                'setWorkflowActionEdges',
-                'loadWorkflowSuccess',
-                'softDeleteAction',
-                'restoreAction',
-            ],
+            ['setWorkflowInfo', 'setWorkflowAction', 'setWorkflowActionEdges', 'loadWorkflowSuccess'],
             optOutCategoriesLogic(),
             ['loadCategories'],
         ],
@@ -317,28 +310,18 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
             },
         ],
         selectedNodeCanBeDeleted: [
-            (s) => [s.selectedNode, s.nodes, s.edges, s.draftDeletedActionIds],
-            (selectedNode, nodes, edges, draftDeletedActionIds) => {
+            (s) => [s.selectedNode, s.nodes, s.edges],
+            (selectedNode, nodes, edges) => {
                 if (!selectedNode) {
                     return false
                 }
 
-                // Resolve through soft-deleted nodes to find the effective outgoer
-                const resolveOutgoer = (node: HogFlowActionNode): string => {
-                    if (!draftDeletedActionIds.has(node.id)) {
-                        return node.id
-                    }
-                    const next = getOutgoers(node, nodes, edges)
-                    if (next.length === 1) {
-                        return resolveOutgoer(next[0])
-                    }
-                    return node.id
+                const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
+                if (outgoingNodes.length === 1) {
+                    return true
                 }
 
-                const outgoingNodes = getOutgoers(selectedNode, nodes, edges)
-                const resolvedIds = new Set(outgoingNodes.map(resolveOutgoer))
-
-                return resolvedIds.size <= 1
+                return new Set(outgoingNodes.map((node) => node.id)).size === 1
             },
         ],
         selectedNodeCanBeCopiedOrMoved: [
@@ -362,14 +345,7 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     const _params: AppMetricsTotalsRequest = {
                         ...params,
                         breakdownBy: ['instance_id', 'metric_name'],
-                        metricName: [
-                            'succeeded',
-                            'failed',
-                            'filtered',
-                            'disabled_permanently',
-                            'rate_limited',
-                            'triggered',
-                        ],
+                        metricName: ['succeeded', 'failed', 'rate_limited', 'triggered'],
                     }
                     const response = await loadAppMetricsTotals(_params, timezone)
                     await breakpoint(10)
@@ -386,11 +362,9 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                             // TRICKY: Trigger and exit dont get their own metrics so we pull from the overall metrics
                             if (['succeeded', 'failed'].includes(metricName)) {
                                 instanceId = EXIT_NODE_ID
-                            } else if (
-                                ['filtered', 'disabled_permanently', 'rate_limited', 'triggered'].includes(metricName)
-                            ) {
+                            } else if (['rate_limited', 'triggered'].includes(metricName)) {
                                 instanceId = TRIGGER_NODE_ID
-                                if (['disabled_permanently', 'rate_limited'].includes(metricName)) {
+                                if (['rate_limited'].includes(metricName)) {
                                     metricName = 'failed'
                                 }
                                 if (['triggered'].includes(metricName)) {
@@ -539,10 +513,37 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                     actions.setSelectedNodeId(null)
                 }
 
-                for (const node of deleted) {
-                    actions.softDeleteAction(node.id)
-                }
-                actions.resetFlowFromHogFlow(values.workflow)
+                const deletedNodeIds = deleted.map((node) => node.id)
+
+                // Find all edges connected to the deleted node then reconnect them to avoid orphaned nodes
+                const updatedEdges = values.workflow.edges
+                    .map((hogFlowEdge) => {
+                        if (deletedNodeIds.includes(hogFlowEdge.to)) {
+                            // Find the deleted node
+                            const deletedNode = deleted.find((node) => node.id === hogFlowEdge.to)
+                            if (deletedNode) {
+                                // Find the first outgoer of the deleted node
+                                const outgoers = getOutgoers(deletedNode, values.nodes, values.edges)
+                                if (outgoers.length > 0) {
+                                    // Change target to the first outgoer
+                                    return {
+                                        ...hogFlowEdge,
+                                        to: outgoers[0].id,
+                                    }
+                                }
+                            }
+                        }
+                        return hogFlowEdge
+                    })
+                    .filter(
+                        (hogFlowEdge) =>
+                            !deletedNodeIds.includes(hogFlowEdge.from) && !deletedNodeIds.includes(hogFlowEdge.to)
+                    )
+
+                // Update workflow actions to match the new flow
+                const updatedActions = values.workflow.actions.filter((action) => !deletedNodeIds.includes(action.id))
+
+                actions.setWorkflowInfo({ actions: updatedActions, edges: updatedEdges })
             },
 
             showDropzones: () => {
@@ -757,26 +758,29 @@ export const hogFlowEditorLogic = kea<hogFlowEditorLogicType>([
                         const prefix = outputVar.key
                         if (outputVar.spread) {
                             // Create individual variables for each expected property
-                            const spreadKeys = [
-                                'status',
-                                'priority',
-                                'ticket_number',
-                                'channel_source',
-                                'message_count',
-                                'last_message_at',
-                                'last_message_text',
-                                'unread_team_count',
-                                'unread_customer_count',
-                            ].map((prop) => `${prefix}_${prop}`)
+                            const spreadFields: [string, string][] = [
+                                ['status', 'Status'],
+                                ['priority', 'Priority'],
+                                ['number', 'Number'],
+                                ['channel_source', 'Channel source'],
+                                ['last_message_at', 'Last message at'],
+                                ['last_message_text', 'Last message text'],
+                                ['unread_team_count', 'Unread team'],
+                                ['unread_customer_count', 'Unread customer'],
+                                ['sla', 'SLA'],
+                                ['assignee', 'Assignee'],
+                                ['url', 'URL'],
+                                ['tags', 'Tags'],
+                            ]
 
-                            const newVars = spreadKeys
-                                .filter((key) => !updatedVariables?.some((v) => v.key === key))
-                                .map((key) => ({
-                                    key,
-                                    label: key,
+                            const newVars = spreadFields
+                                .map(([prop, label]) => ({
+                                    key: `${prefix}_${prop}`,
+                                    label,
                                     type: 'string' as const,
                                     default: '',
                                 }))
+                                .filter(({ key }) => !updatedVariables?.some((v) => v.key === key))
 
                             if (newVars.length > 0) {
                                 updatedVariables = [...(updatedVariables || []), ...newVars]

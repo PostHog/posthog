@@ -80,6 +80,12 @@ export const HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES: Record<
         context_id: 'insight-alerts',
         filters: { events: [{ id: '$insight_alert_firing', type: 'events' }] },
     },
+    'experiment-significant': {
+        sub_template_id: 'experiment-significant',
+        type: 'internal_destination',
+        context_id: 'experiment-alerts',
+        filters: { events: [{ id: '$experiment_metric_significant', type: 'events' }] },
+    },
 }
 
 export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, HogFunctionSubTemplateType[]> = {
@@ -360,7 +366,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is created',
             inputs: {
                 text: {
-                    value: '**🔴 {event.properties.name} created:** {event.properties.description} (View in [Posthog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}))',
+                    value: '**🔴 {event.properties.name} created:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert))',
                 },
             },
         },
@@ -391,7 +397,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}',
+                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert',
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -481,7 +487,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
             description: 'Posts a message to Microsoft Teams when an issue is reopened',
             inputs: {
                 text: {
-                    value: '**🔄 {event.properties.name} reopened:** {event.properties.description} (View in [Posthog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}))',
+                    value: '**🔄 {event.properties.name} reopened:** {event.properties.description} (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert))',
                 },
             },
         },
@@ -512,7 +518,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}',
+                                    url: '{project.url}/error_tracking/{event.distinct_id}?fingerprint={event.properties.fingerprint}&timestamp={event.properties.exception_timestamp}&utm_source=alert',
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -543,7 +549,18 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
 **Project:** [{project.name}]({project.url})
 **Alert:** [{source.name}]({source.url})
 
-[View issue]({project.url}/error_tracking/{event.distinct_id})`,
+[View issue]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert)`,
+                },
+            },
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['error-tracking-issue-spiking'],
+            template_id: 'template-microsoft-teams',
+            name: 'Post to Microsoft Teams on issue spiking',
+            description: 'Posts a message to Microsoft Teams when an issue is spiking',
+            inputs: {
+                text: {
+                    value: "**📈 Issue spiking: {event.properties.name}:** {event.properties.description}\n**Exceptions in last 5 minutes:** {event.properties.current_bucket_value} ({event.properties.computed_baseline > 0 ? concat(round(event.properties.current_bucket_value / event.properties.computed_baseline), 'x over baseline') : 'no baseline yet'}) (View in [PostHog]({project.url}/error_tracking/{event.distinct_id}?utm_source=alert))",
                 },
             },
         },
@@ -579,7 +596,7 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                             type: 'actions',
                             elements: [
                                 {
-                                    url: '{project.url}/error_tracking/{event.distinct_id}',
+                                    url: '{project.url}/error_tracking/{event.distinct_id}?utm_source=alert',
                                     text: { text: 'View Issue', type: 'plain_text' },
                                     type: 'button',
                                 },
@@ -589,6 +606,57 @@ export const HOG_FUNCTION_SUB_TEMPLATES: Record<HogFunctionSubTemplateIdType, Ho
                 },
                 text: {
                     value: 'Issue spiking: {event.properties.name}',
+                },
+            },
+        },
+    ],
+    'experiment-significant': [
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['experiment-significant'],
+            template_id: 'template-webhook',
+            name: 'HTTP Webhook on experiment significance',
+            description: 'Send a webhook when an experiment metric reaches significance',
+        },
+        {
+            ...HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES['experiment-significant'],
+            template_id: 'template-slack',
+            name: 'Post to Slack on experiment significance',
+            description: 'Post to a Slack channel when an experiment metric reaches significance',
+            inputs: {
+                blocks: {
+                    value: [
+                        {
+                            type: 'header',
+                            text: {
+                                type: 'plain_text',
+                                text: "\ud83e\uddea Experiment '{event.properties.experiment_name}' has reached significance",
+                            },
+                        },
+                        {
+                            type: 'section',
+                            text: {
+                                type: 'mrkdwn',
+                                text: '*{event.properties.variant_key}* variant is winning on *{event.properties.metric_name}* {event.properties.relative_change}\nChance to win: *{event.properties.chance_to_win}* \u00b7 Goal: *{event.properties.goal_direction}*',
+                            },
+                        },
+                        {
+                            type: 'actions',
+                            elements: [
+                                {
+                                    url: '{project.url}{event.properties.experiment_url}',
+                                    text: { text: 'View experiment', type: 'plain_text' },
+                                    type: 'button',
+                                },
+                            ],
+                        },
+                        {
+                            type: 'context',
+                            elements: [{ type: 'mrkdwn', text: '{project.name}' }],
+                        },
+                    ],
+                },
+                text: {
+                    value: "Experiment '{event.properties.experiment_name}' has reached significance",
                 },
             },
         },
@@ -667,6 +735,8 @@ export const eventToHogFunctionContextId = (event: string | undefined): HogFunct
             return 'error-tracking'
         case '$insight_alert_firing':
             return 'insight-alerts'
+        case '$experiment_metric_significant':
+            return 'experiment-alerts'
         case '$activity_log_entry_created':
             return 'activity-log'
         case '$discussion_mention_created':

@@ -45,9 +45,10 @@ jobs:
                   clean: false
 
             - name: Install buf
-              uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
+              uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1.3.0
               with:
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                  setup_only: true
+                  version: '1.50.0'
 
             - name: Lint protos
               run: buf lint proto/
@@ -64,9 +65,10 @@ jobs:
                   clean: false
 
             - name: Install buf
-              uses: bufbuild/buf-setup-action@a47c93e0b1648d5651a065437926377d060baa99 # v1.50.0
+              uses: bufbuild/buf-action@8f4a1456a0ab6a1eb80ba68e53832e6fcfacc16c # v1.3.0
               with:
-                  github_token: ${{ secrets.GITHUB_TOKEN }}
+                  setup_only: true
+                  version: '1.50.0'
 
             - name: Check for breaking changes
               run: buf breaking proto/ --against 'https://github.com/PostHog/posthog.git#branch=master,subdir=proto'

@@ -1,6 +1,8 @@
 import { z } from 'zod'
 
-import { FilterGroupsSchema } from './flags.js'
+import { FeatureFlagsCreateBody } from '@/generated/feature_flags/api'
+
+const FeatureFlagFiltersSchema = FeatureFlagsCreateBody.shape.filters
 
 // Survey question types
 const BaseSurveyQuestionSchema = z.object({
@@ -278,29 +280,6 @@ export const SurveyQuestionInputSchema = z
         }
     })
 
-// Output schema - permissive for API responses
-export const SurveyQuestionOutputSchema = z.object({
-    type: z.string(),
-    question: z.string().nullish(),
-    description: z.string().nullish(),
-    descriptionContentType: z.enum(['html', 'text']).nullish(),
-    optional: z.boolean().nullish(),
-    buttonText: z.string().nullish(),
-    // Rating question fields
-    display: z.string().nullish(),
-    scale: z.number().nullish(),
-    lowerBoundLabel: z.string().nullish(),
-    upperBoundLabel: z.string().nullish(),
-    // Choice question fields
-    choices: z.array(z.string()).nullish(),
-    shuffleOptions: z.boolean().nullish(),
-    hasOpenChoice: z.boolean().nullish(),
-    // Link question fields
-    link: z.string().nullish(),
-    // Branching logic
-    branching: z.any().nullish(),
-})
-
 // Survey targeting conditions - used in input schema
 const SurveyConditions = z.object({
     url: z.string().optional(),
@@ -366,15 +345,6 @@ const SurveyAppearance = z.object({
     boxPadding: z.string().optional(),
 })
 
-// User data from API responses - output schema
-const User = z.object({
-    id: z.number(),
-    uuid: z.string(),
-    distinct_id: z.string(),
-    first_name: z.string(),
-    email: z.string(),
-})
-
 // Survey input schemas
 export const CreateSurveyInputSchema = z.object({
     name: z.string().min(1, 'Survey name cannot be empty'),
@@ -421,7 +391,7 @@ export const CreateSurveyInputSchema = z.object({
             'When at least one question is answered, the response is stored (true). The response is stored when all questions are answered (false).'
         ),
     linked_flag_id: z.number().nullable().optional().describe('The feature flag linked to this survey'),
-    targeting_flag_filters: FilterGroupsSchema.optional().describe(
+    targeting_flag_filters: FeatureFlagFiltersSchema.describe(
         "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 100}]}"
     ),
 })
@@ -481,7 +451,7 @@ export const UpdateSurveyInputSchema = z.object({
         ),
     linked_flag_id: z.number().nullable().optional().describe('The feature flag to link to this survey'),
     targeting_flag_id: z.number().optional().describe('An existing targeting flag to use for this survey'),
-    targeting_flag_filters: FilterGroupsSchema.optional().describe(
+    targeting_flag_filters: FeatureFlagFiltersSchema.describe(
         "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 50}]}"
     ),
     remove_targeting_flag: z
@@ -496,88 +466,6 @@ export const ListSurveysInputSchema = z.object({
     limit: z.number().optional(),
     offset: z.number().optional(),
     search: z.string().optional(),
-})
-
-// Survey output schemas - permissive, comprehensive
-export const SurveyOutputSchema = z.object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string().nullish(),
-    type: z.enum(['popover', 'api', 'widget', 'external_survey']),
-    questions: z.array(SurveyQuestionOutputSchema),
-    conditions: SurveyConditions.nullish(),
-    appearance: SurveyAppearance.nullish(),
-    created_at: z.string(),
-    created_by: User.nullish(),
-    start_date: z.string().nullish(),
-    end_date: z.string().nullish(),
-    archived: z.boolean().nullish(),
-    responses_limit: z.number().nullish(),
-    iteration_count: z.number().nullish(),
-    iteration_frequency_days: z.number().nullish(),
-    enable_partial_responses: z.boolean().nullish(),
-    linked_flag_id: z.number().nullish(),
-    schedule: z.string().nullish(),
-    targeting_flag: z
-        .any()
-        .nullish()
-        .describe(
-            "Target specific users based on their properties. Example: {groups: [{properties: [{key: 'email', value: ['@company.com'], operator: 'icontains'}], rollout_percentage: 50}]}"
-        ),
-})
-
-// Survey list item - lightweight version for list endpoints
-export const SurveyListItemOutputSchema = z.object({
-    id: z.string(),
-    name: z.string(),
-    description: z.string().nullish(),
-    type: z.enum(['popover', 'api', 'widget', 'external_survey']),
-    archived: z.boolean().nullish(),
-    created_at: z.string(),
-    created_by: User.nullish(),
-    start_date: z.string().nullish(),
-    end_date: z.string().nullish(),
-    conditions: z.any().nullish(),
-    responses_limit: z.number().nullish(),
-    targeting_flag: z.any().nullish(),
-    iteration_count: z.number().nullish(),
-    iteration_frequency_days: z.number().nullish(),
-})
-
-// Survey response statistics schemas
-export const SurveyEventStatsOutputSchema = z.object({
-    total_count: z.number().nullish(),
-    total_count_only_seen: z.number().nullish(),
-    unique_persons: z.number().nullish(),
-    unique_persons_only_seen: z.number().nullish(),
-    first_seen: z.string().nullish(),
-    last_seen: z.string().nullish(),
-})
-
-export const SurveyRatesOutputSchema = z.object({
-    response_rate: z.number().nullish(),
-    dismissal_rate: z.number().nullish(),
-    unique_users_response_rate: z.number().nullish(),
-    unique_users_dismissal_rate: z.number().nullish(),
-})
-
-export const SurveyResponseStatsOutputSchema = z.object({
-    survey_id: z.string().nullish(),
-    start_date: z.string().nullish(),
-    end_date: z.string().nullish(),
-    stats: z
-        .object({
-            'survey shown': SurveyEventStatsOutputSchema.nullish(),
-            'survey dismissed': SurveyEventStatsOutputSchema.nullish(),
-            'survey sent': SurveyEventStatsOutputSchema.nullish(),
-        })
-        .nullish(),
-    rates: z.object({
-        response_rate: z.number().nullish(),
-        dismissal_rate: z.number().nullish(),
-        unique_users_response_rate: z.number().nullish(),
-        unique_users_dismissal_rate: z.number().nullish(),
-    }),
 })
 
 export const GetSurveyStatsInputSchema = z.object({
@@ -615,10 +503,35 @@ export type GetSurveyStatsInput = z.infer<typeof GetSurveyStatsInputSchema>
 export type GetSurveySpecificStatsInput = z.infer<typeof GetSurveySpecificStatsInputSchema>
 export type SurveyQuestionInput = z.infer<typeof SurveyQuestionInputSchema>
 
-// Output types
-export type SurveyOutput = z.infer<typeof SurveyOutputSchema>
-export type SurveyListItemOutput = z.infer<typeof SurveyListItemOutputSchema>
-export type SurveyEventStatsOutput = z.infer<typeof SurveyEventStatsOutputSchema>
-export type SurveyRatesOutput = z.infer<typeof SurveyRatesOutputSchema>
-export type SurveyResponseStatsOutput = z.infer<typeof SurveyResponseStatsOutputSchema>
-export type SurveyQuestionOutput = z.infer<typeof SurveyQuestionOutputSchema>
+export interface SurveyEventStatsOutput {
+    total_count?: number | null
+    total_count_only_seen?: number | null
+    unique_persons?: number | null
+    unique_persons_only_seen?: number | null
+    first_seen?: string | null
+    last_seen?: string | null
+}
+
+export interface SurveyRatesOutput {
+    response_rate?: number | null
+    dismissal_rate?: number | null
+    unique_users_response_rate?: number | null
+    unique_users_dismissal_rate?: number | null
+}
+
+export interface SurveyResponseStatsOutput {
+    survey_id?: string | null
+    start_date?: string | null
+    end_date?: string | null
+    stats?: {
+        'survey shown'?: SurveyEventStatsOutput | null
+        'survey dismissed'?: SurveyEventStatsOutput | null
+        'survey sent'?: SurveyEventStatsOutput | null
+    } | null
+    rates: {
+        response_rate?: number | null
+        dismissal_rate?: number | null
+        unique_users_response_rate?: number | null
+        unique_users_dismissal_rate?: number | null
+    }
+}

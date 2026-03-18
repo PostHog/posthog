@@ -20,8 +20,8 @@ class ErrorTrackingAssignmentRuleSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = ErrorTrackingAssignmentRule
-        fields = ["id", "filters", "assignee", "order_key", "disabled_data"]
-        read_only_fields = ["team_id"]
+        fields = ["id", "filters", "assignee", "order_key", "disabled_data", "created_at", "updated_at"]
+        read_only_fields = ["team_id", "created_at", "updated_at"]
 
     def get_assignee(self, obj):
         if obj.user_id:

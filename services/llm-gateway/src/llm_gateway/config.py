@@ -27,12 +27,12 @@ DEFAULT_USER_COST_LIMIT = UserCostLimit(
 DEFAULT_PRODUCT_COST_LIMITS: dict[str, "ProductCostLimit"] = {
     "llm_gateway": ProductCostLimit(limit_usd=1000.0, window_seconds=86400),
     "wizard": ProductCostLimit(limit_usd=2000.0, window_seconds=86400),
-    "twig": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
+    "posthog_code": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
     "background_agents": ProductCostLimit(limit_usd=1000.0, window_seconds=3600),
 }
 
 DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
-    "twig": UserCostLimit(
+    "posthog_code": UserCostLimit(
         burst_limit_usd=100.0,
         burst_window_seconds=86400,
         sustained_limit_usd=1000.0,
@@ -47,6 +47,17 @@ DEFAULT_USER_COST_LIMITS: dict[str, "UserCostLimit"] = {
 }
 
 
+_COST_LIMIT_KEY_ALIASES: dict[str, str] = {
+    "array": "posthog_code",
+    "twig": "posthog_code",
+    "slack-twig": "slack-posthog-code",
+}
+
+
+def _normalize_cost_key(key: str) -> str:
+    return _COST_LIMIT_KEY_ALIASES.get(key, key)
+
+
 def _parse_model_dict(
     v: str | dict | None,
     model_cls: type[BaseModel],
@@ -58,10 +69,11 @@ def _parse_model_dict(
     if isinstance(v, dict):
         result = {}
         for key, config in v.items():
+            normalized = _normalize_cost_key(key)
             if isinstance(config, model_cls):
-                result[key] = config
+                result[normalized] = config
             elif isinstance(config, dict):
-                result[key] = model_cls(**config)
+                result[normalized] = model_cls(**config)
             else:
                 raise ValueError(f"Invalid config for {key}")
         return result
@@ -71,7 +83,7 @@ def _parse_model_dict(
         raise ValueError(f"Invalid JSON in {field_name}: {e}") from e
     if not isinstance(parsed, dict):
         raise ValueError(f"{field_name} must be a JSON object")
-    return {key: model_cls(**config) for key, config in parsed.items()}
+    return {_normalize_cost_key(key): model_cls(**config) for key, config in parsed.items()}
 
 
 class Settings(BaseSettings):
@@ -99,6 +111,8 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_api_base_url: str | None = None  # Used for regional endpoints
     gemini_api_key: str | None = None
+    openrouter_api_key: str | None = None
+    fireworks_api_key: str | None = None
 
     # Project token for LLM analytics events
     posthog_project_token: str | None = None

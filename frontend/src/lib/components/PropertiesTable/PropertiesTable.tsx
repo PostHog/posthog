@@ -13,7 +13,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonTable, LemonTableColumns, LemonTableProps } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { userPreferencesLogic } from 'lib/logic/userPreferencesLogic'
-import { isObject, isURL } from 'lib/utils'
+import { isObject, isURL, isKeyOf } from 'lib/utils'
 import { NewProperty } from 'scenes/persons/NewProperty'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
@@ -107,7 +107,7 @@ function ValueDisplay({
     const valueComponent = (
         <span
             className={clsx(
-                'relative inline-flex gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
+                'relative gap-1 items-center flex flex-row flex-nowrap w-fit break-all',
                 canEdit ? 'editable ph-no-capture' : 'ph-no-capture'
             )}
             onClick={() => canEdit && textBasedTypes.includes(valueType) && setEditing(true)}
@@ -406,7 +406,9 @@ export function PropertiesTable({
                                 type={
                                     rootKey && type === 'event' && ['$set', '$set_once'].includes(rootKey)
                                         ? TaxonomicFilterGroupType.PersonProperties
-                                        : PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+                                        : isKeyOf(type, PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE)
+                                          ? PROPERTY_FILTER_TYPE_TO_TAXONOMIC_FILTER_GROUP_TYPE[type]
+                                          : undefined
                                 }
                             />
                         </div>

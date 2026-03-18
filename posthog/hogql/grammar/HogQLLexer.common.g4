@@ -66,6 +66,7 @@ LIMIT: L I M I T;
 MATERIALIZED: M A T E R I A L I Z E D;
 MINUTE: M I N U T E;
 MONTH: M O N T H;
+NAME: N A M E;
 NAN_SQL: N A N; // conflicts with macro NAN
 NOT: N O T;
 NULL_SQL: N U L L; // conflicts with macro NULL
