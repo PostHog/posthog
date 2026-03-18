@@ -288,6 +288,8 @@ export interface PaginatedProjectBackwardCompatBasicListApi {
 
 export type ProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
 
+export type ProjectBackwardCompatApiProductIntentsItem = { [key: string]: string | null }
+
 export type EffectiveMembershipLevelEnumApi =
     (typeof EffectiveMembershipLevelEnumApi)[keyof typeof EffectiveMembershipLevelEnumApi]
 
@@ -558,7 +560,7 @@ export interface ProjectBackwardCompatApi {
     surveys_opt_in?: boolean | null
     /** @nullable */
     heatmaps_opt_in?: boolean | null
-    readonly product_intents: string
+    readonly product_intents: readonly ProjectBackwardCompatApiProductIntentsItem[]
     /** @nullable */
     flags_persistence_default?: boolean | null
     /** @nullable */
@@ -583,6 +585,8 @@ export interface ProjectBackwardCompatApi {
 }
 
 export type PatchedProjectBackwardCompatApiGroupTypesItem = { [key: string]: unknown }
+
+export type PatchedProjectBackwardCompatApiProductIntentsItem = { [key: string]: string | null }
 
 /**
  * Like `ProjectBasicSerializer`, but also works as a drop-in replacement for `TeamBasicSerializer` by way of
@@ -683,7 +687,7 @@ export interface PatchedProjectBackwardCompatApi {
     surveys_opt_in?: boolean | null
     /** @nullable */
     heatmaps_opt_in?: boolean | null
-    readonly product_intents?: string
+    readonly product_intents?: readonly PatchedProjectBackwardCompatApiProductIntentsItem[]
     /** @nullable */
     flags_persistence_default?: boolean | null
     /** @nullable */
@@ -707,14 +711,17 @@ export interface PatchedProjectBackwardCompatApi {
     readonly available_setup_task_ids?: readonly AvailableSetupTaskIdsEnumApi[]
 }
 
+export type RoleApiMembersItem = { [key: string]: unknown }
+
 export interface RoleApi {
     readonly id: string
     /** @maxLength 200 */
     name: string
     readonly created_at: string
     readonly created_by: UserBasicApi
-    readonly members: string
-    readonly is_default: string
+    /** Members assigned to this role */
+    readonly members: readonly RoleApiMembersItem[]
+    readonly is_default: boolean
 }
 
 export interface PaginatedRoleListApi {
@@ -726,14 +733,17 @@ export interface PaginatedRoleListApi {
     results: RoleApi[]
 }
 
+export type PatchedRoleApiMembersItem = { [key: string]: unknown }
+
 export interface PatchedRoleApi {
     readonly id?: string
     /** @maxLength 200 */
     name?: string
     readonly created_at?: string
     readonly created_by?: UserBasicApi
-    readonly members?: string
-    readonly is_default?: string
+    /** Members assigned to this role */
+    readonly members?: readonly PatchedRoleApiMembersItem[]
+    readonly is_default?: boolean
 }
 
 export interface CommentApi {
@@ -920,7 +930,7 @@ export interface ExportedAssetApi {
     insight?: number | null
     export_format: ExportFormatEnumApi
     readonly created_at: string
-    readonly has_content: string
+    readonly has_content: boolean
     export_context?: unknown | null
     readonly filename: string
     /** @nullable */
@@ -1000,6 +1010,18 @@ export interface FlagValueResponseApi {
     refreshing: boolean
 }
 
+export interface SharePasswordApi {
+    readonly id: number
+    readonly created_at: string
+    /**
+     * @maxLength 100
+     * @nullable
+     */
+    note?: string | null
+    readonly created_by_email: string
+    readonly is_active: boolean
+}
+
 export interface SharingConfigurationApi {
     readonly created_at: string
     enabled?: boolean
@@ -1007,7 +1029,7 @@ export interface SharingConfigurationApi {
     readonly access_token: string | null
     settings?: unknown | null
     password_required?: boolean
-    readonly share_passwords: string
+    readonly share_passwords: readonly SharePasswordApi[]
 }
 
 /**
@@ -1513,6 +1535,8 @@ export type OrganizationApiTeamsItem = { [key: string]: unknown }
 
 export type OrganizationApiProjectsItem = { [key: string]: unknown }
 
+export type OrganizationApiMetadata = { [key: string]: string }
+
 export interface OrganizationApi {
     readonly id: string
     /** @maxLength 64 */
@@ -1530,7 +1554,7 @@ export interface OrganizationApi {
     /** @nullable */
     readonly available_product_features: readonly unknown[] | null
     is_member_join_email_enabled?: boolean
-    readonly metadata: string
+    readonly metadata: OrganizationApiMetadata
     /** @nullable */
     readonly customer_id: string | null
     /** @nullable */
@@ -1539,7 +1563,7 @@ export interface OrganizationApi {
     members_can_invite?: boolean | null
     members_can_use_personal_api_keys?: boolean
     allow_publicly_shared_resources?: boolean
-    readonly member_count: string
+    readonly member_count: number
     /** @nullable */
     is_ai_data_processing_approved?: boolean | null
     /** Default statistical method for new experiments in this organization.
