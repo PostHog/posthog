@@ -73,6 +73,19 @@ pub async fn otel_handler(
     Span::current().record("body_size", body_len);
     histogram!("capture_ai_otel_body_size_bytes").record(body_len as f64);
 
+    let content_type = headers
+        .get("content-type")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("unknown");
+    let format = if content_type.starts_with("application/x-protobuf") {
+        "protobuf"
+    } else if content_type.starts_with("application/json") {
+        "json"
+    } else {
+        "unknown"
+    };
+    counter!("capture_ai_otel_requests_total", "format" => format).increment(1);
+
     let auth_header = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
@@ -95,19 +108,6 @@ pub async fn otel_handler(
         report_dropped_events("token_dropper", 1);
         return Ok(Json(json!({})));
     }
-
-    let content_type = headers
-        .get("content-type")
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or("unknown");
-    let format = if content_type.starts_with("application/x-protobuf") {
-        "protobuf"
-    } else if content_type.starts_with("application/json") {
-        "json"
-    } else {
-        "unknown"
-    };
-    counter!("capture_ai_otel_requests_total", "format" => format).increment(1);
 
     let request = ingestion::parse_request(&body, &headers, OTEL_BODY_SIZE).map_err(|e| {
         report_internal_error_metrics(e.to_metric_tag(), "otel_parsing");
