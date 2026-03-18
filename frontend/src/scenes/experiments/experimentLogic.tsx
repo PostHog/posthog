@@ -1387,6 +1387,8 @@ export const experimentLogic = kea<experimentLogicType>([
                 const experimentWithMetricOrdering = initializeMetricOrdering(experiment)
                 actions.setExperiment(experimentWithMetricOrdering)
                 refreshTreeItem('experiment', String(values.experimentId))
+                // Trigger results refresh so the metrics table doesn't get stuck in "loading" state
+                actions.refreshExperimentResults(false, 'manual')
                 actions.setUnmodifiedExperiment(structuredClone(experimentWithMetricOrdering))
                 eventUsageLogic.actions.reportExperimentLaunched(experimentWithMetricOrdering, dayjs())
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.LaunchExperiment)
