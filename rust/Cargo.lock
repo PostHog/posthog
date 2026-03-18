@@ -6237,6 +6237,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
+name = "personhog-common"
+version = "0.1.0"
+dependencies = [
+ "http 1.4.0",
+ "metrics",
+ "pin-project",
+ "sqlx",
+ "tokio",
+ "tower 0.4.13",
+]
+
+[[package]]
 name = "personhog-coordination"
 version = "0.1.0"
 dependencies = [
@@ -6299,6 +6311,8 @@ dependencies = [
  "common-metrics",
  "envconfig",
  "lifecycle",
+ "metrics-exporter-prometheus",
+ "personhog-common",
  "personhog-proto",
  "rand 0.8.5",
  "serde_json",
@@ -6319,20 +6333,18 @@ dependencies = [
  "async-trait",
  "axum 0.7.9",
  "common-alloc",
- "common-metrics",
  "dashmap 6.1.0",
  "envconfig",
- "http 1.4.0",
  "lifecycle",
  "metrics",
+ "metrics-exporter-prometheus",
+ "personhog-common",
  "personhog-proto",
- "pin-project",
  "rand 0.8.5",
  "serde_json",
  "tokio",
  "tokio-stream",
  "tonic 0.12.3",
- "tower 0.4.13",
  "tracing",
  "tracing-subscriber",
 ]
