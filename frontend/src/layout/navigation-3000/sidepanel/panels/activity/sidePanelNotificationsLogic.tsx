@@ -148,15 +148,15 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                     }
 
                     const legacyNotifications = values.legacyNotifications
+                    const hasUnread = legacyNotifications.some((ic) => ic.unread)
+
+                    if (!hasUnread || legacyNotifications.length === 0) {
+                        return current
+                    }
+
                     const latestNotification = legacyNotifications.reduce((a, b) =>
                         a.created_at.isAfter(b.created_at) ? a : b
                     )
-
-                    const hasUnread = legacyNotifications.some((ic) => ic.unread)
-
-                    if (!hasUnread) {
-                        return current
-                    }
 
                     await api.create(`api/projects/${values.currentProjectId}/my_notifications/bookmark`, {
                         bookmark: latestNotification.created_at.toISOString(),
