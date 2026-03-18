@@ -112,6 +112,7 @@
     'filters_overrides',
     'layouts',
     'show_description',
+    'transparent_background',
   ])
 # ---
 # name: TestVisitorFieldSnapshots.test_primitive_fields_Insight
@@ -163,6 +164,7 @@
 # ---
 # name: TestVisitorFieldSnapshots.test_relation_fields_DashboardTile
   list([
+    'button_tile',
     'dashboard',
     'insight',
     'text',
@@ -331,6 +333,7 @@
     '__doc__',
     '__module__',
     '_meta',
+    'button_tile_id',
     'caching_state',
     'caching_states',
     'clean',
