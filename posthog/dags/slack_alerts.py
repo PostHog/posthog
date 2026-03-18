@@ -15,7 +15,6 @@ notification_channel_per_team = {
     JobOwners.TEAM_DATA_MODELING.value: "#alerts-data-modeling",
     JobOwners.TEAM_DATA_STACK.value: "#alerts-data-warehouse",
     JobOwners.TEAM_ERROR_TRACKING.value: "#alerts-error-tracking",
-    JobOwners.TEAM_EXPERIMENTS.value: "#alerts-experiments-dagster",
     JobOwners.TEAM_GROWTH.value: "#alerts-growth",
     JobOwners.TEAM_LLM_ANALYTICS.value: "#alerts-llm-analytics",
     JobOwners.TEAM_INGESTION.value: "#alerts-ingestion",

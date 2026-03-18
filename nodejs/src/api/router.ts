@@ -2,6 +2,7 @@ import * as prometheus from 'prom-client'
 import express, { Request, Response } from 'ultimate-express'
 
 import { corsMiddleware } from '~/api/middleware/cors'
+import { httpMetricsMiddleware } from '~/api/middleware/http-metrics'
 import { createInternalApiAuthMiddleware } from '~/api/middleware/internal-api-auth'
 import { HealthCheckResultError, PluginServerService } from '~/types'
 import { logger } from '~/utils/logger'
@@ -42,6 +43,9 @@ export function setupExpressApp(options: SetupExpressAppOptions = {}): express.A
 
     // Add CORS middleware before other middleware
     app.use(corsMiddleware)
+
+    // Track HTTP request duration and status codes per route pattern
+    app.use(httpMetricsMiddleware)
 
     // Add internal API authentication middleware for defense-in-depth.
     // Primary protection comes from Contour routing at the infra level.

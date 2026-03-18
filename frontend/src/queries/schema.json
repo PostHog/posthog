@@ -620,6 +620,9 @@
                     "$ref": "#/definitions/DataWarehouseNode"
                 },
                 {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
                     "$ref": "#/definitions/LifecycleDataWarehouseNode"
                 }
             ]
@@ -647,6 +650,19 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<FunnelsDataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
                 }
             ]
         },
@@ -4145,6 +4161,10 @@
                 "is_cached": {
                     "type": "boolean"
                 },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentQuery",
                     "type": "string"
@@ -5327,6 +5347,10 @@
                     "type": "string"
                 },
                 "is_cached": {
+                    "type": "boolean"
+                },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
                     "type": "boolean"
                 },
                 "last_refresh": {
@@ -14950,6 +14974,10 @@
                     },
                     "type": "array"
                 },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentQuery",
                     "type": "string"
@@ -16674,6 +16702,87 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "FunnelsDataWarehouseNode": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_target_field": {
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "dw_source_type": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "id_field": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "FunnelsDataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["aggregation_target_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "FunnelsFilter": {
             "additionalProperties": false,
             "properties": {
@@ -16690,6 +16799,10 @@
                 "breakdownSorting": {
                     "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
                     "type": "string"
+                },
+                "customAggregationTarget": {
+                    "description": "For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups.",
+                    "type": "boolean"
                 },
                 "exclusions": {
                     "default": [],
@@ -16902,7 +17015,7 @@
                     "items": {
                         "anyOf": [
                             {
-                                "$ref": "#/definitions/AnyEntityNode"
+                                "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
                             },
                             {
                                 "$ref": "#/definitions/GroupNode"
@@ -18389,7 +18502,8 @@
                     "$ref": "#/definitions/InsightsThresholdBounds"
                 },
                 "type": {
-                    "$ref": "#/definitions/InsightThresholdType"
+                    "$ref": "#/definitions/InsightThresholdType",
+                    "description": "Whether bounds are compared as absolute values or as percentage change from the previous interval."
                 }
             },
             "required": ["type"],
@@ -18876,9 +18990,11 @@
             "additionalProperties": false,
             "properties": {
                 "lower": {
+                    "description": "Alert fires when the value drops below this number.",
                     "type": "number"
                 },
                 "upper": {
+                    "description": "Alert fires when the value exceeds this number.",
                     "type": "number"
                 }
             },
@@ -22638,6 +22754,10 @@
                 "hogql": {
                     "type": "string"
                 },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
+                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -22665,6 +22785,7 @@
                 "GroupNode",
                 "ActionsNode",
                 "DataWarehouseNode",
+                "FunnelsDataWarehouseNode",
                 "LifecycleDataWarehouseNode",
                 "EventsQuery",
                 "SessionsQuery",
@@ -25174,6 +25295,10 @@
                                 "type": "object"
                             },
                             "type": "array"
+                        },
+                        "is_precomputed": {
+                            "description": "Whether exposures were served from the precomputation system",
+                            "type": "boolean"
                         },
                         "kind": {
                             "const": "ExperimentQuery",
@@ -28531,6 +28656,9 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
                 },
                 {
                     "$ref": "#/definitions/LifecycleDataWarehouseNode"
@@ -33497,10 +33625,12 @@
             "additionalProperties": false,
             "properties": {
                 "check_ongoing_interval": {
+                    "description": "When true, evaluate the current (still incomplete) time interval in addition to completed ones.",
                     "type": "boolean"
                 },
                 "series_index": {
-                    "$ref": "#/definitions/integer"
+                    "$ref": "#/definitions/integer",
+                    "description": "Zero-based index of the series in the insight's query to monitor."
                 },
                 "type": {
                     "const": "TrendsAlertConfig",

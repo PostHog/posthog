@@ -847,6 +847,22 @@ def range_fn(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]
         raise ValueError("range function supports 1 or 2 arguments only")
 
 
+def JSONExtractGeneric(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
+    if len(args) < 2:
+        return None
+    obj = args[0]
+    try:
+        if isinstance(obj, str):
+            obj = json.loads(obj)
+    except json.JSONDecodeError:
+        return None
+    # Last argument is the return type (ClickHouse convention), which we ignore.
+    # Arguments between first and last are path components.
+    path = args[1:-1] if len(args) > 2 else []
+    val = get_nested_value(obj, path, True)
+    return val
+
+
 def JSONExtractArrayRaw(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], timeout: float) -> Any:
     obj = args[0]
     path = args[1:]
@@ -1100,6 +1116,7 @@ STL: dict[str, STLFunction] = {
         maxArgs=2,
     ),
     "typeof": STLFunction(fn=_typeof, minArgs=1, maxArgs=1),
+    "JSONExtract": STLFunction(fn=JSONExtractGeneric, minArgs=2),
     "JSONExtractArrayRaw": STLFunction(fn=JSONExtractArrayRaw, minArgs=1),
     "JSONExtractFloat": STLFunction(fn=JSONExtractFloat, minArgs=1),
     "JSONExtractInt": STLFunction(fn=JSONExtractInt, minArgs=1),
