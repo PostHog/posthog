@@ -202,7 +202,7 @@ export function NavTabBrowse(): JSX.Element {
             className={cn('flex-1', {
                 'rounded-tr': !isLayoutPanelVisible && !firstTabIsActive,
             })}
-            innerClassName="overflow-y-auto overflow-x-hidden px-1"
+            innerClassName="overflow-y-auto overflow-x-hidden px-2 focus-visible:outline-accent -outline-offset-2"
             direction="vertical"
             styledScrollbars
         >
@@ -213,7 +213,7 @@ export function NavTabBrowse(): JSX.Element {
                 {!isLayoutNavCollapsed && (
                     <SectionTrigger icon={<IconFolder />} label="Project" isCollapsed={isLayoutNavCollapsed} />
                 )}
-                <Collapsible.Panel className={cn('pl-2', isLayoutNavCollapsed && 'items-center pl-0')}>
+                <Collapsible.Panel className={cn('pl-2 pt-1', isLayoutNavCollapsed && 'items-center pl-0')}>
                     <NavLink
                         to={urls.projectRoot()}
                         label="Home"
