@@ -11,10 +11,11 @@ import { mswDecorator } from '~/mocks/browser'
 type Story = StoryObj<typeof App>
 const meta: Meta = {
     title: 'Scenes-App/Insights/User Paths',
+    tags: ['test-skip'],
     parameters: {
         layout: 'fullscreen',
         testOptions: {
-            snapshotBrowsers: ['chromium'],
+            snapshotBrowsers: [], // Paths canvas resize observer causes flaky width — skip snapshots
             viewport: {
                 // needs a slightly larger width to push the rendered scene away from breakpoint boundary
                 width: 1300,

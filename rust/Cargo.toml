@@ -42,6 +42,7 @@ members = [
     "kafka-assigner",
     "kafka-assigner-proto",
     "kafka-deduplicator",
+    "personhog-common",
     "personhog-coordination",
     "personhog-leader",
     "personhog-proto",
