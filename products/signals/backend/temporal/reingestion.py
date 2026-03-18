@@ -11,7 +11,7 @@ from temporalio.common import RetryPolicy
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.api import emit_signal, soft_delete_report_signals
+from products.signals.backend.api import emit_signal
 from products.signals.backend.models import SignalReport
 from products.signals.backend.temporal.grouping import (
     WaitForClickHouseInput,
@@ -24,6 +24,7 @@ from products.signals.backend.temporal.summary import (
     fetch_signals_for_report_activity,
 )
 from products.signals.backend.temporal.types import SignalData, SignalReportReingestionWorkflowInputs
+from products.signals.backend.utils import soft_delete_report_signals
 
 logger = structlog.get_logger(__name__)
 
