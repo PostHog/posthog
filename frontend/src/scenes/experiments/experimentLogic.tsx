@@ -1382,7 +1382,7 @@ export const experimentLogic = kea<experimentLogicType>([
             actions.setLaunchExperimentLoading(true)
             try {
                 const experiment: Experiment = await api.create(
-                    `api/projects/${values.currentProjectId}/experiments/${values.experimentId}/launch`
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/launch`
                 )
                 const experimentWithMetricOrdering = initializeMetricOrdering(experiment)
                 actions.setExperiment(experimentWithMetricOrdering)
