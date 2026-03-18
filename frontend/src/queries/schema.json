@@ -367,7 +367,8 @@
                 "onboarding",
                 "research",
                 "flags",
-                "llm_analytics"
+                "llm_analytics",
+                "sandbox"
             ],
             "type": "string"
         },
@@ -613,6 +614,19 @@
                 }
             ]
         },
+        "AnyDataWarehouseNode": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
+                }
+            ]
+        },
         "AnyEntityNode": {
             "anyOf": [
                 {
@@ -623,6 +637,45 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<DataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/DataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<FunnelsDataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                }
+            ]
+        },
+        "AnyEntityNode<LifecycleDataWarehouseNode>": {
+            "anyOf": [
+                {
+                    "$ref": "#/definitions/EventsNode"
+                },
+                {
+                    "$ref": "#/definitions/ActionsNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
                 }
             ]
         },
@@ -979,7 +1032,7 @@
             "type": "string"
         },
         "AssistantEventType": {
-            "enum": ["status", "message", "conversation", "notebook", "update", "approval"],
+            "enum": ["status", "message", "conversation", "notebook", "update", "approval", "sandbox"],
             "type": "string"
         },
         "AssistantForm": {
@@ -13181,6 +13234,10 @@
                 "tags": {
                     "$ref": "#/definitions/QueryLogTags"
                 },
+                "useQueryV2": {
+                    "description": "Use V2 query path (ClickHouse postgres connector join instead of separate Postgres queries)",
+                    "type": "boolean"
+                },
                 "version": {
                     "description": "version of the node, used for schema migrations",
                     "type": "number"
@@ -15907,6 +15964,7 @@
                 "live_debugger",
                 "logs",
                 "tracing",
+                "metrics",
                 "workflows",
                 "notebook",
                 "action",
@@ -15966,6 +16024,10 @@
                 },
                 "created_at": {
                     "description": "Timestamp when file was added. Used to check persistence",
+                    "type": "string"
+                },
+                "displayLabel": {
+                    "description": "Display label override — when set, shown in the nav instead of the last segment of `path`",
                     "type": "string"
                 },
                 "flag": {
@@ -16628,6 +16690,87 @@
             "required": ["kind", "source"],
             "type": "object"
         },
+        "FunnelsDataWarehouseNode": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_target_field": {
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "dw_source_type": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "id_field": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "FunnelsDataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["aggregation_target_field", "id", "id_field", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "FunnelsFilter": {
             "additionalProperties": false,
             "properties": {
@@ -16644,6 +16787,10 @@
                 "breakdownSorting": {
                     "description": "Breakdown table sorting. Format: 'column_key' or '-column_key' (descending)",
                     "type": "string"
+                },
+                "customAggregationTarget": {
+                    "description": "For data warehouse based funnel insights when the aggregation target can't be mapped to persons or groups.",
+                    "type": "boolean"
                 },
                 "exclusions": {
                     "default": [],
@@ -16856,7 +17003,7 @@
                     "items": {
                         "anyOf": [
                             {
-                                "$ref": "#/definitions/AnyEntityNode"
+                                "$ref": "#/definitions/AnyEntityNode%3CFunnelsDataWarehouseNode%3E"
                             },
                             {
                                 "$ref": "#/definitions/GroupNode"
@@ -17109,7 +17256,7 @@
                 "nodes": {
                     "description": "Entities to combine in this group",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/AnyEntityNode%3CDataWarehouseNode%3E"
                     },
                     "type": "array"
                 },
@@ -18854,7 +19001,7 @@
         "IntegrationKind": {
             "enum": [
                 "slack",
-                "slack-twig",
+                "slack-posthog-code",
                 "salesforce",
                 "hubspot",
                 "google-pubsub",
@@ -19071,6 +19218,84 @@
             ],
             "type": "object"
         },
+        "LifecycleDataWarehouseNode": {
+            "additionalProperties": false,
+            "properties": {
+                "aggregation_target_field": {
+                    "type": "string"
+                },
+                "created_at_field": {
+                    "type": "string"
+                },
+                "custom_name": {
+                    "type": "string"
+                },
+                "fixedProperties": {
+                    "description": "Fixed properties in the query, can't be edited in the interface (e.g. scoping down by person)",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "const": "LifecycleDataWarehouseNode",
+                    "type": "string"
+                },
+                "math": {
+                    "$ref": "#/definitions/MathType"
+                },
+                "math_group_type_index": {
+                    "enum": [0, 1, 2, 3, 4],
+                    "type": "number"
+                },
+                "math_hogql": {
+                    "type": "string"
+                },
+                "math_multiplier": {
+                    "type": "number"
+                },
+                "math_property": {
+                    "type": "string"
+                },
+                "math_property_revenue_currency": {
+                    "$ref": "#/definitions/RevenueCurrencyPropertyConfig"
+                },
+                "math_property_type": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "optionalInFunnel": {
+                    "type": "boolean"
+                },
+                "properties": {
+                    "description": "Properties configurable in the interface",
+                    "items": {
+                        "$ref": "#/definitions/AnyPropertyFilter"
+                    },
+                    "type": "array"
+                },
+                "response": {
+                    "type": "object"
+                },
+                "table_name": {
+                    "type": "string"
+                },
+                "timestamp_field": {
+                    "type": "string"
+                },
+                "version": {
+                    "description": "version of the node, used for schema migrations",
+                    "type": "number"
+                }
+            },
+            "required": ["aggregation_target_field", "created_at_field", "id", "kind", "table_name", "timestamp_field"],
+            "type": "object"
+        },
         "LifecycleFilter": {
             "additionalProperties": false,
             "properties": {
@@ -19127,6 +19352,10 @@
                     ],
                     "description": "Groups aggregation"
                 },
+                "customAggregationTarget": {
+                    "description": "For data warehouse based lifecycle insights when the aggregation target can't be mapped to persons or groups.",
+                    "type": "boolean"
+                },
                 "dataColorTheme": {
                     "description": "Colors used in the insight's visualization",
                     "type": ["number", "null"]
@@ -19182,7 +19411,7 @@
                 "series": {
                     "description": "Events and actions to include",
                     "items": {
-                        "$ref": "#/definitions/AnyEntityNode"
+                        "$ref": "#/definitions/AnyEntityNode%3CLifecycleDataWarehouseNode%3E"
                     },
                     "type": "array"
                 },
@@ -19916,6 +20145,10 @@
                     "$ref": "#/definitions/ConversionGoalFilter",
                     "description": "Draft conversion goal that can be set in the UI without saving"
                 },
+                "drillDownLevel": {
+                    "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel",
+                    "description": "Drill-down hierarchy level: channel, source, or campaign (default)"
+                },
                 "filterTestAccounts": {
                     "type": "boolean"
                 },
@@ -20105,6 +20338,26 @@
             "enum": ["Goal", "Cost per", "const:"],
             "type": "string"
         },
+        "MarketingAnalyticsDrillDownConfig": {
+            "additionalProperties": false,
+            "properties": {
+                "columnAlias": {
+                    "type": "string"
+                },
+                "excludedBaseColumns": {
+                    "items": {
+                        "$ref": "#/definitions/MarketingAnalyticsBaseColumns"
+                    },
+                    "type": "array"
+                }
+            },
+            "required": ["columnAlias", "excludedBaseColumns"],
+            "type": "object"
+        },
+        "MarketingAnalyticsDrillDownLevel": {
+            "enum": ["channel", "source", "campaign"],
+            "type": "string"
+        },
         "MarketingAnalyticsItem": {
             "additionalProperties": false,
             "properties": {
@@ -20218,6 +20471,10 @@
                         }
                     ],
                     "description": "Draft conversion goal that can be set in the UI without saving"
+                },
+                "drillDownLevel": {
+                    "$ref": "#/definitions/MarketingAnalyticsDrillDownLevel",
+                    "description": "Drill-down hierarchy level: channel, source, or campaign (default)"
                 },
                 "filterTestAccounts": {
                     "description": "Filter test accounts",
@@ -20556,23 +20813,7 @@
                                             "type": "string"
                                         },
                                         {
-                                            "const": "offsite_conversion.fb_pixel_purchase",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "app_custom_event.fb_mobile_purchase",
-                                            "type": "string"
-                                        },
-                                        {
                                             "const": "lead",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "offsite_conversion.fb_pixel_lead",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "onsite_conversion.lead_grouped",
                                             "type": "string"
                                         },
                                         {
@@ -20580,36 +20821,16 @@
                                             "type": "string"
                                         },
                                         {
-                                            "const": "offsite_conversion.fb_pixel_complete_registration",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "app_custom_event.fb_mobile_complete_registration",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "offsite_complete_registration_add_meta_leads",
-                                            "type": "string"
-                                        },
-                                        {
                                             "const": "app_install",
-                                            "type": "string"
-                                        },
-                                        {
-                                            "const": "mobile_app_install",
                                             "type": "string"
                                         },
                                         {
                                             "const": "subscribe",
                                             "type": "string"
-                                        },
-                                        {
-                                            "const": "offsite_conversion.fb_pixel_subscribe",
-                                            "type": "string"
                                         }
                                     ],
-                                    "maxItems": 14,
-                                    "minItems": 14,
+                                    "maxItems": 5,
+                                    "minItems": 5,
                                     "type": "array"
                                 },
                                 "omni": {
@@ -20638,9 +20859,52 @@
                                     "maxItems": 5,
                                     "minItems": 5,
                                     "type": "array"
+                                },
+                                "specific": {
+                                    "items": [
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_purchase",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_lead",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "onsite_conversion.lead_grouped",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "app_custom_event.fb_mobile_complete_registration",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_complete_registration_add_meta_leads",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "mobile_app_install",
+                                            "type": "string"
+                                        },
+                                        {
+                                            "const": "offsite_conversion.fb_pixel_subscribe",
+                                            "type": "string"
+                                        }
+                                    ],
+                                    "maxItems": 9,
+                                    "minItems": 9,
+                                    "type": "array"
                                 }
                             },
-                            "required": ["omni", "fallback"],
+                            "required": ["omni", "fallback", "specific"],
                             "type": "object"
                         },
                         "defaultSources": {
@@ -22165,26 +22429,25 @@
             ]
         },
         "MetaAdsConversionFallbackActionTypes": {
-            "enum": [
-                "purchase",
-                "offsite_conversion.fb_pixel_purchase",
-                "app_custom_event.fb_mobile_purchase",
-                "lead",
-                "offsite_conversion.fb_pixel_lead",
-                "onsite_conversion.lead_grouped",
-                "complete_registration",
-                "offsite_conversion.fb_pixel_complete_registration",
-                "app_custom_event.fb_mobile_complete_registration",
-                "offsite_complete_registration_add_meta_leads",
-                "app_install",
-                "mobile_app_install",
-                "subscribe",
-                "offsite_conversion.fb_pixel_subscribe"
-            ],
+            "enum": ["purchase", "lead", "complete_registration", "app_install", "subscribe"],
             "type": "string"
         },
         "MetaAdsConversionOmniActionTypes": {
             "enum": ["omni_purchase", "omni_lead", "omni_complete_registration", "omni_app_install", "omni_subscribe"],
+            "type": "string"
+        },
+        "MetaAdsConversionSpecificActionTypes": {
+            "enum": [
+                "offsite_conversion.fb_pixel_purchase",
+                "app_custom_event.fb_mobile_purchase",
+                "offsite_conversion.fb_pixel_lead",
+                "onsite_conversion.lead_grouped",
+                "offsite_conversion.fb_pixel_complete_registration",
+                "app_custom_event.fb_mobile_complete_registration",
+                "offsite_complete_registration_add_meta_leads",
+                "mobile_app_install",
+                "offsite_conversion.fb_pixel_subscribe"
+            ],
             "type": "string"
         },
         "MetaAdsDefaultSources": {
@@ -22503,6 +22766,8 @@
                 "GroupNode",
                 "ActionsNode",
                 "DataWarehouseNode",
+                "FunnelsDataWarehouseNode",
+                "LifecycleDataWarehouseNode",
                 "EventsQuery",
                 "SessionsQuery",
                 "PersonsNode",
@@ -23537,6 +23802,7 @@
                 "teams",
                 "toolbar",
                 "tracing",
+                "metrics",
                 "user_interviews",
                 "visual_review",
                 "web_analytics",
@@ -28367,6 +28633,12 @@
                 },
                 {
                     "$ref": "#/definitions/DataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/FunnelsDataWarehouseNode"
+                },
+                {
+                    "$ref": "#/definitions/LifecycleDataWarehouseNode"
                 },
                 {
                     "$ref": "#/definitions/EventsQuery"
@@ -35150,6 +35422,9 @@
                     "type": "boolean"
                 },
                 "includeBounceRate": {
+                    "type": "boolean"
+                },
+                "includeHost": {
                     "type": "boolean"
                 },
                 "includeRevenue": {

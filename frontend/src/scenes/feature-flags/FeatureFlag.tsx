@@ -980,7 +980,11 @@ function UsageTab({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Elemen
                             </Link>
                         </LemonBanner>
                     )}
-                    <Dashboard id={dashboardId!.toString()} placement={DashboardPlacement.FeatureFlag} />
+                    <Dashboard
+                        id={dashboardId!.toString()}
+                        placement={DashboardPlacement.FeatureFlag}
+                        backTo={{ url: urls.featureFlag(featureFlag.id!), name: featureFlagKey }}
+                    />
                 </>
             ) : (
                 <div>

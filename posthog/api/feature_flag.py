@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import json
+import math
 import time
 import logging
 from datetime import datetime
@@ -25,7 +26,7 @@ from posthog.hogql.property import parse_semver
 
 from posthog.api.cohort import CohortSerializer
 from posthog.api.dashboards.dashboard import Dashboard
-from posthog.api.documentation import extend_schema
+from posthog.api.documentation import FeatureFlagFiltersSchemaSerializer, extend_schema
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -36,7 +37,13 @@ from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSet
 from posthog.api.utils import ClassicBehaviorBooleanFieldSerializer, action
 from posthog.approvals.decorators import approval_gate
 from posthog.approvals.mixins import ApprovalHandlingMixin
-from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
+from posthog.auth import (
+    JwtAuthentication,
+    OAuthAccessTokenAuthentication,
+    PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
+    SessionAuthentication,
+)
 from posthog.constants import PRODUCT_TOUR_TARGETING_FLAG_PREFIX, SURVEY_TARGETING_FLAG_PREFIX, FlagRequestType
 from posthog.date_util import thirty_days_ago
 from posthog.event_usage import report_user_action
@@ -74,7 +81,7 @@ from posthog.models.group.group import Group
 from posthog.models.property import Property
 from posthog.models.signals import model_activity_signal, mutable_receiver
 from posthog.models.surveys.survey import Survey
-from posthog.permissions import ProjectSecretAPITokenPermission, is_authenticated_via_project_secret_api_token
+from posthog.permissions import ProjectSecretAPITokenPermission
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle
 from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
@@ -128,6 +135,15 @@ FEATURE_FLAG_OPERATOR_ALIASES: dict[str, str] = {
     "max": "lte",
 }
 
+FEATURE_FLAG_CREATION_CONTEXT_CHOICES = (
+    "feature_flags",
+    "experiments",
+    "surveys",
+    "early_access_features",
+    "web_experiments",
+    "product_tours",
+)
+
 LOCAL_EVALUATION_REQUEST_COUNTER = Counter(
     "posthog_local_evaluation_request_total",
     "Local evaluation API requests",
@@ -148,8 +164,26 @@ LOCAL_EVALUATION_SECRET_KEY_IN_BODY_COUNTER = Counter(
 LOCAL_EVALUATION_AUTH_COUNTER = Counter(
     "posthog_local_evaluation_auth_total",
     "Local evaluation requests by authentication method",
-    labelnames=["method"],  # "secret_api_token" or "personal_api_key"
+    labelnames=["method"],  # "secret_api_key", "personal_api_key", "oauth", "jwt", "session", or "other"
 )
+
+LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER = Counter(
+    "posthog_local_evaluation_personal_api_key_source_total",
+    "Local evaluation requests authenticated via personal API key, by source",
+    labelnames=["source"],  # "header", "body", "query_string"
+)
+
+_AUTH_METHOD_BY_CLASS: dict[type, str] = {
+    ProjectSecretAPIKeyAuthentication: "secret_api_key",
+    PersonalAPIKeyAuthentication: "personal_api_key",
+    OAuthAccessTokenAuthentication: "oauth",
+    JwtAuthentication: "jwt",
+    SessionAuthentication: "session",
+}
+
+
+def _classify_auth_method(authenticator: object | None) -> str:
+    return _AUTH_METHOD_BY_CLASS.get(type(authenticator), "other")
 
 
 def find_dependent_flags(flag_to_check: FeatureFlag) -> list[FeatureFlag]:
@@ -483,6 +517,48 @@ class EvaluationTagSerializerMixin(serializers.Serializer):
         return ret
 
 
+class FeatureFlagCreateRequestSchemaSerializer(serializers.Serializer):
+    key = serializers.CharField(required=False, help_text="Feature flag key.")
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Feature flag description (stored in the `name` field for backwards compatibility).",
+    )
+    filters = FeatureFlagFiltersSchemaSerializer(required=False, help_text="Feature flag targeting configuration.")
+    active = serializers.BooleanField(required=False, help_text="Whether the feature flag is active.")
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Organizational tags for this feature flag.",
+    )
+    evaluation_tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Evaluation context tags. Must be a subset of `tags`.",
+    )
+
+
+class FeatureFlagPartialUpdateRequestSchemaSerializer(serializers.Serializer):
+    key = serializers.CharField(required=False, help_text="Feature flag key.")
+    name = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        help_text="Feature flag description (stored in the `name` field for backwards compatibility).",
+    )
+    filters = FeatureFlagFiltersSchemaSerializer(required=False, help_text="Feature flag targeting configuration.")
+    active = serializers.BooleanField(required=False, help_text="Whether the feature flag is active.")
+    tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Organizational tags for this feature flag.",
+    )
+    evaluation_tags = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Evaluation context tags. Must be a subset of `tags`.",
+    )
+
+
 class FeatureFlagSerializer(
     TaggedItemSerializerMixin,
     EvaluationTagSerializerMixin,
@@ -518,14 +594,7 @@ class FeatureFlagSerializer(
     )
     can_edit = serializers.SerializerMethodField()
 
-    CREATION_CONTEXT_CHOICES = (
-        "feature_flags",
-        "experiments",
-        "surveys",
-        "early_access_features",
-        "web_experiments",
-        "product_tours",
-    )
+    CREATION_CONTEXT_CHOICES = FEATURE_FLAG_CREATION_CONTEXT_CHOICES
     creation_context = serializers.ChoiceField(
         choices=CREATION_CONTEXT_CHOICES,
         write_only=True,
@@ -724,6 +793,52 @@ class FeatureFlagSerializer(
                 raise serializers.ValidationError("Feature flags must have at least one condition set (group).")
 
         aggregation_group_type_index = filters.get("aggregation_group_type_index", None)
+
+        # Validate filter field types to prevent serde deserialization failures in the
+        # Rust flag evaluation service. Non-conforming types poison the entire team's
+        # flag cache and cause 500s on every /flags request.
+        def _validate_rollout_percentage(value: Any, path: str, *, allow_null: bool = True) -> None:
+            if value is None:
+                if not allow_null:
+                    raise serializers.ValidationError(f"{path} must be a number, got null")
+                return
+            # Check bool before int/float because bool is a subclass of int
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                expected = "a number or null" if allow_null else "a number"
+                raise serializers.ValidationError(f"{path} must be {expected}, got {type(value).__name__}")
+            if not math.isfinite(value):
+                raise serializers.ValidationError(f"{path} must be finite, got {value}")
+            if value < 0 or value > 100:
+                raise serializers.ValidationError(f"{path} must be between 0 and 100, got {value}")
+
+        def _validate_integer(value: Any, path: str) -> None:
+            # Check bool before int because bool is a subclass of int
+            if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+                raise serializers.ValidationError(f"{path} must be an integer or null, got {type(value).__name__}")
+
+        _validate_integer(aggregation_group_type_index, "aggregation_group_type_index")
+
+        for group_index, group in enumerate(filters.get("groups", [])):
+            variant = group.get("variant")
+            if variant is not None and not isinstance(variant, str):
+                raise serializers.ValidationError(
+                    f"groups[{group_index}].variant must be a string or null, got {type(variant).__name__}"
+                )
+
+            _validate_rollout_percentage(group.get("rollout_percentage"), f"groups[{group_index}].rollout_percentage")
+
+            for prop_index, prop in enumerate(group.get("properties", [])):
+                _validate_integer(
+                    prop.get("group_type_index"),
+                    f"groups[{group_index}].properties[{prop_index}].group_type_index",
+                )
+
+        for var_index, variant in enumerate((filters.get("multivariate") or {}).get("variants", [])):
+            _validate_rollout_percentage(
+                variant.get("rollout_percentage"),
+                f"multivariate.variants[{var_index}].rollout_percentage",
+                allow_null=False,
+            )
 
         def properties_all_match(predicate):
             return all(
@@ -1116,7 +1231,11 @@ class FeatureFlagSerializer(
         analytics_metadata = instance.get_analytics_metadata()
         analytics_metadata["creation_context"] = creation_context
         report_user_action(
-            request.user, "feature flag created", analytics_metadata, team=instance.team, request=request
+            request.user,
+            "feature flag created",
+            analytics_metadata,
+            team=instance.team,
+            request=request,
         )
 
         return instance
@@ -1457,7 +1576,7 @@ class FeatureFlagSerializer(
         representation["filters"] = filters
         return representation
 
-    def get_experiment_set(self, obj):
+    def get_experiment_set(self, obj: FeatureFlag) -> list[int]:
         # Use the prefetched active experiments
         if hasattr(obj, "_active_experiments"):
             return [exp.id for exp in obj._active_experiments]
@@ -1696,6 +1815,14 @@ class FeatureFlagViewSet(
     queryset = FeatureFlag.objects_including_soft_deleted.all()
     serializer_class = FeatureFlagSerializer
 
+    @extend_schema(request=FeatureFlagCreateRequestSchemaSerializer)
+    def create(self, request, *args, **kwargs):
+        return super().create(request, *args, **kwargs)
+
+    @extend_schema(request=FeatureFlagPartialUpdateRequestSchemaSerializer)
+    def partial_update(self, request, *args, **kwargs):
+        return super().partial_update(request, *args, **kwargs)
+
     def _filter_request(self, request: request.Request, queryset: QuerySet) -> QuerySet:
         """Apply filters from request query params to queryset."""
         return self._apply_filters(request.GET.dict(), queryset)
@@ -1809,7 +1936,7 @@ class FeatureFlagViewSet(
                 OpenApiTypes.STR,
                 location=OpenApiParameter.QUERY,
                 required=False,
-                enum=["boolean", "multivariant", "experiment"],
+                enum=["boolean", "multivariant", "experiment", "remote_config"],
             ),
             OpenApiParameter(
                 "evaluation_runtime",
@@ -2555,10 +2682,12 @@ class FeatureFlagViewSet(
         # Track send_cohorts parameter usage
         LOCAL_EVALUATION_REQUEST_COUNTER.labels(send_cohorts=str(include_cohorts).lower()).inc()
 
-        auth_method = (
-            "secret_api_token" if is_authenticated_via_project_secret_api_token(request) else "personal_api_key"
-        )
+        auth_method = _classify_auth_method(request.successful_authenticator)
         LOCAL_EVALUATION_AUTH_COUNTER.labels(method=auth_method).inc()
+
+        if isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication):
+            source = request.successful_authenticator.personal_api_key_source or "unknown"
+            LOCAL_EVALUATION_PERSONAL_API_KEY_SOURCE_COUNTER.labels(source=source).inc()
 
         try:
             # Check if team is quota limited for feature flags
@@ -2838,10 +2967,10 @@ class FeatureFlagViewSet(
 
     @action(methods=["GET"], detail=True, required_scopes=["feature_flag:read"])
     def status(self, request: request.Request, **kwargs):
-        feature_flag_id = kwargs["pk"]
+        feature_flag = self.get_object()
 
         checker = FeatureFlagStatusChecker(
-            feature_flag_id=feature_flag_id,
+            feature_flag=feature_flag,
         )
         flag_status, reason = checker.get_status()
 

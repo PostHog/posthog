@@ -1,11 +1,15 @@
 """Experiment service — single source of truth for experiment business logic."""
 
+from collections.abc import Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
+from enum import Enum
 from typing import Any
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
+from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models.functions import Now
 
 import pydantic
 from rest_framework.exceptions import ValidationError
@@ -17,6 +21,7 @@ from posthog.api.feature_flag import FeatureFlagSerializer
 from posthog.event_usage import EventSource, report_user_action
 from posthog.hogql_queries.experiments.experiment_metric_fingerprint import compute_metric_fingerprint
 from posthog.models.cohort import Cohort
+from posthog.models.evaluation_context import FeatureFlagEvaluationContext
 from posthog.models.experiment import (
     Experiment,
     ExperimentHoldout,
@@ -28,6 +33,7 @@ from posthog.models.experiment import (
 from posthog.models.feature_flag.feature_flag import FeatureFlag
 from posthog.models.filters.filter import Filter
 from posthog.models.team.team import Team
+from posthog.utils import str_to_bool
 
 from ee.clickhouse.views.experiment_saved_metrics import ExperimentToSavedMetricSerializer
 
@@ -37,6 +43,18 @@ DEFAULT_VARIANTS = [
     {"key": "control", "name": "Control Group", "rollout_percentage": 50},
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
+
+
+class ExperimentQueryStatus(str, Enum):
+    """
+    Note: The frontend still treats paused experiments as a UI-only variant of "running"
+    when the linked flag is disabled, so the API only filters on stored experiment statuses.
+    """
+
+    DRAFT = "draft"
+    RUNNING = "running"
+    STOPPED = "stopped"
+    ALL = "all"
 
 
 class ExperimentService:
@@ -114,6 +132,32 @@ class ExperimentService:
                 except pydantic.ValidationError as e:
                     raise ValidationError(f"Invalid metric at index {i}: {e.errors()}")
 
+    @staticmethod
+    def validate_saved_metrics_ids(saved_metrics_ids: list | None, team_id: int) -> None:
+        """Validate saved metric references accepted by the API layer."""
+        if saved_metrics_ids is None:
+            return
+
+        if not isinstance(saved_metrics_ids, list):
+            raise ValidationError("Saved metrics must be a list")
+
+        for saved_metric in saved_metrics_ids:
+            if not isinstance(saved_metric, dict):
+                raise ValidationError("Saved metric must be an object")
+            if "id" not in saved_metric:
+                raise ValidationError("Saved metric must have an id")
+            if "metadata" in saved_metric and not isinstance(saved_metric["metadata"], dict):
+                raise ValidationError("Metadata must be an object")
+            if "metadata" in saved_metric and "type" not in saved_metric["metadata"]:
+                raise ValidationError("Metadata must have a type key")
+
+        saved_metrics = ExperimentSavedMetric.objects.filter(
+            id__in=[saved_metric["id"] for saved_metric in saved_metrics_ids],
+            team_id=team_id,
+        )
+        if saved_metrics.count() != len(saved_metrics_ids):
+            raise ValidationError("Saved metric does not exist or does not belong to this project")
+
     @transaction.atomic
     def create_experiment(
         self,
@@ -146,6 +190,7 @@ class ExperimentService:
         event_source: EventSource | None = None,
     ) -> Experiment:
         """Create experiment with full validation and defaults."""
+        self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
         feature_flag, used_variants = self._ensure_feature_flag(
@@ -484,6 +529,9 @@ class ExperimentService:
         ``ExperimentSerializer``.  The caller is responsible for DRF-level input
         validation (field types, metric schema, etc.) before calling this method.
         """
+        if "saved_metrics_ids" in update_data:
+            self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
+
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
 
@@ -823,6 +871,215 @@ class ExperimentService:
         experiment.exposure_cohort = cohort
         experiment.save(update_fields=["exposure_cohort"])
         return cohort
+
+    # ------------------------------------------------------------------
+    # Experiment list/querying
+    # ------------------------------------------------------------------
+
+    def filter_experiments_queryset(
+        self,
+        queryset: QuerySet[Experiment],
+        *,
+        action: str | None,
+        query_params: Mapping[str, Any] | None = None,
+        request_data: Mapping[str, Any] | None = None,
+    ) -> QuerySet[Experiment]:
+        """Apply experiment list/detail filtering and ordering rules."""
+        query_params = query_params or {}
+        request_data = request_data or {}
+
+        include_deleted = False
+        if action in ("partial_update", "update"):
+            deleted_value = request_data.get("deleted")
+            if deleted_value is not None:
+                include_deleted = not str_to_bool(deleted_value)
+
+        if not include_deleted:
+            queryset = queryset.exclude(deleted=True)
+
+        if action == "list":
+            status = query_params.get("status")
+            if status:
+                normalized_status = str(status).lower()
+                if normalized_status == "complete":
+                    normalized_status = ExperimentQueryStatus.STOPPED.value
+
+                try:
+                    status_enum = ExperimentQueryStatus(normalized_status)
+                except ValueError:
+                    status_enum = None
+
+                if status_enum and status_enum != ExperimentQueryStatus.ALL:
+                    if status_enum == ExperimentQueryStatus.DRAFT:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.DRAFT) | Q(status__isnull=True, start_date__isnull=True)
+                        )
+                    elif status_enum == ExperimentQueryStatus.RUNNING:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.RUNNING)
+                            | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
+                        )
+                    elif status_enum == ExperimentQueryStatus.STOPPED:
+                        queryset = queryset.filter(
+                            Q(status=Experiment.Status.STOPPED) | Q(status__isnull=True, end_date__isnull=False)
+                        )
+
+            created_by_id = query_params.get("created_by_id")
+            if created_by_id:
+                queryset = queryset.filter(created_by_id=created_by_id)
+
+            archived = query_params.get("archived")
+            if archived is not None:
+                archived_bool = str(archived).lower() == "true"
+                queryset = queryset.filter(archived=archived_bool)
+            else:
+                queryset = queryset.filter(archived=False)
+
+            feature_flag_id = query_params.get("feature_flag_id")
+            if feature_flag_id:
+                try:
+                    queryset = queryset.filter(feature_flag_id=int(feature_flag_id))
+                except ValueError:
+                    raise ValidationError("feature_flag_id must be an integer")
+
+        search = query_params.get("search")
+        if search:
+            queryset = queryset.filter(Q(name__icontains=search))
+
+        order = query_params.get("order")
+        if order:
+            order_value = str(order)
+            if order_value in ["duration", "-duration"]:
+                queryset = queryset.annotate(
+                    computed_duration=Case(
+                        When(start_date__isnull=True, then=Value(None)),
+                        When(end_date__isnull=False, then=F("end_date") - F("start_date")),
+                        default=Now() - F("start_date"),
+                    )
+                )
+                queryset = queryset.order_by(f"{'-' if order_value.startswith('-') else ''}computed_duration")
+            elif order_value in ["status", "-status"]:
+                queryset = queryset.annotate(
+                    computed_status=Case(
+                        When(start_date__isnull=True, then=Value(0)),
+                        When(end_date__isnull=True, then=Value(1)),
+                        default=Value(2),
+                    )
+                )
+                if order_value.startswith("-"):
+                    queryset = queryset.order_by(F("computed_status").desc())
+                else:
+                    queryset = queryset.order_by(F("computed_status").asc())
+            else:
+                queryset = queryset.order_by(order_value)
+        else:
+            queryset = queryset.order_by("-created_at")
+
+        return queryset
+
+    # ------------------------------------------------------------------
+    # Eligible feature flags
+    # ------------------------------------------------------------------
+
+    def get_eligible_feature_flags(
+        self,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+        excluded_flag_ids: list[int] | set[int] | None = None,
+        search: str | None = None,
+        active: str | bool | None = None,
+        created_by_id: str | int | None = None,
+        order: str | None = None,
+        evaluation_runtime: str | None = None,
+        has_evaluation_tags: str | bool | None = None,
+    ) -> dict[str, Any]:
+        """Get feature flags eligible for use in experiments."""
+        queryset = self._get_eligible_feature_flags_queryset(
+            excluded_flag_ids=excluded_flag_ids,
+            search=search,
+            active=active,
+            created_by_id=created_by_id,
+            order=order,
+            evaluation_runtime=evaluation_runtime,
+            has_evaluation_tags=has_evaluation_tags,
+        )
+
+        return {
+            "results": queryset[offset : offset + limit],
+            "count": queryset.count(),
+        }
+
+    def _get_eligible_feature_flags_queryset(
+        self,
+        *,
+        excluded_flag_ids: list[int] | set[int] | None,
+        search: str | None,
+        active: str | bool | None,
+        created_by_id: str | int | None,
+        order: str | None,
+        evaluation_runtime: str | None,
+        has_evaluation_tags: str | bool | None,
+    ) -> QuerySet[FeatureFlag]:
+        queryset = FeatureFlag.objects.filter(team__project_id=self.team.project_id)
+
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (static SQL, no user input)
+        queryset = queryset.extra(
+            where=[
+                """
+                jsonb_array_length(filters->'multivariate'->'variants') >= 2
+                AND filters->'multivariate'->'variants'->0->>'key' = 'control'
+                """
+            ]
+        )
+
+        if excluded_flag_ids:
+            queryset = queryset.exclude(id__in=excluded_flag_ids)
+
+        if search:
+            queryset = queryset.filter(Q(key__icontains=search) | Q(name__icontains=search))
+
+        if active is not None:
+            active_bool = active if isinstance(active, bool) else str(active).lower() == "true"
+            queryset = queryset.filter(active=active_bool)
+
+        if created_by_id:
+            queryset = queryset.filter(created_by_id=created_by_id)
+
+        if evaluation_runtime:
+            queryset = queryset.filter(evaluation_runtime=evaluation_runtime)
+
+        if has_evaluation_tags is not None:
+            filter_value = (
+                has_evaluation_tags
+                if isinstance(has_evaluation_tags, bool)
+                else str(has_evaluation_tags).lower() in ("true", "1", "yes")
+            )
+            queryset = queryset.annotate(eval_tag_count=Count("flag_evaluation_contexts"))
+            if filter_value:
+                queryset = queryset.filter(eval_tag_count__gt=0)
+            else:
+                queryset = queryset.filter(eval_tag_count=0)
+
+        queryset = queryset.order_by(order or "-created_at")
+
+        return queryset.prefetch_related(
+            Prefetch(
+                "experiment_set", queryset=Experiment.objects.filter(deleted=False), to_attr="_active_experiments"
+            ),
+            "features",
+            "analytics_dashboards",
+            "surveys_linked_flag",
+            Prefetch(
+                "flag_evaluation_contexts",
+                queryset=FeatureFlagEvaluationContext.objects.select_related("evaluation_context"),
+            ),
+            Prefetch(
+                "team__cohort_set",
+                queryset=Cohort.objects.filter(deleted=False).only("id", "name"),
+                to_attr="available_cohorts",
+            ),
+        ).select_related("created_by", "last_modified_by")
 
     # ------------------------------------------------------------------
     # Timeseries

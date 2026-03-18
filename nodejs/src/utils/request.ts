@@ -251,11 +251,7 @@ class InsecureAgent extends Agent {
 // so we skip the DNS lookup (httpStaticLookup) which would be redundant.
 function makeSecureDispatcher(): Dispatcher {
     const proxyUrl =
-        (defaultConfig.OUTBOUND_PROXY_ENABLED && defaultConfig.OUTBOUND_PROXY_URL) ||
-        process.env.HTTPS_PROXY ||
-        process.env.HTTP_PROXY ||
-        process.env.https_proxy ||
-        process.env.http_proxy
+        process.env.HTTPS_PROXY || process.env.HTTP_PROXY || process.env.https_proxy || process.env.http_proxy
 
     if (proxyUrl) {
         return new ProxyAgent({

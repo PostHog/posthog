@@ -9,18 +9,13 @@ import {
     createTestClient,
     createTestContext,
     generateUniqueKey,
+    getToolByName,
     parseToolResponse,
     setActiveProjectAndOrg,
     validateEnvironmentVariables,
 } from '@/shared/test-utils'
-import addInsightToDashboardTool from '@/tools/dashboards/addInsight'
-import createDashboardTool from '@/tools/dashboards/create'
-import deleteDashboardTool from '@/tools/dashboards/delete'
-import getDashboardTool from '@/tools/dashboards/get'
-import getAllDashboardsTool from '@/tools/dashboards/getAll'
-import reorderDashboardTilesTool from '@/tools/dashboards/reorderTiles'
-import updateDashboardTool from '@/tools/dashboards/update'
 import createInsightTool from '@/tools/insights/create'
+import updateInsightTool from '@/tools/insights/update'
 import type { Context } from '@/tools/types'
 
 describe('Dashboards', { concurrent: false }, () => {
@@ -45,209 +40,186 @@ describe('Dashboards', { concurrent: false }, () => {
         await cleanupResources(context.api, TEST_PROJECT_ID!, createdResources)
     })
 
-    describe('create-dashboard tool', () => {
-        const createTool = createDashboardTool()
+    describe('dashboard-create tool', () => {
+        const createTool = getToolByName('dashboard-create')
 
         it('should create a dashboard with minimal fields', async () => {
             const params = {
-                data: {
-                    name: generateUniqueKey('Test Dashboard'),
-                    description: 'Integration test dashboard',
-                    pinned: false,
-                },
+                name: generateUniqueKey('Test Dashboard'),
+                description: 'Integration test dashboard',
+                pinned: false,
             }
 
             const result = await createTool.handler(context, params)
             const dashboardData = parseToolResponse(result)
 
             expect(dashboardData.id).toBeTruthy()
-            expect(dashboardData.name).toBe(params.data.name)
-            expect(dashboardData.url).toContain('/dashboard/')
+            expect(dashboardData.name).toBe(params.name)
+            expect(dashboardData._posthogUrl).toContain('/dashboard/')
 
             createdResources.dashboards.push(dashboardData.id)
         })
 
         it('should create a dashboard with tags', async () => {
             const params = {
-                data: {
-                    name: generateUniqueKey('Tagged Dashboard'),
-                    description: 'Dashboard with tags',
-                    tags: ['test', 'integration'],
-                    pinned: false,
-                },
+                name: generateUniqueKey('Tagged Dashboard'),
+                description: 'Dashboard with tags',
+                tags: ['test', 'integration'],
+                pinned: false,
             }
 
             const result = await createTool.handler(context, params)
             const dashboardData = parseToolResponse(result)
 
             expect(dashboardData.id).toBeTruthy()
-            expect(dashboardData.name).toBe(params.data.name)
+            expect(dashboardData.name).toBe(params.name)
 
             createdResources.dashboards.push(dashboardData.id)
         })
     })
 
-    describe('update-dashboard tool', () => {
-        const createTool = createDashboardTool()
-        const updateTool = updateDashboardTool()
+    describe('dashboard-update tool', () => {
+        const createTool = getToolByName('dashboard-create')
+        const updateTool = getToolByName('dashboard-update')
 
         it('should update dashboard name and description', async () => {
-            const createParams = {
-                data: {
-                    name: generateUniqueKey('Original Dashboard'),
-                    description: 'Original description',
-                    pinned: false,
-                },
-            }
-
-            const createResult = await createTool.handler(context, createParams)
+            const createResult = await createTool.handler(context, {
+                name: generateUniqueKey('Original Dashboard'),
+                description: 'Original description',
+                pinned: false,
+            })
             const createdDashboard = parseToolResponse(createResult)
             createdResources.dashboards.push(createdDashboard.id)
 
-            const updateParams = {
-                dashboardId: createdDashboard.id,
-                data: {
-                    name: 'Updated Dashboard Name',
-                    description: 'Updated description',
-                },
-            }
-
-            const updateResult = await updateTool.handler(context, updateParams)
+            const updateResult = await updateTool.handler(context, {
+                id: createdDashboard.id,
+                name: 'Updated Dashboard Name',
+                description: 'Updated description',
+            })
             const updatedDashboard = parseToolResponse(updateResult)
 
             expect(updatedDashboard.id).toBe(createdDashboard.id)
-            expect(updatedDashboard.name).toBe(updateParams.data.name)
+            expect(updatedDashboard.name).toBe('Updated Dashboard Name')
         })
     })
 
-    describe('get-all-dashboards tool', () => {
-        const getAllTool = getAllDashboardsTool()
+    describe('dashboards-get-all tool', () => {
+        const getAllTool = getToolByName('dashboards-get-all')
 
         it('should return dashboards with proper structure', async () => {
             const result = await getAllTool.handler(context, {})
-            const dashboards = parseToolResponse(result)
+            const response = parseToolResponse(result)
 
-            expect(Array.isArray(dashboards)).toBe(true)
-            if (dashboards.length > 0) {
-                const dashboard = dashboards[0]
+            expect(response.results).toBeTruthy()
+            expect(Array.isArray(response.results)).toBe(true)
+            if (response.results.length > 0) {
+                const dashboard = response.results[0]
                 expect(dashboard).toHaveProperty('id')
                 expect(dashboard).toHaveProperty('name')
             }
         })
     })
 
-    describe('get-dashboard tool', () => {
-        const createTool = createDashboardTool()
-        const getTool = getDashboardTool()
+    describe('dashboard-get tool', () => {
+        const createTool = getToolByName('dashboard-create')
+        const getOneTool = getToolByName('dashboard-get')
 
         it('should get a specific dashboard by ID', async () => {
-            const createParams = {
-                data: {
-                    name: generateUniqueKey('Get Test Dashboard'),
-                    description: 'Test dashboard for get operation',
-                    pinned: false,
-                },
-            }
-
-            const createResult = await createTool.handler(context, createParams)
+            const createResult = await createTool.handler(context, {
+                name: generateUniqueKey('Get Test Dashboard'),
+                description: 'Test dashboard for get operation',
+                pinned: false,
+            })
             const createdDashboard = parseToolResponse(createResult)
             createdResources.dashboards.push(createdDashboard.id)
 
-            const result = await getTool.handler(context, { dashboardId: createdDashboard.id })
+            const result = await getOneTool.handler(context, { id: createdDashboard.id })
             const retrievedDashboard = parseToolResponse(result)
 
             expect(retrievedDashboard.id).toBe(createdDashboard.id)
-            expect(retrievedDashboard.name).toBe(createParams.data.name)
+            expect(retrievedDashboard.name).toContain('Get Test Dashboard')
         })
     })
 
-    describe('delete-dashboard tool', () => {
-        const createTool = createDashboardTool()
-        const deleteTool = deleteDashboardTool()
+    describe('dashboard-delete tool', () => {
+        const createTool = getToolByName('dashboard-create')
+        const deleteTool = getToolByName('dashboard-delete')
 
         it('should delete a dashboard', async () => {
-            const createParams = {
-                data: {
-                    name: generateUniqueKey('Delete Test Dashboard'),
-                    description: 'Test dashboard for deletion',
-                    pinned: false,
-                },
-            }
-
-            const createResult = await createTool.handler(context, createParams)
+            const createResult = await createTool.handler(context, {
+                name: generateUniqueKey('Delete Test Dashboard'),
+                description: 'Test dashboard for deletion',
+                pinned: false,
+            })
             const createdDashboard = parseToolResponse(createResult)
 
             const deleteResult = await deleteTool.handler(context, {
-                dashboardId: createdDashboard.id,
+                id: createdDashboard.id,
             })
             const deleteResponse = parseToolResponse(deleteResult)
 
-            expect(deleteResponse.success).toBe(true)
-            expect(deleteResponse.message).toContain('deleted successfully')
+            expect(deleteResponse.deleted).toBe(true)
         })
     })
 
     describe('Dashboard workflow', () => {
         it('should support full CRUD workflow', async () => {
-            const createTool = createDashboardTool()
-            const updateTool = updateDashboardTool()
-            const getTool = getDashboardTool()
-            const deleteTool = deleteDashboardTool()
+            const createTool = getToolByName('dashboard-create')
+            const updateTool = getToolByName('dashboard-update')
+            const getOneTool = getToolByName('dashboard-get')
+            const deleteTool = getToolByName('dashboard-delete')
 
-            const createParams = {
-                data: {
-                    name: generateUniqueKey('Workflow Test Dashboard'),
-                    description: 'Testing full workflow',
-                    pinned: false,
-                },
-            }
-
-            const createResult = await createTool.handler(context, createParams)
+            const createResult = await createTool.handler(context, {
+                name: generateUniqueKey('Workflow Test Dashboard'),
+                description: 'Testing full workflow',
+                pinned: false,
+            })
             const createdDashboard = parseToolResponse(createResult)
 
-            const getResult = await getTool.handler(context, { dashboardId: createdDashboard.id })
+            const getResult = await getOneTool.handler(context, { id: createdDashboard.id })
             const retrievedDashboard = parseToolResponse(getResult)
             expect(retrievedDashboard.id).toBe(createdDashboard.id)
 
-            const updateParams = {
-                dashboardId: createdDashboard.id,
-                data: {
-                    name: 'Updated Workflow Dashboard',
-                    description: 'Updated workflow description',
-                },
-            }
-
-            const updateResult = await updateTool.handler(context, updateParams)
+            const updateResult = await updateTool.handler(context, {
+                id: createdDashboard.id,
+                name: 'Updated Workflow Dashboard',
+                description: 'Updated workflow description',
+            })
             const updatedDashboard = parseToolResponse(updateResult)
-            expect(updatedDashboard.name).toBe(updateParams.data.name)
+            expect(updatedDashboard.name).toBe('Updated Workflow Dashboard')
 
             const deleteResult = await deleteTool.handler(context, {
-                dashboardId: createdDashboard.id,
+                id: createdDashboard.id,
             })
             const deleteResponse = parseToolResponse(deleteResult)
-            expect(deleteResponse.success).toBe(true)
+            expect(deleteResponse.deleted).toBe(true)
         })
     })
 
-    describe('reorder-dashboard-tiles tool', () => {
-        const createDashboard = createDashboardTool()
+    describe('dashboard-reorder-tiles tool', () => {
+        const createDashboard = getToolByName('dashboard-create')
         const createInsight = createInsightTool()
-        const addInsight = addInsightToDashboardTool()
-        const reorderTiles = reorderDashboardTilesTool()
-        const getDashboard = getDashboardTool()
-        const deleteDashboard = deleteDashboardTool()
+        const updateInsight = updateInsightTool()
+        const reorderTiles = getToolByName('dashboard-reorder-tiles')
+        const getOneDashboard = getToolByName('dashboard-get')
+        const deleteDashboard = getToolByName('dashboard-delete')
 
         it('should reorder tiles on a dashboard', async () => {
-            // Create a dashboard
+            // Create two dashboards — the second is used to verify full-replacement semantics
             const dashboardResult = await createDashboard.handler(context, {
-                data: {
-                    name: generateUniqueKey('Reorder Test Dashboard'),
-                    description: 'Dashboard for testing tile reordering',
-                    pinned: false,
-                },
+                name: generateUniqueKey('Reorder Test Dashboard'),
+                description: 'Dashboard for testing tile reordering',
+                pinned: false,
             })
             const dashboard = parseToolResponse(dashboardResult)
             createdResources.dashboards.push(dashboard.id)
+
+            const dashboard2Result = await createDashboard.handler(context, {
+                name: generateUniqueKey('Secondary Dashboard'),
+                pinned: false,
+            })
+            const dashboard2 = parseToolResponse(dashboard2Result)
+            createdResources.dashboards.push(dashboard2.id)
 
             // Create two insights
             const insight1Result = await createInsight.handler(context, {
@@ -272,23 +244,30 @@ describe('Dashboards', { concurrent: false }, () => {
             const insight2 = parseToolResponse(insight2Result)
             createdResources.insights.push(insight2.id)
 
-            // Add insights to dashboard
-            await addInsight.handler(context, {
-                data: {
-                    insightId: insight1.short_id,
-                    dashboardId: dashboard.id,
-                },
-            })
-            await addInsight.handler(context, {
-                data: {
-                    insightId: insight2.short_id,
-                    dashboardId: dashboard.id,
-                },
+            // Add insight1 to the primary dashboard
+            await updateInsight.handler(context, {
+                insightId: String(insight1.id),
+                data: { dashboards: [dashboard.id] },
             })
 
+            // Add insight2 to the secondary dashboard first, then append the primary
+            // dashboard — this verifies full-replacement semantics (must include all IDs)
+            await updateInsight.handler(context, {
+                insightId: String(insight2.id),
+                data: { dashboards: [dashboard2.id] },
+            })
+            const updatedInsight2 = parseToolResponse(
+                await updateInsight.handler(context, {
+                    insightId: String(insight2.id),
+                    data: { dashboards: [dashboard2.id, dashboard.id] },
+                })
+            )
+            expect(updatedInsight2.dashboards).toContain(dashboard.id)
+            expect(updatedInsight2.dashboards).toContain(dashboard2.id)
+
             // Get the dashboard to see the tile IDs
-            const dashboardWithTilesResult = await getDashboard.handler(context, {
-                dashboardId: dashboard.id,
+            const dashboardWithTilesResult = await getOneDashboard.handler(context, {
+                id: dashboard.id,
             })
             const dashboardWithTiles = parseToolResponse(dashboardWithTilesResult)
 
@@ -303,19 +282,27 @@ describe('Dashboards', { concurrent: false }, () => {
             // Reorder tiles (reverse the order)
             const reversedTileOrder = [...tileIds].reverse()
             const reorderResult = await reorderTiles.handler(context, {
-                dashboardId: dashboard.id,
-                tileOrder: reversedTileOrder,
+                id: dashboard.id,
+                tile_order: reversedTileOrder,
             })
             const reorderResponse = parseToolResponse(reorderResult)
 
-            expect(reorderResponse.success).toBe(true)
-            expect(reorderResponse.message).toContain('Successfully reordered')
-            expect(reorderResponse.tiles).toBeTruthy()
-            expect(reorderResponse.url).toContain('/dashboard/')
+            expect(reorderResponse.id).toBe(dashboard.id)
+            expect(reorderResponse._posthogUrl).toContain('/dashboard/')
+
+            // Verify insight2 is still on dashboard2 after reordering dashboard1
+            const dashboard2WithTiles = parseToolResponse(await getOneDashboard.handler(context, { id: dashboard2.id }))
+            const dashboard2InsightIds = dashboard2WithTiles.tiles
+                .filter((tile: any) => tile?.insight)
+                .map((tile: any) => tile.insight.id)
+            expect(dashboard2InsightIds).toContain(insight2.id)
 
             // Clean up
-            await deleteDashboard.handler(context, { dashboardId: dashboard.id })
-            createdResources.dashboards = createdResources.dashboards.filter((id) => id !== dashboard.id)
+            await deleteDashboard.handler(context, { id: dashboard.id })
+            await deleteDashboard.handler(context, { id: dashboard2.id })
+            createdResources.dashboards = createdResources.dashboards.filter(
+                (id) => id !== dashboard.id && id !== dashboard2.id
+            )
         })
     })
 })

@@ -890,6 +890,22 @@ class TestProperty(BaseTest):
             self._parse_expr("session.$session_duration = 10"),
         )
 
+    def test_session_boolean_property(self):
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "session", "key": "$is_bounce", "value": "true", "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("session.$is_bounce = true"),
+        )
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "session", "key": "$is_bounce", "value": "false", "operator": "exact"},
+                scope="event",
+            ),
+            self._parse_expr("session.$is_bounce = false"),
+        )
+
     def test_data_warehouse_person_property(self):
         credential = DataWarehouseCredential.objects.create(
             team=self.team, access_key="_accesskey", access_secret="_secret"

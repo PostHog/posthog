@@ -124,7 +124,7 @@ async fn test_get_person_with_strong_consistency_returns_unimplemented() {
     assert!(result.is_err());
     let status = result.unwrap_err();
     assert_eq!(status.code(), tonic::Code::Unimplemented);
-    assert!(status.message().contains("personhog-leader"));
+    assert!(status.message().contains("leader"));
 }
 
 #[tokio::test]

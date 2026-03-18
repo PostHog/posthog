@@ -430,6 +430,13 @@ class HogFunctionInvocationSerializer(serializers.Serializer):
     )
 
 
+class HogFunctionRearrangeSerializer(serializers.Serializer):
+    orders = serializers.DictField(
+        child=serializers.IntegerField(),
+        help_text="Map of hog function UUIDs to their new execution_order values.",
+    )
+
+
 class CommaSeparatedListFilter(BaseInFilter, CharFilter):
     pass
 
@@ -442,7 +449,7 @@ class HogFunctionFilterSet(FilterSet):
         fields = ["type", "enabled", "id", "created_by", "created_at", "updated_at"]
 
 
-@extend_schema(tags=["hog_functions"])
+@extend_schema(tags=["hog_functions", "cdp"])
 class HogFunctionViewSet(
     TeamAndOrgViewSetMixin,
     LogEntryMixin,
@@ -451,6 +458,7 @@ class HogFunctionViewSet(
     viewsets.ModelViewSet,
 ):
     scope_object = "hog_function"
+    scope_object_write_actions = ["create", "update", "partial_update", "invocations", "rearrange"]
     queryset = HogFunction.objects.all()
     filter_backends = [DjangoFilterBackend, filters.SearchFilter]
     search_fields = ["name", "description"]
@@ -528,6 +536,10 @@ class HogFunctionViewSet(
 
         return icon_service.get_icon_http_response(id)
 
+    @extend_schema(
+        request=HogFunctionInvocationSerializer,
+        responses={200: HogFunctionInvocationSerializer},
+    )
     @action(detail=True, methods=["POST"])
     def invocations(self, request: Request, *args, **kwargs):
         try:
@@ -584,7 +596,12 @@ class HogFunctionViewSet(
             detail_type=humanize_hog_function_type(serializer.instance.type),
         )
 
-    @action(methods=["PATCH"], detail=False)
+    @extend_schema(
+        request=HogFunctionRearrangeSerializer,
+        responses={200: HogFunctionSerializer(many=True)},
+        filters=False,
+    )
+    @action(methods=["PATCH"], detail=False, pagination_class=None)
     def rearrange(self, request: Request, *args, **kwargs) -> Response:
         """Update the execution order of multiple HogFunctions."""
         team = self.team
