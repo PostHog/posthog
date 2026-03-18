@@ -160,7 +160,7 @@ describe('CdpPrecalculatedFiltersConsumer', () => {
 
         mockProducerObserver.resetKafkaProducer()
         hub = await createHub()
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         processor = new CdpPrecalculatedFiltersConsumer(hub, hub)
         await processor.start()

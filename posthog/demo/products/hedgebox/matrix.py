@@ -162,7 +162,7 @@ class HedgeboxMatrix(Matrix):
     def set_project_up(self, team: "Team", user: "User"):
         super().set_project_up(team, user)
         team.autocapture_web_vitals_opt_in = True
-        team.session_recording_opt_in = True  # Also see: the hedgebox-dummy/ app
+        team.session_recording_opt_in = True  # Also see: the tools/hedgebox-dummy/ app
 
         # Actions
         interacted_with_file_action = Action.objects.create(
