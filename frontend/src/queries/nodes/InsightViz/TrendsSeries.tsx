@@ -62,6 +62,7 @@ export function TrendsSeries(): JSX.Element | null {
     }
 
     const filters = queryNodeToFilter(querySource)
+    const isFunnels = querySource.kind === NodeKind.FunnelsQuery
     const mathAvailability = isLifecycle
         ? MathAvailability.None
         : isStickiness
@@ -87,6 +88,15 @@ export function TrendsSeries(): JSX.Element | null {
                                 NodeKind.LifecycleDataWarehouseNode
                             ),
                         } as LifecycleQuery)
+                    } else if (isFunnels) {
+                        updateQuerySource({
+                            series: actionsAndEventsToSeries(
+                                payload as any,
+                                true,
+                                mathAvailability,
+                                NodeKind.FunnelsDataWarehouseNode
+                            ),
+                        } as FunnelsQuery)
                     } else {
                         updateQuerySource({
                             series: actionsAndEventsToSeries(
@@ -95,7 +105,7 @@ export function TrendsSeries(): JSX.Element | null {
                                 mathAvailability,
                                 NodeKind.DataWarehouseNode
                             ),
-                        } as TrendsQuery | FunnelsQuery | StickinessQuery)
+                        } as TrendsQuery | StickinessQuery)
                     }
                 }}
                 typeKey={keyForInsightLogicProps('new')(insightProps)}

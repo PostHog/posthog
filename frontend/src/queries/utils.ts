@@ -26,6 +26,7 @@ import {
     ExperimentFunnelsQuery,
     ExperimentMetric,
     ExperimentTrendsQuery,
+    FunnelsDataWarehouseNode,
     FunnelsQuery,
     GoalLine,
     GroupNode,
@@ -124,12 +125,16 @@ export function isDataWarehouseNode(node?: Record<string, any> | null): node is 
     return node?.kind === NodeKind.DataWarehouseNode
 }
 
+export function isFunnelsDataWarehouseNode(node?: Record<string, any> | null): node is FunnelsDataWarehouseNode {
+    return node?.kind === NodeKind.FunnelsDataWarehouseNode
+}
+
 export function isLifecycleDataWarehouseNode(node?: Record<string, any> | null): node is LifecycleDataWarehouseNode {
     return node?.kind === NodeKind.LifecycleDataWarehouseNode
 }
 
 export function isAnyDataWarehouseNode(node?: Record<string, any> | null): node is AnyDataWarehouseNode {
-    return isDataWarehouseNode(node) || isLifecycleDataWarehouseNode(node)
+    return isDataWarehouseNode(node) || isFunnelsDataWarehouseNode(node) || isLifecycleDataWarehouseNode(node)
 }
 
 /** @deprecated `ActorsQuery` is now used instead of `PersonsNode`. */
