@@ -24,7 +24,7 @@ from products.signals.backend.temporal.actionability_judge import (
     actionability_judge_activity,
 )
 from products.signals.backend.temporal.clickhouse import execute_hogql_query_with_retry
-from products.signals.backend.temporal.safety_judge import SafetyJudgeInput, safety_judge_activity
+from products.signals.backend.temporal.report_safety_judge import SafetyJudgeInput, report_safety_judge_activity
 from products.signals.backend.temporal.summarize_signals import (
     SummarizeSignalsInput,
     SummarizeSignalsOutput,
@@ -100,7 +100,7 @@ class SignalReportSummaryWorkflow:
 
             safety_result, actionability_result = await asyncio.gather(
                 workflow.execute_activity(
-                    safety_judge_activity,
+                    report_safety_judge_activity,
                     SafetyJudgeInput(
                         team_id=inputs.team_id,
                         report_id=inputs.report_id,

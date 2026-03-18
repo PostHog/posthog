@@ -184,6 +184,17 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             },
         ],
 
+        isEditingKeyLegacy: [
+            (s) => [s.editingKeyId, s.keys],
+            (editingKeyId, keys): boolean => {
+                if (!editingKeyId || editingKeyId === 'new') {
+                    return false
+                }
+                const key = keys.find((k) => k.id === editingKeyId)
+                return key?.is_legacy_hashing ?? false
+            },
+        ],
+
         allOrganizations: [
             (s) => [s.user],
             (user): OrganizationBasicType[] => {
