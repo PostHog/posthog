@@ -136,7 +136,6 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     team_id: int
     filter_storage_key: str  # Redis key containing the filters
     cohort_ids: list[int]  # All cohort IDs being processed
-    filter_count: int  # Number of filters (for logging)
     batch_size: int = 1000
     offset: int = 0
     limit: int | None = None  # Total persons to process (None = all)
@@ -174,7 +173,6 @@ async def backfill_precalculated_person_properties_activity(
     """
     bind_contextvars()
     cohort_ids = inputs.cohort_ids
-    total_filters = inputs.total_filters
     logger = LOGGER.bind(team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=cohort_ids)
 
     # Load filters from Redis storage without blocking the event loop
@@ -191,7 +189,7 @@ async def backfill_precalculated_person_properties_activity(
 
     logger.info(
         f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids}, "
-        f"processing {total_filters} total filters across {inputs.limit or 'all'} persons starting at offset {inputs.offset}"
+        f"processing {len(filters)} total filters across {inputs.limit or 'all'} persons starting at offset {inputs.offset}"
     )
 
     async with Heartbeater(

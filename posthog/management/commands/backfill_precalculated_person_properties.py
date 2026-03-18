@@ -269,7 +269,6 @@ class Command(BaseCommand):
                 team_id=team_id,
                 filter_storage_key=filter_storage_key,
                 cohort_ids=cohort_ids,
-                filter_count=len(filters),
                 parallelism=parallelism,
                 batch_size=batch_size,
                 workflows_per_batch=workflows_per_batch,

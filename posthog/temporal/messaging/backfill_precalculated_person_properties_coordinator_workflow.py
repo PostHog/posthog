@@ -38,7 +38,6 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorInputs:
     team_id: int
     filter_storage_key: str  # Redis key containing the filters
     cohort_ids: list[int]  # All cohort IDs being processed
-    filter_count: int  # Number of filters (for logging)
     parallelism: int = 10  # Number of child workflows to spawn
     batch_size: int = 1000  # Persons per batch within each worker
     workflows_per_batch: int = 5  # Number of workflows to start per batch
@@ -174,7 +173,6 @@ class BackfillPrecalculatedPersonPropertiesCoordinatorWorkflow(PostHogWorkflow):
                         team_id=inputs.team_id,
                         filter_storage_key=inputs.filter_storage_key,
                         cohort_ids=inputs.cohort_ids,
-                        filter_count=inputs.filter_count,
                         batch_size=inputs.batch_size,
                         offset=offset,
                         limit=limit,

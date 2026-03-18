@@ -9,7 +9,7 @@ from posthog.redis import get_client
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 KEY_PREFIX = "backfill_person_properties_filters:"
-DEFAULT_TTL = 24 * 60 * 60  # 24 hours
+DEFAULT_TTL = 72 * 60 * 60  # 3 days - provides safety margin for activity retries
 
 
 def store_filters(filters: list[PersonPropertyFilter], team_id: int, ttl: int = DEFAULT_TTL) -> str:
