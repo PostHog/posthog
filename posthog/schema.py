@@ -6143,6 +6143,13 @@ class FormResumePayload(BaseModel):
     form_answers: dict[str, str | list[str]]
 
 
+class FormDismissPayload(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    action: Literal["dismiss_form"] = "dismiss_form"
+
+
 class FunnelCorrelationResult(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6770,8 +6777,8 @@ class ResultCustomization(RootModel[ResultCustomizationByValue | ResultCustomiza
     root: ResultCustomizationByValue | ResultCustomizationByPosition
 
 
-class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload]):
-    root: ApprovalResumePayload | FormResumePayload
+class ResumePayload(RootModel[ApprovalResumePayload | FormResumePayload | FormDismissPayload]):
+    root: ApprovalResumePayload | FormResumePayload | FormDismissPayload
 
 
 class RetentionResult(BaseModel):

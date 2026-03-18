@@ -284,3 +284,15 @@ class TestCreateFormTool(BaseTest):
                 "Configure settings:\n  Sample size: 1000\n  Notify me: true",
             )
             self.assertEqual(metadata["answers"], {"sample": "1000", "notify": "true"})
+
+    async def test_returns_dismissed_response_when_user_dismisses_form(self):
+        tool = self._create_tool()
+        questions = self._create_questions(1)
+
+        with patch("ee.hogai.tools.create_form.interrupt") as mock_interrupt:
+            mock_interrupt.return_value = {"action": "dismiss_form"}
+
+            result, metadata = await tool._arun_impl(questions=questions)
+
+            self.assertIn("dismissed the form", result)
+            self.assertEqual(metadata, {"status": "dismiss_form"})

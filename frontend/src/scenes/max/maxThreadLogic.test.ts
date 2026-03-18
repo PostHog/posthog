@@ -41,6 +41,15 @@ import {
 } from './testUtils'
 import { EnhancedToolCall } from './Thread'
 
+jest.mock(
+    '@posthog/hogvm',
+    () => ({
+        exec: jest.fn(),
+        execAsync: jest.fn(),
+    }),
+    { virtual: true }
+)
+
 describe('maxThreadLogic', () => {
     let logic: ReturnType<typeof maxThreadLogic.build>
     let maxLogicInstance: ReturnType<typeof maxLogic.build>
@@ -741,6 +750,44 @@ describe('maxThreadLogic', () => {
 
             expect(logic.values.queuedMessages).toEqual([])
             expect(listSpy).toHaveBeenCalledWith('new-conversation-id')
+        })
+    })
+
+    describe('form resume actions', () => {
+        it('resumes the conversation with submitted form answers', async () => {
+            const streamSpy = mockStream()
+
+            await expectLogic(logic, () => {
+                logic.actions.continueAfterForm({ q1: 'answer1' })
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['continueAfterForm', 'streamConversation', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: null,
+                    conversation: MOCK_CONVERSATION_ID,
+                    resume_payload: { action: 'form', form_answers: { q1: 'answer1' } },
+                }),
+                expect.any(Object)
+            )
+        })
+
+        it('resumes the conversation when the form is dismissed', async () => {
+            const streamSpy = mockStream()
+
+            await expectLogic(logic, () => {
+                logic.actions.continueAfterFormDismissal()
+                logic.actions.completeThreadGeneration()
+            }).toDispatchActions(['continueAfterFormDismissal', 'streamConversation', 'completeThreadGeneration'])
+
+            expect(streamSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    content: null,
+                    conversation: MOCK_CONVERSATION_ID,
+                    resume_payload: { action: 'dismiss_form' },
+                }),
+                expect.any(Object)
+            )
         })
     })
 
@@ -2592,7 +2639,7 @@ describe('maxThreadLogic', () => {
     })
 
     describe('submissionDisabledReason selector', () => {
-        it('returns "Please answer the questions above" when multiQuestionFormPending is true', async () => {
+        it('returns "Please answer, skip, or dismiss the form above" when multiQuestionFormPending is true', async () => {
             await expectLogic(logic, () => {
                 logic.actions.setThread([
                     {
@@ -2611,7 +2658,7 @@ describe('maxThreadLogic', () => {
                     },
                 ])
             }).toMatchValues({
-                submissionDisabledReason: 'Please answer the questions above',
+                submissionDisabledReason: 'Please answer, skip, or dismiss the form above',
             })
         })
     })

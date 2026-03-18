@@ -3,7 +3,13 @@ from typing import Any, Literal
 from langgraph.types import interrupt
 from pydantic import BaseModel, Field, ValidationError
 
-from posthog.schema import FormResumePayload, MultiQuestionForm, MultiQuestionFormField, MultiQuestionFormQuestion
+from posthog.schema import (
+    FormDismissPayload,
+    FormResumePayload,
+    MultiQuestionForm,
+    MultiQuestionFormField,
+    MultiQuestionFormQuestion,
+)
 
 from ee.hogai.tool import MaxTool
 from ee.hogai.tool_errors import MaxToolRetryableError
@@ -21,6 +27,8 @@ Use this tool to gather structured information from users through an interactive
 ## Philosophy
 
 Always use the full capacity of the form (up to 4 questions). Each form is a single chance to gather context — maximize the information captured. Focus on parameters that materially affect the outcome: configuration values, thresholds, ratios, targeting criteria, metric choices. Skip superficial questions like names or descriptions that you can generate yourself. Every question should directly change what you build or how you build it. Use optional fields to capture nice-to-have context without blocking submission. Default to being thorough — the user should not have to ask for detail.
+
+Users can skip individual questions or dismiss the form entirely, so only ask questions whose answers materially change the outcome.
 
 Never ask for confirmation of something you can infer from the conversation. If the user said "create an experiment for the checkout flow", you already know the target area — don't ask again. Only ask about parameters that are genuinely ambiguous or have multiple valid choices.
 
@@ -233,8 +241,20 @@ class CreateFormTool(MaxTool):
         response = interrupt(value=MultiQuestionForm(questions=questions))
         try:
             form_payload = FormResumePayload.model_validate(response)
-        except ValidationError as e:
-            raise MaxToolRetryableError(f"Invalid response from the user: {e}")
+        except ValidationError:
+            try:
+                dismiss_payload = FormDismissPayload.model_validate(response)
+            except ValidationError as e:
+                raise MaxToolRetryableError(f"Invalid response from the user: {e}")
+
+            return (
+                "The user dismissed the form and chose not to answer these questions. "
+                "Continue without these answers if possible. If the missing information is required, "
+                "briefly explain what is blocked and offer the user a lower-friction alternative.",
+                {
+                    "status": dismiss_payload.action,
+                },
+            )
 
         def format_answer(answer: str | list[str] | None) -> str:
             if answer is None:
@@ -253,6 +273,7 @@ class CreateFormTool(MaxTool):
                 lines.append(f"{q.question}: {format_answer(form_payload.form_answers.get(q.id))}")
 
         return "\n".join(lines), {
+            "status": "form",
             "answers": form_payload.form_answers,
         }
 
