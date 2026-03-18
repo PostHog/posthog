@@ -40,10 +40,12 @@ const getExistingButtonTile = (
     return { url: '', text: '', placement: 'left', style: 'primary', transparent_background: false }
 }
 
+const ALLOWED_URL_PROTOCOLS = ['http:', 'https:']
+
 const isValidUrl = (value: string): boolean => {
     try {
-        new URL(value)
-        return true
+        const url = new URL(value)
+        return ALLOWED_URL_PROTOCOLS.includes(url.protocol)
     } catch {
         return false
     }

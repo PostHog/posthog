@@ -23,6 +23,8 @@ interface ButtonTileCardProps extends React.HTMLAttributes<HTMLDivElement>, Resi
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
     /** Whether editing controls (three-dots menu) should be shown. False hides them on template dashboards in view mode. */
     showEditingControls?: boolean
+    /** Suppresses button click navigation while the tile is being dragged. */
+    isDragging?: boolean
 }
 
 function ButtonTileCardInternal(
@@ -37,6 +39,7 @@ function ButtonTileCardInternal(
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
         showEditingControls,
+        isDragging,
         ...divProps
     }: ButtonTileCardProps,
     ref: React.Ref<HTMLDivElement>
@@ -51,10 +54,20 @@ function ButtonTileCardInternal(
     const shouldHideMoreButton = placement === DashboardPlacement.Public || showEditingControls === false
 
     const handleClick = (): void => {
+        if (isDragging) {
+            return
+        }
         if (button_tile.url.startsWith('/')) {
             push(button_tile.url)
         } else {
-            window.open(button_tile.url, '_blank', 'noopener,noreferrer')
+            try {
+                const url = new URL(button_tile.url)
+                if (url.protocol === 'http:' || url.protocol === 'https:') {
+                    window.open(button_tile.url, '_blank', 'noopener,noreferrer')
+                }
+            } catch {
+                // Invalid URL, do nothing
+            }
         }
     }
 
@@ -73,7 +86,7 @@ function ButtonTileCardInternal(
             ref={ref}
         >
             {moreButtonOverlay && !shouldHideMoreButton && (
-                <div className="absolute right-4 top-4 z-10">
+                <div className="absolute right-4 top-4">
                     <More overlay={moreButtonOverlay} />
                 </div>
             )}

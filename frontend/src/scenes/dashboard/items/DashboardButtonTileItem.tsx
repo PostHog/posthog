@@ -43,6 +43,7 @@ function DashboardButtonTileItemInternal(
             ref={ref}
             buttonTile={tile}
             placement={placement}
+            isDragging={isDragging}
             moreButtonOverlay={
                 <>
                     <LemonButton fullWidth onClick={onEdit} data-attr="edit-button-tile">
