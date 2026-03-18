@@ -455,7 +455,7 @@ async def verify_impersonated_service_account_ownership(
 
     attempt = 0
     initial_interval = 3
-    backoff = 2
+    backoff_factor = 2
 
     while attempt < max_attempts:
         description = await get_service_account_description(service_account_email)
@@ -463,7 +463,7 @@ async def verify_impersonated_service_account_ownership(
         if f"posthog:{organization_id}" in description:
             return
 
-        await asyncio.sleep(initial_interval**attempt)
+        await asyncio.sleep(initial_interval * (backoff_factor**attempt))
         attempt += 1
 
     if f"posthog:{organization_id}" not in description:
