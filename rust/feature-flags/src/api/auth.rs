@@ -77,9 +77,63 @@ pub async fn validate_secret_api_token_for_team(
     Ok(())
 }
 
-/// Hash a personal API key value using SHA256
+/// Validates a project secret API key (from posthog_projectsecretapikey table) for a specific team.
+/// Returns the key ID on success.
+pub async fn validate_project_secret_api_key_for_team(
+    state: &AppState,
+    token: &str,
+    expected_team_id: i32,
+) -> Result<String, FlagError> {
+    use sqlx::Row;
+
+    debug!(
+        expected_team_id = expected_team_id,
+        "Validating project secret API key for team"
+    );
+
+    let secure_value = hash_key_value(token);
+
+    let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
+    let mut conn = pg_reader.get_connection().await?;
+
+    let query = r#"
+        SELECT id
+        FROM posthog_projectsecretapikey
+        WHERE secure_value = $1
+          AND team_id = $2
+          AND (
+              scopes IS NULL
+              OR scopes = '{*}'
+              OR 'feature_flag:read' = ANY(scopes)
+              OR 'feature_flag:write' = ANY(scopes)
+          )
+    "#;
+
+    let row = sqlx::query(query)
+        .bind(&secure_value)
+        .bind(expected_team_id)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or_else(|| {
+            warn!("Project secret API key not found, wrong team, or missing required scopes");
+            FlagError::SecretApiTokenInvalid
+        })?;
+
+    let key_id: String = row.get("id");
+
+    debug!(
+        key_id = %key_id,
+        team_id = expected_team_id,
+        "Project secret API key validated successfully"
+    );
+
+    Ok(key_id)
+}
+
+/// Hash an API key value using SHA256
 /// Ported from PostHog's `hash_key_value` function in `posthog/models/personal_api_key.py`
-pub(crate) fn hash_personal_api_key(value: &str) -> String {
+/// Used by both PersonalAPIKey and ProjectSecretAPIKey
+pub(crate) fn hash_key_value(value: &str) -> String {
     use sha2::{Digest, Sha256};
 
     // No salt — see https://github.com/jazzband/django-rest-knox/issues/188
@@ -100,7 +154,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
 
     debug!(team_id = team.id, "Validating personal API key for team");
 
-    let secure_value = hash_personal_api_key(key);
+    let secure_value = hash_key_value(key);
 
     let pg_reader: PostgresReader = state.database_pools.non_persons_reader.clone();
     let mut conn = pg_reader.get_connection().await?;
@@ -108,7 +162,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
     // Query for PersonalAPIKey with scope validation
     // The key must:
     // 1. Have an active user
-    // 2. Have either no scopes (full access) OR have feature_flag:read or feature_flag:write scopes
+    // 2. Have feature_flag:read, feature_flag:write, or all-access (*) scopes
     let query = r#"
         SELECT
             pak.id as key_id,
@@ -123,8 +177,7 @@ pub async fn validate_personal_api_key_with_scopes_for_team(
         WHERE pak.secure_value = $1
           AND u.is_active = true
           AND (
-              pak.scopes IS NULL
-              OR pak.scopes = '{*}'
+              pak.scopes = '{*}'
               OR 'feature_flag:read' = ANY(pak.scopes)
               OR 'feature_flag:write' = ANY(pak.scopes)
           )
@@ -266,8 +319,8 @@ mod tests {
 
     // Ported from PostHog's `test_hash_key_values` function in `posthog/api/test/test_personal_api_keys.py`
     #[test]
-    fn test_hash_personal_api_key() {
-        let result = hash_personal_api_key("test_key_12345");
+    fn test_hash_key_value() {
+        let result = hash_key_value("test_key_12345");
         assert_eq!(
             result,
             "sha256$45af89b510a3279a817f851de5d3f95b73485d58ec2672a39e52d8aeeb014059"

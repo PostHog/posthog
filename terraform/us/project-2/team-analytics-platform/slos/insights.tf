@@ -173,6 +173,23 @@ locals {
       SQL
     }
 
+    subscriptions = {
+      name_prefix  = "SLO: Subscription deliveries"
+      description  = "Rolling burn rate for subscription deliveries."
+      error_budget = 0.01
+      regions      = ["us"]
+      daily_sql    = <<-SQL
+        SELECT
+            toDate(timestamp) AS date,
+            countIf(event = 'subscription_delivery_started') AS total,
+            countIf(event = 'subscription_delivery_exhausted') AS failures
+        FROM events
+        WHERE event IN ('subscription_delivery_started', 'subscription_delivery_exhausted')
+            AND timestamp >= now() - INTERVAL 30 DAY
+        GROUP BY date
+      SQL
+    }
+
     # Cohorts not calculated within a day count as failures.
     cohorts = {
       name_prefix  = "SLO: Cohort calculations"

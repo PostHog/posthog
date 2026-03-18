@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use sqlx::FromRow;
 
-use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
+use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::FeatureFlagStorage;
 use crate::storage::types::{HashKeyOverride, HashKeyOverrideContext};
@@ -32,10 +32,14 @@ impl FeatureFlagStorage for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "get_hash_key_override_context".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_hash_key_override_context".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         // Select the appropriate pool based on consistency requirements.
@@ -49,6 +53,7 @@ impl FeatureFlagStorage for PostgresStorage {
         // service instead. Before the personhog-leader is implemented, we can serve consistent read after writes
         // for person data from this service
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let rows = if check_person_exists {
             sqlx::query_as!(
@@ -66,7 +71,7 @@ impl FeatureFlagStorage for PostgresStorage {
                 team_id as i32,
                 distinct_ids
             )
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await?
         } else {
             sqlx::query_as!(
@@ -83,9 +88,18 @@ impl FeatureFlagStorage for PostgresStorage {
                 team_id as i32,
                 distinct_ids
             )
-            .fetch_all(pool)
+            .fetch_all(&mut *conn)
             .await?
         };
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_hash_key_override_context".to_string(),
+            )],
+            rows.len() as f64,
+        );
 
         // Group by (person_id, distinct_id) and collect overrides + existing keys
         let mut result_map: HashMap<(i64, String), HashKeyOverrideContext> = HashMap::new();
@@ -129,11 +143,16 @@ impl FeatureFlagStorage for PostgresStorage {
             return Ok(0);
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "upsert_hash_key_overrides".to_string(),
-        )];
+        let labels = [
+            (
+                "operation".to_string(),
+                "upsert_hash_key_overrides".to_string(),
+            ),
+            ("pool".to_string(), "primary".to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
         let result = sqlx::query!(
             r#"
@@ -150,7 +169,7 @@ impl FeatureFlagStorage for PostgresStorage {
             distinct_ids,
             feature_flag_keys
         )
-        .execute(&self.primary_pool)
+        .execute(&mut *conn)
         .await?;
 
         Ok(result.rows_affected() as i64)
@@ -161,11 +180,16 @@ impl FeatureFlagStorage for PostgresStorage {
             return Ok(0);
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "delete_hash_key_overrides_by_teams".to_string(),
-        )];
+        let labels = [
+            (
+                "operation".to_string(),
+                "delete_hash_key_overrides_by_teams".to_string(),
+            ),
+            ("pool".to_string(), "primary".to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
+
+        let mut conn = PostgresStorage::acquire_timed(&self.primary_pool, "primary").await?;
 
         let team_ids_i32: Vec<i32> = team_ids.iter().map(|&id| id as i32).collect();
 
@@ -176,7 +200,7 @@ impl FeatureFlagStorage for PostgresStorage {
             "#,
             &team_ids_i32
         )
-        .execute(&self.primary_pool)
+        .execute(&mut *conn)
         .await?;
 
         Ok(result.rows_affected() as i64)
