@@ -16473,10 +16473,10 @@ export namespace Schemas {
     * `jira` - Jira
     * `pinterest-ads` - Pinterest Ads
      */
-    export type KindBfbEnum = typeof KindBfbEnum[keyof typeof KindBfbEnum];
+    export type Kind8d6Enum = typeof Kind8d6Enum[keyof typeof Kind8d6Enum];
 
 
-    export const KindBfbEnum = {
+    export const Kind8d6Enum = {
       Slack: 'slack',
       SlackPosthogCode: 'slack-posthog-code',
       Salesforce: 'salesforce',
@@ -16512,7 +16512,7 @@ export namespace Schemas {
      */
     export interface Integration {
       readonly id: number;
-      kind: KindBfbEnum;
+      kind: Kind8d6Enum;
       config?: unknown;
       readonly created_at: string;
       readonly created_by: UserBasic;
@@ -22227,7 +22227,7 @@ export namespace Schemas {
      */
     export interface PatchedIntegration {
       readonly id?: number;
-      kind?: KindBfbEnum;
+      kind?: Kind8d6Enum;
       config?: unknown;
       readonly created_at?: string;
       readonly created_by?: UserBasic;
@@ -23011,7 +23011,7 @@ export namespace Schemas {
      */
     export interface SessionRecordingExternalReferenceIntegration {
       readonly id: number;
-      readonly kind: KindBfbEnum;
+      readonly kind: Kind8d6Enum;
       readonly display_name: string;
     }
 
