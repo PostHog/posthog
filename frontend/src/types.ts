@@ -399,6 +399,7 @@ export interface PersonalAPIKeyType {
     id: string
     label: string
     value?: string
+    is_legacy_hashing: boolean
     mask_value?: string | null
     created_at: string
     last_used_at: string | null
@@ -5490,6 +5491,7 @@ export interface ExternalDataSourceSyncSchema {
     incremental_fields: IncrementalField[]
     incremental_available: boolean
     append_available: boolean
+    description?: string | null
 }
 
 export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema {
@@ -5502,6 +5504,7 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     incremental_field: string | null
     incremental_field_type: string | null
     sync_frequency: DataWarehouseSyncInterval
+    description?: string | null
 }
 
 export enum ExternalDataSchemaStatus {

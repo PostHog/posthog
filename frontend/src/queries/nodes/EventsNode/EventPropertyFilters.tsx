@@ -69,6 +69,7 @@ export function EventPropertyFilters<
             }}
             pageKey={`EventPropertyFilters.${id}`}
             eventNames={eventNames}
+            buttonText="Property filters"
         />
     ) : (
         <div>Error: property groups are not supported.</div>
