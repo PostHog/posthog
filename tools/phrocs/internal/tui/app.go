@@ -261,10 +261,7 @@ func (m Model) applySize() Model {
 	if m.showHelp {
 		fh = footerHeightFull
 	}
-	contentH := m.height - headerHeight - fh
-	if contentH < 1 {
-		contentH = 1
-	}
+	contentH := max(m.height-headerHeight-fh, 1)
 	// In copy mode the sidebar is hidden, so the viewport fills the full width.
 	// The PTY width is always the sidebar-adjusted value so processes don't
 	// receive a spurious resize when the user enters or exits copy mode
@@ -272,9 +269,8 @@ func (m Model) applySize() Model {
 	if m.isDockerMode() && !m.copyMode && !m.searchMode {
 		ptyW -= containerSidebarWidth
 	}
-	if ptyW < 1 {
-		ptyW = 1
-	}
+	ptyW = max(ptyW, 1)
+
 	// Reduce the viewport width to account for borders
 	vpW := ptyW - horizontalBorderCount
 	if m.copyMode || m.searchMode {

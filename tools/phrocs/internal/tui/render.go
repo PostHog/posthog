@@ -29,14 +29,9 @@ func (m Model) renderHeader() string {
 			labelW := lipgloss.Width(label)
 			innerW := m.width - stripesW - lipgloss.Width(brand) - lipgloss.Width(meta)
 
-			leftGap := (innerW - labelW) / 2
-			if leftGap < 0 {
-				leftGap = 0
-			}
-			rightGap := innerW - labelW - leftGap
-			if rightGap < 0 {
-				rightGap = 0
-			}
+			leftGap := max((innerW-labelW)/2, 0)
+			rightGap := max(innerW-labelW-leftGap, 0)
+
 			left := lipgloss.NewStyle().Width(leftGap).Render("")
 			right := lipgloss.NewStyle().Width(rightGap).Render("")
 
@@ -51,30 +46,20 @@ func (m Model) renderHeader() string {
 		}
 	}
 
-	spacerW := m.width - lipgloss.Width(stripesStyle) - lipgloss.Width(brand) - lipgloss.Width(procInfo) - lipgloss.Width(meta)
-	if spacerW < 0 {
-		spacerW = 0
-	}
+	spacerW := max(m.width-lipgloss.Width(stripesStyle)-lipgloss.Width(brand)-lipgloss.Width(procInfo)-lipgloss.Width(meta), 0)
 	spacer := lipgloss.NewStyle().Width(spacerW).Render("")
 	return lipgloss.JoinHorizontal(lipgloss.Top, stripesStyle, brand, spacer, procInfo, "•", meta)
 }
 
 func (m Model) renderSidebar() string {
 	h := m.sidebarHeight()
-	if h < 1 {
-		h = 1
-	}
 
 	// Usable column width inside the border
 	innerW := sidebarWidth - 1
 
-	start := m.servicesOffset
-	if start < 0 {
-		start = 0
-	}
-	if start > max(0, len(m.services)-1) {
-		start = max(0, len(m.services)-1)
-	}
+	// Determine the vertical slice of the services list to render based
+	// on the current cursor position and servicesOffset
+	start := min(max(m.servicesOffset, 0), max(0, len(m.services)-1))
 	end := min(len(m.services), start+h)
 
 	var rows []string
@@ -89,26 +74,8 @@ func (m Model) renderSidebar() string {
 		}
 		iconColor := statusIconColor(p.Status())
 
-		// Reserve 3 visible chars for left-padding (1) + icon (1) + space (1)
 		name := truncate(p.Name, innerW-3)
-
-		// Render icon and name as *separate* lipgloss segments that share the
-		// same background colour. This avoids embedding pre-rendered ANSI
-		// strings (which carry their own \033[m reset) inside an outer style,
-		// which would silently terminate the background highlight after the icon
-		// and make the active-row cursor invisible.
-		if i == m.servicesCursor {
-			base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
-			iconSeg := base.PaddingLeft(1).Foreground(iconColor).Render(iconChar)
-			// Width covers the remaining columns: innerW minus the 2 chars
-			// already consumed by PaddingLeft + icon
-			nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
-			rows = append(rows, iconSeg+nameSeg)
-		} else {
-			iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor).Render(iconChar)
-			nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2).Render(" " + name)
-			rows = append(rows, iconSeg+nameSeg)
-		}
+		rows = append(rows, renderSidebarRow(iconChar, name, iconColor, i == m.servicesCursor, innerW))
 	}
 
 	// Pad remaining rows so the sidebar border extends the full height
@@ -116,11 +83,9 @@ func (m Model) renderSidebar() string {
 		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
 	}
 
-	var style lipgloss.Style
+	style := borderStyle
 	if m.focusedPane == focusServices {
 		style = borderFocusedStyle
-	} else {
-		style = borderStyle
 	}
 	return style.Height(h).Render(strings.Join(rows, "\n"))
 }
@@ -131,10 +96,7 @@ func (m Model) sidebarHeight() int {
 		fh = footerHeightFull
 	}
 	h := m.height - headerHeight - fh
-	if h < 1 {
-		return 1
-	}
-	return h
+	return max(h, 1)
 }
 
 // Keep selected process row within the visible
@@ -148,10 +110,7 @@ func (m *Model) ensureSidebarCursorVisible() {
 
 	maxOffset := len(m.services) - h
 	if m.servicesOffset > maxOffset {
-		m.servicesOffset = maxOffset
-	}
-	if m.servicesOffset < 0 {
-		m.servicesOffset = 0
+		m.servicesOffset = max(maxOffset, 0)
 	}
 
 	if m.servicesCursor < m.servicesOffset {
@@ -163,11 +122,9 @@ func (m *Model) ensureSidebarCursorVisible() {
 }
 
 func (m Model) renderOutput() string {
-	var style lipgloss.Style
+	var style = borderStyle
 	if m.focusedPane == focusOutput {
 		style = borderFocusedStyle
-	} else {
-		style = borderStyle
 	}
 	content := lipgloss.JoinHorizontal(lipgloss.Top, m.viewportWithIndicator())
 	return style.Render(content)
@@ -215,8 +172,7 @@ func (m Model) renderFooter() string {
 		return footerStyle.Width(m.width - 2).Render(
 			lipgloss.NewStyle().Foreground(colorBlue).Render(hint),
 		)
-	}
-	if m.searchMode {
+	} else if m.searchMode {
 		var matchInfo string
 		if m.searchQuery == "" {
 			matchInfo = ""
@@ -228,6 +184,7 @@ func (m Model) renderFooter() string {
 		prompt := lipgloss.NewStyle().Foreground(colorYellow).Render(fmt.Sprintf("/ %s▌%s", m.searchQuery, matchInfo))
 		return footerStyle.Width(m.width - 2).Render(prompt)
 	}
+
 	if m.searchQuery != "" {
 		var matchInfo string
 		if len(m.searchMatches) == 0 {

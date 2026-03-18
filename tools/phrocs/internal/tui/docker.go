@@ -1,9 +1,9 @@
 package tui
 
 import (
+	"image/color"
 	"strings"
 
-	"charm.land/lipgloss/v2"
 	"github.com/posthog/posthog/phrocs/internal/docker"
 )
 
@@ -36,16 +36,12 @@ func (m *Model) ensureContainerCursorVisible() {
 
 	maxOffset := total - h
 	if m.containerOffset > maxOffset {
-		m.containerOffset = maxOffset
-	}
-	if m.containerOffset < 0 {
-		m.containerOffset = 0
+		m.containerOffset = max(0, maxOffset)
 	}
 
 	if m.containerCursor < m.containerOffset {
 		m.containerOffset = m.containerCursor
-	}
-	if m.containerCursor >= m.containerOffset+h {
+	} else if m.containerCursor >= m.containerOffset+h {
 		m.containerOffset = m.containerCursor - h + 1
 	}
 }
@@ -78,67 +74,34 @@ func (m Model) loadContainerView() Model {
 
 func (m Model) renderContainerSidebar() string {
 	h := m.sidebarHeight()
-	if h < 1 {
-		h = 1
-	}
-
 	innerW := containerSidebarWidth - 1
 	totalEntries := m.containerEntryCount()
 
-	start := m.containerOffset
-	if start < 0 {
-		start = 0
-	}
-	if start > max(0, totalEntries-1) {
-		start = max(0, totalEntries-1)
-	}
+	start := max(0, min(m.containerOffset, max(0, totalEntries-1)))
 	end := min(totalEntries, start+h)
 
 	var rows []string
 	for i := start; i < end; i++ {
+		var icon, name string
+		var iconColor color.Color
 		if i == 0 {
-			// "Status" overview row
-			icon := "◻"
-			name := "Status"
-			if m.containerCursor == 0 {
-				base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
-				iconSeg := base.PaddingLeft(1).Foreground(colorBlue).Render(icon)
-				nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
-				rows = append(rows, iconSeg+nameSeg)
-			} else {
-				iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(colorBlue).Render(icon)
-				nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2).Render(" " + name)
-				rows = append(rows, iconSeg+nameSeg)
-			}
+			icon, name, iconColor = "◻", "Status", colorBlue
 		} else {
 			c := m.containers[i-1]
-			icon := docker.ContainerStateIcon(c.State)
-			iconColor := docker.ContainerStateColor(c.State)
-			name := truncate(c.Service, innerW-3)
-
-			if i == m.containerCursor {
-				base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
-				iconSeg := base.PaddingLeft(1).Foreground(iconColor).Render(icon)
-				nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
-				rows = append(rows, iconSeg+nameSeg)
-			} else {
-				iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor).Render(icon)
-				nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2).Render(" " + name)
-				rows = append(rows, iconSeg+nameSeg)
-			}
+			icon = docker.ContainerStateIcon(c.State)
+			name = truncate(c.Service, innerW-3)
+			iconColor = docker.ContainerStateColor(c.State)
 		}
+		rows = append(rows, renderSidebarRow(icon, name, iconColor, i == m.containerCursor, innerW))
 	}
 
-	// Pad remaining rows so the sidebar border extends the full height
 	for i := end - start; i < h; i++ {
 		rows = append(rows, procInactiveStyle.Width(innerW).Render(""))
 	}
 
-	var style lipgloss.Style
+	style := borderStyle
 	if m.focusedPane == focusContainers {
 		style = borderFocusedStyle
-	} else {
-		style = borderStyle
 	}
 	return style.Height(h).Render(strings.Join(rows, "\n"))
 }

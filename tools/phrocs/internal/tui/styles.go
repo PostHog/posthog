@@ -138,6 +138,20 @@ func statusIconColor(s process.Status) color.Color {
 	}
 }
 
+// Renders a single sidebar row with icon, name, and selected/unselected styling.
+// Used by both the process sidebar and the container sidebar.
+func renderSidebarRow(icon, name string, iconColor color.Color, selected bool, innerW int) string {
+	if selected {
+		base := lipgloss.NewStyle().Background(colorDarkGrey).Bold(true)
+		iconSeg := base.PaddingLeft(1).Foreground(iconColor).Render(icon)
+		nameSeg := base.Foreground(colorWhite).Width(innerW - 2).Render(" " + name)
+		return iconSeg + nameSeg
+	}
+	iconSeg := lipgloss.NewStyle().PaddingLeft(1).Foreground(iconColor).Render(icon)
+	nameSeg := lipgloss.NewStyle().Foreground(colorGrey).Width(innerW - 2).Render(" " + name)
+	return iconSeg + nameSeg
+}
+
 func truncate(s string, maxLen int) string {
 	if maxLen <= 0 {
 		return ""

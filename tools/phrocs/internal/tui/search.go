@@ -29,11 +29,7 @@ func (m *Model) recomputeSearch() {
 		}
 	}
 	if m.searchCursor >= len(m.searchMatches) {
-		if len(m.searchMatches) > 0 {
-			m.searchCursor = len(m.searchMatches) - 1
-		} else {
-			m.searchCursor = 0
-		}
+		m.searchCursor = max(len(m.searchMatches)-1, 0)
 	}
 	m.applySearchStyle()
 }
@@ -107,10 +103,7 @@ func (m *Model) jumpToCurrentMatch() {
 	}
 	lineIdx := m.searchMatches[m.searchCursor]
 	h := m.viewport.Height()
-	offset := lineIdx - h/2
-	if offset < 0 {
-		offset = 0
-	}
+	offset := max(lineIdx-h/2, 0)
 	m.viewport.SetYOffset(offset)
 	m.viewportAtBottom = m.viewport.AtBottom()
 }

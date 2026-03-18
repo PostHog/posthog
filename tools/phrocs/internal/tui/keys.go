@@ -7,20 +7,47 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// Resets all search state and clears viewport highlighting.
+func (m *Model) clearSearch() {
+	m.searchQuery = ""
+	m.searchMatches = nil
+	m.searchCursor = 0
+	m.viewport.StyleLineFunc = nil
+}
+
+// Forwards a message to the viewport and tracks scroll position.
+func (m *Model) forwardToViewport(msg tea.Msg) tea.Cmd {
+	var cmd tea.Cmd
+	m.viewport, cmd = m.viewport.Update(msg)
+	m.viewportAtBottom = m.viewport.AtBottom()
+	return cmd
+}
+
+// Cycles the focused pane forward (+1) or backward (-1).
+func (m *Model) cyclePane(dir int) {
+	panes := []focusPane{focusServices, focusOutput}
+	if m.isDockerMode() {
+		panes = append(panes, focusContainers)
+	}
+	for i, p := range panes {
+		if p == m.focusedPane {
+			m.focusedPane = panes[(i+dir+len(panes))%len(panes)]
+			m.dbg("focus: → %d", m.focusedPane)
+			return
+		}
+	}
+}
+
 func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
 	s := msg.String()
 	switch {
 	case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.CopyEsc):
 		m.searchMode = false
-		m.searchQuery = ""
-		m.searchMatches = nil
-		m.searchCursor = 0
-		m.viewport.StyleLineFunc = nil
+		m.clearSearch()
 		m = m.applySize()
 	case s == "enter":
 		m.searchMode = false
 		m = m.applySize()
-		// Keep matches visible
 		if len(m.searchMatches) > 0 {
 			m.searchCursor = 0
 			m.applySearchStyle()
@@ -63,7 +90,7 @@ func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, te
 			m.dbg("copy mode: anchor set at line %d", m.copyAnchor)
 		} else if m.copyCursor != m.copyAnchor {
 			text := m.copySelectedText()
-			m.dbg("copy mode: copied %d lines", len(text)-len(strings.ReplaceAll(text, "\n", ""))+1)
+			m.dbg("copy mode: copied %d lines", strings.Count(text, "\n")+1)
 			m.copyMode = false
 			m.applyCopyStyle()
 			m = m.applySize()
@@ -75,8 +102,7 @@ func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, te
 		m.applyCopyStyle()
 
 	case key.Matches(msg, m.keys.NextProc):
-		total := m.viewport.TotalLineCount()
-		if m.copyCursor < total-1 {
+		if m.copyCursor < m.viewport.TotalLineCount()-1 {
 			m.copyCursor++
 			m.ensureCopyCursorVisible()
 			m.applyCopyStyle()
@@ -95,8 +121,7 @@ func (m Model) handleCopyKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, te
 		m.applyCopyStyle()
 
 	case key.Matches(msg, m.keys.GotoBottom):
-		total := m.viewport.TotalLineCount()
-		if total > 0 {
+		if total := m.viewport.TotalLineCount(); total > 0 {
 			m.copyCursor = total - 1
 		}
 		m.ensureCopyCursorVisible()
@@ -114,59 +139,15 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 	case key.Matches(msg, m.keys.Help):
 		m.showHelp = !m.showHelp
 		m.dbg("help toggled: showHelp=%v", m.showHelp)
-		// Recompute sizes since footer height may change
 		m = m.applySize()
 
 	case key.Matches(msg, m.keys.NextPane):
-		if m.isDockerMode() {
-			switch m.focusedPane {
-			case focusServices:
-				m.focusedPane = focusOutput
-				m.dbg("focus: sidebar → output")
-			case focusOutput:
-				m.focusedPane = focusContainers
-				m.dbg("focus: output → containers")
-			case focusContainers:
-				m.focusedPane = focusServices
-				m.dbg("focus: containers → sidebar")
-			}
-		} else {
-			if m.focusedPane == focusServices {
-				m.focusedPane = focusOutput
-				m.dbg("focus: sidebar → output")
-			} else {
-				m.focusedPane = focusServices
-				m.dbg("focus: output → sidebar")
-			}
-		}
+		m.cyclePane(+1)
 
 	case key.Matches(msg, m.keys.PrevPane):
-		if m.isDockerMode() {
-			switch m.focusedPane {
-			case focusServices:
-				m.focusedPane = focusContainers
-				m.dbg("focus: sidebar → containers")
-			case focusContainers:
-				m.focusedPane = focusOutput
-				m.dbg("focus: containers → output")
-			case focusOutput:
-				m.focusedPane = focusServices
-				m.dbg("focus: output → sidebar")
-			}
-		} else {
-			if m.focusedPane == focusServices {
-				m.focusedPane = focusOutput
-				m.dbg("focus: sidebar → output")
-			} else {
-				m.focusedPane = focusServices
-				m.dbg("focus: output → sidebar")
-			}
-		}
+		m.cyclePane(-1)
 
 	case key.Matches(msg, m.keys.NextProc):
-		// When services focused: navigate to next process
-		// When docker sidebar focused: navigate to next container
-		// When output focused: scroll down
 		if m.focusedPane == focusServices {
 			if m.servicesCursor < len(m.services)-1 {
 				prev := m.servicesCursor
@@ -178,25 +159,17 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 				cmds = append(cmds, loadCmds...)
 			}
 		} else if m.focusedPane == focusContainers && m.isDockerMode() {
-			total := m.containerEntryCount()
-			if m.containerCursor < total-1 {
+			if m.containerCursor < m.containerEntryCount()-1 {
 				m.containerCursor++
 				m.ensureContainerCursorVisible()
 				m.dbg("container selected: %d", m.containerCursor)
 				m = m.loadContainerView()
 			}
 		} else {
-			// Forward to viewport for scrolling
-			var vpCmd tea.Cmd
-			m.viewport, vpCmd = m.viewport.Update(msg)
-			cmds = append(cmds, vpCmd)
-			m.viewportAtBottom = m.viewport.AtBottom()
+			cmds = append(cmds, m.forwardToViewport(msg))
 		}
 
 	case key.Matches(msg, m.keys.PrevProc):
-		// When sidebar focused: navigate to previous process
-		// When container sidebar focused: navigate to previous container
-		// When output focused: scroll up
 		if m.focusedPane == focusServices {
 			if m.servicesCursor > 0 {
 				prev := m.servicesCursor
@@ -215,11 +188,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 				m = m.loadContainerView()
 			}
 		} else {
-			// Forward to viewport for scrolling
-			var vpCmd tea.Cmd
-			m.viewport, vpCmd = m.viewport.Update(msg)
-			cmds = append(cmds, vpCmd)
-			m.viewportAtBottom = m.viewport.AtBottom()
+			cmds = append(cmds, m.forwardToViewport(msg))
 		}
 
 	case key.Matches(msg, m.keys.GotoTop):
@@ -247,10 +216,7 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 
 	case key.Matches(msg, m.keys.Search):
 		m.searchMode = true
-		m.searchQuery = ""
-		m.searchMatches = nil
-		m.searchCursor = 0
-		m.viewport.StyleLineFunc = nil
+		m.clearSearch()
 		m = m.applySize()
 
 	case key.Matches(msg, m.keys.SearchNext):
@@ -268,34 +234,21 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		}
 
 	case key.Matches(msg, m.keys.CopyEsc):
-		// Clear active search if any (esc has no other effect in normal mode)
 		if m.searchQuery != "" {
-			m.searchQuery = ""
-			m.searchMatches = nil
-			m.searchCursor = 0
-			m.viewport.StyleLineFunc = nil
+			m.clearSearch()
 		}
 
 	case key.Matches(msg, m.keys.CopyMode):
-		// Enter copy mode
 		m.copyMode = true
-		// Expand the viewport to full width before recording the cursor
-		// position so YOffset stays meaningful after the resize
 		m = m.applySize()
-		// Place cursor at top of visible area; anchor is unset until
-		// the user presses 'c' again to mark the selection start
 		m.copyCursor = m.viewport.YOffset()
 		m.copyAnchor = -1
 		m.applyCopyStyle()
 		m.dbg("copy mode: enter at line %d", m.copyCursor)
 
 	default:
-		// Forward remaining key events to the viewport when focused
 		if m.focusedPane == focusOutput {
-			var vpCmd tea.Cmd
-			m.viewport, vpCmd = m.viewport.Update(msg)
-			cmds = append(cmds, vpCmd)
-			m.viewportAtBottom = m.viewport.AtBottom()
+			cmds = append(cmds, m.forwardToViewport(msg))
 		}
 	}
 
