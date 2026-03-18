@@ -92,6 +92,9 @@ jobs:
                     exit 1
                   fi
 
+            - name: Lint tool names
+              run: cd services/mcp && pnpm lint-tool-names
+
     unit-tests:
         name: Unit Tests
         runs-on: ubuntu-latest

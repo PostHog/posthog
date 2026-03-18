@@ -72,6 +72,16 @@ export type EnabledToolConfig = Omit<ToolConfig, 'scopes' | 'annotations'> & {
     annotations: { readOnly: boolean; destructive: boolean; idempotent: boolean }
 }
 
+/**
+ * MCP clients (e.g., Claude Code) enforce a combined server+tool name length
+ * limit of 60 characters. With server name "posthog" (7 chars), tool names
+ * must be <= 52 chars to stay under the limit.
+ *
+ * Enforced by lint-tool-names.ts rather than here so pre-existing tools
+ * that already exceed the limit don't break schema validation.
+ */
+export const MAX_TOOL_NAME_LENGTH = 52
+
 export const CategoryConfigSchema = z
     .object({
         category: z.string(),
