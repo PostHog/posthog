@@ -252,9 +252,7 @@ class CreateFormTool(MaxTool):
                 "Continue without these answers if possible. If the missing information is required, "
                 "briefly explain what is blocked and offer the user a lower-friction alternative.",
                 {
-                {
                     "status": "dismiss_form",
-                },
                 },
             )
 
