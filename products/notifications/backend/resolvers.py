@@ -1,4 +1,11 @@
+import structlog
+
+from posthog.models import Team, User
+from posthog.rbac.user_access_control import UserAccessControl
+
 from products.notifications.backend.facade.enums import TargetType
+
+logger = structlog.get_logger(__name__)
 
 
 class RecipientsResolver:
@@ -29,3 +36,26 @@ class RecipientsResolver:
                     role_id=target_id,
                 ).values_list("user_id", flat=True)
             )
+
+        return []
+
+    def filter_by_access_control(self, user_ids: list[int], resource_type: str, team: Team) -> list[int]:
+        """Filter user IDs by access control. Not overridable — always applied after resolve()."""
+        try:
+            sample_user = User.objects.filter(id__in=user_ids).first()
+            if not sample_user:
+                return user_ids
+            sample_ac = UserAccessControl(sample_user, team)
+            if not sample_ac.access_controls_supported:
+                return user_ids
+        except Exception:
+            logger.exception("notifications.ac_check_failed")
+            return user_ids
+
+        filtered = []
+        users = User.objects.filter(id__in=user_ids)
+        for user in users:
+            ac = UserAccessControl(user, team)
+            if ac.check_access_level_for_resource(resource_type, "viewer"):
+                filtered.append(user.id)
+        return filtered

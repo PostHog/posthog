@@ -8,7 +8,7 @@ import posthoganalytics
 from posthog.models import Team
 
 from products.notifications.backend.facade.contracts import NotificationData
-from products.notifications.backend.facade.enums import NotificationOnlyResourceType
+from products.notifications.backend.facade.enums import AC_RESOURCE_TYPES, NotificationOnlyResourceType
 from products.notifications.backend.models import NotificationEvent
 from products.notifications.backend.resolvers import RecipientsResolver
 
@@ -65,6 +65,9 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
 
     resolver = data.resolver or RecipientsResolver()
     resolved_user_ids = resolver.resolve(data.target_type, data.target_id, data.team_id)
+
+    if data.resource_type and str(data.resource_type) in AC_RESOURCE_TYPES:
+        resolved_user_ids = resolver.filter_by_access_control(resolved_user_ids, str(data.resource_type), team)
 
     if not resolved_user_ids:
         logger.warning("notifications.no_recipients", target_type=data.target_type, target_id=data.target_id)
