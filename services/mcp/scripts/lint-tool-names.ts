@@ -29,6 +29,7 @@ function main(): void {
     const violations: { file: string; tool: string; length: number }[] = []
 
     for (const def of definitions) {
+        const label = path.relative(REPO_ROOT, def.filePath)
         const content = fs.readFileSync(def.filePath, 'utf-8')
         const parsed = parseYaml(content)
         const result = CategoryConfigSchema.safeParse(parsed)
@@ -37,8 +38,6 @@ function main(): void {
             process.exitCode = 1
             continue
         }
-
-        const label = path.relative(REPO_ROOT, def.filePath)
         for (const [name, config] of Object.entries(result.data.tools)) {
             if (!config.enabled) {
                 continue
