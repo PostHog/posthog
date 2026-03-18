@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import boto3
 import dagster
+import botocore.exceptions
 from clickhouse_driver import Client
 from dagster_aws.s3 import S3Resource
 
@@ -128,12 +129,14 @@ def test_get_latest_successful_backup_returns_latest_backup():
     backup1.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
     )
+    backup1.has_lock_file = MagicMock(return_value=False)  # type: ignore
 
     backup2 = Backup(database="posthog", date="20240101075404", incremental=False, table="test")
     backup2.is_done = MagicMock(return_value=True)  # type: ignore
     backup2.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="BACKUP_CREATED", event_time_microseconds=datetime.now())
     )
+    backup2.has_lock_file = MagicMock(return_value=False)  # type: ignore
 
     def mock_map_hosts(fn, **kwargs):
         mock_result = MagicMock()
@@ -144,11 +147,13 @@ def test_get_latest_successful_backup_returns_latest_backup():
     cluster = MagicMock()
     cluster.map_hosts_by_role.side_effect = mock_map_hosts
 
+    mock_s3 = MagicMock()
     result = get_latest_successful_backup(
         context=dagster.build_op_context(),
         config=config,
         latest_backups=[backup1, backup2],
         cluster=cluster,
+        s3=mock_s3,
     )
 
     assert result == backup2
@@ -160,6 +165,7 @@ def test_get_latest_successful_backup_fails():
     backup1.status = MagicMock(  # type: ignore
         return_value=BackupStatus(hostname="test", status="CREATING_BACKUP", event_time_microseconds=datetime.now())
     )
+    backup1.has_lock_file = MagicMock(return_value=False)  # type: ignore
 
     def mock_map_hosts(fn, **kwargs):
         mock_result = MagicMock()
@@ -170,12 +176,14 @@ def test_get_latest_successful_backup_fails():
     cluster = MagicMock()
     cluster.map_hosts_by_role.side_effect = mock_map_hosts
 
+    mock_s3 = MagicMock()
     with pytest.raises(dagster.Failure):
         get_latest_successful_backup(
             context=dagster.build_op_context(),
             config=config,
             latest_backups=[backup1],
             cluster=cluster,
+            s3=mock_s3,
         )
 
 
@@ -345,7 +353,12 @@ def test_incremental_sharded_backup(cluster: ClickhouseCluster):
 
 
 def _make_s3_mock() -> MagicMock:
-    return MagicMock()
+    mock_s3 = MagicMock()
+    # By default, head_object raises 404 so has_lock_file returns False
+    mock_s3.get_client.return_value.head_object.side_effect = botocore.exceptions.ClientError(
+        {"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject"
+    )
+    return mock_s3
 
 
 def _make_cluster_mock(status_value: Optional[str]) -> MagicMock:
