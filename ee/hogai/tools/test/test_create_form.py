@@ -135,7 +135,7 @@ class TestCreateFormTool(BaseTest):
         [
             ("string answer", {"q0": "Option A"}, "Question 0?: Option A"),
             ("list answer", {"q0": ["Option A", "Option B"]}, "Question 0?: Option A, Option B"),
-            ("missing answer", {}, "Question 0?: "),
+            ("missing answer", {}, "Question 0?: (skipped)"),
         ]
     )
     async def test_formats_answers(self, _name: str, answers: dict, expected_line: str):
@@ -284,6 +284,24 @@ class TestCreateFormTool(BaseTest):
                 "Configure settings:\n  Sample size: 1000\n  Notify me: true",
             )
             self.assertEqual(metadata["answers"], {"sample": "1000", "notify": "true"})
+
+    async def test_formats_skipped_questions(self):
+        tool = self._create_tool()
+        questions = self._create_questions(2)
+
+        with patch("ee.hogai.tools.create_form.interrupt") as mock_interrupt:
+            mock_interrupt.return_value = {
+                "action": "form",
+                "form_answers": {"q0": "Option A"},
+            }
+
+            result, metadata = await tool._arun_impl(questions=questions)
+
+            self.assertEqual(
+                result,
+                "Question 0?: Option A\nQuestion 1?: (skipped)",
+            )
+            self.assertEqual(metadata["answers"], {"q0": "Option A"})
 
     async def test_returns_dismissed_response_when_user_dismisses_form(self):
         tool = self._create_tool()

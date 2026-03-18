@@ -258,7 +258,7 @@ class CreateFormTool(MaxTool):
 
         def format_answer(answer: str | list[str] | None) -> str:
             if answer is None:
-                return ""
+                return "(skipped)"
             if isinstance(answer, list):
                 return ", ".join(answer)
             return answer
