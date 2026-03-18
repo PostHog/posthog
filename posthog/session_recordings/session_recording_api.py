@@ -143,11 +143,20 @@ LOADING_V2_LTS_COUNTER = Counter(
 SESSION_RECORDING_THROTTLED = Counter(
     "session_recording_api_throttled_total",
     "Throttled responses from the session recording API",
-    labelnames=["location", "is_personal_api_key"],
+    labelnames=["location", "auth_type"],
 )
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
+
+
+def _request_auth_type(request) -> str:
+    if isinstance(getattr(request, "successful_authenticator", None), PersonalAPIKeyAuthentication):
+        return "personal_api_key"
+    if isinstance(getattr(request, "successful_authenticator", None), SharingAccessTokenAuthentication):
+        return "shared"
+    return "logged_in"
+
 
 # Type alias to avoid shadowing by SessionRecordingViewSet.list method
 BlockList = list[Any]
@@ -563,7 +572,7 @@ class _TierAwareReplayThrottle(PersonalApiKeyRateThrottle):
         self.scope = f"{base_scope}_{resolved_tier}"
 
     def _is_personal_api_key_request(self, request) -> bool:
-        return isinstance(getattr(request, "successful_authenticator", None), PersonalAPIKeyAuthentication)
+        return _request_auth_type(request) == "personal_api_key"
 
     def allow_request(self, request, view):
         if self._is_personal_api_key_request(request):
@@ -663,23 +672,20 @@ class SessionRecordingViewSet(
 
     def get_throttles(self):
         if self.action == "list":
-            return [ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
+            return [*super().get_throttles(), ListingBurstRateThrottle(), ListingSustainedRateThrottle()]
         return super().get_throttles()
 
     def list(self, request: request.Request, *args: Any, **kwargs: Any) -> Response:
         tag_queries(product=Product.REPLAY)
         user_distinct_id = cast(User, request.user).distinct_id
-        is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        auth_type = _request_auth_type(request)
 
         try:
             with tracer.start_as_current_span("list_recordings", kind=trace.SpanKind.SERVER):
                 try:
                     trace.get_current_span().set_attribute("team_id", self.team_id)
                     trace.get_current_span().set_attribute("distinct_id", user_distinct_id or "unknown")
-                    trace.get_current_span().set_attribute(
-                        "is_personal_api_key",
-                        is_personal_api_key,
-                    )
+                    trace.get_current_span().set_attribute("auth_type", auth_type)
                 except Exception as e:
                     # if this fails, we don't want to fail the request
                     # so we log it and continue
@@ -715,18 +721,14 @@ class SessionRecordingViewSet(
 
                     return response
         except CHQueryErrorTooManySimultaneousQueries:
-            SESSION_RECORDING_THROTTLED.labels(
-                location="too_many_simultaneous_queries", is_personal_api_key=str(is_personal_api_key).lower()
-            ).inc()
+            SESSION_RECORDING_THROTTLED.labels(location="too_many_simultaneous_queries", auth_type=auth_type).inc()
             raise Throttled(detail="Too many simultaneous queries. Try again later.")
         except (ServerException, Exception) as e:
             if isinstance(e, exceptions.ValidationError):
                 raise
 
             if isinstance(e, ServerException) and "CHQueryErrorTimeoutExceeded" in str(e):
-                SESSION_RECORDING_THROTTLED.labels(
-                    location="query_timeout_exceeded", is_personal_api_key=str(is_personal_api_key).lower()
-                ).inc()
+                SESSION_RECORDING_THROTTLED.labels(location="query_timeout_exceeded", auth_type=auth_type).inc()
                 raise Throttled(detail="Query timeout exceeded. Try again later.")
 
             posthoganalytics.capture_exception(
@@ -1088,7 +1090,12 @@ class SessionRecordingViewSet(
         methods=["GET"],
         detail=True,
         renderer_classes=[SurrogatePairSafeJSONRenderer],
-        throttle_classes=[SnapshotsBurstRateThrottle, SnapshotsSustainedRateThrottle],
+        throttle_classes=[
+            ClickHouseBurstRateThrottle,
+            ClickHouseSustainedRateThrottle,
+            SnapshotsBurstRateThrottle,
+            SnapshotsSustainedRateThrottle,
+        ],
     )
     def snapshots(self, request: request.Request, **kwargs):
         """
@@ -1106,7 +1113,8 @@ class SessionRecordingViewSet(
         trace.get_current_span().set_attribute("team_id", self.team_id)
         trace.get_current_span().set_attribute("session_id", str(recording.session_id))
 
-        is_personal_api_key = isinstance(request.successful_authenticator, PersonalAPIKeyAuthentication)
+        auth_type = _request_auth_type(request)
+        is_personal_api_key = auth_type == "personal_api_key"
         serializer = SessionRecordingSnapshotsRequestSerializer(
             data=request.GET.dict(),
             context={"is_personal_api_key": is_personal_api_key, "if_none_match": request.headers.get("If-None-Match")},
