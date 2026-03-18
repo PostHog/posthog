@@ -316,7 +316,7 @@ class HogQLQueryExecutor:
     def _effective_direct_postgres_settings(self) -> HogQLGlobalSettings:
         settings = get_default_hogql_global_settings(
             self.team.pk,
-            self.settings.model_copy(deep=True) if self.settings is not None else None,
+            self.settings,
         )
 
         if self.limit_context in (

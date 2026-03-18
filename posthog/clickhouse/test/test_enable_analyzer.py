@@ -1,10 +1,10 @@
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
 from posthog.hogql.constants import HogQLGlobalSettings, get_default_hogql_global_settings
 
-from posthog.clickhouse.client.execute import default_settings
+from posthog.clickhouse.client.execute import sync_execute
 from posthog.settings.data_stores import _get_enable_analyzer_teams, is_enable_analyzer_team
 
 INSTANCE_SETTING_PATH = "posthog.models.instance_setting.get_instance_setting"
@@ -38,36 +38,22 @@ class TestSyncExecuteEnableAnalyzer:
     def teardown_method(self):
         _get_enable_analyzer_teams.cache_clear()
 
-    def test_injects_setting_for_listed_team(self):
-        with patch(INSTANCE_SETTING_PATH, return_value=[2]):
-            core_settings: dict = {
-                **default_settings(),
-            }
-            if is_enable_analyzer_team(2):
-                core_settings.setdefault("allow_experimental_analyzer", 1)
+    @parameterized.expand(
+        [
+            ("injects_for_listed_team", [2], 2, None, 1),
+            ("skips_for_unlisted_team", [2], 99, None, None),
+            ("does_not_override_explicit_zero", [2], 2, 0, 0),
+        ]
+    )
+    def test_analyzer_setting(self, _name, allowed_teams, team_id, explicit_value, expected):
+        mock_client = MagicMock()
+        caller_settings = {"allow_experimental_analyzer": explicit_value} if explicit_value is not None else None
 
-            assert core_settings["allow_experimental_analyzer"] == 1
+        with patch(INSTANCE_SETTING_PATH, return_value=allowed_teams):
+            sync_execute("SELECT 1", settings=caller_settings, team_id=team_id, flush=False, sync_client=mock_client)
 
-    def test_does_not_inject_for_unlisted_team(self):
-        with patch(INSTANCE_SETTING_PATH, return_value=[2]):
-            core_settings: dict = {
-                **default_settings(),
-            }
-            if is_enable_analyzer_team(99):
-                core_settings.setdefault("allow_experimental_analyzer", 1)
-
-            assert "allow_experimental_analyzer" not in core_settings
-
-    def test_does_not_override_explicit_zero(self):
-        with patch(INSTANCE_SETTING_PATH, return_value=[2]):
-            core_settings: dict = {
-                **default_settings(),
-                "allow_experimental_analyzer": 0,
-            }
-            if is_enable_analyzer_team(2):
-                core_settings.setdefault("allow_experimental_analyzer", 1)
-
-            assert core_settings["allow_experimental_analyzer"] == 0
+        actual = mock_client.__enter__.return_value.execute.call_args[1]["settings"].get("allow_experimental_analyzer")
+        assert actual == expected
 
 
 class TestGetDefaultHogQLGlobalSettings:
