@@ -747,6 +747,7 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(str(e))
 
         if destination_type == BatchExportDestination.Destination.BIGQUERY:
+            team_id = self.context["team_id"]
             integration = destination_attrs.get("integration")
             if integration is not None:
                 if integration.team_id != team_id:
