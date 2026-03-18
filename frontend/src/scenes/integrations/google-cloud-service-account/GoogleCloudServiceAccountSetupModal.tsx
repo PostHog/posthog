@@ -93,10 +93,8 @@ export const GoogleCloudServiceAccountSetupModal = (
                                         1
                                     </span>
                                     <p className="m-0 text-secondary">
-                                        Grant <code>roles/iam.serviceAccountTokenCreator</code> to PostHog's service
-                                        account:{' '}
-                                        <code>posthog-batch-exports@posthog-external.iam.gserviceaccount.com</code>{' '}
-                                        to allow impersonation.
+                                        Add <code>posthog:{currentOrganization?.id}</code> to your service account's
+                                        description.
                                     </p>
                                 </div>
                                 <div className="flex gap-3 items-start">
@@ -104,9 +102,12 @@ export const GoogleCloudServiceAccountSetupModal = (
                                         2
                                     </span>
                                     <p className="m-0 text-secondary">
-                                        Add <code>posthog:{currentOrganization?.id}</code> to your service account's
-                                        description, then grant <code>iam.serviceAccounts.get</code> to verify
-                                        ownership.
+                                        Assign PostHog's service account:{' '}
+                                        <code>posthog-batch-exports@posthog-external.iam.gserviceaccount.com</code> as a
+                                        principal with access to your service account with the role{' '}
+                                        <code>roles/iam.serviceAccountTokenCreator</code> to allow impersonation, and
+                                        any role containing <code>iam.serviceAccounts.get</code> permission to allow us
+                                        to verify ownership.
                                     </p>
                                 </div>
                             </div>
