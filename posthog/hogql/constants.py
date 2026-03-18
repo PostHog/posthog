@@ -148,3 +148,17 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     allow_experimental_join_condition: Optional[bool] = True
     preferred_block_size_bytes: Optional[int] = None
     use_hive_partitioning: Optional[int] = 0
+
+
+def get_default_hogql_global_settings(
+    team_id: int | None = None,
+    base: HogQLGlobalSettings | None = None,
+) -> HogQLGlobalSettings:
+    settings = base.model_copy(deep=True) if base is not None else HogQLGlobalSettings()
+    # Only enable if not explicitly disabled (None = not set, False = explicitly disabled)
+    if settings.allow_experimental_analyzer is None and team_id is not None:
+        from posthog.settings.data_stores import is_enable_analyzer_team
+
+        if is_enable_analyzer_team(team_id):
+            settings.allow_experimental_analyzer = True
+    return settings

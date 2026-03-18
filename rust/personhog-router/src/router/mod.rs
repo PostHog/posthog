@@ -1,11 +1,14 @@
 mod routing;
 
-pub use routing::{DataCategory, OperationType, RouteDecision, RoutingError};
+pub use routing::{DataCategory, OperationType, RouteDecision};
 
 use std::sync::Arc;
 use std::time::Instant;
 
 use metrics::{counter, histogram};
+use personhog_proto::personhog::leader::v1::{
+    UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse,
+};
 use personhog_proto::personhog::types::v1::{
     CheckCohortMembershipRequest, CohortMembershipResponse, DeleteHashKeyOverridesByTeamsRequest,
     DeleteHashKeyOverridesByTeamsResponse, GetDistinctIdsForPersonRequest,
@@ -23,38 +26,27 @@ use personhog_proto::personhog::types::v1::{
 };
 use tonic::Status;
 
-use crate::backend::PersonHogBackend;
+use crate::backend::{LeaderOps, PersonHogBackend};
 use routing::{get_consistency, route_request};
 
-/// Macro to call a backend method with timing instrumentation.
-///
-/// Records metrics:
-/// - `personhog_router_backend_requests_total` - counter by method and backend
-/// - `personhog_router_backend_duration_ms` - histogram by method and backend
-/// - `personhog_router_backend_errors_total` - counter on errors
+/// Calls a replica backend method with timing instrumentation.
 macro_rules! call_backend {
-    ($self:expr, $decision:expr, $method_name:expr, $method:ident, $request:expr) => {{
-        let backend = $self.get_backend($decision)?;
-        let backend_name = match $decision {
-            RouteDecision::Replica => "replica",
-            RouteDecision::Leader => "leader",
-        };
-
+    ($self:expr, $method_name:expr, $method:ident, $request:expr) => {{
         counter!(
             "personhog_router_backend_requests_total",
             "method" => $method_name,
-            "backend" => backend_name
+            "backend" => "replica"
         )
         .increment(1);
 
         let start = Instant::now();
-        let result = backend.$method($request).await;
+        let result = $self.replica_backend.$method($request).await;
         let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
 
         histogram!(
             "personhog_router_backend_duration_ms",
             "method" => $method_name,
-            "backend" => backend_name
+            "backend" => "replica"
         )
         .record(duration_ms);
 
@@ -62,7 +54,45 @@ macro_rules! call_backend {
             counter!(
                 "personhog_router_backend_errors_total",
                 "method" => $method_name,
-                "backend" => backend_name
+                "backend" => "replica"
+            )
+            .increment(1);
+        }
+
+        result
+    }};
+}
+
+/// Macro to call a leader operation with timing instrumentation.
+macro_rules! call_leader {
+    ($self:expr, $method_name:expr, $method:ident, $request:expr) => {{
+        let leader = $self.leader_ops.as_ref().ok_or_else(|| {
+            Status::unimplemented("leader backend not configured for this router")
+        })?;
+
+        counter!(
+            "personhog_router_backend_requests_total",
+            "method" => $method_name,
+            "backend" => "leader"
+        )
+        .increment(1);
+
+        let start = Instant::now();
+        let result = leader.$method($request).await;
+        let duration_ms = start.elapsed().as_secs_f64() * 1000.0;
+
+        histogram!(
+            "personhog_router_backend_duration_ms",
+            "method" => $method_name,
+            "backend" => "leader"
+        )
+        .record(duration_ms);
+
+        if result.is_err() {
+            counter!(
+                "personhog_router_backend_errors_total",
+                "method" => $method_name,
+                "backend" => "leader"
             )
             .increment(1);
         }
@@ -94,27 +124,38 @@ macro_rules! call_backend {
 /// - `personhog_router_backend_errors_total` - counter by method and backend
 pub struct PersonHogRouter {
     replica_backend: Arc<dyn PersonHogBackend>,
-    // Phase 2: Add leader_backend for person data writes and strong consistency reads
-    // leader_backend: Option<Arc<dyn PersonHogBackend>>,
+    leader_ops: Option<Arc<dyn LeaderOps>>,
 }
 
 impl PersonHogRouter {
     pub fn new(replica_backend: Arc<dyn PersonHogBackend>) -> Self {
-        Self { replica_backend }
+        Self {
+            replica_backend,
+            leader_ops: None,
+        }
     }
 
-    /// Get the appropriate backend for a request based on routing decision.
-    #[allow(clippy::result_large_err)] // tonic::Status is large but we can't change it
-    fn get_backend(&self, decision: RouteDecision) -> Result<&dyn PersonHogBackend, Status> {
-        match decision {
-            RouteDecision::Replica => Ok(self.replica_backend.as_ref()),
-            RouteDecision::Leader => {
-                // Phase 2: Return leader backend when available
-                Err(Status::unimplemented(
-                    "Strong consistency for person data requires personhog-leader (not yet implemented)",
-                ))
-            }
+    pub fn with_leader(mut self, leader_ops: Arc<dyn LeaderOps>) -> Self {
+        self.leader_ops = Some(leader_ops);
+        self
+    }
+
+    /// Validate that a read request routes to replica (not leader).
+    /// Person data reads with STRONG consistency require the leader, but only
+    /// `get_person` supports that. All other person data reads must use EVENTUAL.
+    #[allow(clippy::result_large_err)]
+    fn require_replica(
+        &self,
+        category: DataCategory,
+        read_options: &Option<personhog_proto::personhog::types::v1::ReadOptions>,
+    ) -> Result<(), Status> {
+        let decision = route_request(category, OperationType::Read, get_consistency(read_options))?;
+        if decision == RouteDecision::Leader {
+            return Err(Status::unimplemented(
+                "strong consistency reads are only supported for get_person",
+            ));
         }
+        Ok(())
     }
 
     // ============================================================
@@ -127,52 +168,33 @@ impl PersonHogRouter {
             OperationType::Read,
             get_consistency(&request.read_options),
         )?;
-        call_backend!(self, decision, "GetPerson", get_person, request)
+        match decision {
+            RouteDecision::Leader => call_leader!(self, "GetPerson", get_person, request),
+            RouteDecision::Replica => {
+                call_backend!(self, "GetPerson", get_person, request)
+            }
+        }
     }
 
     pub async fn get_persons(&self, request: GetPersonsRequest) -> Result<PersonsResponse, Status> {
-        let decision = route_request(
-            DataCategory::PersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
-        call_backend!(self, decision, "GetPersons", get_persons, request)
+        self.require_replica(DataCategory::PersonData, &request.read_options)?;
+        call_backend!(self, "GetPersons", get_persons, request)
     }
 
     pub async fn get_person_by_uuid(
         &self,
         request: GetPersonByUuidRequest,
     ) -> Result<GetPersonResponse, Status> {
-        let decision = route_request(
-            DataCategory::PersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
-        call_backend!(
-            self,
-            decision,
-            "GetPersonByUuid",
-            get_person_by_uuid,
-            request
-        )
+        self.require_replica(DataCategory::PersonData, &request.read_options)?;
+        call_backend!(self, "GetPersonByUuid", get_person_by_uuid, request)
     }
 
     pub async fn get_persons_by_uuids(
         &self,
         request: GetPersonsByUuidsRequest,
     ) -> Result<PersonsResponse, Status> {
-        let decision = route_request(
-            DataCategory::PersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
-        call_backend!(
-            self,
-            decision,
-            "GetPersonsByUuids",
-            get_persons_by_uuids,
-            request
-        )
+        self.require_replica(DataCategory::PersonData, &request.read_options)?;
+        call_backend!(self, "GetPersonsByUuids", get_persons_by_uuids, request)
     }
 
     // ============================================================
@@ -183,14 +205,9 @@ impl PersonHogRouter {
         &self,
         request: GetPersonByDistinctIdRequest,
     ) -> Result<GetPersonResponse, Status> {
-        let decision = route_request(
-            DataCategory::PersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
+        self.require_replica(DataCategory::PersonData, &request.read_options)?;
         call_backend!(
             self,
-            decision,
             "GetPersonByDistinctId",
             get_person_by_distinct_id,
             request
@@ -201,14 +218,9 @@ impl PersonHogRouter {
         &self,
         request: GetPersonsByDistinctIdsInTeamRequest,
     ) -> Result<PersonsByDistinctIdsInTeamResponse, Status> {
-        let decision = route_request(
-            DataCategory::PersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
+        self.require_replica(DataCategory::PersonData, &request.read_options)?;
         call_backend!(
             self,
-            decision,
             "GetPersonsByDistinctIdsInTeam",
             get_persons_by_distinct_ids_in_team,
             request
@@ -219,14 +231,9 @@ impl PersonHogRouter {
         &self,
         request: GetPersonsByDistinctIdsRequest,
     ) -> Result<PersonsByDistinctIdsResponse, Status> {
-        let decision = route_request(
-            DataCategory::PersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
+        self.require_replica(DataCategory::PersonData, &request.read_options)?;
         call_backend!(
             self,
-            decision,
             "GetPersonsByDistinctIds",
             get_persons_by_distinct_ids,
             request
@@ -241,14 +248,9 @@ impl PersonHogRouter {
         &self,
         request: GetDistinctIdsForPersonRequest,
     ) -> Result<GetDistinctIdsForPersonResponse, Status> {
-        let decision = route_request(
-            DataCategory::PersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
+        self.require_replica(DataCategory::PersonData, &request.read_options)?;
         call_backend!(
             self,
-            decision,
             "GetDistinctIdsForPerson",
             get_distinct_ids_for_person,
             request
@@ -259,14 +261,9 @@ impl PersonHogRouter {
         &self,
         request: GetDistinctIdsForPersonsRequest,
     ) -> Result<GetDistinctIdsForPersonsResponse, Status> {
-        let decision = route_request(
-            DataCategory::PersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
+        self.require_replica(DataCategory::PersonData, &request.read_options)?;
         call_backend!(
             self,
-            decision,
             "GetDistinctIdsForPersons",
             get_distinct_ids_for_persons,
             request
@@ -281,14 +278,8 @@ impl PersonHogRouter {
         &self,
         request: GetHashKeyOverrideContextRequest,
     ) -> Result<GetHashKeyOverrideContextResponse, Status> {
-        let decision = route_request(
-            DataCategory::NonPersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
         call_backend!(
             self,
-            decision,
             "GetHashKeyOverrideContext",
             get_hash_key_override_context,
             request
@@ -299,10 +290,8 @@ impl PersonHogRouter {
         &self,
         request: UpsertHashKeyOverridesRequest,
     ) -> Result<UpsertHashKeyOverridesResponse, Status> {
-        let decision = route_request(DataCategory::NonPersonData, OperationType::Write, None)?;
         call_backend!(
             self,
-            decision,
             "UpsertHashKeyOverrides",
             upsert_hash_key_overrides,
             request
@@ -313,10 +302,8 @@ impl PersonHogRouter {
         &self,
         request: DeleteHashKeyOverridesByTeamsRequest,
     ) -> Result<DeleteHashKeyOverridesByTeamsResponse, Status> {
-        let decision = route_request(DataCategory::NonPersonData, OperationType::Write, None)?;
         call_backend!(
             self,
-            decision,
             "DeleteHashKeyOverridesByTeams",
             delete_hash_key_overrides_by_teams,
             request
@@ -331,14 +318,8 @@ impl PersonHogRouter {
         &self,
         request: CheckCohortMembershipRequest,
     ) -> Result<CohortMembershipResponse, Status> {
-        let decision = route_request(
-            DataCategory::NonPersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
         call_backend!(
             self,
-            decision,
             "CheckCohortMembership",
             check_cohort_membership,
             request
@@ -350,33 +331,18 @@ impl PersonHogRouter {
     // ============================================================
 
     pub async fn get_group(&self, request: GetGroupRequest) -> Result<GetGroupResponse, Status> {
-        let decision = route_request(
-            DataCategory::NonPersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
-        call_backend!(self, decision, "GetGroup", get_group, request)
+        call_backend!(self, "GetGroup", get_group, request)
     }
 
     pub async fn get_groups(&self, request: GetGroupsRequest) -> Result<GroupsResponse, Status> {
-        let decision = route_request(
-            DataCategory::NonPersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
-        call_backend!(self, decision, "GetGroups", get_groups, request)
+        call_backend!(self, "GetGroups", get_groups, request)
     }
 
     pub async fn get_groups_batch(
         &self,
         request: GetGroupsBatchRequest,
     ) -> Result<GetGroupsBatchResponse, Status> {
-        let decision = route_request(
-            DataCategory::NonPersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
-        call_backend!(self, decision, "GetGroupsBatch", get_groups_batch, request)
+        call_backend!(self, "GetGroupsBatch", get_groups_batch, request)
     }
 
     // ============================================================
@@ -387,14 +353,8 @@ impl PersonHogRouter {
         &self,
         request: GetGroupTypeMappingsByTeamIdRequest,
     ) -> Result<GroupTypeMappingsResponse, Status> {
-        let decision = route_request(
-            DataCategory::NonPersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
         call_backend!(
             self,
-            decision,
             "GetGroupTypeMappingsByTeamId",
             get_group_type_mappings_by_team_id,
             request
@@ -405,14 +365,8 @@ impl PersonHogRouter {
         &self,
         request: GetGroupTypeMappingsByTeamIdsRequest,
     ) -> Result<GroupTypeMappingsBatchResponse, Status> {
-        let decision = route_request(
-            DataCategory::NonPersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
         call_backend!(
             self,
-            decision,
             "GetGroupTypeMappingsByTeamIds",
             get_group_type_mappings_by_team_ids,
             request
@@ -423,14 +377,8 @@ impl PersonHogRouter {
         &self,
         request: GetGroupTypeMappingsByProjectIdRequest,
     ) -> Result<GroupTypeMappingsResponse, Status> {
-        let decision = route_request(
-            DataCategory::NonPersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
         call_backend!(
             self,
-            decision,
             "GetGroupTypeMappingsByProjectId",
             get_group_type_mappings_by_project_id,
             request
@@ -441,16 +389,26 @@ impl PersonHogRouter {
         &self,
         request: GetGroupTypeMappingsByProjectIdsRequest,
     ) -> Result<GroupTypeMappingsBatchResponse, Status> {
-        let decision = route_request(
-            DataCategory::NonPersonData,
-            OperationType::Read,
-            get_consistency(&request.read_options),
-        )?;
         call_backend!(
             self,
-            decision,
             "GetGroupTypeMappingsByProjectIds",
             get_group_type_mappings_by_project_ids,
+            request
+        )
+    }
+
+    // ============================================================
+    // Person property updates - Person data, write operations
+    // ============================================================
+
+    pub async fn update_person_properties(
+        &self,
+        request: UpdatePersonPropertiesRequest,
+    ) -> Result<UpdatePersonPropertiesResponse, Status> {
+        call_leader!(
+            self,
+            "UpdatePersonProperties",
+            update_person_properties,
             request
         )
     }

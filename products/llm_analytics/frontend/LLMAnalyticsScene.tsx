@@ -47,14 +47,16 @@ import { LLMAnalyticsTools } from './LLMAnalyticsTools'
 import { LLMAnalyticsTraces } from './LLMAnalyticsTracesScene'
 import { LLMAnalyticsUsers } from './LLMAnalyticsUsers'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
-import { LLMAnalyticsScoreDefinitions } from './scoreDefinitions/LLMAnalyticsScoreDefinitions'
 import { llmAnalyticsDashboardLogic } from './tabs/llmAnalyticsDashboardLogic'
 import { llmAnalyticsErrorsLogic } from './tabs/llmAnalyticsErrorsLogic'
 import { getDefaultGenerationsColumns, llmAnalyticsGenerationsLogic } from './tabs/llmAnalyticsGenerationsLogic'
+import { LLMAnalyticsSentiment } from './tabs/LLMAnalyticsSentiment'
+import { llmAnalyticsSentimentLogic } from './tabs/llmAnalyticsSentimentLogic'
 import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLogic'
 import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
+import { LLMAnalyticsHumanReviews } from './traceReviews/LLMAnalyticsHumanReviews'
 import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
 export const scene: SceneExport = {
@@ -386,6 +388,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
     sessions: 'https://posthog.com/docs/llm-analytics/sessions',
     errors: 'https://posthog.com/docs/llm-analytics/errors',
     tools: 'https://posthog.com/docs/llm-analytics',
+    sentiment: 'https://posthog.com/docs/llm-analytics',
 }
 
 const TAB_DESCRIPTIONS: Record<string, string> = {
@@ -396,6 +399,7 @@ const TAB_DESCRIPTIONS: Record<string, string> = {
     users: 'Understand how users are interacting with your LLM features.',
     errors: 'Monitor and debug errors in your LLM pipeline.',
     tools: 'See which tools your LLMs are calling and how often.',
+    sentiment: 'Scan user messages by sentiment to spot frustration or satisfaction.',
     sessions: 'Analyze user sessions containing LLM interactions.',
 }
 
@@ -415,7 +419,9 @@ export function LLMAnalyticsScene({ tabId }: { tabId?: string }): JSX.Element {
                                     <BindLogic logic={llmAnalyticsUsersLogic} props={{ tabId }}>
                                         <BindLogic logic={llmAnalyticsSessionsViewLogic} props={{ tabId }}>
                                             <BindLogic logic={llmAnalyticsToolsLogic} props={{ tabId }}>
-                                                <LLMAnalyticsSceneContent />
+                                                <BindLogic logic={llmAnalyticsSentimentLogic} props={{ tabId }}>
+                                                    <LLMAnalyticsSceneContent />
+                                                </BindLogic>
                                             </BindLogic>
                                         </BindLogic>
                                     </BindLogic>
@@ -517,7 +523,11 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                   {
                       key: 'reviews',
                       label: 'Human reviews',
-                      content: <LLMAnalyticsScoreDefinitions />,
+                      content: (
+                          <LLMAnalyticsSetupPrompt thing="trace">
+                              <LLMAnalyticsHumanReviews />
+                          </LLMAnalyticsSetupPrompt>
+                      ),
                       link: combineUrl(urls.llmAnalyticsReviews(), searchParams).url,
                       'data-attr': 'reviews-tab',
                   } as LemonTab<string>,
@@ -573,6 +583,20 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             ),
             link: combineUrl(urls.llmAnalyticsTools(), searchParams).url,
             'data-attr': 'tools-tab',
+        })
+    }
+
+    if (featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_SENTIMENT_TAB]) {
+        tabs.push({
+            key: 'sentiment',
+            label: 'Sentiment',
+            content: (
+                <LLMAnalyticsSetupPrompt>
+                    <LLMAnalyticsSentiment />
+                </LLMAnalyticsSetupPrompt>
+            ),
+            link: combineUrl(urls.llmAnalyticsSentiment(), searchParams).url,
+            'data-attr': 'llma-sentiment-tab',
         })
     }
 

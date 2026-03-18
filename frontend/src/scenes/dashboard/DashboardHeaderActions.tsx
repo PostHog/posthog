@@ -1,12 +1,11 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
-import { IconPencil, IconPlusSmall, IconShare } from '@posthog/icons'
+import { IconGridMasonry, IconPlusSmall, IconShare } from '@posthog/icons'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { MaxTool } from 'scenes/max/MaxTool'
@@ -94,8 +93,6 @@ export function ViewModeActions(): JSX.Element {
     const { setDashboardMode, loadDashboard } = useActions(dashboardLogic)
     const { showAddInsightToDashboardModal } = useActions(addInsightToDashboardLogic)
     const { push } = useActions(router)
-    const hasTileRedesign = useFeatureFlag('DASHBOARD_TILE_REDESIGN')
-
     if (!dashboard) {
         return <></>
     }
@@ -108,9 +105,9 @@ export function ViewModeActions(): JSX.Element {
                 onClick={() => push(urls.dashboardSharing(dashboard.id))}
                 size="small"
                 icon={<IconShare fontSize="16" />}
-                tooltip="Share"
-                tooltipPlacement="top"
-            />
+            >
+                Share
+            </LemonButton>
             <AccessControlAction
                 resourceType={AccessControlResourceType.Dashboard}
                 minAccessLevel={AccessControlLevel.Editor}
@@ -138,7 +135,7 @@ export function ViewModeActions(): JSX.Element {
                     </LemonButton>
                 </AppShortcut>
             </AccessControlAction>
-            {canEditDashboard && hasTileRedesign && (
+            {canEditDashboard && (
                 <AppShortcut
                     name="EnterEditMode"
                     scope={Scene.Dashboard}
@@ -151,7 +148,7 @@ export function ViewModeActions(): JSX.Element {
                         data-attr="dashboard-edit-mode-button"
                         onClick={() => setDashboardMode(DashboardMode.Edit, DashboardEventSource.SceneCommonButtons)}
                         size="small"
-                        icon={<IconPencil fontSize="16" />}
+                        icon={<IconGridMasonry fontSize="16" />}
                         tooltip="Edit layout"
                         tooltipPlacement="top"
                     >

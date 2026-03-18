@@ -4,7 +4,10 @@ from typing import Optional, Union
 
 from django.utils.timezone import now
 
+import posthoganalytics
+
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.query_tagging import tag_queries
 from posthog.models import Team
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.group_type_mapping import GroupTypeMapping
@@ -49,12 +52,30 @@ class RelatedActorsQuery:
     def is_aggregating_by_groups(self) -> bool:
         return self.group_type_index is not None
 
+    def _is_test_variant(self) -> bool:
+        flag_result = posthoganalytics.get_feature_flag(
+            "optimized-related-people-query",
+            str(self.team.uuid),
+            groups={"organization": str(self.team.organization.id), "project": str(self.team.uuid)},
+        )
+        return flag_result == "test"  # type: ignore[comparison-overlap]
+
     def _query_related_people(self) -> list[SerializedPerson]:
         if not self.is_aggregating_by_groups:
             return []
 
+        if self._is_test_variant():
+            tag_queries(name="optimized-related-people-test")
+            person_ids = self._query_related_people_optimized()
+        else:
+            tag_queries(name="optimized-related-people-control")
+            person_ids = self._query_related_people_control()
+
+        return get_serialized_people(self.team, person_ids)
+
+    def _query_related_people_control(self) -> list:
         # :KLUDGE: We need to fetch distinct_id + person properties to be able to link to user properly.
-        person_ids = self._take_first(
+        return self._take_first(
             # nosemgrep: clickhouse-injection-taint - internal SQL fragments, values parameterized
             sync_execute(
                 f"""
@@ -70,8 +91,28 @@ class RelatedActorsQuery:
             )
         )
 
-        serialized_people = get_serialized_people(self.team, person_ids)
-        return serialized_people
+    def _query_related_people_optimized(self) -> list:
+        return self._take_first(
+            # nosemgrep: clickhouse-injection-taint - internal SQL fragments, values parameterized
+            sync_execute(
+                f"""
+            SELECT DISTINCT argMax(person_id, version) AS person_id
+            FROM person_distinct_id2
+            WHERE team_id = %(team_id)s
+              AND distinct_id IN (
+                  SELECT distinct_id
+                  FROM events
+                  WHERE team_id = %(team_id)s
+                    AND timestamp > %(after)s
+                    AND timestamp < %(before)s
+                    AND {self._filter_clause}
+            )
+            GROUP BY distinct_id
+            HAVING argMax(is_deleted, version) = 0
+            """,
+                self._params,
+            )
+        )
 
     def _query_related_groups(self, group_type_index: GroupTypeIndex) -> list[SerializedGroup]:
         if group_type_index == self.group_type_index:

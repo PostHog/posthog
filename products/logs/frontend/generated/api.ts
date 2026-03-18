@@ -72,17 +72,6 @@ export const domainsScimLogsRetrieve = async (
     })
 }
 
-export const getHogFunctionsLogsRetrieveUrl = (projectId: string, id: string) => {
-    return `/api/projects/${projectId}/hog_functions/${id}/logs/`
-}
-
-export const hogFunctionsLogsRetrieve = async (projectId: string, id: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getHogFunctionsLogsRetrieveUrl(projectId, id), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getLogsAlertsListUrl = (projectId: string, params?: LogsAlertsListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -257,7 +246,7 @@ export const logsValuesRetrieve = async (projectId: string, options?: RequestIni
 
 export const getPluginConfigsLogsListUrl = (
     projectId: string,
-    pluginConfigId: string,
+    pluginConfigId: number,
     params?: PluginConfigsLogsListParams
 ) => {
     const normalizedParams = new URLSearchParams()
@@ -277,7 +266,7 @@ export const getPluginConfigsLogsListUrl = (
 
 export const pluginConfigsLogsList = async (
     projectId: string,
-    pluginConfigId: string,
+    pluginConfigId: number,
     params?: PluginConfigsLogsListParams,
     options?: RequestInit
 ): Promise<PaginatedPluginLogEntryListApi> => {

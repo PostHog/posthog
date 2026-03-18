@@ -22,6 +22,8 @@ interface EventContentGenerationProps {
     raisedError: boolean
     searchQuery?: string
     displayOption?: ConversationDisplayOption
+    /** Original $ai_input index to auto-expand (e.g. from sentiment tab deep link) */
+    highlightMessageIndex?: number | null
 }
 
 export function EventContentGeneration({
@@ -35,6 +37,7 @@ export function EventContentGeneration({
     raisedError,
     searchQuery,
     displayOption,
+    highlightMessageIndex,
 }: EventContentGenerationProps): JSX.Element {
     const { input, output, isLoading } = useAIData({
         uuid: eventId,
@@ -77,6 +80,7 @@ export function EventContentGeneration({
             displayOption={displayOption}
             traceId={traceId}
             generationEventId={eventId}
+            highlightMessageIndex={highlightMessageIndex}
         />
     )
 }

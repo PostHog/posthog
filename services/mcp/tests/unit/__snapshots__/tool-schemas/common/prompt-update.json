@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "base_version": {
+            "description": "Latest version you are editing from. Used for optimistic concurrency checks.",
+            "minimum": 1,
+            "type": "number"
+        },
+        "prompt": {
+            "description": "Prompt payload to publish as a new version."
+        },
+        "prompt_name": {
+            "pattern": "^[^/]+$",
+            "type": "string"
+        }
+    },
+    "required": ["prompt_name"],
+    "type": "object"
+}

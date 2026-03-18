@@ -4,6 +4,7 @@ import { cleanup, render } from '@testing-library/react'
 import { BindLogic } from 'kea'
 
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -81,7 +82,7 @@ describe('DashboardHeader', () => {
         logic.mount()
 
         if (dashboardMode) {
-            logic.actions.setDashboardMode(dashboardMode, null)
+            logic.actions.setDashboardMode(dashboardMode, DashboardEventSource.Browser)
         }
 
         render(
@@ -134,17 +135,6 @@ describe('DashboardHeader', () => {
         for (const attr of notVisible) {
             expect(document.querySelector(`[data-attr="${attr}"]`)).not.toBeInTheDocument()
         }
-
-        logic.unmount()
-    })
-
-    it('forceEdit is only active in edit mode, not for new dashboards', () => {
-        const dashboard = makeDashboard({ name: 'New Dashboard' })
-        const { logic } = renderHeader({ dashboard })
-
-        // Without edit mode, even a "new" dashboard should not have forceEdit
-        const textarea = document.querySelector('[data-attr="scene-title-textarea"]')
-        expect(textarea).not.toBeInTheDocument()
 
         logic.unmount()
     })
