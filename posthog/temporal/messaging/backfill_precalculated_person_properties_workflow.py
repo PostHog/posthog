@@ -16,7 +16,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.messaging.filter_storage import filter_storage
+from posthog.temporal.messaging.filter_storage import get_filters
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import execute_bytecode
@@ -176,8 +176,8 @@ async def backfill_precalculated_person_properties_activity(
     total_filters = inputs.total_filters
     logger = LOGGER.bind(team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=cohort_ids)
 
-    # Load filters from Redis storage
-    filters = filter_storage.get_filters(inputs.filter_storage_key)
+    # Load filters from Redis storage without blocking the event loop
+    filters = await asyncio.to_thread(get_filters, inputs.filter_storage_key)
     if filters is None:
         raise ValueError(f"Filters not found in storage for key: {inputs.filter_storage_key}")
 

@@ -6,7 +6,7 @@ from posthog.temporal.messaging.backfill_precalculated_person_properties_workflo
     backfill_precalculated_person_properties_activity,
     flush_kafka_batch,
 )
-from posthog.temporal.messaging.filter_storage import filter_storage
+from posthog.temporal.messaging.filter_storage import store_filters
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 
@@ -312,7 +312,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         ]
 
         # Store filters in filter storage
-        filter_storage_key = filter_storage.store_filters(filters, team_id=1)
+        filter_storage_key = store_filters(filters, team_id=1)
 
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
@@ -486,7 +486,7 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
         ]
 
         # Store filters in filter storage
-        filter_storage_key = filter_storage.store_filters(filters, team_id=1)
+        filter_storage_key = store_filters(filters, team_id=1)
 
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
