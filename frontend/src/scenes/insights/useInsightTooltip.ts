@@ -19,7 +19,7 @@ const tooltipInstances = new Map<string, TooltipInstance>()
 
 let globalScrollEndListenerActive = false
 
-function initGlobalScrollEndListener(): void {
+function initGlobalScrollEndListener(onScrollEnd: (tooltipId: string) => void): void {
     if (globalScrollEndListenerActive) {
         return
     }
@@ -27,15 +27,13 @@ function initGlobalScrollEndListener(): void {
     document.addEventListener(
         'scrollend',
         (e) => {
-            // Don't hide when the scroll originated from inside a tooltip
-            if (e.target instanceof Node) {
-                for (const instance of tooltipInstances.values()) {
-                    if (instance.element.contains(e.target as Node)) {
-                        return
-                    }
+            for (const [id, instance] of tooltipInstances.entries()) {
+                if (e.target instanceof Node && instance.element.contains(e.target as Node)) {
+                    continue
                 }
+
+                onScrollEnd(id)
             }
-            hideTooltip()
         },
         { capture: true, passive: true }
     )
@@ -326,10 +324,13 @@ export function useInsightTooltip(options?: { isPinnable?: boolean }): {
     const tooltipId = useMemo(() => Math.random().toString(36).substring(2, 11), [])
 
     useOnMountEffect(() => {
-        initGlobalScrollEndListener()
         if (isPinnable) {
+            initGlobalScrollEndListener((id) => unpinTooltip(id))
             initGlobalUnpinListeners()
+        } else {
+            initGlobalScrollEndListener((id) => hideTooltip(id))
         }
+
         return () => {
             cleanupTooltip(tooltipId)
         }
