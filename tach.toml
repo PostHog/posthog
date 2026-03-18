@@ -244,6 +244,7 @@ layer = "non_isolated"
 [[modules]]
 path = "products.notifications"
 depends_on = [
+    "ee",
     "posthog",
 ]
 layer = "products"
