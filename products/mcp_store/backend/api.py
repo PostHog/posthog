@@ -22,6 +22,7 @@ from rest_framework.response import Response
 from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.cloud_utils import is_dev_mode
+from posthog.event_usage import report_user_action
 from posthog.models import User
 from posthog.models.integration import OauthIntegration
 from posthog.rate_limit import (
@@ -267,6 +268,19 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def create(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
+    def perform_destroy(self, instance: MCPServerInstallation) -> None:
+        report_user_action(
+            self.request.user,
+            "mcp_store server uninstalled",
+            properties={
+                "server_name": instance.display_name or (instance.server.name if instance.server else ""),
+                "server_url": instance.url,
+                "auth_type": instance.auth_type,
+            },
+            team=self.team,
+        )
+        super().perform_destroy(instance)
+
     def _validate_mcp_url_or_error_response(self, mcp_url: str) -> Response | None:
         allowed, reason = is_url_allowed(mcp_url)
         if not allowed:
@@ -319,6 +333,20 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
     def partial_update(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         installation = self.get_object()
         data = request.validated_data
+
+        if "is_enabled" in data:
+            report_user_action(
+                request.user,
+                "mcp_store server toggled",
+                properties={
+                    "server_name": installation.display_name
+                    or (installation.server.name if installation.server else ""),
+                    "server_url": installation.url,
+                    "auth_type": installation.auth_type,
+                    "is_enabled": data["is_enabled"],
+                },
+                team=self.team,
+            )
 
         for field, value in data.items():
             setattr(installation, field, value)
@@ -400,6 +428,19 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
 
             if not created:
                 return Response({"detail": "This server URL is already installed."}, status=status.HTTP_400_BAD_REQUEST)
+
+            report_user_action(
+                request.user,
+                "mcp_store server installed",
+                properties={
+                    "server_name": name,
+                    "server_url": url,
+                    "auth_type": "api_key",
+                    "install_source": install_source,
+                    "source": "custom",
+                },
+                team=self.team,
+            )
 
             result_serializer = MCPServerInstallationSerializer(installation, context=self.get_serializer_context())
             return Response(result_serializer.data, status=status.HTTP_201_CREATED)
@@ -579,6 +620,17 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         except MCPServer.DoesNotExist:
             return Response({"detail": "Server not found"}, status=status.HTTP_404_NOT_FOUND)
 
+        report_user_action(
+            request.user,
+            "mcp_store oauth started",
+            properties={
+                "server_name": server.name,
+                "server_id": str(server.id),
+                "install_source": install_source,
+            },
+            team=self.team,
+        )
+
         # Look up the user's installation to get the MCP URL for RFC 9728 discovery
         installation = MCPServerInstallation.objects.filter(
             team_id=self.team_id, user=cast(User, request.user), server=server
@@ -732,6 +784,17 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         if error:
             logger.warning("OAuth redirect: provider error", error=error)
             error_msg = "cancelled" if error == "access_denied" else error
+            report_user_action(
+                installation.user,
+                "mcp_store oauth failed",
+                properties={
+                    "server_name": server.name if server else "",
+                    "server_id": str(server.id) if server else "",
+                    "error": error_msg,
+                    "install_source": install_source,
+                },
+                team=installation.team,
+            )
             return self._build_oauth_redirect(
                 install_source, installation, error=error_msg, posthog_code_callback_url=posthog_code_callback_url
             )
@@ -748,12 +811,37 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
         try:
             self._exchange_and_store_tokens(installation, server, code, oauth_state.pkce_verifier)
         except OAuthTokenExchangeError:
+            report_user_action(
+                installation.user,
+                "mcp_store oauth failed",
+                properties={
+                    "server_name": server.name if server else "",
+                    "server_id": str(server.id) if server else "",
+                    "error": "token_exchange_failed",
+                    "install_source": install_source,
+                },
+                team=installation.team,
+            )
             return self._build_oauth_redirect(
                 install_source,
                 installation,
                 error="token_exchange_failed",
                 posthog_code_callback_url=posthog_code_callback_url,
             )
+
+        report_user_action(
+            installation.user,
+            "mcp_store server installed",
+            properties={
+                "server_name": server.name if server else "",
+                "server_id": str(server.id) if server else "",
+                "server_url": installation.url,
+                "auth_type": "oauth",
+                "install_source": install_source,
+                "source": "recommended" if server else "custom",
+            },
+            team=installation.team,
+        )
 
         return self._build_oauth_redirect(
             install_source, installation, posthog_code_callback_url=posthog_code_callback_url
