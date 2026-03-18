@@ -73,6 +73,35 @@ describe('convertOtelEvent', () => {
         })
     })
 
+    describe('traceloop detection', () => {
+        it.each([
+            ['llm.request.type', { 'llm.request.type': 'chat' }],
+            ['traceloop.span.kind', { 'traceloop.span.kind': 'workflow' }],
+            ['traceloop.entity.name', { 'traceloop.entity.name': 'openai.chat' }],
+        ])('detects traceloop library from %s attribute', (_label, properties) => {
+            const event = createEvent('$ai_span', properties)
+            convertOtelEvent(event)
+            expect(mockedMapOtelAttributes).toHaveBeenCalledWith(event)
+            expect(mockedMiddlewareCounter.labels).toHaveBeenCalledWith({ library: 'traceloop' })
+        })
+
+        it('pydantic-ai markers take priority over traceloop markers', () => {
+            const event = createEvent('$ai_span', {
+                'logfire.msg': 'agent run',
+                'llm.request.type': 'chat',
+                'traceloop.span.kind': 'workflow',
+            })
+            convertOtelEvent(event)
+            expect(event.properties!['$ai_lib']).toBe('opentelemetry/pydantic-ai')
+        })
+
+        it('does not detect traceloop when no marker keys present', () => {
+            const event = createEvent('$ai_generation', { 'gen_ai.system': 'openai' })
+            convertOtelEvent(event)
+            expect(mockedMiddlewareCounter.labels).toHaveBeenCalledWith({ library: 'none' })
+        })
+    })
+
     describe('metrics', () => {
         it('increments middleware counter with library name when matched', () => {
             const event = createEvent('$ai_generation', { 'logfire.msg': 'test' })
