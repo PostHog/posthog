@@ -101,8 +101,8 @@ class TestTokenAuthCache(TestCase):
 
     def test_invalidate_user_tokens_deletes_all_user_entries(self):
         from posthog.models.personal_api_key import PersonalAPIKey
-        from posthog.models.utils import hash_key_value
         from posthog.models.user import User
+        from posthog.models.utils import hash_key_value
 
         user = User.objects.create(email="cache_bulk_test@example.com", is_active=True)
         raw_keys = ["test_user_token_1", "test_user_token_2", "test_user_token_3"]
@@ -123,8 +123,8 @@ class TestTokenAuthCache(TestCase):
 
     def test_invalidate_user_tokens_uses_db(self):
         from posthog.models.personal_api_key import PersonalAPIKey
-        from posthog.models.utils import hash_key_value
         from posthog.models.user import User
+        from posthog.models.utils import hash_key_value
 
         user = User.objects.create(email="cache_test@example.com", is_active=True)
         secure_value = hash_key_value("test_fallback_key")
@@ -171,9 +171,8 @@ class TestTokenAuthCache(TestCase):
         self.cache.invalidate_tokens([])  # should not raise
 
     def test_invalidate_team_tokens_deletes_secret_tokens(self):
-        from posthog.models.utils import hash_key_value
         from posthog.models.team.team import Team
-        from posthog.models.utils import generate_random_token_secret
+        from posthog.models.utils import generate_random_token_secret, hash_key_value
 
         team = Team.objects.create(
             organization=self._get_or_create_org(),
@@ -193,10 +192,9 @@ class TestTokenAuthCache(TestCase):
         assert not self.redis.exists(f"{TOKEN_CACHE_PREFIX}{backup_hash}")
 
     def test_invalidate_team_tokens_deletes_psak_entries(self):
-        from posthog.models.utils import hash_key_value
         from posthog.models.project_secret_api_key import ProjectSecretAPIKey
         from posthog.models.team.team import Team
-        from posthog.models.utils import generate_random_token_secret
+        from posthog.models.utils import generate_random_token_secret, hash_key_value
 
         team = Team.objects.create(
             organization=self._get_or_create_org(),
@@ -218,10 +216,9 @@ class TestTokenAuthCache(TestCase):
 
     def test_invalidate_team_tokens_includes_personal_keys(self):
         from posthog.models.personal_api_key import PersonalAPIKey
-        from posthog.models.utils import hash_key_value
         from posthog.models.team.team import Team
         from posthog.models.user import User
-        from posthog.models.utils import generate_random_token_secret
+        from posthog.models.utils import generate_random_token_secret, hash_key_value
 
         org = self._get_or_create_org()
         team = Team.objects.create(
@@ -250,10 +247,9 @@ class TestTokenAuthCache(TestCase):
     def test_invalidate_team_tokens_pak_scoping(self, _name, scoped_teams, scoped_organizations, expected_count):
         from posthog.models.organization import Organization
         from posthog.models.personal_api_key import PersonalAPIKey
-        from posthog.models.utils import hash_key_value
         from posthog.models.team.team import Team
         from posthog.models.user import User
-        from posthog.models.utils import generate_random_token_secret
+        from posthog.models.utils import generate_random_token_secret, hash_key_value
 
         org = self._get_or_create_org()
         team = Team.objects.create(
@@ -297,8 +293,8 @@ class TestTokenAuthCache(TestCase):
 
     def test_invalidate_preserves_other_users_tokens(self):
         from posthog.models.personal_api_key import PersonalAPIKey
-        from posthog.models.utils import hash_key_value
         from posthog.models.user import User
+        from posthog.models.utils import hash_key_value
 
         user1 = User.objects.create(email="cache_user1@example.com", is_active=True)
         user2 = User.objects.create(email="cache_user2@example.com", is_active=True)

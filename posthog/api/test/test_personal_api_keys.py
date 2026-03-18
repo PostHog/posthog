@@ -389,7 +389,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         ]
     )
     def test_hash_key_values(self, algorithm, salt, iterations, expected_hash):
-        result = hash_key_value("test_key_12345", algorithm, iterations=iterations)
+        result = hash_key_value("test_key_12345", algorithm, legacy_salt=salt, iterations=iterations)
         assert result == expected_hash
 
     def test_no_key(self):
