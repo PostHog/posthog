@@ -63,44 +63,37 @@ export const GoogleCloudServiceAccountSetupModal = (
                         </LemonField>
                     ) : (
                         <>
-                            <div className="text-sm text-primary">
-                                <p>
-                                    PostHog will impersonate the service account you configure here with one of our own.
-                                    You must grant the PostHog service account the following permissions:
-                                </p>
-                                <ul>
-                                    <li>
-                                        <code>roles/iam.serviceAccountTokenCreator</code>: To allow impersonating.
-                                    </li>
-                                    <li>
-                                        <code>iam.serviceAccounts.get</code>: To allow checking service account
-                                        ownership.
-                                    </li>
-                                </ul>
-                            </div>
-
-                            <p className="text-sm text-warning">
-                                In order to identify you as the owner of this service account, you must include{' '}
-                                <code>posthog:{currentOrganization?.id}</code> as part of the service account
-                                description.
-                            </p>
-
                             <LemonField
                                 name="projectId"
                                 label="Project ID"
                                 help={
                                     <Link target="_blank" to="https://support.google.com/googleapi/answer/7014113">
                                         {' '}
-                                        Find your Project ID{' '}
+                                        How do I find my Google Cloud Project ID?{' '}
                                     </Link>
                                 }
                             >
-                                <LemonInput placeholder="my-gcp-project" />
+                                <LemonInput placeholder="my-project" />
                             </LemonField>
 
                             <LemonField name="serviceAccountEmail" label="Service account email">
-                                <LemonInput placeholder="my-sa@my-gcp-project.iam.gserviceaccount.com" />
+                                <LemonInput placeholder="service-account@my-google-cloud-project.iam.gserviceaccount.com" />
                             </LemonField>
+
+                            <div className="text-sm text-primary">
+                                <p>
+                                    PostHog will impersonate this service account with one of our own:{' '}
+                                    <code>posthog-batch-exports@posthog-external.iam.gserviceaccount.com</code>. You
+                                    must grant our service account the <code>roles/iam.serviceAccountTokenCreator</code>{' '}
+                                    role to allow impersonation.
+                                </p>
+                                <p>
+                                    In order to identify you as the owner of this service account, you must include{' '}
+                                    <code>posthog:{currentOrganization?.id}</code> as part of the service account's{' '}
+                                    description, and grant our service account the <code>iam.serviceAccounts.get</code>{' '}
+                                    permission to allow us to check it.
+                                </p>
+                            </div>
                         </>
                     )}
 
