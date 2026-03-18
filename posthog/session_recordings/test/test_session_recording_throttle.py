@@ -8,14 +8,17 @@ from parameterized import parameterized
 
 from posthog.auth import PersonalAPIKeyAuthentication
 from posthog.session_recordings.session_recording_api import (
+    LISTING_RATES,
+    REPLAY_TIER_CACHE_TTL_SECONDS,
     SNAPSHOT_DEFAULT_TIER,
     SNAPSHOT_RATES,
-    SNAPSHOTS_TIER_CACHE_TTL_SECONDS,
+    ListingBurstRateThrottle,
     SnapshotsBurstRateThrottle,
     SnapshotsSustainedRateThrottle,
-    _org_tier_from_features,
-    _snapshot_rates,
     get_cached_org_tier,
+    listing_rates,
+    org_tier_from_features,
+    snapshot_rates,
 )
 
 
@@ -63,7 +66,7 @@ class TestOrgTierFromFeatures(BaseTest):
         ]
     )
     def test_tier_detection(self, _name: str, features: list | None, expected_tier: str) -> None:
-        assert _org_tier_from_features(features) == expected_tier
+        assert org_tier_from_features(features) == expected_tier
 
 
 class TestGetCachedOrgTier(BaseTest):
@@ -108,11 +111,11 @@ class TestGetCachedOrgTier(BaseTest):
 
         get_cached_org_tier(self.team.pk)
 
-        cached_value = cache.get(f"snapshots_org_tier_{self.team.pk}")
+        cached_value = cache.get(f"replay_org_tier_{self.team.pk}")
         assert cached_value == "paid"
 
     def test_uses_cached_value_on_second_call(self) -> None:
-        cache.set(f"snapshots_org_tier_{self.team.pk}", "enterprise", SNAPSHOTS_TIER_CACHE_TTL_SECONDS)
+        cache.set(f"replay_org_tier_{self.team.pk}", "enterprise", REPLAY_TIER_CACHE_TTL_SECONDS)
 
         self.organization.available_product_features = None
         self.organization.save()
@@ -231,6 +234,102 @@ class TestApplyTierRatesSetsScope(BaseTest):
 class TestSnapshotRatesFromSettings(BaseTest):
     @override_settings(SNAPSHOT_RATE_FREE_BURST="999/minute")
     def test_snapshot_rates_reads_from_settings(self) -> None:
-        rates = _snapshot_rates()
+        rates = snapshot_rates()
 
         assert rates["free"]["snapshots_burst"] == "999/minute"
+
+
+class TestListingRatesConfig(BaseTest):
+    @parameterized.expand(
+        [
+            ("free_burst", "free", "listing_burst", "60/minute"),
+            ("free_sustained", "free", "listing_sustained", "300/hour"),
+            ("paid_burst", "paid", "listing_burst", "90/minute"),
+            ("paid_sustained", "paid", "listing_sustained", "500/hour"),
+            ("enterprise_burst", "enterprise", "listing_burst", "120/minute"),
+            ("enterprise_sustained", "enterprise", "listing_sustained", "600/hour"),
+        ]
+    )
+    def test_rate_config(self, _name: str, tier: str, scope: str, expected_rate: str) -> None:
+        assert LISTING_RATES[tier][scope] == expected_rate
+
+    def test_default_tier_exists_in_rates(self) -> None:
+        assert SNAPSHOT_DEFAULT_TIER in LISTING_RATES
+
+    def test_unknown_tier_falls_back_to_default(self) -> None:
+        throttle = ListingBurstRateThrottle()
+
+        throttle._apply_tier_rates("mystery_tier")
+
+        expected_rate = LISTING_RATES[SNAPSHOT_DEFAULT_TIER]["listing_burst"]
+        assert throttle.rate == expected_rate
+
+
+class TestTierAwareListingThrottle(BaseTest):
+    @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier", side_effect=Exception("db gone"))
+    def test_tier_lookup_error_falls_back_to_default_rates(self, _mock_tier: object) -> None:
+        throttle = ListingBurstRateThrottle()
+        view = type("FakeView", (), {"team_id": 1})()
+
+        throttle.allow_request(request=_fake_personal_api_key_request(), view=view)
+
+        expected_rate = LISTING_RATES[SNAPSHOT_DEFAULT_TIER]["listing_burst"]
+        assert throttle.rate == expected_rate
+
+    @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier")
+    def test_skips_tier_lookup_for_non_personal_api_key_requests(self, mock_tier) -> None:
+        throttle = ListingBurstRateThrottle()
+        view = type("FakeView", (), {"team_id": 1})()
+        original_rate = throttle.rate
+
+        throttle.allow_request(request=_fake_session_auth_request(), view=view)
+
+        mock_tier.assert_not_called()
+        assert throttle.rate == original_rate
+
+    @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier", return_value="paid")
+    def test_applies_tier_rates_for_personal_api_key_requests(self, _mock_tier) -> None:
+        throttle = ListingBurstRateThrottle()
+        view = type("FakeView", (), {"team_id": 1})()
+
+        throttle.allow_request(request=_fake_personal_api_key_request(), view=view)
+
+        assert throttle.rate == LISTING_RATES["paid"]["listing_burst"]
+
+    def test_missing_team_id_applies_free_tier_rates(self) -> None:
+        throttle = ListingBurstRateThrottle()
+        view = type("FakeView", (), {"team_id": None})()
+
+        throttle.allow_request(request=_fake_personal_api_key_request(), view=view)
+
+        expected_rate = LISTING_RATES[SNAPSHOT_DEFAULT_TIER]["listing_burst"]
+        assert throttle.rate == expected_rate
+
+    @override_settings(LISTING_RATE_PAID_BURST="200/minute")
+    @patch("posthog.session_recordings.session_recording_api.get_cached_org_tier", return_value="paid")
+    def test_rate_limits_are_configurable_via_django_settings(self, _mock_tier) -> None:
+        throttle = ListingBurstRateThrottle()
+        view = type("FakeView", (), {"team_id": 1})()
+
+        throttle.allow_request(request=_fake_personal_api_key_request(), view=view)
+
+        assert throttle.rate == "200/minute"
+
+
+class TestListingRatesFromSettings(BaseTest):
+    @override_settings(LISTING_RATE_FREE_BURST="999/minute")
+    def test_listing_rates_reads_from_settings(self) -> None:
+        rates = listing_rates()
+
+        assert rates["free"]["listing_burst"] == "999/minute"
+
+
+class TestSnapshotAndListingThrottlesUseIndependentRates(BaseTest):
+    def test_snapshot_and_listing_throttles_use_different_rate_tables(self) -> None:
+        snapshot_throttle = SnapshotsBurstRateThrottle()
+        listing_throttle = ListingBurstRateThrottle()
+
+        assert snapshot_throttle._get_rates() == snapshot_rates()
+        assert listing_throttle._get_rates() == listing_rates()
+        assert snapshot_throttle._get_rates() == snapshot_rates()
+        assert listing_throttle._get_rates() == listing_rates()
