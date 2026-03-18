@@ -13,7 +13,9 @@ import {
     googleCloudServiceAccountSetupModalLogic,
 } from './googleCloudServiceAccountSetupModalLogic'
 
-export const GoogleCloudServiceAccountModal = (props: GoogleCloudServiceAccountSetupModalLogicProps): JSX.Element => {
+export const GoogleCloudServiceAccountSetupModal = (
+    props: GoogleCloudServiceAccountSetupModalLogicProps
+): JSX.Element => {
     const logic = googleCloudServiceAccountSetupModalLogic(props)
     const { currentOrganization } = useValues(organizationLogic)
     const { serviceAccountMode, isGoogleCloudServiceAccountIntegrationSubmitting } = useValues(logic)
@@ -63,8 +65,8 @@ export const GoogleCloudServiceAccountModal = (props: GoogleCloudServiceAccountS
                         <>
                             <div className="text-sm text-primary">
                                 <p>
-                                    PostHog will impersonate the service account you configure here with one of our own. You
-                                    must grant the PostHog service account the following permissions:
+                                    PostHog will impersonate the service account you configure here with one of our own.
+                                    You must grant the PostHog service account the following permissions:
                                 </p>
                                 <ul>
                                     <li>
