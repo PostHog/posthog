@@ -1,21 +1,20 @@
-from typing import TypeGuard
-
 from rest_framework.exceptions import ValidationError
+from typing_extensions import TypeIs
 
 from posthog.schema import (
     ActionsNode,
-    DataWarehouseNode,
     EventsNode,
     FunnelConversionWindowTimeUnit,
     FunnelExclusionActionsNode,
     FunnelExclusionEventsNode,
+    FunnelsDataWarehouseNode,
 )
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
 
 from posthog.constants import FUNNEL_WINDOW_INTERVAL_TYPES
-from posthog.types import EntityNode, ExclusionEntityNode
+from posthog.types import FunnelEntityNode, FunnelExclusionEntityNode
 
 
 def funnel_window_interval_unit_to_sql(
@@ -79,7 +78,9 @@ def get_breakdown_expr(
     return expression
 
 
-def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[EventsNode | FunnelExclusionEventsNode]:
+def is_events_entity(
+    entity: FunnelEntityNode | FunnelExclusionEntityNode | None,
+) -> TypeIs[EventsNode | FunnelExclusionEventsNode]:
     return (
         isinstance(entity, EventsNode)
         or isinstance(entity, FunnelExclusionEventsNode)
@@ -88,27 +89,23 @@ def is_events_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[Even
     )
 
 
-def is_data_warehouse_entity(entity: EntityNode | ExclusionEntityNode) -> TypeGuard[DataWarehouseNode]:
-    return isinstance(entity, DataWarehouseNode)
-
-
-def data_warehouse_config_key(node: DataWarehouseNode) -> tuple[str, str, str, str]:
+def data_warehouse_config_key(node: FunnelsDataWarehouseNode) -> tuple[str, str, str, str]:
     return (
         node.table_name,
         node.id_field,
-        node.distinct_id_field,
+        node.aggregation_target_field,
         node.timestamp_field,
     )
 
 
-def entity_config_mismatch(step_entity: EntityNode, table_entity: EntityNode | None) -> bool:
-    if isinstance(step_entity, DataWarehouseNode) != isinstance(table_entity, DataWarehouseNode):
+def entity_config_mismatch(step_entity: FunnelEntityNode, table_entity: FunnelEntityNode | None) -> bool:
+    if isinstance(step_entity, FunnelsDataWarehouseNode) != isinstance(table_entity, FunnelsDataWarehouseNode):
         return True
 
-    if not isinstance(step_entity, DataWarehouseNode):
+    if not isinstance(step_entity, FunnelsDataWarehouseNode):
         return False
 
-    assert isinstance(table_entity, DataWarehouseNode)
+    assert table_entity is not None and isinstance(table_entity, FunnelsDataWarehouseNode)
     return data_warehouse_config_key(step_entity) != data_warehouse_config_key(table_entity)
 
 
