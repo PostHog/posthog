@@ -944,6 +944,7 @@ class TestSCIMUsersAPI(APILicensedTest):
             ("start_index_zero", {"startIndex": "0"}, status.HTTP_400_BAD_REQUEST),
             ("start_index_negative", {"startIndex": "-1"}, status.HTTP_400_BAD_REQUEST),
             ("start_index_non_integer", {"startIndex": "abc"}, status.HTTP_400_BAD_REQUEST),
+            ("count_negative", {"count": "-1"}, status.HTTP_400_BAD_REQUEST),
             ("count_non_integer", {"count": "abc"}, status.HTTP_400_BAD_REQUEST),
         ]
     )

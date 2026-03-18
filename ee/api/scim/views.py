@@ -61,7 +61,10 @@ def _parse_scim_pagination(request: Request) -> tuple[int, int]:
     if start_index < 1:
         raise ValueError("Invalid startIndex (must be >= 1)")
 
-    count = max(0, min(count, MAX_ITEMS_PER_PAGE))
+    if count < 0:
+        raise ValueError("Invalid count (must be >= 0)")
+
+    count = min(count, MAX_ITEMS_PER_PAGE)
     return start_index, count
 
 
@@ -303,9 +306,9 @@ class SCIMUsersView(SCIMBaseView):
 
         try:
             start_index, count = _parse_scim_pagination(request)
-        except ValueError as e:
+        except ValueError:
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": str(e)},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid pagination parameters"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -469,9 +472,9 @@ class SCIMGroupsView(SCIMBaseView):
 
         try:
             start_index, count = _parse_scim_pagination(request)
-        except ValueError as e:
+        except ValueError:
             return Response(
-                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": str(e)},
+                {"schemas": [constants.SchemaURI.ERROR], "status": 400, "detail": "Invalid pagination parameters"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
