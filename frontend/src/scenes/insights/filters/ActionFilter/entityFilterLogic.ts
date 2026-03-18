@@ -11,7 +11,7 @@ import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppConte
 import {
     ActionFilter,
     AnyPropertyFilter,
-    DataWarehouseFilter,
+    AnyDataWarehouseFilter,
     Entity,
     EntityFilter,
     EntityType,
@@ -144,7 +144,7 @@ export const entityFilterLogic = kea<entityFilterLogicType>([
             optionalInFunnel: filter.optionalInFunnel,
         }),
         updateFilter: (
-            filter: (EntityFilter | ActionFilter | DataWarehouseFilter) & {
+            filter: (EntityFilter | ActionFilter | AnyDataWarehouseFilter) & {
                 index: number
                 table_name?: string
                 [key: string]: any
