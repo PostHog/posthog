@@ -113,17 +113,24 @@ interface ToastError {
 export const lemonToast = {
     info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         const options = ensureToastId(toastOptions, 'info', message)
-        return toast.info(<ToastContent type="info" message={message} button={button} id={options.toastId} />, {
-            icon: <IconInfo />,
-            ...options,
+        // Defer so React can flush the re-render with the updated theme on ToastContainer
+        queueMicrotask(() => {
+            toast.info(<ToastContent type="info" message={message} button={button} id={options.toastId} />, {
+                icon: <IconInfo />,
+                ...options,
+            })
         })
+        return options.toastId
     },
     success(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         const options = ensureToastId(toastOptions, 'success', message)
-        return toast.success(<ToastContent type="success" message={message} button={button} id={options.toastId} />, {
-            icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
-            ...options,
+        queueMicrotask(() => {
+            toast.success(<ToastContent type="success" message={message} button={button} id={options.toastId} />, {
+                icon: isChristmas() ? <IconGift className="text-green-600" /> : <IconCheckCircle />,
+                ...options,
+            })
         })
+        return options.toastId
     },
     warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
         posthog.capture('toast warning', {
@@ -132,10 +139,13 @@ export const lemonToast = {
             toastId: toastOptions.toastId,
         })
         const options = ensureToastId(toastOptions, 'warning', message)
-        return toast.warning(<ToastContent type="warning" message={message} button={button} id={options.toastId} />, {
-            icon: <IconWarning />,
-            ...options,
+        queueMicrotask(() => {
+            toast.warning(<ToastContent type="warning" message={message} button={button} id={options.toastId} />, {
+                icon: <IconWarning />,
+                ...options,
+            })
         })
+        return options.toastId
     },
     error(message: string | JSX.Element, { button, hideButton, ...toastOptions }: ToastOptionsWithButton = {}) {
         // when used inside the posthog toolbar, `posthog.capture` isn't loaded
@@ -149,19 +159,22 @@ export const lemonToast = {
         }
 
         const options = ensureToastId(toastOptions, 'error', message)
-        return toast.error(
-            <ToastContent
-                type="error"
-                message={withIncidentNote(message)}
-                // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
-                button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
-                id={options.toastId}
-            />,
-            {
-                icon: <IconErrorOutline />,
-                ...options,
-            }
-        )
+        queueMicrotask(() => {
+            toast.error(
+                <ToastContent
+                    type="error"
+                    message={withIncidentNote(message)}
+                    // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
+                    button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
+                    id={options.toastId}
+                />,
+                {
+                    icon: <IconErrorOutline />,
+                    ...options,
+                }
+            )
+        })
+        return options.toastId
     },
     promise(
         promise: Promise<any>,
