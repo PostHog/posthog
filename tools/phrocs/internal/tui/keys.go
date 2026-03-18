@@ -39,29 +39,31 @@ func (m *Model) cyclePane(dir int) {
 }
 
 func (m Model) handleSearchKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, tea.Cmd) {
-	s := msg.String()
 	switch {
 	case key.Matches(msg, m.keys.Quit), key.Matches(msg, m.keys.CopyEsc):
 		m.searchMode = false
 		m.clearSearch()
 		m = m.applySize()
-	case s == "enter":
-		m.searchMode = false
-		m = m.applySize()
+	case key.Matches(msg, m.keys.SearchNext):
 		if len(m.searchMatches) > 0 {
-			m.searchCursor = 0
+			m.searchCursor = (m.searchCursor + 1) % len(m.searchMatches)
 			m.applySearchStyle()
 			m.jumpToCurrentMatch()
 		}
-	case s == "backspace" || s == "ctrl+h":
+	case key.Matches(msg, m.keys.SearchPrev):
+		if len(m.searchMatches) > 0 {
+			m.searchCursor = (m.searchCursor - 1 + len(m.searchMatches)) % len(m.searchMatches)
+			m.applySearchStyle()
+			m.jumpToCurrentMatch()
+		}
+	case key.Matches(msg, m.keys.Backspace):
 		if len(m.searchQuery) > 0 {
 			runes := []rune(m.searchQuery)
 			m.searchQuery = string(runes[:len(runes)-1])
 			m.recomputeSearch()
 		}
-	case key.Matches(msg, m.keys.Search):
-		// Ignore repeated '/' while already searching
 	default:
+		s := msg.String()
 		var ch string
 		if s == "space" {
 			ch = " "
@@ -218,25 +220,6 @@ func (m Model) handleNormalKey(msg tea.KeyPressMsg, cmds []tea.Cmd) (tea.Model, 
 		m.searchMode = true
 		m.clearSearch()
 		m = m.applySize()
-
-	case key.Matches(msg, m.keys.SearchNext):
-		if len(m.searchMatches) > 0 {
-			m.searchCursor = (m.searchCursor + 1) % len(m.searchMatches)
-			m.applySearchStyle()
-			m.jumpToCurrentMatch()
-		}
-
-	case key.Matches(msg, m.keys.SearchPrev):
-		if len(m.searchMatches) > 0 {
-			m.searchCursor = (m.searchCursor - 1 + len(m.searchMatches)) % len(m.searchMatches)
-			m.applySearchStyle()
-			m.jumpToCurrentMatch()
-		}
-
-	case key.Matches(msg, m.keys.CopyEsc):
-		if m.searchQuery != "" {
-			m.clearSearch()
-		}
 
 	case key.Matches(msg, m.keys.CopyMode):
 		m.copyMode = true

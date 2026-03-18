@@ -223,7 +223,7 @@ func (m Model) View() tea.View {
 		return v
 	}
 	var middle string
-	if m.copyMode || m.searchMode {
+	if m.isFullScreen() {
 		middle = m.renderOutput()
 	} else if m.isDockerMode() {
 		middle = lipgloss.JoinHorizontal(lipgloss.Top, m.renderSidebar(), m.renderOutput(), m.renderContainerSidebar())
@@ -239,12 +239,18 @@ func (m Model) View() tea.View {
 	v.AltScreen = true
 	// Disable mouse capture in copy mode so the terminal handles native text
 	// selection within the expanded output pane
-	if m.copyMode || m.searchMode {
+	if m.isFullScreen() {
 		v.MouseMode = tea.MouseModeNone
 	} else {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
+}
+
+// Returns true when sidebars should be hidden and the output pane
+// fills the full width (copy mode or any search state).
+func (m Model) isFullScreen() bool {
+	return m.copyMode || m.searchMode
 }
 
 func (m Model) activeProc() *process.Process {
@@ -266,14 +272,14 @@ func (m Model) applySize() Model {
 	// The PTY width is always the sidebar-adjusted value so processes don't
 	// receive a spurious resize when the user enters or exits copy mode
 	ptyW := m.width - sidebarWidth
-	if m.isDockerMode() && !m.copyMode && !m.searchMode {
+	if m.isDockerMode() && !m.isFullScreen() {
 		ptyW -= containerSidebarWidth
 	}
 	ptyW = max(ptyW, 1)
 
 	// Reduce the viewport width to account for borders
 	vpW := ptyW - horizontalBorderCount
-	if m.copyMode || m.searchMode {
+	if m.isFullScreen() {
 		vpW = m.width - horizontalBorderCount
 	}
 

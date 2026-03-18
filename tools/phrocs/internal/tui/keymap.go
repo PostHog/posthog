@@ -20,6 +20,7 @@ type keyMap struct {
 	SearchPrev key.Binding
 	Quit       key.Binding
 	Help       key.Binding
+	Backspace  key.Binding
 }
 
 func defaultKeyMap() keyMap {
@@ -91,6 +92,10 @@ func defaultKeyMap() keyMap {
 		Help: key.NewBinding(
 			key.WithKeys("?"),
 			key.WithHelp("?:", "help"),
+		),
+		Backspace: key.NewBinding(
+			key.WithKeys("backspace"),
+			key.WithHelp("⌫:", "del char"),
 		),
 	}
 }
