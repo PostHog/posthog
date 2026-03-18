@@ -5,10 +5,7 @@ Redis-based filter storage service for managing large filter datasets in backfil
 import json
 import hashlib
 
-from django.conf import settings
-
-import redis
-
+from posthog.redis import get_client
 from posthog.temporal.messaging.types import PersonPropertyFilter
 
 
@@ -23,7 +20,12 @@ class FilterStorage:
     DEFAULT_TTL = 24 * 60 * 60  # 24 hours
 
     def __init__(self):
-        self.redis_client = redis.Redis.from_url(settings.REDIS_URL)
+        self._redis_client = None
+
+    def _get_client(self):
+        if self._redis_client is None:
+            self._redis_client = get_client()
+        return self._redis_client
 
     def store_filters(self, filters: list[PersonPropertyFilter], team_id: int, ttl: int = DEFAULT_TTL) -> str:
         """
@@ -53,7 +55,7 @@ class FilterStorage:
         storage_key = f"{self.KEY_PREFIX}team_{team_id}_{content_hash}"
 
         # Store the serialized filter data in Redis
-        self.redis_client.setex(storage_key, ttl, json.dumps(filter_data))
+        self._get_client().setex(storage_key, ttl, json.dumps(filter_data))
 
         return storage_key
 
@@ -67,7 +69,7 @@ class FilterStorage:
         Returns:
             List of PersonPropertyFilter objects, or None if not found
         """
-        data = self.redis_client.get(storage_key)
+        data = self._get_client().get(storage_key)
         if data is None:
             return None
 
