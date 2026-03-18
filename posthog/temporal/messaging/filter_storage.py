@@ -50,7 +50,7 @@ class FilterStorage:
         ]
 
         # Create hash of the filter data for the key
-        content_hash = hashlib.sha256(json.dumps(filter_data, sort_keys=True).encode()).hexdigest()[:16]
+        content_hash = hashlib.sha256(json.dumps(filter_data, sort_keys=True).encode()).hexdigest()
 
         storage_key = f"{self.KEY_PREFIX}team_{team_id}_{content_hash}"
 
