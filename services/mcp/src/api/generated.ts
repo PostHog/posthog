@@ -18795,8 +18795,6 @@ export namespace Schemas {
       results: Repo[];
     }
 
-    export type RoleMembersItem = {[key: string]: unknown};
-
     export interface ReviewQueueItem {
       readonly id: string;
       /** Review queue ID that currently owns this pending trace. */
@@ -18844,6 +18842,8 @@ export namespace Schemas {
       previous?: string | null;
       results: ReviewQueue[];
     }
+
+    export type RoleMembersItem = {[key: string]: unknown};
 
     export interface Role {
       readonly id: string;
@@ -22456,8 +22456,6 @@ export namespace Schemas {
       person_id?: string;
     }
 
-    export type PatchedRoleMembersItem = {[key: string]: unknown};
-
     export interface PatchedReviewQueueItemUpdate {
       /** Review queue ID that should own this pending trace. */
       queue_id?: string;
@@ -22470,6 +22468,8 @@ export namespace Schemas {
        */
       name?: string;
     }
+
+    export type PatchedRoleMembersItem = {[key: string]: unknown};
 
     export interface PatchedRole {
       readonly id?: string;
