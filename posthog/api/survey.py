@@ -1994,6 +1994,8 @@ class SurveyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, viewsets.
                             "request": request,
                             "team_id": team.id,
                             "project_id": team.project_id,
+                            "get_team": lambda t=team: t,
+                            "get_organization": lambda: self.organization,
                         },
                     )
 
