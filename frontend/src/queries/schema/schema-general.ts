@@ -3910,6 +3910,72 @@ export interface TrendsAlertConfig {
     check_ongoing_interval?: boolean
 }
 
+// Detector types for anomaly detection alerts
+export enum DetectorType {
+    ZSCORE = 'zscore',
+    MAD = 'mad',
+    THRESHOLD = 'threshold',
+}
+
+/** Preprocessing transforms applied to the time series before detection */
+export interface PreprocessingConfig {
+    /** Order of differencing. 0 = raw values, 1 = first-order diffs (default: 0) */
+    diffs_n?: integer
+    /** Moving average window size. 0 = no smoothing, >1 = smooth over n points (default: 0) */
+    smooth_n?: integer
+    /** Number of lag features. 0 = none, >0 = include n lagged values (default: 0) */
+    lags_n?: integer
+}
+
+export interface ZScoreDetectorConfig {
+    type: 'zscore'
+    /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
+    threshold?: number
+    /** Rolling window size for calculating mean/std (default: 30) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface MADDetectorConfig {
+    type: 'mad'
+    /** Anomaly probability threshold [0-1]. Points above this probability are flagged (default: 0.9) */
+    threshold?: number
+    /** Rolling window size for calculating median/MAD (default: 30) */
+    window?: integer
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export interface ThresholdDetectorConfig {
+    type: 'threshold'
+    /** Upper bound - values above this are anomalies */
+    upper_bound?: number
+    /** Lower bound - values below this are anomalies */
+    lower_bound?: number
+    /** Preprocessing transforms applied before detection */
+    preprocessing?: PreprocessingConfig
+}
+
+export enum EnsembleOperator {
+    AND = 'and',
+    OR = 'or',
+}
+
+/** A single (leaf) detector config */
+export type SingleDetectorConfig = ZScoreDetectorConfig | MADDetectorConfig | ThresholdDetectorConfig
+
+export interface EnsembleDetectorConfig {
+    type: 'ensemble'
+    /** How to combine sub-detector results */
+    operator: EnsembleOperator
+    /** Sub-detector configurations (minimum 2) */
+    detectors: SingleDetectorConfig[]
+}
+
+/** Detector configuration types */
+export type DetectorConfig = SingleDetectorConfig | EnsembleDetectorConfig
+
 export interface HogCompileResponse {
     bytecode: any[]
     locals: any[]

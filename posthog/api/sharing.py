@@ -902,7 +902,6 @@ class SharingViewerPageViewSet(mixins.RetrieveModelMixin, viewsets.GenericViewSe
             exported_data.update({"detailed": True})
         if final_settings.hideExtraDetails:
             exported_data.update({"hideExtraDetails": True})
-
         if request.path.endswith(f".json"):
             # For password-protected POST requests, only return basic metadata and JWT token
             if request.method == "POST" and isinstance(resource, SharingConfiguration) and resource.password_required:
