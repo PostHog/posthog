@@ -810,7 +810,7 @@ LIMIT 20
 """
 
 
-def GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(
+def GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(
     partitions: list[str],
     *,
     table: str | None = None,
@@ -841,7 +841,7 @@ def GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(
         FROM (
             SELECT hostName() as host, count() as parts_count, partition
             FROM {parts_table}
-            WHERE database = '{settings.CLICKHOUSE_DATABASE}'
+            WHERE database = currentDatabase()
               AND table = '{table}'
               AND partition IN ({partitions_sql})
               AND active = 1

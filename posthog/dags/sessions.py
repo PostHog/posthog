@@ -32,7 +32,7 @@ from posthog.dags.common.common import JobOwners, dagster_tags
 from posthog.git import get_git_commit_short
 from posthog.models.raw_sessions.sessions_v3 import (
     DISTRIBUTED_RAW_SESSIONS_TABLE_V3,
-    GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS,
+    GET_NUM_RAW_SESSIONS_ACTIVE_PARTS,
     RAW_SESSION_TABLE_BACKFILL_RECORDINGS_SQL_V3,
     RAW_SESSION_TABLE_BACKFILL_SQL_V3,
 )
@@ -208,7 +208,7 @@ def wait_for_parts_to_merge(
 
     while True:
         # Check parts across all relevant partitions
-        query = GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(partitions, table=table, use_cluster=use_cluster)
+        query = GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(partitions, table=table, use_cluster=use_cluster)
         result = sync_execute(query, sync_client=sync_client)
         (unmerged_parts_count, max_partition, max_host) = result[0]
 
