@@ -16,7 +16,7 @@ class TestIntercomSource:
         config = self.source.get_source_config
         assert config.betaSource is True
         assert len(config.fields) == 1
-        assert config.fields[0].name == "api_key"  # type: ignore[union-attr]
+        assert config.fields[0].name == "api_key"
 
     def test_get_schemas_returns_all_endpoints(self):
         mock_config = mock.MagicMock()

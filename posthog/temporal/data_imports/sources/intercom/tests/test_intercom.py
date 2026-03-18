@@ -1,3 +1,5 @@
+from typing import Any
+
 import pytest
 from unittest import mock
 
@@ -88,7 +90,7 @@ class TestValidateCredentials:
             is_valid, error = validate_credentials("test_key")
 
             assert is_valid is False
-            assert "Connection failed" in error
+            assert error is not None and "Connection failed" in error
 
 
 class TestGetResource:
@@ -110,8 +112,9 @@ class TestGetResource:
         assert resource["table_name"] == endpoint_name
         assert resource["primary_key"] == "id"
         assert resource["write_disposition"] == "replace"
-        assert resource["endpoint"]["data_selector"] == expected_data_selector
-        assert resource["endpoint"]["path"] == expected_path
+        endpoint: dict[str, Any] = resource["endpoint"]  # type: ignore[assignment]
+        assert endpoint["data_selector"] == expected_data_selector
+        assert endpoint["path"] == expected_path
 
     def test_get_resource_with_incremental_uses_merge(self):
         resource = get_resource("contacts", should_use_incremental_field=True)

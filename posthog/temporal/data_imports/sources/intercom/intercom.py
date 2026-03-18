@@ -6,7 +6,7 @@ from dlt.sources.helpers.rest_client.paginators import BasePaginator
 
 from posthog.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from posthog.temporal.data_imports.sources.common.rest_source import RESTAPIConfig, rest_api_resources
-from posthog.temporal.data_imports.sources.common.rest_source.typing import EndpointResource
+from posthog.temporal.data_imports.sources.common.rest_source.typing import Endpoint, EndpointResource
 from posthog.temporal.data_imports.sources.intercom.settings import INTERCOM_ENDPOINTS, PARTITION_FIELDS
 
 INTERCOM_BASE_URL = "https://api.intercom.io"
@@ -50,7 +50,7 @@ class IntercomCursorPaginator(BasePaginator):
 def get_resource(name: str, should_use_incremental_field: bool) -> EndpointResource:
     config = INTERCOM_ENDPOINTS[name]
 
-    endpoint_config: dict[str, Any] = {
+    endpoint_config: Endpoint = {
         "path": config.path,
         "data_selector": config.data_selector,
         "params": {
