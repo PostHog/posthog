@@ -65,8 +65,8 @@ def _safe_convert_datetime(obj: Any) -> datetime.datetime | None:
 
 
 # Custom conversions that return None for MySQL zero dates instead of raw strings
-_MYSQL_SAFE_CONVERSIONS: dict[int, Any] = {
-    **dict(pymysql.converters.conversions),
+_MYSQL_SAFE_CONVERSIONS: dict[type[object] | int, Any] = {
+    **pymysql.converters.conversions,
     FIELD_TYPE.DATE: _safe_convert_date,
     FIELD_TYPE.DATETIME: _safe_convert_datetime,
     FIELD_TYPE.TIMESTAMP: _safe_convert_datetime,
