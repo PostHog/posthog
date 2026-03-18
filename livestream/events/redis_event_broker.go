@@ -88,8 +88,10 @@ func (b *RedisEventBroker) doPublish(ctx context.Context, event PostHogEvent) {
 	}
 
 	if err := b.client.Do(ctx, b.client.B().Spublish().Channel(channelName(event.Token)).Message(string(data)).Build()).Error(); err != nil {
-		log.Printf("redis publish failed for distinct id %s", event.DistinctId)
-		metrics.RedisPublishErrorsTotal.Inc()
+		if ctx.Err() == nil {
+			log.Printf("redis publish failed for distinct id %s", event.DistinctId)
+			metrics.RedisPublishErrorsTotal.Inc()
+		}
 		return
 	}
 
