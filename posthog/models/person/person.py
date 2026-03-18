@@ -272,7 +272,7 @@ class Person(models.Model):
             self.add_distinct_id(distinct_id)
 
     def split_person(self, main_distinct_id: Optional[str], max_splits: Optional[int] = None):
-        original_person = Person.objects.get(team_id=self.team_id, pk=self.pk)
+        original_person = Person.objects.only("id", "team_id", "uuid", "version").get(team_id=self.team_id, pk=self.pk)
         distinct_ids = original_person.distinct_ids
         original_person_version = original_person.version or 0
 
@@ -297,6 +297,9 @@ class Person(models.Model):
             distinct_ids = distinct_ids[-1 * max_splits :]
 
         ids_to_split = [did for did in distinct_ids if did != main_distinct_id]
+        if not ids_to_split:
+            return
+
         logger.info(
             "split_person will split distinct_ids",
             person_id=self.pk,
@@ -305,47 +308,97 @@ class Person(models.Model):
             ids_to_split_count=len(ids_to_split),
         )
 
-        for distinct_id in ids_to_split:
-            try:
-                db_alias = router.db_for_write(PersonDistinctId) or "default"
-                with transaction.atomic(using=db_alias):
-                    pdi = PersonDistinctId.objects.select_for_update().get(person=self, distinct_id=distinct_id)
-                    person, _ = Person.objects.get_or_create(
-                        uuid=uuidFromDistinctId(self.team_id, distinct_id),
+        from posthog.models.person.util import create_person, create_person_distinct_id
+
+        db_alias = router.db_for_write(PersonDistinctId) or "default"
+        uuid_by_did = {did: uuidFromDistinctId(self.team_id, did) for did in ids_to_split}
+
+        with transaction.atomic(using=db_alias):
+            # 1. Lock all PDIs in one query — hits unique index (team_id, distinct_id)
+            pdis = {
+                pdi.distinct_id: pdi
+                for pdi in PersonDistinctId.objects.select_for_update().filter(
+                    team_id=self.team_id, person=self, distinct_id__in=ids_to_split
+                )
+            }
+
+            logger.info(
+                "split_person locked PDIs",
+                person_id=self.pk,
+                team_id=self.team_id,
+                locked_count=len(pdis),
+                expected_count=len(ids_to_split),
+            )
+
+            # 2. Batch create new persons — ignore_conflicts handles pre-existing ones
+            Person.objects.bulk_create(
+                [
+                    Person(
+                        uuid=uuid_by_did[did],
                         team_id=self.team_id,
-                        defaults={
-                            # Set version higher than delete events (which use version + 100).
-                            # Keep in sync with: posthog/models/person/util.py:222 (_delete_person)
-                            # and plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
-                            "version": original_person_version + 101,
-                        },
+                        # Set version higher than delete events (which use version + 100).
+                        # Keep in sync with: posthog/models/person/util.py:222 (_delete_person)
+                        # and plugin-server/src/utils/db/utils.ts:152 (generateKafkaPersonUpdateMessage)
+                        version=original_person_version + 101,
                     )
-                    pdi.person_id = str(person.id)
-                    # Set distinct_id version higher than delete events (which use pdi.version + 100).
-                    # This ensures the split distinct_id overrides any deleted distinct_id.
-                    pdi.version = (pdi.version or 0) + 101
-                    pdi.save(update_fields=["version", "person_id"])
+                    for did in ids_to_split
+                ],
+                ignore_conflicts=True,
+            )
 
-                from posthog.models.person.util import create_person, create_person_distinct_id
+            # 3. Fetch all new persons — only columns needed for Kafka publishes
+            person_by_uuid = {
+                p.uuid: p
+                for p in Person.objects.only("id", "team_id", "uuid", "version", "created_at").filter(
+                    team_id=self.team_id, uuid__in=list(uuid_by_did.values())
+                )
+            }
 
-                create_person_distinct_id(
-                    team_id=self.team_id,
-                    distinct_id=distinct_id,
-                    person_id=str(person.uuid),
-                    is_deleted=False,
-                    version=pdi.version,
-                )
-                create_person(
-                    team_id=self.team_id, uuid=str(person.uuid), version=person.version, created_at=person.created_at
-                )
-            except Exception:
-                logger.exception(
-                    "split_person failed to split distinct_id",
-                    person_id=self.pk,
-                    team_id=self.team_id,
-                    distinct_id=distinct_id,
-                )
-                raise
+            logger.info(
+                "split_person created persons",
+                person_id=self.pk,
+                team_id=self.team_id,
+                created_count=len(person_by_uuid),
+            )
+
+            # 4. Update all PDIs to point to new persons
+            for did in ids_to_split:
+                pdi = pdis.get(did)
+                if not pdi:
+                    logger.warning(
+                        "split_person PDI not found for distinct_id",
+                        person_id=self.pk,
+                        team_id=self.team_id,
+                        distinct_id=did,
+                    )
+                    continue
+
+                person = person_by_uuid[uuid_by_did[did]]
+                pdi.person_id = str(person.id)
+                # Set distinct_id version higher than delete events (which use pdi.version + 100).
+                # This ensures the split distinct_id overrides any deleted distinct_id.
+                pdi.version = (pdi.version or 0) + 101
+
+            PersonDistinctId.objects.bulk_update(list(pdis.values()), ["person_id", "version"])
+
+        # 5. Publish Kafka messages after transaction commits — DB is source of truth,
+        # Kafka/ClickHouse catches up via versioning
+        for did in ids_to_split:
+            pdi = pdis.get(did)
+            if not pdi:
+                continue
+            person = person_by_uuid[uuid_by_did[did]]
+
+            create_person_distinct_id(
+                team_id=self.team_id,
+                distinct_id=did,
+                person_id=str(person.uuid),
+                is_deleted=False,
+                version=pdi.version,
+            )
+            create_person(
+                team_id=self.team_id, uuid=str(person.uuid), version=person.version, created_at=person.created_at
+            )
 
 
 class PersonDistinctId(models.Model):
