@@ -101,14 +101,15 @@ type Process struct {
 	Name string
 	Cfg  config.ProcConfig
 
-	mu           sync.Mutex
-	maxLines     int
-	status       Status
-	lines        []string
-	cmd          *exec.Cmd
-	ptmx         *os.File // pty master; nil when using pipes
-	readyPattern *regexp.Regexp
-	ready        bool // whether we've seen the ready pattern (or no pattern is set)
+	mu            sync.Mutex
+	maxLines      int
+	status        Status
+	lines         []string
+	cmd           *exec.Cmd
+	ptmx          *os.File // pty master; nil when using pipes
+	readyPattern  *regexp.Regexp
+	ready         bool // whether we've seen the ready pattern (or no pattern is set)
+	stopRequested bool // set by Stop() to catch races with in-flight Start()
 
 	startedAt time.Time
 	readyAt   time.Time
@@ -215,6 +216,7 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	p.exitCode = nil
 	p.startedAt = time.Now()
 	p.readyAt = time.Time{}
+	p.stopRequested = false
 	// Reset ready flag when restarting
 	p.ready = p.readyPattern == nil
 	p.mu.Unlock()
@@ -226,6 +228,9 @@ func (p *Process) Start(send func(tea.Msg)) error {
 
 	cmd := exec.Command("bash", "-c", p.Cfg.Shell)
 	cmd.Env = env
+	// Give child its own process group so Stop() can kill the entire tree,
+	// preventing zombie tsx/node/vite processes when phrocs exits.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
@@ -236,6 +241,20 @@ func (p *Process) Start(send func(tea.Msg)) error {
 	p.mu.Lock()
 	p.cmd = cmd
 	p.ptmx = ptmx
+
+	// Stop() was called while pty.Start was in progress — kill immediately
+	if p.stopRequested {
+		p.killProcessGroup()
+		if p.ptmx != nil {
+			_ = p.ptmx.Close()
+			p.ptmx = nil
+		}
+		p.status = StatusStopped
+		p.mu.Unlock()
+		send(StatusMsg{Name: p.Name, Status: StatusStopped})
+		return nil
+	}
+
 	// Only set to running if proc has no ready pattern
 	if p.readyPattern == nil {
 		p.status = StatusRunning
@@ -295,6 +314,11 @@ func (p *Process) Start(send func(tea.Msg)) error {
 
 // Falls back to stdout/stderr pipes when PTY allocation fails
 func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
+	// pty.Start may have contaminated SysProcAttr with Setsid/Setctty
+	// before failing. For the pipe path we only need Setpgid so Stop() can
+	// kill the full process tree via Kill(-pid, SIGTERM).
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		return err
@@ -314,13 +338,22 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 
 	p.mu.Lock()
 	p.cmd = cmd
+
+	// Stop() was called while cmd.Start was in progress — kill immediately
+	if p.stopRequested {
+		p.killProcessGroup()
+		p.status = StatusStopped
+		p.mu.Unlock()
+		_ = pr.Close()
+		_ = pw.Close()
+		send(StatusMsg{Name: p.Name, Status: StatusStopped})
+		return nil
+	}
+
 	// Only set to running if no ready pattern
 	if p.readyPattern == nil {
 		p.status = StatusRunning
 	}
-	p.mu.Unlock()
-
-	p.mu.Lock()
 	currentStatus := p.status
 	p.mu.Unlock()
 	// Send initial status message
@@ -491,13 +524,40 @@ func collectProcessTree(ps *gops.Process) []*gops.Process {
 	return all
 }
 
-// Sends SIGTERM to the process and marks it as stopped
+// killProcessGroup sends SIGTERM to the process group. Must be called with
+// p.mu held. Falls back to signaling the direct child if the group kill fails.
+// Also walks the process tree to terminate descendants that escaped the group
+// (e.g. pnpm/node processes spawned with a detached process group).
+func (p *Process) killProcessGroup() {
+	if p.cmd == nil || p.cmd.Process == nil {
+		return
+	}
+	// If the tracked command has already exited, avoid signaling based on a
+	// potentially reused PID.
+	if p.cmd.ProcessState != nil && p.cmd.ProcessState.Exited() {
+		return
+	}
+	pid := p.cmd.Process.Pid
+	if err := syscall.Kill(-pid, syscall.SIGTERM); err != nil {
+		_ = p.cmd.Process.Signal(syscall.SIGTERM)
+	}
+	// Walk the full process tree to catch any descendants that escaped the
+	// process group (e.g. pnpm spawns node as a detached child).
+	if ps, err := gops.NewProcess(int32(pid)); err == nil {
+		for _, proc := range collectProcessTree(ps) {
+			_ = proc.SendSignal(syscall.SIGTERM)
+		}
+	}
+}
+
+// Sends SIGTERM to the process group and marks it as stopped.
+// Killing the process group (negative PID) ensures all descendants
+// (bash → tsx watch → node, etc.) are terminated, not just the shell.
 func (p *Process) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if p.cmd != nil && p.cmd.Process != nil {
-		_ = p.cmd.Process.Signal(syscall.SIGTERM)
-	}
+	p.stopRequested = true
+	p.killProcessGroup()
 	if p.ptmx != nil {
 		_ = p.ptmx.Close()
 		p.ptmx = nil

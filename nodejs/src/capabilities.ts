@@ -1,4 +1,6 @@
-import { PluginServerCapabilities, PluginServerMode, PluginsServerConfig, stringToPluginServerMode } from './types'
+import { CommonConfig } from './common/config'
+import { SessionRecordingConfig } from './session-recording/config'
+import { PluginServerCapabilities, PluginServerMode, stringToPluginServerMode } from './types'
 import { isDevEnv } from './utils/env-utils'
 
 // =============================================================================
@@ -53,6 +55,11 @@ export const CAPABILITIES_LOGS: PluginServerCapabilities = {
     logsIngestion: true,
 }
 
+/** Traces - trace ingestion */
+export const CAPABILITIES_TRACES: PluginServerCapabilities = {
+    tracesIngestion: true,
+}
+
 /** Feature Flags - evaluation scheduler for flags and experiments */
 export const CAPABILITIES_FEATURE_FLAGS: PluginServerCapabilities = {
     evaluationScheduler: true,
@@ -83,10 +90,15 @@ const CAPABILITY_GROUP_MAP: Record<string, PluginServerCapabilities> = {
     session_replay: CAPABILITIES_SESSION_REPLAY,
     recording_api: CAPABILITIES_RECORDING_API,
     logs: CAPABILITIES_LOGS,
+    traces: CAPABILITIES_TRACES,
     feature_flags: CAPABILITIES_FEATURE_FLAGS,
 }
 
-export function getPluginServerCapabilities(config: PluginsServerConfig): PluginServerCapabilities {
+// TODO: SESSION_RECORDING_OVERFLOW_ENABLED leaks session recording config into capability resolution — remove once overflow is handled within the session recording consumer
+export function getPluginServerCapabilities(
+    config: Pick<CommonConfig, 'PLUGIN_SERVER_MODE' | 'NODEJS_CAPABILITY_GROUPS'> &
+        Pick<SessionRecordingConfig, 'SESSION_RECORDING_OVERFLOW_ENABLED'>
+): PluginServerCapabilities {
     const mode: PluginServerMode | null = config.PLUGIN_SERVER_MODE
         ? stringToPluginServerMode[config.PLUGIN_SERVER_MODE]
         : null
@@ -199,6 +211,10 @@ export function getPluginServerCapabilities(config: PluginsServerConfig): Plugin
         case PluginServerMode.ingestion_logs:
             return {
                 logsIngestion: true,
+            }
+        case PluginServerMode.ingestion_traces:
+            return {
+                tracesIngestion: true,
             }
         case PluginServerMode.cdp_batch_hogflow_requests:
             return {

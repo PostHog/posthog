@@ -33,12 +33,6 @@ export const WORKFLOW_METRICS_INFO: Record<string, { name: string; description: 
         description: 'Total number of events that had errors during processing',
         color: getColorVar('danger'),
     },
-    disabled_permanently: {
-        name: 'Disabled',
-        description:
-            'Total number of events that were skipped due to the destination being permanently disabled (due to prolonged issues with the destination)',
-        color: getColorVar('danger'),
-    },
     rate_limited: {
         name: 'Rate Limited',
         description: 'Total number of events that were rate limited',
@@ -134,7 +128,7 @@ function WorkflowRunMetrics(props: WorkflowLogicProps): JSX.Element {
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
-                        {['succeeded', 'failed', 'disabled_permanently'].map((key) => (
+                        {['succeeded', 'failed'].map((key) => (
                             <AppMetricSummary
                                 key={key}
                                 name={WORKFLOW_METRICS_INFO[key].name}
@@ -267,7 +261,7 @@ function BatchJobMetrics({ job }: { job: HogFlowBatchJob }): JSX.Element {
             ) : (
                 <>
                     <div className="flex flex-row gap-2 flex-wrap justify-center">
-                        {['succeeded', 'failed', 'disabled_permanently'].map((key) => (
+                        {['succeeded', 'failed'].map((key) => (
                             <AppMetricSummary
                                 key={key}
                                 name={WORKFLOW_METRICS_INFO[key].name}

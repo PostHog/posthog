@@ -1,11 +1,64 @@
+from unittest.mock import patch
+
 from rest_framework import status
 
 from posthog.models.experiment import Experiment, ExperimentToSavedMetric
+
+from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 
 from ee.api.test.base import APILicensedTest
 
 
 class TestExperimentSavedMetricsCRUD(APILicensedTest):
+    def test_http_saved_metric_validation_runs_once(self) -> None:
+        original_validate_query = ExperimentSavedMetricService.validate_query
+        validate_query_call_count = 0
+
+        def counting_validate_query(cls, query: dict | None) -> None:
+            nonlocal validate_query_call_count
+            validate_query_call_count += 1
+            original_validate_query(query)
+
+        with patch.object(ExperimentSavedMetricService, "validate_query", classmethod(counting_validate_query)):
+            create_response = self.client.post(
+                f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+                data={
+                    "name": "Test Experiment saved metric",
+                    "query": {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                        },
+                    },
+                },
+                format="json",
+            )
+
+        self.assertEqual(create_response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(validate_query_call_count, 1)
+
+        saved_metric_id = create_response.json()["id"]
+        validate_query_call_count = 0
+
+        with patch.object(ExperimentSavedMetricService, "validate_query", classmethod(counting_validate_query)):
+            update_response = self.client.patch(
+                f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}",
+                data={
+                    "query": {
+                        "kind": "ExperimentTrendsQuery",
+                        "count_query": {
+                            "kind": "TrendsQuery",
+                            "series": [{"kind": "EventsNode", "event": "$pageleave"}],
+                        },
+                    }
+                },
+                format="json",
+            )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(validate_query_call_count, 1)
+
     def test_can_list_experiment_saved_metrics(self):
         response = self.client.get(f"/api/projects/{self.team.id}/experiment_saved_metrics/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -121,11 +174,14 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         self.assertEqual(response.json()["name"], "Test Experiment saved metric")
         self.assertEqual(response.json()["description"], "Test description")
+        saved_metric_uuid = response.json()["query"]["uuid"]
+        self.assertTrue(saved_metric_uuid)
         self.assertEqual(
             response.json()["query"],
             {
                 "kind": "ExperimentTrendsQuery",
                 "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "uuid": saved_metric_uuid,
             },
         )
         self.assertEqual(response.json()["created_by"]["id"], self.user.pk)
@@ -159,6 +215,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         self.assertEqual(response.json()["feature_flag_key"], ff_key)
 
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 1)
+        self.assertEqual(Experiment.objects.get(pk=exp_id).secondary_metrics_ordered_uuids, [saved_metric_uuid])
         experiment_to_saved_metric = Experiment.objects.get(pk=exp_id).experimenttosavedmetric_set.first()
         self.assertEqual(experiment_to_saved_metric.metadata, {"type": "secondary"})
         saved_metric = Experiment.objects.get(pk=exp_id).saved_metrics.first()
@@ -168,6 +225,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             {
                 "kind": "ExperimentTrendsQuery",
                 "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
+                "uuid": saved_metric_uuid,
             },
         )
 
@@ -191,6 +249,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             {
                 "kind": "ExperimentTrendsQuery",
                 "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                "uuid": saved_metric_uuid,
             },
         )
 
@@ -203,6 +262,7 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
             {
                 "kind": "ExperimentTrendsQuery",
                 "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageleave"}]},
+                "uuid": saved_metric_uuid,
             },
         )
         self.assertEqual(saved_metric.name, "Test Experiment saved metric 2")
@@ -215,6 +275,74 @@ class TestExperimentSavedMetricsCRUD(APILicensedTest):
         # make sure experiment in question was updated as well
         self.assertEqual(Experiment.objects.get(pk=exp_id).saved_metrics.count(), 0)
         self.assertEqual(ExperimentToSavedMetric.objects.filter(experiment_id=exp_id).count(), 0)
+
+    def test_create_saved_metric_without_uuid_added_to_experiment_is_ordered(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Experiment saved metric",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+            },
+            format="json",
+        )
+
+        saved_metric_id = response.json()["id"]
+        saved_metric_uuid = response.json()["query"]["uuid"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertTrue(saved_metric_uuid)
+
+        experiment_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Test Experiment",
+                "feature_flag_key": "saved-metric-uuid-ordering",
+                "parameters": None,
+                "saved_metrics_ids": [{"id": saved_metric_id, "metadata": {"type": "primary"}}],
+            },
+            format="json",
+        )
+
+        self.assertEqual(experiment_response.status_code, status.HTTP_201_CREATED)
+        self.assertIn(saved_metric_uuid, experiment_response.json()["primary_metrics_ordered_uuids"])
+
+    def test_update_saved_metric_tags(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/",
+            data={
+                "name": "Test Experiment saved metric",
+                "description": "Test description",
+                "query": {
+                    "kind": "ExperimentTrendsQuery",
+                    "count_query": {
+                        "kind": "TrendsQuery",
+                        "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                    },
+                },
+                "tags": ["tag1"],
+            },
+            format="json",
+        )
+
+        saved_metric_id = response.json()["id"]
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response.json()["tags"], ["tag1"])
+
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/experiment_saved_metrics/{saved_metric_id}",
+            {
+                "tags": ["tag2", "tag3"],
+            },
+            format="json",
+        )
+
+        self.assertEqual(update_response.status_code, status.HTTP_200_OK)
+        self.assertCountEqual(update_response.json()["tags"], ["tag2", "tag3"])
 
     def test_create_saved_metric_with_experiment_metric(self):
         response = self.client.post(

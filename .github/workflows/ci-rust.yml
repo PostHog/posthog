@@ -237,6 +237,7 @@ jobs:
               with:
                   version: '0.10.2' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
                   enable-cache: true
+                  cache-dependency-glob: uv.lock
                   save-cache: ${{ github.ref == 'refs/heads/master' }}
 
             - name: Install SAML (python3-saml) dependencies
@@ -265,6 +266,7 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
               run: |
                   sqlx migrate run --source persons_migrations/
+                  DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' sqlx migrate run --source behavioral_cohorts_migrations/
 
             - name: Download MaxMind Database
               run: |

@@ -163,6 +163,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         onDraftChange={setDraftContent}
                         isPrivate={draftIsPrivate}
                         onPrivateChange={setDraftIsPrivate}
+                        minHeight="min(400px, calc(100svh - 320px))"
+                        maxHeight="min(600px, calc(100svh - 320px))"
                         extraActions={
                             aiSuggestionEnabled ? (
                                 <AIConsentPopoverWrapper>
@@ -181,7 +183,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                         }
                     />
                     <div className="hidden lg:block">
-                        <Resizer {...resizerLogicProps} />
+                        <Resizer {...resizerLogicProps} className="z-20" />
                     </div>
                 </div>
 

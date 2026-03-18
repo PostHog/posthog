@@ -1,9 +1,15 @@
 package process
 
 import (
+	"fmt"
+	"os"
+	"strings"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/posthog/posthog/phrocs/internal/config"
 )
 
@@ -191,6 +197,87 @@ func TestSnapshot_withReadyAt(t *testing.T) {
 	got := *snap.StartupDurationS
 	if got < want-tolerance || got > want+tolerance {
 		t.Errorf("StartupDurationS: got %f, want %f", got, want)
+	}
+}
+
+// collectMsgs returns a thread-safe send function that collects all messages.
+func collectMsgs() (func(tea.Msg), *[]tea.Msg, *sync.Mutex) {
+	var mu sync.Mutex
+	var msgs []tea.Msg
+	return func(msg tea.Msg) {
+		mu.Lock()
+		msgs = append(msgs, msg)
+		mu.Unlock()
+	}, &msgs, &mu
+}
+
+// pidAlive checks whether a PID is still running.
+func pidAlive(pid int) bool {
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return false
+	}
+	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+func TestStop_kills_entire_process_group(t *testing.T) {
+	// Spawn a shell that writes its grandchild's PID to stdout, then waits.
+	// "sleep 999 &" creates a grandchild; "echo $!" prints its PID.
+	p := NewProcess("test-pgkill", config.ProcConfig{
+		Shell: `sleep 999 & echo "GRANDCHILD_PID=$!"; wait`,
+	}, 1000)
+
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		// PTY/fork may be unavailable in sandboxed environments
+		t.Skipf("skipping: cannot spawn subprocess: %v", err)
+	}
+
+	// Wait for the grandchild PID to appear in output
+	var grandchildPID int
+	deadline := time.After(5 * time.Second)
+	for grandchildPID == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("timed out waiting for grandchild PID in output")
+		default:
+		}
+		for _, line := range p.Lines() {
+			if strings.HasPrefix(line, "GRANDCHILD_PID=") {
+				_, _ = fmt.Sscanf(line, "GRANDCHILD_PID=%d", &grandchildPID)
+			}
+		}
+		if grandchildPID == 0 {
+			time.Sleep(50 * time.Millisecond)
+		}
+	}
+
+	parentPID := p.PID()
+	if parentPID == 0 {
+		t.Fatal("parent PID is 0 after Start")
+	}
+
+	// Both should be alive before Stop
+	if !pidAlive(parentPID) {
+		t.Fatalf("parent PID %d not alive before Stop", parentPID)
+	}
+	if !pidAlive(grandchildPID) {
+		t.Fatalf("grandchild PID %d not alive before Stop", grandchildPID)
+	}
+
+	p.Stop()
+
+	// Give the OS a moment to reap
+	time.Sleep(200 * time.Millisecond)
+
+	if pidAlive(parentPID) {
+		t.Errorf("parent PID %d still alive after Stop", parentPID)
+	}
+	if pidAlive(grandchildPID) {
+		t.Errorf("grandchild PID %d still alive after Stop — process group kill didn't work", grandchildPID)
+	}
+	if p.Status() != StatusStopped {
+		t.Errorf("status: got %s, want stopped", p.Status())
 	}
 }
 
