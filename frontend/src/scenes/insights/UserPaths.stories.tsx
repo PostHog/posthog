@@ -47,14 +47,14 @@ export const UserPaths: Story = createInsightStory(
 )
 UserPaths.parameters = {
     testOptions: {
-        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
+        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
     },
 }
 // The Paths component uses useResizeObserver to measure canvasWidth/canvasHeight, then destroys
-// and recreates the SVG when they change (or when theme/data changes). This causes a race
-// condition where the SVG may not have stabilized before the snapshot is taken. Track both
-// dimensions and the SVG element's identity to detect any recreation, requiring 3 consecutive
-// stable checks (600ms apart) before proceeding.
+// and recreates the SVG when they change (or when theme/data changes). Dimension updates are
+// debounced to reduce recreations. The canvas div gets data-stable removed during recreation
+// and re-added after, so waiting for [data-attr=paths-viz][data-stable] ensures the SVG has
+// fully settled. We require 3 consecutive stable checks (600ms apart) for extra confidence.
 const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canvasElement }) => {
     let lastWidth = 0
     let lastHeight = 0
@@ -62,11 +62,14 @@ const waitForPathsCanvasToStabilize: NonNullable<Story['play']> = async ({ canva
     let stableCount = 0
     await waitFor(
         () => {
-            const svg = canvasElement.querySelector('.Paths__canvas')
+            const canvas = canvasElement.querySelector('[data-attr=paths-viz][data-stable]')
+            const svg = canvas ? canvas.querySelector('.Paths__canvas') : null
             const rect = svg ? svg.getBoundingClientRect() : null
             const currentWidth = rect ? rect.width : 0
             const currentHeight = rect ? rect.height : 0
             if (
+                !canvas ||
+                !svg ||
                 currentWidth === 0 ||
                 currentHeight === 0 ||
                 currentWidth !== lastWidth ||
@@ -95,7 +98,7 @@ export const UserPathsEdit: Story = createInsightStory(
 )
 UserPathsEdit.parameters = {
     testOptions: {
-        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
+        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
     },
 }
 UserPathsEdit.play = waitForPathsCanvasToStabilize
@@ -106,7 +109,7 @@ export const UserPathsEditViewports: Story = createInsightStory(
 )
 UserPathsEditViewports.parameters = {
     testOptions: {
-        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '.Paths__canvas'],
+        waitForSelector: ['[data-attr=path-node-card-button]:nth-child(7)', '[data-attr=paths-viz][data-stable]'],
         viewportWidths: ['medium', 'wide', 'superwide'],
     },
 }
