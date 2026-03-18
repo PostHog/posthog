@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 import temporalio.activity
 import temporalio.workflow
+import temporalio.exceptions
 from structlog.contextvars import bind_contextvars
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -179,7 +180,12 @@ async def backfill_precalculated_person_properties_activity(
     # Load filters from Redis storage without blocking the event loop
     filters = await asyncio.to_thread(get_filters, inputs.filter_storage_key)
     if filters is None:
-        raise ValueError(f"Filters not found in storage for key: {inputs.filter_storage_key}")
+        raise temporalio.exceptions.ApplicationError(
+            f"Filters not found in storage for key: {inputs.filter_storage_key}. "
+            "The Redis payload may have expired; please re-store the filters and restart the workflow.",
+            type="MissingFilters",
+            non_retryable=True,
+        )
 
     logger.info(f"Loaded {len(filters)} filters from storage key: {inputs.filter_storage_key}")
 
