@@ -265,7 +265,7 @@ export const teamLogic = kea<teamLogicType>([
         currentTeamIdStrict: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number => {
-                if (!currentTeam) {
+                if (!currentTeam || !currentTeam.id) {
                     throw new Error('currentTeamId accessed before team loaded')
                 }
                 return currentTeam.id
@@ -274,7 +274,7 @@ export const teamLogic = kea<teamLogicType>([
         currentProjectId: [
             (selectors) => [selectors.currentTeam],
             (currentTeam): number => {
-                if (!currentTeam || currentTeam.project_id === undefined) {
+                if (!currentTeam || !currentTeam.project_id) {
                     throw new Error('currentProjectId accessed before team loaded')
                 }
                 return currentTeam.project_id

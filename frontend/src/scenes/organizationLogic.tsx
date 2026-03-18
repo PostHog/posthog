@@ -112,7 +112,7 @@ export const organizationLogic = kea<organizationLogicType>([
         currentOrganizationId: [
             (s) => [s.currentOrganization],
             (currentOrganization): string => {
-                if (!currentOrganization) {
+                if (!currentOrganization || !currentOrganization.id) {
                     throw new Error('currentOrganizationId accessed before organization loaded')
                 }
                 return currentOrganization.id
