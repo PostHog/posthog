@@ -103,6 +103,7 @@ class WorkflowsConsumer(Consumer):
         team_id: int,
         session: aiohttp.ClientSession,
         model: str = "events",
+        internal_api_secret: str = "",
     ):
         super().__init__(model=model)
 
@@ -119,6 +120,7 @@ class WorkflowsConsumer(Consumer):
 
         self.url = urllib.parse.urljoin(url, path)
         self.session = session
+        self.internal_api_secret = internal_api_secret
 
     async def consume_chunk(self, data: bytes):
         post = make_retryable_with_exponential_backoff(
@@ -131,12 +133,16 @@ class WorkflowsConsumer(Consumer):
             self.url,
             # Data is already JSON encoded, so we can't use json=data.
             data=b'{"clickhouse_event":' + data + b"}",
-            headers={"Content-Type": "application/json"},
+            headers={
+                "Content-Type": "application/json",
+                "X-Internal-Api-Secret": self.internal_api_secret,
+            },
         ) as response:
             try:
                 response.raise_for_status()
             except aiohttp.ClientResponseError as err:
-                self.logger.exception("Request failed", status=err.status)
+                response_body = await response.text()
+                self.logger.exception("Request failed", status=err.status, response_body=response_body)
 
                 match err.status:
                     case 404:
@@ -215,6 +221,7 @@ async def insert_into_workflows_activity_from_stage(inputs: WorkflowsInsertInput
                 model=inputs.batch_export.batch_export_model.name
                 if inputs.batch_export.batch_export_model
                 else "events",
+                internal_api_secret=settings.INTERNAL_API_SECRET,
             )
 
             # TODO: Use multiple consumers
@@ -288,6 +295,7 @@ class WorkflowsBatchExportWorkflow(PostHogWorkflow):
 
         insert_inputs = WorkflowsInsertInputs(
             batch_export=batch_export_inputs,
+            # TODO: check if there was a reason we have this as an input
             url=settings.BATCH_EXPORT_WORKFLOWS_API_URL,
             hog_function_id=inputs.hog_function_id,
         )

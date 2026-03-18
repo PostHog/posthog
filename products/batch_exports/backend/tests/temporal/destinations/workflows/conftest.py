@@ -2,6 +2,8 @@ import uuid
 
 import pytest
 
+from django.conf import settings
+
 import aiohttp
 import pytest_asyncio
 
@@ -46,6 +48,10 @@ class Handler:
         return self.handle(request)
 
     async def handle(self, request):
+        provided_secret = request.headers.get("X-Internal-Api-Secret", "")
+        if provided_secret != settings.INTERNAL_API_SECRET:
+            return aiohttp.web.Response(status=401, text="Unauthorized: Missing or invalid authentication header")
+
         team_id = request.match_info["team_id"]
         hog_function_id = request.match_info["hog_function_id"]
         body = await request.read()
