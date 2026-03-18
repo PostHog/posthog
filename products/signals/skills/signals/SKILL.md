@@ -200,7 +200,7 @@ SELECT
 FROM (
     SELECT
         document_id,
-        argMax(content, inserted_at) as content,
+        argMax(metadata.source_product, inserted_at) as source_product,
         argMax(metadata.source_product, inserted_at) as source_product,
         argMax(metadata.source_type, inserted_at) as source_type,
         argMax(metadata.deleted, inserted_at) as deleted,
