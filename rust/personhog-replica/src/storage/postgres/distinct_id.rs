@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 
-use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION};
+use super::{ConsistencyLevel, PostgresStorage, DB_QUERY_DURATION, DB_ROWS_RETURNED};
 use crate::storage::error::StorageResult;
 use crate::storage::traits::DistinctIdLookup;
 use crate::storage::types::{DistinctIdMapping, DistinctIdWithVersion};
@@ -13,13 +13,18 @@ impl DistinctIdLookup for PostgresStorage {
         person_id: i64,
         consistency: ConsistencyLevel,
     ) -> StorageResult<Vec<DistinctIdWithVersion>> {
-        let labels = [(
-            "operation".to_string(),
-            "get_distinct_ids_for_person".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_distinct_ids_for_person".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let rows = sqlx::query_as!(
             DistinctIdWithVersion,
@@ -31,8 +36,17 @@ impl DistinctIdLookup for PostgresStorage {
             team_id as i32,
             person_id
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_distinct_ids_for_person".to_string(),
+            )],
+            rows.len() as f64,
+        );
 
         Ok(rows)
     }
@@ -47,13 +61,18 @@ impl DistinctIdLookup for PostgresStorage {
             return Ok(Vec::new());
         }
 
-        let labels = [(
-            "operation".to_string(),
-            "get_distinct_ids_for_persons".to_string(),
-        )];
+        let pool_label = PostgresStorage::pool_label(consistency);
+        let labels = [
+            (
+                "operation".to_string(),
+                "get_distinct_ids_for_persons".to_string(),
+            ),
+            ("pool".to_string(), pool_label.to_string()),
+        ];
         let _timer = common_metrics::timing_guard(DB_QUERY_DURATION, &labels);
 
         let pool = self.pool_for_consistency(consistency);
+        let mut conn = PostgresStorage::acquire_timed(pool, pool_label).await?;
 
         let rows = sqlx::query_as!(
             DistinctIdMapping,
@@ -65,8 +84,17 @@ impl DistinctIdLookup for PostgresStorage {
             team_id as i32,
             person_ids
         )
-        .fetch_all(pool)
+        .fetch_all(&mut *conn)
         .await?;
+
+        common_metrics::histogram(
+            DB_ROWS_RETURNED,
+            &[(
+                "operation".to_string(),
+                "get_distinct_ids_for_persons".to_string(),
+            )],
+            rows.len() as f64,
+        );
 
         Ok(rows)
     }
