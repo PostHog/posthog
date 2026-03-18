@@ -87,16 +87,12 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
                 "level": Dashboard.PrivilegeLevel.CAN_EDIT,
             },
         )
-        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        response_data = response.json()
 
-        expected_status = status.HTTP_201_CREATED if has_advanced_permissions else status.HTTP_400_BAD_REQUEST
-        self.assertEqual(response.status_code, expected_status)
-
-        if has_advanced_permissions:
-            response_data = response.json()
-            self.assertEqual(response_data["dashboard_id"], self.test_dashboard.id)
-            self.assertEqual(response_data["user"]["email"], other_user.email)
-            self.assertEqual(response_data["level"], Dashboard.PrivilegeLevel.CAN_EDIT)
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(response_data["dashboard_id"], self.test_dashboard.id)
+        self.assertEqual(response_data["user"]["email"], other_user.email)
+        self.assertEqual(response_data["level"], Dashboard.PrivilegeLevel.CAN_EDIT)
 
     def test_cannot_add_yourself_to_restricted_dashboard_as_creator(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -115,15 +111,11 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-        expected_detail = (
-            "Cannot add collaborators that already have inherent access (the dashboard owner or a project admins)."
-            if has_advanced_permissions
-            else "Cannot add collaborators to a dashboard on the lowest restriction level."
-        )
         self.assertEqual(
             response_data,
-            self.validation_error_response(expected_detail),
+            self.validation_error_response(
+                "Cannot add collaborators that already have inherent access (the dashboard owner or a project admins)."
+            ),
         )
 
     def test_cannot_add_collaborator_to_edit_restricted_dashboard_as_other_user(self):
@@ -141,17 +133,13 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
                 "level": Dashboard.PrivilegeLevel.CAN_EDIT,
             },
         )
-        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        response_data = response.json()
 
-        expected_status = status.HTTP_403_FORBIDDEN if has_advanced_permissions else status.HTTP_400_BAD_REQUEST
-        self.assertEqual(response.status_code, expected_status)
-
-        if has_advanced_permissions:
-            response_data = response.json()
-            self.assertEqual(
-                response_data,
-                self.permission_denied_response("You don't have edit permissions for this dashboard."),
-            )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response_data,
+            self.permission_denied_response("You don't have edit permissions for this dashboard."),
+        )
 
     def test_cannot_add_collaborator_from_other_org_to_edit_restricted_dashboard_as_creator(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -171,15 +159,9 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
-        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-        expected_detail = (
-            "Cannot add collaborators that have no access to the project."
-            if has_advanced_permissions
-            else "Cannot add collaborators to a dashboard on the lowest restriction level."
-        )
         self.assertEqual(
             response_data,
-            self.validation_error_response(expected_detail),
+            self.validation_error_response("Cannot add collaborators that have no access to the project."),
         )
 
     def test_cannot_add_collaborator_to_other_org_to_edit_restricted_dashboard_as_creator(self):
@@ -266,9 +248,7 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/{other_user.uuid}"
         )
 
-        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-        expected_status = status.HTTP_204_NO_CONTENT if has_advanced_permissions else status.HTTP_400_BAD_REQUEST
-        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
 
     def test_cannot_remove_collaborator_from_restricted_dashboard_as_other_user(self):
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -286,14 +266,10 @@ class TestDashboardCollaboratorsAPI(APILicensedTest):
         response = self.client.delete(
             f"/api/projects/{self.test_dashboard.team_id}/dashboards/{self.test_dashboard.id}/collaborators/{other_user.uuid}"
         )
-        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
+        response_data = response.json()
 
-        expected_status = status.HTTP_403_FORBIDDEN if has_advanced_permissions else status.HTTP_400_BAD_REQUEST
-        self.assertEqual(response.status_code, expected_status)
-
-        if has_advanced_permissions:
-            response_data = response.json()
-            self.assertEqual(
-                response_data,
-                self.permission_denied_response("You don't have edit permissions for this dashboard."),
-            )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response_data,
+            self.permission_denied_response("You don't have edit permissions for this dashboard."),
+        )

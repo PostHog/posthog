@@ -256,6 +256,10 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             }
         )
         self.assertEqual(
+            response_data["effective_restriction_level"],
+            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
+        )
+        self.assertEqual(
             response_data["effective_privilege_level"],
             Dashboard.PrivilegeLevel.CAN_EDIT,
         )
@@ -279,17 +283,13 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         response_data = response.json()
         dashboard.refresh_from_db()
 
-        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-        expected_status = status.HTTP_403_FORBIDDEN if has_advanced_permissions else status.HTTP_200_OK
-        self.assertEqual(response.status_code, expected_status)
-
-        if has_advanced_permissions:
-            self.assertEqual(
-                response_data,
-                self.permission_denied_response(
-                    "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
-                ),
-            )
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(
+            response_data,
+            self.permission_denied_response(
+                "This insight is on a dashboard that can only be edited by its owner, team members invited to editing the dashboard, and project admins."
+            ),
+        )
         self.assertEqual(dashboard.name, original_name)
 
     def test_event_definition_no_duplicate_tags(self):
@@ -367,9 +367,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"name": "changing when restricted"},
         )
-        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-        expected_status = status.HTTP_403_FORBIDDEN if has_advanced_permissions else status.HTTP_200_OK
-        self.assertEqual(response.status_code, expected_status)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     def test_non_admin_user_cannot_add_an_insight_to_a_restricted_dashboard(
         self,
@@ -394,9 +392,7 @@ class TestInsightEnterpriseAPI(APILicensedTest):
             f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"dashboards": [dashboard_restricted_id]},
         )
-        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-        expected_status = status.HTTP_403_FORBIDDEN if has_advanced_permissions else status.HTTP_200_OK
-        assert response.status_code == expected_status
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
         self.client.force_login(self.user)
 
@@ -467,11 +463,14 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         _, response_data = self.dashboard_api.create_insight(
             data={"name": "on a restricted dashboard", "dashboards": [dashboard.pk]}
         )
-        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-        expected_privilege = (
-            Dashboard.PrivilegeLevel.CAN_VIEW if has_advanced_permissions else Dashboard.PrivilegeLevel.CAN_EDIT
+        self.assertEqual(
+            response_data["effective_restriction_level"],
+            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
-        self.assertEqual(response_data["effective_privilege_level"], expected_privilege)
+        self.assertEqual(
+            response_data["effective_privilege_level"],
+            Dashboard.PrivilegeLevel.CAN_VIEW,
+        )
 
     def test_an_insight_on_both_restricted_and_unrestricted_dashboard_has_no_restrictions(
         self,
@@ -490,6 +489,10 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 "name": "on a restricted and unrestricted dashboard",
                 "dashboards": [dashboard_restricted.pk, dashboard_unrestricted.pk],
             }
+        )
+        self.assertEqual(
+            response_data["effective_restriction_level"],
+            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
         self.assertEqual(
             response_data["effective_privilege_level"],
@@ -515,6 +518,10 @@ class TestInsightEnterpriseAPI(APILicensedTest):
                 "name": "on a restricted and unrestricted dashboard",
                 "dashboards": [dashboard_restricted.pk],
             }
+        )
+        self.assertEqual(
+            response_data["effective_restriction_level"],
+            Dashboard.RestrictionLevel.ONLY_COLLABORATORS_CAN_EDIT,
         )
         self.assertEqual(
             response_data["effective_privilege_level"],
@@ -587,14 +594,12 @@ class TestInsightEnterpriseAPI(APILicensedTest):
         )
         self.client.force_login(user_without_permissions)
 
-        # attempting to remove the insight from the dashboard should fail if advanced permissions are enabled
+        # attempting to remove the insight from the dashboard should fail
         response = self.client.patch(
             f"/api/projects/{self.team.id}/insights/{insight_id}",
             {"dashboards": []},
         )
-        has_advanced_permissions = self.organization.is_feature_available(AvailableFeature.ADVANCED_PERMISSIONS)
-        expected_status = status.HTTP_403_FORBIDDEN if has_advanced_permissions else status.HTTP_200_OK
-        assert response.status_code == expected_status
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
         # original user can remove the insight from the dashboard
         self.client.force_login(self.user)
