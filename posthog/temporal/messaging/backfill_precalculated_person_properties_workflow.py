@@ -16,6 +16,8 @@ from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
+from posthog.temporal.messaging.filter_storage import filter_storage
+from posthog.temporal.messaging.types import PersonPropertyFilter
 
 from common.hogvm.python.execute import execute_bytecode
 
@@ -119,15 +121,6 @@ def get_person_properties_backfill_failure_metric():
 
 
 @dataclasses.dataclass
-class PersonPropertyFilter:
-    """Person property filter to evaluate."""
-
-    condition_hash: str
-    bytecode: list[Any]  # HogQL bytecode
-    cohort_ids: list[int]  # Cohorts that use this condition
-
-
-@dataclasses.dataclass
 class CohortFilters:
     """Filters for a specific cohort."""
 
@@ -140,8 +133,9 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     """Inputs for the precalculated person properties backfill workflow."""
 
     team_id: int
-    filters: list[PersonPropertyFilter]  # Deduplicated filters with cohort mappings
+    filter_storage_key: str  # Redis key containing the filters
     cohort_ids: list[int]  # All cohort IDs being processed
+    filter_count: int  # Number of filters (for logging)
     batch_size: int = 1000
     offset: int = 0
     limit: int | None = None  # Total persons to process (None = all)
@@ -149,7 +143,7 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     @property
     def total_filters(self) -> int:
         """Total number of unique filters."""
-        return len(self.filters)
+        return self.filter_count
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -157,7 +151,8 @@ class BackfillPrecalculatedPersonPropertiesInputs:
             "team_id": self.team_id,
             "cohort_count": len(self.cohort_ids),
             "cohort_ids": self.cohort_ids,
-            "filter_count": self.total_filters,
+            "filter_count": self.filter_count,
+            "filter_storage_key": self.filter_storage_key,
             "batch_size": self.batch_size,
             "offset": self.offset,
             "limit": self.limit,
@@ -180,6 +175,13 @@ async def backfill_precalculated_person_properties_activity(
     cohort_ids = inputs.cohort_ids
     total_filters = inputs.total_filters
     logger = LOGGER.bind(team_id=inputs.team_id, cohort_count=len(cohort_ids), cohort_ids=cohort_ids)
+
+    # Load filters from Redis storage
+    filters = filter_storage.get_filters(inputs.filter_storage_key)
+    if filters is None:
+        raise ValueError(f"Filters not found in storage for key: {inputs.filter_storage_key}")
+
+    logger.info(f"Loaded {len(filters)} filters from storage key: {inputs.filter_storage_key}")
 
     logger.info(
         f"Starting person properties precalculation for {len(cohort_ids)} cohorts {cohort_ids}, "
@@ -279,7 +281,7 @@ async def backfill_precalculated_person_properties_activity(
                         }
 
                         # Evaluate each filter once per person and send results to all cohorts that use it
-                        for filter_obj in inputs.filters:
+                        for filter_obj in filters:
                             try:
                                 result = await asyncio.to_thread(
                                     execute_bytecode, filter_obj.bytecode, globals_dict, timeout=10
