@@ -118,6 +118,7 @@ You can generate a personal access token in your [Typeform account settings](htt
         return validate_typeform_credentials(
             auth_token=config.auth_token,
             api_base_url=api_base_url,
+            schema_name=schema_name,
         )
 
     def source_for_pipeline(self, config: TypeformSourceConfig, inputs: SourceInputs) -> SourceResponse:
