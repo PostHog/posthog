@@ -2,9 +2,10 @@
 import { z } from 'zod'
 
 import type { Schemas } from '@/api/generated'
+import { ActivityLogListQueryParams } from '@/generated/activity_logs/api'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
-const ActivityLogsListSchema = z.object({})
+const ActivityLogsListSchema = ActivityLogListQueryParams
 
 const activityLogsList = (): ToolBase<
     typeof ActivityLogsListSchema,
@@ -12,12 +13,19 @@ const activityLogsList = (): ToolBase<
 > => ({
     name: 'activity-logs-list',
     schema: ActivityLogsListSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ActivityLogsListSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<Schemas.PaginatedActivityLogList>({
             method: 'GET',
             path: `/api/projects/${projectId}/activity_log/`,
+            query: {
+                item_id: params.item_id,
+                page: params.page,
+                page_size: params.page_size,
+                scope: params.scope,
+                scopes: params.scopes,
+                user: params.user,
+            },
         })
         return {
             ...(result as any),
