@@ -1,7 +1,5 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-#[cfg(test)]
-use petgraph::visit::EdgeRef;
 use petgraph::{
     algo::toposort,
     graph::{DiGraph, NodeIndex},
