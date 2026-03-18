@@ -261,7 +261,7 @@ procs:
         # no capability - manual start
 
     hedgebox-dummy:
-        shell: 'bin/wait-for-docker && cd hedgebox-dummy && pnpm install && pnpm run dev'
+        shell: 'bin/wait-for-docker && cd tools/hedgebox-dummy && pnpm install && pnpm run dev'
         autostart: false
         ready_pattern: 'Ready in *'
         # no capability - manual start
