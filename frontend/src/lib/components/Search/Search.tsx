@@ -678,7 +678,12 @@ function SearchResults({
     const isAnyLoading = groupedItems.some((g) => g.isLoading)
 
     return (
-        <ScrollableShadows direction="vertical" styledScrollbars className={cn('flex-1 overflow-y-auto', className)}>
+        <ScrollableShadows
+            direction="vertical"
+            styledScrollbars
+            className={cn('flex-1 overflow-y-auto', className)}
+            innerClassName="scroll-pt-12 scroll-pb-8"
+        >
             {!isAnyLoading && (
                 <Autocomplete.Empty className="px-3 py-8 text-center text-muted empty:p-0">
                     <span>
