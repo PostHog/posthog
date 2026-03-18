@@ -231,7 +231,7 @@ function SuggestionMenu({ icon, label, suggestions, anchor }: SuggestionMenuProp
                                         submitQuery('ai')
                                     }}
                                     render={
-                                        <ButtonPrimitive menuItem className="group" data-attr="homepage-suggestion">
+                                        <ButtonPrimitive menuItem className="group" data-attr={`homepage-suggestion-${label.toLowerCase()}`}>
                                             {suggestion}
                                             <IconChevronRight className="size-4 ml-auto opacity-50 group-hover:opacity-100" />
                                         </ButtonPrimitive>
