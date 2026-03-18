@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import re
 import ast
 from pathlib import Path
+
+# Common suffixes/prefixes that contract dataclasses may use instead of mirroring the model name exactly.
+_CONTRACT_STRIP_RE = re.compile(r"(Contract|Data|DTO|Out|In|Response|Request)$")
 
 
 def ast_parse_safe(file_path: Path) -> ast.Module | None:
@@ -13,20 +17,39 @@ def ast_parse_safe(file_path: Path) -> ast.Module | None:
         return None
 
 
+def _file_imports_django_models(tree: ast.Module) -> bool:
+    """Check whether a file imports from django.db.models (or django.db)."""
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            if node.module.startswith("django.db"):
+                return True
+        elif isinstance(node, ast.Import):
+            if any(alias.name.startswith("django.db") for alias in node.names):
+                return True
+    return False
+
+
 def get_model_names(backend_dir: Path) -> list[str]:
-    """Return names of Django ORM model subclasses in backend/models.py or backend/models/."""
+    """Return names of Django ORM model subclasses in backend/models.py and/or backend/models/.
+
+    Only counts classes whose base name ends with 'Model' (e.g. Model, UUIDTModel)
+    and only in files that import from django.db, to avoid false positives from
+    Pydantic BaseModel or similar.
+    """
     sources: list[Path] = []
     models_file = backend_dir / "models.py"
     models_dir = backend_dir / "models"
     if models_file.exists():
         sources.append(models_file)
-    elif models_dir.is_dir():
+    if models_dir.is_dir():
         sources.extend(models_dir.rglob("*.py"))
 
     names: list[str] = []
     for path in sources:
         tree = ast_parse_safe(path)
         if not tree:
+            continue
+        if not _file_imports_django_models(tree):
             continue
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
@@ -38,7 +61,7 @@ def get_model_names(backend_dir: Path) -> list[str]:
                         if isinstance(base, ast.Attribute)
                         else None
                     )
-                    if base_name and "Model" in base_name:
+                    if base_name and base_name.endswith("Model"):
                         names.append(node.name)
                         break
     return names
@@ -69,15 +92,19 @@ def get_frozen_dataclass_names(file_path: Path) -> list[str]:
 
 
 def get_public_function_names(file_path: Path) -> list[str]:
-    """Return names of public top-level and class-level functions/methods."""
+    """Return names of public top-level and class-level functions/methods (not nested)."""
     tree = ast_parse_safe(file_path)
     if not tree:
         return []
-    return [
-        node.name
-        for node in ast.walk(tree)
-        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_")
-    ]
+    names: list[str] = []
+    for node in ast.iter_child_nodes(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and not node.name.startswith("_"):
+            names.append(node.name)
+        elif isinstance(node, ast.ClassDef):
+            for child in ast.iter_child_nodes(node):
+                if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef)) and not child.name.startswith("_"):
+                    names.append(child.name)
+    return names
 
 
 def imports_any(file_path: Path, prefixes: list[str]) -> bool:
@@ -96,10 +123,27 @@ def imports_any(file_path: Path, prefixes: list[str]) -> bool:
 
 
 def contract_coverage(model_names: list[str], dc_names: list[str]) -> tuple[list[str], list[str]]:
-    """Returns (covered, uncovered) model names based on exact name match with frozen dataclasses."""
+    """Returns (covered, uncovered) model names.
+
+    Matches model names to frozen dataclass names using fuzzy matching:
+    exact match first, then strips common suffixes (Contract, Data, DTO, Out, etc.)
+    from the dataclass name and checks if it matches a model name.
+    """
     dc_set = set(dc_names)
-    covered = [m for m in model_names if m in dc_set]
-    uncovered = [m for m in model_names if m not in dc_set]
+    # Build a mapping of stripped-dc-name -> original dc name for fuzzy matching
+    stripped: dict[str, str] = {}
+    for dc in dc_names:
+        key = _CONTRACT_STRIP_RE.sub("", dc)
+        if key != dc:
+            stripped[key] = dc
+
+    covered: list[str] = []
+    uncovered: list[str] = []
+    for m in model_names:
+        if m in dc_set or m in stripped:
+            covered.append(m)
+        else:
+            uncovered.append(m)
     return covered, uncovered
 
 
@@ -133,7 +177,7 @@ def get_orm_bound_serializer_names(file_path: Path) -> list[str]:
 
 
 def count_direct_orm_queries(path: Path) -> int:
-    """Count .objects. attribute accesses — each is a direct ORM query that should go through the facade.
+    """Count .objects attribute accesses (approximate — may include non-ORM uses).
 
     Accepts a single file or a directory (package of ViewSet files).
     """
@@ -149,23 +193,30 @@ def count_direct_orm_queries(path: Path) -> int:
 def get_cross_product_internal_imports(product_dir: Path, product_name: str) -> list[str]:
     """
     Find imports from other products' internals (non-facade) within this product's own files.
+    Handles both `from X import Y` and `import X` styles.
     Returns list of 'relpath: module' strings.
     """
+
+    def _is_cross_product_violation(module: str) -> bool:
+        if module.startswith(f"products.{product_name}"):
+            return False
+        if module.startswith("products.") and ".backend." in module:
+            return "facade" not in module.split(".")
+        return False
+
     violations: list[str] = []
     for py_file in product_dir.rglob("*.py"):
         tree = ast_parse_safe(py_file)
         if not tree:
             continue
+        rel = str(py_file.relative_to(product_dir))
         for node in ast.walk(tree):
-            if not isinstance(node, ast.ImportFrom) or not node.module:
-                continue
-            if node.module.startswith(f"products.{product_name}"):
-                continue
-            if node.module.startswith("products.") and ".backend." in node.module:
-                parts = node.module.split(".")
-                if "facade" not in parts:
-                    rel = str(py_file.relative_to(product_dir))
-                    violations.append(f"{rel}: {node.module}")
+            if isinstance(node, ast.ImportFrom) and node.module and _is_cross_product_violation(node.module):
+                violations.append(f"{rel}: {node.module}")
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    if _is_cross_product_violation(alias.name):
+                        violations.append(f"{rel}: {alias.name}")
     return violations
 
 

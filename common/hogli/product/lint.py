@@ -8,7 +8,7 @@ from .checks import CHECKS, CheckContext, is_isolated_product
 from .paths import PRODUCTS_DIR, load_structure
 
 
-def lint_product(name: str, verbose: bool = True, detailed: bool = False) -> list[str]:
+def lint_product(name: str, verbose: bool = True, detailed: bool = False, structure: dict | None = None) -> list[str]:
     """
     Lint a product's structure. Returns list of issues found.
 
@@ -17,6 +17,7 @@ def lint_product(name: str, verbose: bool = True, detailed: bool = False) -> lis
       lenient — legacy product, subset of rules enforced (see product_structure.yaml)
 
     Set detailed=True (single-product run) for richer isolation progress output.
+    Pass structure= to avoid re-parsing product_structure.yaml on every call (useful in --all mode).
     """
     product_dir = PRODUCTS_DIR / name
     backend_dir = product_dir / "backend"
@@ -35,7 +36,7 @@ def lint_product(name: str, verbose: bool = True, detailed: bool = False) -> lis
         product_dir=product_dir,
         backend_dir=backend_dir,
         is_isolated=isolated,
-        structure=load_structure(),
+        structure=structure or load_structure(),
         detailed=detailed,
     )
 
@@ -72,10 +73,12 @@ def lint_all_products() -> None:
         "file/folder conflicts, tach interfaces (strict), isolation progress (lenient)\n"
     )
 
+    structure = load_structure()
+
     failed: list[str] = []
     for product_dir in product_dirs:
         click.echo(f"─ {product_dir.name}")
-        issues = lint_product(product_dir.name, verbose=True, detailed=False)
+        issues = lint_product(product_dir.name, verbose=True, detailed=False, structure=structure)
         if issues:
             failed.append(product_dir.name)
         click.echo("")

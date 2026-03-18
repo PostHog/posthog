@@ -355,14 +355,14 @@ class IsolationProgressCheck(ProductCheck):
                 if uses_models:
                     issues_parts.append("imports models directly")
                 if orm_queries:
-                    issues_parts.append(f"{orm_queries} direct ORM quer{'y' if orm_queries == 1 else 'ies'}")
+                    issues_parts.append(f"~{orm_queries} .objects call{'s' if orm_queries != 1 else ''}")
                 result.lines.append(f"views:      ~ uses facade but {', '.join(issues_parts)}")
                 if hint := self._hint(
                     ctx, "route all data access through the facade — remove model imports and .objects. calls"
                 ):
                     result.lines.append(hint)
             else:
-                suffix = f" ({orm_queries} direct ORM quer{'y' if orm_queries == 1 else 'ies'})" if orm_queries else ""
+                suffix = f" (~{orm_queries} .objects call{'s' if orm_queries != 1 else ''})" if orm_queries else ""
                 result.lines.append(f"views:      ✗ no facade usage{suffix}")
                 if hint := self._hint(ctx, "update views to call facade methods instead of querying models directly"):
                     result.lines.append(hint)
@@ -377,7 +377,7 @@ class IsolationProgressCheck(ProductCheck):
             if uses_models:
                 parts.append("imports models directly")
             if orm_queries:
-                parts.append(f"{orm_queries} direct ORM quer{'y' if orm_queries == 1 else 'ies'}")
+                parts.append(f"~{orm_queries} .objects call{'s' if orm_queries != 1 else ''}")
             issues_str = f" — {', '.join(parts)}" if parts else ""
             result.lines.append(f"views:      ✗ at {legacy_label}{issues_str}")
             if hint := self._hint(ctx, "move to backend/presentation/views.py and route data access through facade"):

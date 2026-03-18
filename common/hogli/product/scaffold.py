@@ -101,7 +101,14 @@ def _add_to_django_settings(product_name: str, *, dry_run: bool) -> None:
     _register_in_file(DJANGO_SETTINGS, "Django settings", app_config, write, dry_run=dry_run)
 
 
+_VALID_PRODUCT_NAME_RE = re.compile(r"^[a-z][a-z0-9_]*$")
+
+
 def bootstrap_product(name: str, dry_run: bool, force: bool) -> None:
+    if not _VALID_PRODUCT_NAME_RE.match(name):
+        raise click.ClickException(
+            f"Invalid product name '{name}' — must be lowercase, start with a letter, and contain only [a-z0-9_]."
+        )
     product_dir = PRODUCTS_DIR / name
 
     if product_dir.exists() and not force:
