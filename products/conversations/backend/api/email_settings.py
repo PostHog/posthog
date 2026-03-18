@@ -2,7 +2,7 @@
 
 import secrets
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 
 import structlog
 from rest_framework import serializers
@@ -80,22 +80,33 @@ class EmailConnectView(APIView):
                 status=400,
             )
 
-        with transaction.atomic():
-            try:
+        try:
+            with transaction.atomic():
                 config = TeamConversationsEmailConfig.objects.select_for_update().get(team=team)
                 config.from_email = from_email
                 config.from_name = from_name
                 config.domain = domain
                 config.save(update_fields=["from_email", "from_name", "domain"])
-            except TeamConversationsEmailConfig.DoesNotExist:
-                config = TeamConversationsEmailConfig.objects.create(
-                    team=team,
-                    inbound_token=secrets.token_hex(16),
-                    from_email=from_email,
-                    from_name=from_name,
-                    domain=domain,
-                )
+        except TeamConversationsEmailConfig.DoesNotExist:
+            try:
+                with transaction.atomic():
+                    config = TeamConversationsEmailConfig.objects.create(
+                        team=team,
+                        inbound_token=secrets.token_hex(16),
+                        from_email=from_email,
+                        from_name=from_name,
+                        domain=domain,
+                    )
+            except IntegrityError:
+                # Concurrent request already created it — update instead
+                with transaction.atomic():
+                    config = TeamConversationsEmailConfig.objects.select_for_update().get(team=team)
+                    config.from_email = from_email
+                    config.from_name = from_name
+                    config.domain = domain
+                    config.save(update_fields=["from_email", "from_name", "domain"])
 
+        with transaction.atomic():
             settings = team.conversations_settings or {}
             settings["email_enabled"] = True
             team.conversations_settings = settings
