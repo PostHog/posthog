@@ -43,14 +43,14 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
 
     actions({
         reloadData: () => ({}),
-        setLoadStartTime: (startTime: number | null) => ({ startTime }),
     }),
 
     reducers({
         loadStartTime: [
             null as number | null,
             {
-                setLoadStartTime: (_, { startTime }) => startTime,
+                loadData: () => performance.now(),
+                loadDataFailure: () => null,
             },
         ],
     }),
@@ -66,13 +66,9 @@ export const issuesDataNodeLogic = kea<issuesDataNodeLogicType>([
         reloadData: () => {
             actions.loadData('force_blocking')
         },
-        loadData: () => {
-            actions.setLoadStartTime(performance.now())
-        },
         loadDataSuccess: () => {
             const durationMs =
                 values.loadStartTime !== null ? Math.round(performance.now() - values.loadStartTime) : null
-            actions.setLoadStartTime(null)
 
             const response = values.response as Record<string, any> | null
             const results = response && 'results' in response ? response.results : []

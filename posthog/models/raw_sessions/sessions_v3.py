@@ -810,24 +810,39 @@ LIMIT 20
 """
 
 
-def GET_NUM_SHARDED_RAW_SESSIONS_ACTIVE_PARTS(partitions: list[str]) -> str:
-    """Get the maximum number of active parts across specified partitions and all nodes.
+def GET_NUM_RAW_SESSIONS_ACTIVE_PARTS(
+    partitions: list[str],
+    *,
+    table: str | None = None,
+    use_cluster: bool = True,
+) -> str:
+    """Get the maximum number of active parts across specified partitions.
+
+    ClickHouse's parts_to_throw_insert is per-partition, so this checks the max
+    active parts in any single (host, partition) combination.
 
     Args:
         partitions: List of partition names in YYYYMM format (e.g., ['202501', '202412'])
+        table: Table name to check. Defaults to the sharded raw sessions table.
+        use_cluster: If True, query across all cluster replicas. If False, query
+            only the local node's system.parts (useful for standalone/experimental nodes).
     """
     if not partitions:
         raise ValueError("partitions list cannot be empty")
     # Format partitions for SQL IN clause: ('202501', '202412')
     partitions_sql = ", ".join(f"'{p}'" for p in partitions)
+    table = table or SHARDED_RAW_SESSIONS_TABLE_V3()
+    parts_table = (
+        f"clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)" if use_cluster else "system.parts"
+    )
 
     return f"""
         SELECT coalesce(max(parts_count), 0), argMax(partition, parts_count), argMax(host, parts_count)
         FROM (
             SELECT hostName() as host, count() as parts_count, partition
-            FROM clusterAllReplicas('{settings.CLICKHOUSE_CLUSTER}', system.parts)
-            WHERE database = '{settings.CLICKHOUSE_DATABASE}'
-              AND table = '{SHARDED_RAW_SESSIONS_TABLE_V3()}'
+            FROM {parts_table}
+            WHERE database = currentDatabase()
+              AND table = '{table}'
               AND partition IN ({partitions_sql})
               AND active = 1
             GROUP BY host, partition
