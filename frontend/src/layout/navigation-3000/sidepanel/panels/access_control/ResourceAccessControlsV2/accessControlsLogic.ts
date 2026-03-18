@@ -52,23 +52,24 @@ function getEffectiveLevel(entry: AccessControlSettingsEntry, resourceKey: APISc
 }
 
 function matchesFilters(entry: AccessControlSettingsEntry, filters: AccessControlFilters): boolean {
-    if (filters.resourceKeys.length > 0) {
-        const hasEffectiveAccessToFilteredResource = filters.resourceKeys.some(
-            (rk) => getEffectiveLevel(entry, rk) !== null
-        )
-        if (!hasEffectiveAccessToFilteredResource) {
-            return false
-        }
+    const hasResourceFilter = filters.resourceKeys.length > 0
+    const hasLevelFilter = filters.ruleLevels.length > 0
+
+    if (hasResourceFilter && hasLevelFilter) {
+        // Intersection: at least one selected resource must have one of the selected levels
+        return filters.resourceKeys.some((rk) => {
+            const level = getEffectiveLevel(entry, rk)
+            return level !== null && (filters.ruleLevels as string[]).includes(level)
+        })
     }
 
-    if (filters.ruleLevels.length > 0) {
+    if (hasResourceFilter) {
+        return filters.resourceKeys.some((rk) => getEffectiveLevel(entry, rk) !== null)
+    }
+
+    if (hasLevelFilter) {
         const allKeys = ['project', ...Object.keys(entry.resources)] as APIScopeObject[]
-        const hasMatchingLevel = filters.ruleLevels.some((rl) =>
-            allKeys.some((k) => getEffectiveLevel(entry, k) === rl)
-        )
-        if (!hasMatchingLevel) {
-            return false
-        }
+        return filters.ruleLevels.some((rl) => allKeys.some((k) => getEffectiveLevel(entry, k) === rl))
     }
 
     return true

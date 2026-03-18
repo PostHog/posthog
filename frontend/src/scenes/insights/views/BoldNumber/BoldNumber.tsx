@@ -266,8 +266,8 @@ export function HogQLBoldNumber(): JSX.Element {
 
     const formattedValue = tabularData[0]?.[0]?.formattedValue ?? null
     const directValue = Array.isArray(response) ? response[0]?.[0] : undefined
-    const resultsValue = 'results' in response ? response.results[0]?.[0] : undefined
-    const resultValue = 'result' in response ? response.result[0]?.[0] : undefined
+    const resultsValue = 'results' in response ? response.results?.[0]?.[0] : undefined
+    const resultValue = 'result' in response ? response.result?.[0]?.[0] : undefined
 
     // If any of the values is null, show empty state
     if (formattedValue === null || directValue === null || resultsValue === null || resultValue === null) {

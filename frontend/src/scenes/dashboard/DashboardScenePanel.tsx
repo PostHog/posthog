@@ -30,7 +30,7 @@ import { slugify } from 'lib/utils'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
 import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
-import { organizationLogic } from 'scenes/organizationLogic'
+import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopyLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -79,11 +79,8 @@ export function DashboardScenePanel(): JSX.Element | null {
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const { user } = useValues(userLogic)
-    const { currentOrganization } = useValues(organizationLogic)
     const { tags } = useValues(tagsModel)
-
-    const hasMultipleProjects = (currentOrganization?.teams?.length ?? 0) > 1
-    const interProjectTransfersEnabled = useFeatureFlag('INTER_PROJECT_TRANSFERS')
+    const { canCopyToProject } = useValues(interProjectCopyLogic)
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
 
     const { push } = useActions(router)
@@ -111,7 +108,7 @@ export function DashboardScenePanel(): JSX.Element | null {
                             dataAttrKey={RESOURCE_TYPE}
                             onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
                         />
-                        {hasMultipleProjects && interProjectTransfersEnabled && (
+                        {canCopyToProject && (
                             <ButtonPrimitive
                                 menuItem
                                 onClick={() => push(urls.resourceTransfer('Dashboard', dashboard.id))}

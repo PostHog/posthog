@@ -431,10 +431,10 @@ class TestQueryRunner(BaseTest):
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
         before_success = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", status="success", error_type="none"
+            query_type="TestQuery", category="success", error_type="none"
         )._value.get()
         before_failure = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", status="failure", error_type="ValueError"
+            query_type="TestQuery", category="error", error_type="ValueError"
         )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
@@ -445,12 +445,12 @@ class TestQueryRunner(BaseTest):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success", error_type="none")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="success", error_type="none")._value.get()
             - before_success
             == success_delta
         )
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure", error_type="ValueError")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="error", error_type="ValueError")._value.get()
             - before_failure
             == failure_delta
         )
@@ -466,10 +466,10 @@ class TestQueryRunner(BaseTest):
             runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
         before_success = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", status="success", error_type="none"
+            query_type="TestQuery", category="success", error_type="none"
         )._value.get()
         before_failure = QUERY_EXECUTION_TOTAL.labels(
-            query_type="TestQuery", status="failure", error_type="ValueError"
+            query_type="TestQuery", category="error", error_type="ValueError"
         )._value.get()
         before_duration_sum = QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get()
 
@@ -478,11 +478,11 @@ class TestQueryRunner(BaseTest):
             runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
 
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="success", error_type="none")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="success", error_type="none")._value.get()
             == before_success
         )
         assert (
-            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", status="failure", error_type="ValueError")._value.get()
+            QUERY_EXECUTION_TOTAL.labels(query_type="TestQuery", category="error", error_type="ValueError")._value.get()
             == before_failure
         )
         assert QUERY_EXECUTION_DURATION.labels(query_type="TestQuery")._sum.get() == before_duration_sum

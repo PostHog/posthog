@@ -8,6 +8,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { useAppShortcut } from 'lib/components/AppShortcuts/useAppShortcut'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -53,6 +54,7 @@ import { llmAnalyticsSessionsViewLogic } from './tabs/llmAnalyticsSessionsViewLo
 import { llmAnalyticsToolsLogic } from './tabs/llmAnalyticsToolsLogic'
 import { llmAnalyticsTracesTabLogic } from './tabs/llmAnalyticsTracesTabLogic'
 import { llmAnalyticsUsersLogic } from './tabs/llmAnalyticsUsersLogic'
+import { LLMAnalyticsHumanReviews } from './traceReviews/LLMAnalyticsHumanReviews'
 import { getTraceTimestamp, sanitizeTraceUrlSearchParams, truncateValue } from './utils'
 
 export const scene: SceneExport = {
@@ -124,7 +126,7 @@ function LLMAnalyticsDashboard(): JSX.Element {
     const { externalFilters } = useValues(dashboardLogicInstance || fallbackLogicInstance)
     const dashboardActions = useActions(dashboardLogicInstance || fallbackLogicInstance)
     const setExternalFilters =
-        dashboardLogicInstance && dashboardActions?.setExternalFilters ? dashboardActions.setExternalFilters : () => {}
+        dashboardLogicInstance && dashboardActions?.setExternalFilters ? dashboardActions.setExternalFilters : undefined
     useAttachedLogic(dashboardLogicInstance || fallbackLogicInstance, llmAnalyticsSharedLogic)
 
     const nextExternalFilters = React.useMemo(
@@ -379,6 +381,7 @@ function LLMAnalyticsGenerations(): JSX.Element {
 const DEFAULT_DOCS_URL = 'https://posthog.com/docs/llm-analytics/installation'
 const DOCS_URLS_BY_TAB: Record<string, string> = {
     traces: 'https://posthog.com/docs/llm-analytics/traces',
+    reviews: 'https://posthog.com/docs/llm-analytics',
     generations: 'https://posthog.com/docs/llm-analytics/generations',
     sessions: 'https://posthog.com/docs/llm-analytics/sessions',
     errors: 'https://posthog.com/docs/llm-analytics/errors',
@@ -388,6 +391,7 @@ const DOCS_URLS_BY_TAB: Record<string, string> = {
 const TAB_DESCRIPTIONS: Record<string, string> = {
     dashboard: 'Overview of your LLM usage, costs, and performance metrics.',
     traces: 'Explore end-to-end traces of your LLM interactions.',
+    reviews: 'Manage reusable scorers for upcoming human reviews.',
     generations: 'View individual LLM generations and their details.',
     users: 'Understand how users are interacting with your LLM features.',
     errors: 'Monitor and debug errors in your LLM pipeline.',
@@ -429,6 +433,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     const { activeTab } = useValues(llmAnalyticsSharedLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { searchParams } = useValues(router)
+    const isTraceReviewEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_REVIEW]
 
     const { push } = useActions(router)
     const { toggleProduct, openModal: openEditCustomProductsModal } = useActions(editCustomProductsModalLogic)
@@ -453,17 +458,38 @@ function LLMAnalyticsSceneContent(): JSX.Element {
     useAppShortcut({
         name: 'LLMAnalyticsTab3',
         keybind: [keyBinds.tab3],
-        intent: 'Go to Generations',
+        intent: isTraceReviewEnabled ? 'Go to Human reviews' : 'Go to Generations',
         interaction: 'function',
-        callback: () => push(combineUrl(urls.llmAnalyticsGenerations(), searchParams).url),
+        callback: () =>
+            push(
+                combineUrl(
+                    isTraceReviewEnabled ? urls.llmAnalyticsReviews() : urls.llmAnalyticsGenerations(),
+                    searchParams
+                ).url
+            ),
         scope: Scene.LLMAnalytics,
     })
     useAppShortcut({
         name: 'LLMAnalyticsTab4',
         keybind: [keyBinds.tab4],
+        intent: isTraceReviewEnabled ? 'Go to Generations' : 'Go to Users',
+        interaction: 'function',
+        callback: () =>
+            push(
+                combineUrl(
+                    isTraceReviewEnabled ? urls.llmAnalyticsGenerations() : urls.llmAnalyticsUsers(),
+                    searchParams
+                ).url
+            ),
+        scope: Scene.LLMAnalytics,
+    })
+    useAppShortcut({
+        name: 'LLMAnalyticsTab5',
+        keybind: [keyBinds.tab5],
         intent: 'Go to Users',
         interaction: 'function',
         callback: () => push(combineUrl(urls.llmAnalyticsUsers(), searchParams).url),
+        disabled: !isTraceReviewEnabled,
         scope: Scene.LLMAnalytics,
     })
 
@@ -486,6 +512,21 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             link: combineUrl(urls.llmAnalyticsTraces(), searchParams).url,
             'data-attr': 'traces-tab',
         },
+        ...(isTraceReviewEnabled
+            ? [
+                  {
+                      key: 'reviews',
+                      label: 'Human reviews',
+                      content: (
+                          <LLMAnalyticsSetupPrompt thing="trace">
+                              <LLMAnalyticsHumanReviews />
+                          </LLMAnalyticsSetupPrompt>
+                      ),
+                      link: combineUrl(urls.llmAnalyticsReviews(), searchParams).url,
+                      'data-attr': 'reviews-tab',
+                  } as LemonTab<string>,
+              ]
+            : []),
         {
             key: 'generations',
             label: 'Generations',
@@ -564,6 +605,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 Playground
             </Link>,
             <Link
+                key="clusters"
                 to={combineUrl(urls.llmAnalyticsClusters(), searchParams).url}
                 onClick={() => toggleProduct('Clusters', true)}
             >
@@ -571,6 +613,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             </Link>,
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS] ? (
                 <Link
+                    key="datasets"
                     to={combineUrl(urls.llmAnalyticsDatasets(), searchParams).url}
                     onClick={() => toggleProduct('Datasets', true)}
                 >
@@ -579,6 +622,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             ) : null,
             featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_EVALUATIONS] ? (
                 <Link
+                    key="evaluations"
                     to={combineUrl(urls.llmAnalyticsEvaluations(), searchParams).url}
                     onClick={() => toggleProduct('Evaluations', true)}
                 >
@@ -587,6 +631,7 @@ function LLMAnalyticsSceneContent(): JSX.Element {
             ) : null,
             isPromptManagementEnabled ? (
                 <Link
+                    key="prompts"
                     to={combineUrl(urls.llmAnalyticsPrompts(), searchParams).url}
                     onClick={() => toggleProduct('Prompts', true)}
                 >
@@ -594,7 +639,11 @@ function LLMAnalyticsSceneContent(): JSX.Element {
                 </Link>
             ) : null,
         ].filter(Boolean) as JSX.Element[]
-    }, [featureFlags, isEarlyAdopter, isPromptManagementEnabled, searchParams, toggleProduct])
+    }, [featureFlags, isPromptManagementEnabled, searchParams, toggleProduct])
+
+    if (activeTab === 'reviews' && !isTraceReviewEnabled) {
+        return <NotFound object="page" />
+    }
 
     return (
         <SceneContent>

@@ -25,7 +25,7 @@ describe('CDP Internal Events Consumer', () => {
         hub = await createHub({
             SITE_URL: 'http://localhost:8000',
         })
-        team = await getFirstTeam(hub)
+        team = await getFirstTeam(hub.postgres)
 
         processor = new CdpInternalEventsConsumer(hub, hub)
         await processor.start()

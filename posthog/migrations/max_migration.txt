@@ -1,1 +1,1 @@
-1047_dashboard_quick_filter_ids
+1052_migrate_legacy_personal_api_key_scopes

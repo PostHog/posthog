@@ -11,6 +11,7 @@ from asgiref.sync import sync_to_async
 
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.schedule import a_delete_schedule
+from posthog.temporal.common.search_attributes import POSTHOG_TEAM_ID_KEY
 
 from products.data_warehouse.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
@@ -40,7 +41,7 @@ class Command(BaseCommand):
             "--team-ids",
             default=None,
             type=str,
-            help="Comma-separated team IDs to filter orphans by (requires describe per orphan)",
+            help="Comma-separated team IDs to filter orphans by (uses search attributes if available, falls back to describe)",
         )
         parser.add_argument(
             "--dry-run",
@@ -76,26 +77,22 @@ class Command(BaseCommand):
         temporal = await async_connect()
 
         # Step 1: Find orphans
+        skipped_wrong_team = 0
         if schedule_ids_arg:
             target_ids = {sid.strip() for sid in schedule_ids_arg.split(",") if sid.strip()}
             orphans = await self._find_orphans_from_ids(target_ids)
+            # When using --schedule-ids with --team-ids, filter via describe fallback
+            if team_ids and orphans:
+                orphans, skipped_wrong_team = await self._filter_by_team(temporal, orphans, team_ids, concurrency)
         else:
-            orphans = await self._find_orphans_from_listing(temporal)
+            # Pass team_ids to use search attribute filtering in the listing query
+            orphans = await self._find_orphans_from_listing(temporal, team_ids=team_ids)
 
         if not orphans:
             logger.info("No orphaned schedules found")
             return
 
         logger.info(f"Found {len(orphans)} orphaned schedule(s)")
-
-        # Step 2: Filter by team if requested
-        skipped_wrong_team = 0
-        if team_ids:
-            orphans, skipped_wrong_team = await self._filter_by_team(temporal, orphans, team_ids, concurrency)
-            if not orphans:
-                logger.info("No orphans match the specified team IDs")
-                return
-            logger.info(f"After team filter: {len(orphans)} orphan(s), {skipped_wrong_team} skipped")
 
         # Step 3: List orphans
         for schedule_id in sorted(orphans):
@@ -140,12 +137,17 @@ class Command(BaseCommand):
 
         return orphans
 
-    async def _find_orphans_from_listing(self, temporal) -> set[str]:
-        """List all data-modeling-run schedules from Temporal and find orphans."""
+    async def _find_orphans_from_listing(self, temporal, team_ids: set[int] | None = None) -> set[str]:
+        """List data-modeling-run schedules from Temporal and find orphans.
+
+        If team_ids is provided, uses PostHogTeamId search attribute to pre-filter
+        schedules server-side (much faster than listing all + describe each).
+        """
         schedule_ids: set[str] = set()
         count = 0
 
-        async for listing in await temporal.list_schedules():
+        query = self._build_team_filter_query(team_ids) if team_ids else None
+        async for listing in await temporal.list_schedules(query=query):
             if listing.schedule.action.workflow != "data-modeling-run":
                 continue
             schedule_ids.add(listing.id)
@@ -167,10 +169,21 @@ class Command(BaseCommand):
 
         return schedule_ids - valid_ids
 
+    @staticmethod
+    def _build_team_filter_query(team_ids: set[int]) -> str:
+        """Build a Temporal visibility query to filter schedules by PostHogTeamId."""
+        if len(team_ids) == 1:
+            return f"PostHogTeamId = {next(iter(team_ids))}"
+        return f"PostHogTeamId IN ({','.join(str(t) for t in sorted(team_ids))})"
+
     async def _filter_by_team(
         self, temporal, orphans: set[str], team_ids: set[int], concurrency: int
     ) -> tuple[set[str], int]:
-        """Filter orphans by team ID using describe() to extract team_id from payload."""
+        """Filter orphans by team ID using describe() to extract team_id from payload.
+
+        This is the fallback path used when search attributes are not available
+        (e.g. schedules created before search attributes were added).
+        """
         import temporalio.converter
 
         from posthog.temporal.common.codec import EncryptionCodec
@@ -185,6 +198,11 @@ class Command(BaseCommand):
                 try:
                     handle = temporal.get_schedule_handle(schedule_id)
                     desc = await handle.describe()
+                    # Try search attributes first (fast path)
+                    team_id_attr = desc.typed_search_attributes.get(POSTHOG_TEAM_ID_KEY)
+                    if team_id_attr is not None:
+                        return team_id_attr
+                    # Fall back to decoding payload (slow path for old schedules)
                     raw_payloads = list(desc.schedule.action.args)
                     if not raw_payloads:
                         return None

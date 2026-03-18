@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPencil, IconPlus, IconTrash } from '@posthog/icons'
+import { IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
@@ -14,6 +14,7 @@ import {
     Link,
 } from '@posthog/lemon-ui'
 
+import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { MemberSelectMultiple } from 'lib/components/MemberSelectMultiple'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -129,7 +130,15 @@ function SlackSection(): JSX.Element {
     return (
         <SceneSection
             title="SupportHog Slack bot"
-            description="Add the SupportHog bot to your Slack workspace to create and manage support tickets directly from Slack messages."
+            description={
+                <>
+                    Add the SupportHog bot to your Slack workspace to create and manage support tickets directly from
+                    Slack messages.{' '}
+                    <Link to="https://posthog.com/docs/support/slack" target="_blank">
+                        Docs
+                    </Link>
+                </>
+            }
             className="mt-4"
         >
             <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
@@ -208,7 +217,7 @@ function SlackChannelSection(): JSX.Element {
                                 type="secondary"
                                 size="small"
                                 onClick={loadSlackChannelsWithToken}
-                                loading={slackChannelsLoading}
+                                disabledReason={slackChannelsLoading ? 'Loading channels...' : undefined}
                             >
                                 Refresh
                             </LemonButton>
@@ -278,6 +287,89 @@ function SlackChannelSection(): JSX.Element {
     )
 }
 
+function SecretApiKeySection(): JSX.Element {
+    const { currentTeam, isTeamTokenResetAvailable } = useValues(teamLogic)
+    const { rotateSecretToken, deleteSecretTokenBackup } = useActions(teamLogic)
+
+    const openRotateDialog = (): void => {
+        const verb = currentTeam?.secret_api_token ? 'Rotate' : 'Generate'
+        const description = currentTeam?.secret_api_token
+            ? 'This will generate a new secret API key and move the existing one to backup. The old key will remain active until you delete it.'
+            : 'This will generate a new secret API key for authenticating external API requests.'
+
+        LemonDialog.open({
+            title: `${verb} secret API key?`,
+            description,
+            primaryButton: {
+                children: verb,
+                onClick: rotateSecretToken,
+            },
+            secondaryButton: { children: 'Cancel' },
+        })
+    }
+
+    return (
+        <SceneSection
+            title="Secret API key"
+            description="Used to authenticate external API requests (e.g. from workflows). This is the same key shown in Feature flags settings."
+            className="mt-4"
+        >
+            <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
+                <div>
+                    <h3 className="text-sm font-semibold mb-1">
+                        Primary key{' '}
+                        {currentTeam?.secret_api_token && <span className="text-green-700 text-xs ml-2">(Active)</span>}
+                    </h3>
+                    <CodeSnippet
+                        actions={
+                            <LemonButton
+                                icon={<IconRefresh />}
+                                size="xsmall"
+                                onClick={openRotateDialog}
+                                disabledReason={
+                                    !isTeamTokenResetAvailable
+                                        ? 'You do not have permission to rotate this key'
+                                        : undefined
+                                }
+                                tooltip={currentTeam?.secret_api_token ? 'Rotate key' : 'Generate key'}
+                            />
+                        }
+                        className={currentTeam?.secret_api_token ? '' : 'text-muted'}
+                        thing="Secret API key"
+                    >
+                        {currentTeam?.secret_api_token || 'Click the generate button on the right to create a new key.'}
+                    </CodeSnippet>
+                </div>
+
+                {currentTeam?.secret_api_token_backup ? (
+                    <div>
+                        <h3 className="text-sm font-semibold mb-1">
+                            Backup key <span className="text-orange-600 text-xs ml-2">(Pending deletion)</span>
+                        </h3>
+                        <CodeSnippet
+                            actions={
+                                <LemonButton
+                                    icon={<IconTrash />}
+                                    size="xsmall"
+                                    onClick={() => deleteSecretTokenBackup()}
+                                    tooltip="Delete backup key"
+                                />
+                            }
+                            thing="Backup secret API key"
+                        >
+                            {currentTeam.secret_api_token_backup}
+                        </CodeSnippet>
+                        <p className="text-xs text-muted mt-1">
+                            This key is still active to support services using the previous key. Delete it once you've
+                            fully migrated.
+                        </p>
+                    </div>
+                ) : null}
+            </LemonCard>
+        </SceneSection>
+    )
+}
+
 export function SupportSettingsScene(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)
     const { updateCurrentTeam } = useActions(teamLogic)
@@ -320,7 +412,14 @@ export function SupportSettingsScene(): JSX.Element {
             <ScenesTabs />
             <SceneSection
                 title="Conversations API"
-                description="Turn on conversations API to enable access for tickets and messages."
+                description={
+                    <>
+                        Turn on conversations API to enable access for tickets and messages.{' '}
+                        <Link to="https://posthog.com/docs/support/javascript-api" target="_blank">
+                            Docs
+                        </Link>
+                    </>
+                }
             >
                 <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
                     <div className="flex items-center gap-4 justify-between">
@@ -372,7 +471,18 @@ export function SupportSettingsScene(): JSX.Element {
                         </LemonCard>
                     </SceneSection>
                     <SlackSection />
-                    <SceneSection title="In-app widget" className="mt-4">
+                    <SceneSection
+                        title="In-app widget"
+                        description={
+                            <>
+                                Add a chat widget to your website for customers to reach you.{' '}
+                                <Link to="https://posthog.com/docs/support/widget" target="_blank">
+                                    Docs
+                                </Link>
+                            </>
+                        }
+                        className="mt-4"
+                    >
                         <LemonCard hoverEffect={false} className="flex flex-col gap-y-2 max-w-[800px] px-4 py-3">
                             <div className="flex items-center gap-4 justify-between">
                                 <div>
@@ -677,12 +787,16 @@ export function SupportSettingsScene(): JSX.Element {
                             )}
                         </LemonCard>
                     </SceneSection>
+                    <SecretApiKeySection />
                     <SceneSection
                         title="Workflows"
                         description={
                             <>
                                 Use these events as triggers in <Link to="/workflows">Workflows</Link> to automate
-                                ticket actions.
+                                ticket actions.{' '}
+                                <Link to="https://posthog.com/docs/support/workflows" target="_blank">
+                                    Docs
+                                </Link>
                             </>
                         }
                         className="mt-4"

@@ -4,7 +4,7 @@ use crate::metrics::consts::{
     COHORT_CACHE_ENTRIES_GAUGE, COHORT_CACHE_HIT_COUNTER, COHORT_CACHE_MISS_COUNTER,
     COHORT_CACHE_SIZE_BYTES_GAUGE, DB_COHORT_ERRORS_COUNTER, DB_COHORT_READS_COUNTER,
 };
-use axum::async_trait;
+use async_trait::async_trait;
 use common_database::PostgresReader;
 use common_types::TeamId;
 use moka::future::Cache;
@@ -236,7 +236,7 @@ impl From<CohortFetchError> for FlagError {
 mod tests {
     use super::*;
     use crate::utils::test_utils::TestContext;
-    use axum::async_trait;
+    use async_trait::async_trait;
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::Arc;
     use tokio::sync::Barrier;

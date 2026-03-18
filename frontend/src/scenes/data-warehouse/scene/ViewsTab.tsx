@@ -1,25 +1,18 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonButton, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { humanFriendlyDetailedTime } from 'lib/utils'
+import { STATUS_TAG_SETTINGS } from 'scenes/models/nodeDetailConstants'
 import { urls } from 'scenes/urls'
 
 import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import { DataWarehouseSavedQuery, DataWarehouseSavedQueryRunHistory } from '~/types'
 
 import { PAGE_SIZE, viewsTabLogic } from './viewsTabLogic'
-
-const STATUS_TAG_SETTINGS: Record<string, LemonTagType> = {
-    Running: 'primary',
-    Completed: 'success',
-    Failed: 'danger',
-    Cancelled: 'muted',
-    Modified: 'warning',
-}
 
 const getDisabledReason = (view: DataWarehouseSavedQuery): string | undefined => {
     if (view.managed_viewset_kind !== null) {
@@ -77,7 +70,12 @@ function DependencyCount({ count, loading }: { count?: number; loading?: boolean
     return <span>{count}</span>
 }
 
-export function ViewsTab(): JSX.Element {
+interface ViewsTabProps {
+    /** Optional function to build the URL when clicking on a view. Defaults to SQL editor. */
+    getViewUrl?: (view: DataWarehouseSavedQuery) => string
+}
+
+export function ViewsTab({ getViewUrl }: ViewsTabProps = {}): JSX.Element {
     const {
         filteredViews,
         filteredMaterializedViews,
@@ -156,7 +154,7 @@ export function ViewsTab(): JSX.Element {
                                         />
                                     ) : (
                                         <LemonTableLink
-                                            to={urls.sqlEditor({ view_id: view.id })}
+                                            to={getViewUrl?.(view) ?? urls.sqlEditor({ view_id: view.id })}
                                             title={view.name}
                                             description="Materialized view"
                                         />
@@ -311,7 +309,10 @@ export function ViewsTab(): JSX.Element {
                                             </span>
                                         </>
                                     ) : (
-                                        <LemonTableLink to={urls.sqlEditor({ view_id: view.id })} title={view.name} />
+                                        <LemonTableLink
+                                            to={getViewUrl?.(view) ?? urls.sqlEditor({ view_id: view.id })}
+                                            title={view.name}
+                                        />
                                     ),
                             },
                             {

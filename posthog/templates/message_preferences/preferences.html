@@ -9,10 +9,10 @@
     <body>
         {% block content %}
         <div class="min-h-screen bg-gray-50">
-            <div class="max-w-lg mx-auto py-12 px-4 sm:px-6 lg:px-8">
-                <div class="bg-white shadow-xl rounded-xl p-8">
-                    <h1 class="text-3xl font-bold text-gray-900 mb-2">Message Preferences</h1>
-                    <p class="text-gray-600 text-lg mb-8">Manage message preferences for {{ recipient.identifier }}</p>
+            <div class="max-w-2xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+                <div class="bg-white shadow-xl rounded-xl p-8 mb-12">
+                    <h1 class="text-2xl font-bold text-gray-900 mb-2">Message preferences for {{ recipient.identifier|escape }}</h1>
+                    <p class="text-gray-600 text-base mb-8">Choose which emails you'd like to receive. Changes are only applied when you click Save preferences.</p>
 
                     <form id="preferences-form" class="space-y-6">
                         {% csrf_token %}
@@ -25,30 +25,40 @@
                                     <h3 class="text-lg font-medium text-gray-900">{{ category.name }}</h3>
                                     <p class="text-sm text-gray-500 mt-1">{{ category.description }}</p>
                                 </div>
-                                <div class="relative inline-block w-12 flex-shrink-0 align-top select-none">
-                                    <input
-                                        type="checkbox"
-                                        name="{{ category.id }}"
-                                        id="{{ category.id }}"
-                                        {% if category.status != "OPTED_OUT" %}checked{% endif %}
-                                        class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-full checked:bg-blue-500"
-                                    />
-                                    <label
-                                        for="{{ category.id }}"
-                                        class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"
-                                    ></label>
+                                <div class="flex flex-col items-end flex-shrink-0 w-40">
+                                    <div class="relative inline-block w-12 select-none">
+                                        <input
+                                            type="checkbox"
+                                            name="{{ category.id }}"
+                                            id="{{ category.id }}"
+                                            {% if category.status != "OPTED_OUT" %}checked{% endif %}
+                                            class="toggle-checkbox absolute block w-6 h-6 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out checked:translate-x-full checked:bg-blue-500"
+                                        />
+                                        <label
+                                            for="{{ category.id }}"
+                                            class="toggle-label block overflow-hidden h-6 rounded-full bg-gray-300 cursor-pointer"
+                                        ></label>
+                                    </div>
+                                    <span class="text-xs font-medium mt-1 text-right {% if category.status != 'OPTED_OUT' %}text-green-700{% else %}text-gray-500{% endif %}" data-status-for="{{ category.id }}">
+                                        {% if category.status != "OPTED_OUT" %}Subscribed{% else %}Not subscribed{% endif %}
+                                    </span>
                                 </div>
                             </div>
                         </div>
                         {% endfor %}
 
-                        <div class="mt-8">
+                        <div class="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200">
+                            <div class="max-w-2xl mx-auto p-4">
+                            <p id="unsaved-hint" class="hidden text-sm text-amber-600 font-medium mb-2 text-center">You have unsaved changes</p>
                             <button
+                                id="save-btn"
                                 type="submit"
-                                class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition duration-150 ease-in-out"
+                                disabled
+                                class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-default transition duration-150 ease-in-out"
                             >
                                 Save preferences
                             </button>
+                            </div>
                         </div>
                     </form>
 
@@ -70,6 +80,19 @@
                 const form = document.getElementById('preferences-form')
                 const toggles = document.querySelectorAll('.toggle-checkbox')
 
+                function updateStatusLabel(toggle) {
+                    const statusLabel = document.querySelector('[data-status-for="' + toggle.name + '"]')
+                    if (!statusLabel) return
+                    const isChanged = toggle.checked !== toggle.defaultChecked
+                    if (isChanged) {
+                        statusLabel.textContent = toggle.checked ? 'Will subscribe' : 'Will unsubscribe'
+                        statusLabel.className = 'text-xs font-medium mt-1 text-right text-amber-600'
+                    } else {
+                        statusLabel.textContent = toggle.checked ? 'Subscribed' : 'Not subscribed'
+                        statusLabel.className = 'text-xs font-medium mt-1 text-right ' + (toggle.checked ? 'text-green-700' : 'text-gray-500')
+                    }
+                }
+
                 toggles.forEach((toggle) => {
                     toggle.addEventListener('change', function () {
                         const card = this.closest('.bg-gray-50')
@@ -77,6 +100,14 @@
                         setTimeout(() => {
                             card.style.transform = 'scale(1)'
                         }, 200)
+
+                        // Update status label: show pending state if changed, saved state if reverted
+                        updateStatusLabel(this)
+
+                        // Show/hide unsaved hint and enable/disable save button
+                        const anyChanged = Array.from(toggles).some(t => t.checked !== t.defaultChecked)
+                        document.getElementById('unsaved-hint').classList.toggle('hidden', !anyChanged)
+                        document.getElementById('save-btn').disabled = !anyChanged
                     })
                 })
 
@@ -106,6 +137,14 @@
                         if (data.error) {
                             throw new Error(data.error)
                         }
+
+                        // Update saved state and resolve all labels
+                        toggles.forEach(t => {
+                            t.defaultChecked = t.checked
+                            updateStatusLabel(t)
+                        })
+                        document.getElementById('unsaved-hint').classList.add('hidden')
+                        document.getElementById('save-btn').disabled = true
 
                         // Enhanced success message
                         const successMsg = document.createElement('div')
@@ -158,7 +197,7 @@
                             errorMsg.style.transform = 'translateX(100%)'
                             setTimeout(() => errorMsg.remove(), 500)
                         }, 2500)
-                    } finally {
+
                         submitButton.disabled = false
                     }
                 })

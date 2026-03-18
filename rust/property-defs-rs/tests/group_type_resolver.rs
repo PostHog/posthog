@@ -1,10 +1,12 @@
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use personhog_proto::personhog::{
+    leader::v1::{UpdatePersonPropertiesRequest, UpdatePersonPropertiesResponse},
     service::v1::person_hog_service_server::{PersonHogService, PersonHogServiceServer},
     types::v1::*,
 };
-use sqlx::PgPool;
 use tokio::net::TcpListener;
 use tonic::{Request, Response, Status};
 
@@ -18,6 +20,7 @@ use property_defs_rs::{
 struct MockPersonHogService {
     mappings_by_team: Vec<GroupTypeMappingsByKey>,
     fail: bool,
+    call_count: Arc<AtomicUsize>,
 }
 
 impl MockPersonHogService {
@@ -25,6 +28,18 @@ impl MockPersonHogService {
         Self {
             mappings_by_team,
             fail: false,
+            call_count: Arc::new(AtomicUsize::new(0)),
+        }
+    }
+
+    fn with_mappings_counted(
+        mappings_by_team: Vec<GroupTypeMappingsByKey>,
+        call_count: Arc<AtomicUsize>,
+    ) -> Self {
+        Self {
+            mappings_by_team,
+            fail: false,
+            call_count,
         }
     }
 
@@ -32,6 +47,7 @@ impl MockPersonHogService {
         Self {
             mappings_by_team: vec![],
             fail: true,
+            call_count: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -42,6 +58,7 @@ impl PersonHogService for MockPersonHogService {
         &self,
         _req: Request<GetGroupTypeMappingsByTeamIdsRequest>,
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
+        self.call_count.fetch_add(1, Ordering::SeqCst);
         if self.fail {
             return Err(Status::internal("mock failure"));
         }
@@ -166,6 +183,12 @@ impl PersonHogService for MockPersonHogService {
     ) -> Result<Response<GroupTypeMappingsBatchResponse>, Status> {
         Err(Status::unimplemented(""))
     }
+    async fn update_person_properties(
+        &self,
+        _: Request<UpdatePersonPropertiesRequest>,
+    ) -> Result<Response<UpdatePersonPropertiesResponse>, Status> {
+        Err(Status::unimplemented(""))
+    }
 }
 
 // -- helpers ------------------------------------------------------------
@@ -184,8 +207,8 @@ async fn start_mock_server(service: MockPersonHogService) -> SocketAddr {
     addr
 }
 
-fn make_config(addr: &str, rollout: u32) -> property_defs_rs::config::Config {
-    // Set env vars exactly once to avoid data races across concurrent #[sqlx::test] cases.
+fn make_config(addr: &str) -> property_defs_rs::config::Config {
+    // Set env vars exactly once to avoid data races across concurrent test cases.
     static INIT_ENV: std::sync::Once = std::sync::Once::new();
     INIT_ENV.call_once(|| {
         std::env::set_var("KAFKA__BOOTSTRAP_SERVERS", "localhost:9092");
@@ -193,7 +216,6 @@ fn make_config(addr: &str, rollout: u32) -> property_defs_rs::config::Config {
     });
     let mut config = property_defs_rs::config::Config::init_with_defaults().unwrap();
     config.personhog_addr = addr.to_string();
-    config.personhog_rollout_percentage = rollout;
     config.personhog_timeout_ms = 5000;
     config.skip_writes = true;
     config.skip_reads = false;
@@ -215,28 +237,6 @@ fn make_group_update(team_id: i32, group_name: &str) -> Update {
     })
 }
 
-async fn seed_group_mapping(
-    db: &PgPool,
-    id: i32,
-    group_type: &str,
-    group_type_index: i32,
-    team_id: i32,
-    project_id: i32,
-) {
-    sqlx::query(
-        "INSERT INTO posthog_grouptypemapping (id, group_type, group_type_index, team_id, project_id)
-            VALUES($1, $2, $3, $4, $5)",
-    )
-    .bind(id)
-    .bind(group_type)
-    .bind(group_type_index)
-    .bind(team_id)
-    .bind(project_id)
-    .execute(db)
-    .await
-    .unwrap();
-}
-
 fn get_resolved_index(update: &Update) -> Option<i32> {
     match update {
         Update::Property(p) => match &p.group_type_index {
@@ -249,8 +249,8 @@ fn get_resolved_index(update: &Update) -> Option<i32> {
 
 // -- tests --------------------------------------------------------------
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_personhog_resolves_group_types(db: PgPool) {
+#[tokio::test]
+async fn test_personhog_resolves_group_types() {
     let mock = MockPersonHogService::with_mappings(vec![GroupTypeMappingsByKey {
         key: 1,
         mappings: vec![
@@ -282,7 +282,7 @@ async fn test_personhog_resolves_group_types(db: PgPool) {
     }]);
 
     let addr = start_mock_server(mock).await;
-    let config = make_config(&format!("http://{addr}"), 100);
+    let config = make_config(&format!("http://{addr}"));
     let resolver = GroupTypeResolver::new(&config);
 
     let mut updates = vec![
@@ -290,14 +290,14 @@ async fn test_personhog_resolves_group_types(db: PgPool) {
         make_group_update(1, "company"),
     ];
 
-    resolver.resolve(&mut updates, &db, None).await.unwrap();
+    resolver.resolve(&mut updates).await.unwrap();
 
     assert_eq!(get_resolved_index(&updates[0]), Some(0));
     assert_eq!(get_resolved_index(&updates[1]), Some(1));
 }
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_personhog_resolves_multiple_teams(db: PgPool) {
+#[tokio::test]
+async fn test_personhog_resolves_multiple_teams() {
     let mock = MockPersonHogService::with_mappings(vec![
         GroupTypeMappingsByKey {
             key: 10,
@@ -332,7 +332,7 @@ async fn test_personhog_resolves_multiple_teams(db: PgPool) {
     ]);
 
     let addr = start_mock_server(mock).await;
-    let config = make_config(&format!("http://{addr}"), 100);
+    let config = make_config(&format!("http://{addr}"));
     let resolver = GroupTypeResolver::new(&config);
 
     let mut updates = vec![
@@ -340,26 +340,26 @@ async fn test_personhog_resolves_multiple_teams(db: PgPool) {
         make_group_update(20, "workspace"),
     ];
 
-    resolver.resolve(&mut updates, &db, None).await.unwrap();
+    resolver.resolve(&mut updates).await.unwrap();
 
     assert_eq!(get_resolved_index(&updates[0]), Some(0));
     assert_eq!(get_resolved_index(&updates[1]), Some(2));
 }
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_personhog_unresolved_group_type_cleared(db: PgPool) {
+#[tokio::test]
+async fn test_personhog_unresolved_group_type_cleared() {
     let mock = MockPersonHogService::with_mappings(vec![GroupTypeMappingsByKey {
         key: 1,
         mappings: vec![],
     }]);
 
     let addr = start_mock_server(mock).await;
-    let config = make_config(&format!("http://{addr}"), 100);
+    let config = make_config(&format!("http://{addr}"));
     let resolver = GroupTypeResolver::new(&config);
 
     let mut updates = vec![make_group_update(1, "nonexistent")];
 
-    resolver.resolve(&mut updates, &db, None).await.unwrap();
+    resolver.resolve(&mut updates).await.unwrap();
 
     match &updates[0] {
         Update::Property(p) => assert!(p.group_type_index.is_none()),
@@ -367,82 +367,66 @@ async fn test_personhog_unresolved_group_type_cleared(db: PgPool) {
     }
 }
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_personhog_failure_falls_back_to_db(db: PgPool) {
-    // Seed the DB with a mapping so the fallback path can resolve it
-    seed_group_mapping(&db, 1, "organization", 0, 1, 1).await;
-
+#[tokio::test]
+async fn test_personhog_failure_returns_error() {
     let mock = MockPersonHogService::failing();
     let addr = start_mock_server(mock).await;
-    let config = make_config(&format!("http://{addr}"), 100);
+    let config = make_config(&format!("http://{addr}"));
     let resolver = GroupTypeResolver::new(&config);
 
     let mut updates = vec![make_group_update(1, "organization")];
 
-    resolver.resolve(&mut updates, &db, None).await.unwrap();
-
-    assert_eq!(get_resolved_index(&updates[0]), Some(0));
+    let result = resolver.resolve(&mut updates).await;
+    assert!(result.is_err());
 }
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_personhog_caches_resolved_types(db: PgPool) {
-    let mock = MockPersonHogService::with_mappings(vec![GroupTypeMappingsByKey {
-        key: 1,
-        mappings: vec![GroupTypeMapping {
-            id: 1,
-            team_id: 1,
-            project_id: 1,
-            group_type: "organization".to_string(),
-            group_type_index: 3,
-            name_singular: None,
-            name_plural: None,
-            default_columns: None,
-            detail_dashboard_id: None,
-            created_at: None,
+#[tokio::test]
+async fn test_personhog_caches_resolved_types() {
+    let call_count = Arc::new(AtomicUsize::new(0));
+    let mock = MockPersonHogService::with_mappings_counted(
+        vec![GroupTypeMappingsByKey {
+            key: 1,
+            mappings: vec![GroupTypeMapping {
+                id: 1,
+                team_id: 1,
+                project_id: 1,
+                group_type: "organization".to_string(),
+                group_type_index: 3,
+                name_singular: None,
+                name_plural: None,
+                default_columns: None,
+                detail_dashboard_id: None,
+                created_at: None,
+            }],
         }],
-    }]);
+        call_count.clone(),
+    );
 
     let addr = start_mock_server(mock).await;
-    let config = make_config(&format!("http://{addr}"), 100);
+    let config = make_config(&format!("http://{addr}"));
     let resolver = GroupTypeResolver::new(&config);
 
     // First call populates the cache
     let mut updates = vec![make_group_update(1, "organization")];
-    resolver.resolve(&mut updates, &db, None).await.unwrap();
+    resolver.resolve(&mut updates).await.unwrap();
     assert_eq!(get_resolved_index(&updates[0]), Some(3));
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
 
-    // Second call should resolve from cache even though the server is the same.
-    // We verify by checking that a fresh unresolved update also gets index 3.
+    // Second call should resolve from cache — server must not be contacted again
     let mut updates2 = vec![make_group_update(1, "organization")];
-    resolver.resolve(&mut updates2, &db, None).await.unwrap();
+    resolver.resolve(&mut updates2).await.unwrap();
     assert_eq!(get_resolved_index(&updates2[0]), Some(3));
+    assert_eq!(call_count.load(Ordering::SeqCst), 1);
 }
 
-#[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_no_personhog_client_uses_db(db: PgPool) {
-    seed_group_mapping(&db, 1, "organization", 5, 1, 1).await;
-
+#[tokio::test]
+async fn test_no_personhog_client_returns_error() {
     // Empty addr = no personhog client created
-    let config = make_config("", 100);
+    let config = make_config("");
     let resolver = GroupTypeResolver::new(&config);
 
     let mut updates = vec![make_group_update(1, "organization")];
-    resolver.resolve(&mut updates, &db, None).await.unwrap();
+    let result = resolver.resolve(&mut updates).await;
 
-    assert_eq!(get_resolved_index(&updates[0]), Some(5));
-}
-
-#[sqlx::test(migrations = "./tests/test_migrations")]
-async fn test_zero_rollout_uses_db(db: PgPool) {
-    seed_group_mapping(&db, 1, "organization", 7, 1, 1).await;
-
-    // Rollout 0 = always DB, even with a valid personhog addr.
-    // We point at a non-existent server; if personhog were called it would fail.
-    let config = make_config("http://127.0.0.1:1", 0);
-    let resolver = GroupTypeResolver::new(&config);
-
-    let mut updates = vec![make_group_update(1, "organization")];
-    resolver.resolve(&mut updates, &db, None).await.unwrap();
-
-    assert_eq!(get_resolved_index(&updates[0]), Some(7));
+    assert!(result.is_err());
 }

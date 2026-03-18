@@ -188,16 +188,6 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
                 ),
                 "openai",
             ),
-            (
-                "httpx_read_error",
-                httpx.ReadError("Connection reset by peer"),
-                "httpx",
-            ),
-            (
-                "httpx_connect_error",
-                httpx.ConnectError("Connection refused"),
-                "httpx",
-            ),
         ]
     )
     async def test_llm_transient_errors_handled_with_retry_message(self, _name, exception, expected_provider):
@@ -245,6 +235,70 @@ class TestRunnerLLMProviderErrorHandling(BaseTest):
             capture_call_args = mock_posthog.capture_exception.call_args
             self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_provider_error")
             self.assertEqual(capture_call_args[1]["properties"]["provider"], expected_provider)
+
+    @parameterized.expand(
+        [
+            (
+                "httpx_read_error",
+                httpx.ReadError("Connection reset by peer"),
+                "ReadError",
+            ),
+            (
+                "httpx_connect_error",
+                httpx.ConnectError("Connection refused"),
+                "ConnectError",
+            ),
+        ]
+    )
+    async def test_httpx_transport_errors_tracked_separately_from_provider_errors(
+        self, _name, exception, expected_error_type
+    ):
+        """httpx transport errors are network issues, not LLM provider errors, and use a separate counter."""
+        runner, mock_graph = self._create_mock_runner(exception)
+
+        with (
+            patch.object(runner, "_init_or_update_state", new_callable=AsyncMock, return_value=None),
+            patch.object(runner, "_lock_conversation", return_value=mock_lock_conversation()),
+            patch("ee.hogai.core.runner.LLM_TRANSPORT_ERROR_COUNTER") as mock_transport_counter,
+            patch("ee.hogai.core.runner.LLM_PROVIDER_ERROR_COUNTER") as mock_provider_counter,
+            patch("ee.hogai.core.runner.posthoganalytics") as mock_posthog,
+            patch("ee.hogai.core.runner.logger") as mock_logger,
+        ):
+            results = []
+            async for event_type, message in runner.astream(
+                stream_message_chunks=False, stream_first_message=False, stream_only_assistant_messages=True
+            ):
+                results.append((event_type, message))
+
+            self.assertEqual(len(results), 1)
+            event_type, message = results[0]
+            self.assertEqual(event_type, AssistantEventType.MESSAGE)
+            self.assertIsInstance(message, FailureMessage)
+            self.assertEqual(
+                message.content,
+                "I'm unable to respond right now due to a temporary service issue. Please try again later.",
+            )
+
+            mock_graph.aupdate_state.assert_called()
+
+            # Transport counter is incremented with error_type (not provider)
+            mock_transport_counter.labels.assert_called_with(error_type=expected_error_type)
+            mock_transport_counter.labels.return_value.inc.assert_called_once()
+
+            # Provider counter is NOT incremented
+            mock_provider_counter.labels.assert_not_called()
+
+            # Logged as transport error, not provider error
+            mock_logger.exception.assert_called_once()
+            call_args = mock_logger.exception.call_args
+            self.assertEqual(call_args[0][0], "llm_transport_error")
+            self.assertEqual(call_args[1]["error_type"], expected_error_type)
+
+            # Captured with transport error type, no provider field
+            mock_posthog.capture_exception.assert_called_once()
+            capture_call_args = mock_posthog.capture_exception.call_args
+            self.assertEqual(capture_call_args[1]["properties"]["error_type"], "llm_transport_error")
+            self.assertNotIn("provider", capture_call_args[1]["properties"])
 
     @parameterized.expand(
         [

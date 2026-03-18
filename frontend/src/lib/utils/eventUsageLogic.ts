@@ -29,7 +29,7 @@ import {
     getInterval,
     getSeries,
     isActionsNode,
-    isDataWarehouseNode,
+    isAnyDataWarehouseNode,
     isEventsNode,
     isFunnelsQuery,
     isInsightQueryNode,
@@ -210,8 +210,7 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
         payload.series_length = getSeries(querySource)?.length
         payload.event_entity_count = getSeries(querySource)?.filter((e) => isEventsNode(e)).length
         payload.action_entity_count = getSeries(querySource)?.filter((e) => isActionsNode(e)).length
-        payload.data_warehouse_entity_count = getSeries(querySource)?.filter((e) => isDataWarehouseNode(e)).length
-        payload.has_data_warehouse_series = !!getSeries(querySource)?.find((e) => isDataWarehouseNode(e))
+        payload.data_warehouse_entity_count = getSeries(querySource)?.filter((e) => isAnyDataWarehouseNode(e)).length
 
         // properties
         payload.has_properties = !!properties
@@ -236,7 +235,6 @@ function sanitizeQuery(query: Node | null): Record<string, string | number | boo
         // funnels
         payload.funnel_viz_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelVizType : undefined
         payload.funnel_order_type = isFunnelsQuery(querySource) ? querySource.funnelsFilter?.funnelOrderType : undefined
-        payload.has_data_warehouse_series = !!getSeries(querySource)?.find((e) => isDataWarehouseNode(e))
     }
 
     return objectClean(payload)
@@ -352,8 +350,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportDashboardModeToggled: (
             dashboard: DashboardType<QueryBasedInsightModel> | null,
             mode: DashboardMode | null,
-            source: DashboardEventSource | null
-        ) => ({ dashboard, mode, source }),
+            source: DashboardEventSource | null,
+            layoutZoom: number | null
+        ) => ({ dashboard, mode, source, layoutZoom }),
+        reportDashboardLayoutZoomChanged: (
+            dashboard: DashboardType<QueryBasedInsightModel> | null,
+            layoutZoom: number,
+            source: 'button' | 'shortcut'
+        ) => ({ dashboard, layoutZoom, source }),
         reportDashboardRefreshed: (
             dashboardId: number,
             dashboard: DashboardType<QueryBasedInsightModel> | null,
@@ -921,6 +925,22 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportUsageMetricCreated: () => true,
         reportUsageMetricUpdated: () => true,
         reportUsageMetricDeleted: () => true,
+        // navbar starred
+        reportNavbarStarredItemAdded: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+            itemType,
+            itemName,
+            isAIFirst,
+        }),
+        reportNavbarStarredItemRemoved: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+            itemType,
+            itemName,
+            isAIFirst,
+        }),
+        reportNavbarStarredItemClicked: (itemType: string, itemName: string, isAIFirst: boolean) => ({
+            itemType,
+            itemName,
+            isAIFirst,
+        }),
     }),
     listeners(({ values }) => ({
         reportBillingCTAShown: () => {
@@ -1111,11 +1131,20 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 total_properties: totalProperties,
             })
         },
-        reportDashboardModeToggled: async ({ dashboard, mode, source }) => {
+        reportDashboardModeToggled: async ({ dashboard, mode, source, layoutZoom }) => {
             posthog.capture('dashboard mode toggled', {
                 dashboard_id: dashboard?.id,
                 dashboard: sanitizeDashboard(dashboard),
                 mode,
+                source,
+                layout_zoom: layoutZoom ?? undefined,
+            })
+        },
+        reportDashboardLayoutZoomChanged: async ({ dashboard, layoutZoom, source }) => {
+            posthog.capture('dashboard layout zoom changed', {
+                dashboard_id: dashboard?.id,
+                dashboard: sanitizeDashboard(dashboard),
+                layout_zoom: layoutZoom,
                 source,
             })
         },
@@ -2206,6 +2235,27 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             }
             const eventName = delay ? 'person profile analyzed' : 'person profile viewed'
             posthog.capture(eventName, { delay })
+        },
+        reportNavbarStarredItemAdded: ({ itemType, itemName, isAIFirst }) => {
+            posthog.capture('navbar starred item added', {
+                item_type: itemType,
+                item_name: itemName,
+                is_ai_first: isAIFirst,
+            })
+        },
+        reportNavbarStarredItemRemoved: ({ itemType, itemName, isAIFirst }) => {
+            posthog.capture('navbar starred item removed', {
+                item_type: itemType,
+                item_name: itemName,
+                is_ai_first: isAIFirst,
+            })
+        },
+        reportNavbarStarredItemClicked: ({ itemType, itemName, isAIFirst }) => {
+            posthog.capture('navbar starred item clicked', {
+                item_type: itemType,
+                item_name: itemName,
+                is_ai_first: isAIFirst,
+            })
         },
     })),
 ])

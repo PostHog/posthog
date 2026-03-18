@@ -43,7 +43,7 @@ impl DeduplicationStore {
         // Create metrics helper for the RocksDB store
         let metrics = MetricsHelper::with_partition(&topic, partition);
 
-        let cf_descriptors = Self::get_cf_descriptors();
+        let cf_descriptors = Self::get_cf_descriptors(&config.rocksdb);
         let store = RocksDbStore::new(&config.path, cf_descriptors, metrics, &config.rocksdb)?;
 
         Ok(Self {
@@ -53,7 +53,7 @@ impl DeduplicationStore {
         })
     }
 
-    fn get_cf_descriptors() -> Vec<ColumnFamilyDescriptor> {
+    fn get_cf_descriptors(rocksdb_config: &RocksDbConfig) -> Vec<ColumnFamilyDescriptor> {
         let block_opts = block_based_table_factory();
 
         // ----- CF: TimestampKey (prefix = 8-byte BE timestamp)
@@ -63,8 +63,14 @@ impl DeduplicationStore {
         ts_cf_opts.set_write_buffer_size(8 * 1024 * 1024);
         ts_cf_opts.set_max_write_buffer_number(3);
         // IMPORTANT: CF options don't inherit from DB options, must set compression explicitly
-        // LZ4 is ~2x faster than Snappy for both compression and decompression
-        ts_cf_opts.set_compression_type(rocksdb::DBCompressionType::Lz4);
+        if let Some(ref per_level) = rocksdb_config.compression_per_level {
+            ts_cf_opts.set_compression_per_level(per_level);
+        } else {
+            ts_cf_opts.set_compression_type(rocksdb_config.compression_type);
+        }
+        if let Some(bottommost) = rocksdb_config.bottommost_compression_type {
+            ts_cf_opts.set_bottommost_compression_type(bottommost);
+        }
 
         vec![ColumnFamilyDescriptor::new(Self::TIMESTAMP_CF, ts_cf_opts)]
     }
@@ -333,30 +339,23 @@ impl DeduplicationStore {
         self.store.update_db_metrics(Self::TIMESTAMP_CF)
     }
 
-    /// Create a checkpoint and return metadata about the checkpoint
-    /// This ensures consistency by:
-    /// 1. Flushing WAL to disk
-    /// 2. Flushing all column families
-    /// 3. Capturing sequence number for consistency verification
-    /// 4. Creating the checkpoint with hard links
+    /// Create a checkpoint and return metadata about the checkpoint.
+    /// Consistency is ensured by:
+    /// 1. Flushing WAL to disk (explicit)
+    /// 2. Capturing sequence number for consistency verification
+    /// 3. Creating the checkpoint with hard links (internally flushes
+    ///    memtables via log_size_for_flush=0 in rust-rocksdb 0.24)
     pub fn create_checkpoint_with_metadata<P: AsRef<std::path::Path>>(
         &self,
         checkpoint_path: P,
     ) -> Result<LocalCheckpointInfo> {
-        // Step 1: Flush WAL to ensure durability
         self.store.flush_wal(true)?;
 
-        // Step 2: Flush all column families to ensure data is in SST files
-        self.flush()?;
-
-        // Step 3: Get sequence number for consistency tracking
         let sequence = self.store.latest_sequence_number();
 
-        // Step 4: Get SST files after flush
-        let sst_files = self.get_sst_file_names()?;
-
-        // Step 5: Create the checkpoint (RocksDB internally handles file deletion safety)
         self.store.create_checkpoint(checkpoint_path)?;
+
+        let sst_files = self.get_sst_file_names()?;
 
         Ok(LocalCheckpointInfo {
             sst_files,

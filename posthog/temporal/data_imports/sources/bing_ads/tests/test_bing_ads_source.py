@@ -64,6 +64,16 @@ class TestBingAdsSource:
         assert is_valid is False
         assert error == "Account ID and Bing Ads integration are required"
 
+    def test_validate_credentials_invalid_account_id(self):
+        config = BingAdsSourceConfig(account_id="ABC123XYZ", bing_ads_integration_id=1)
+
+        is_valid, error = self.source.validate_credentials(config, self.team_id)
+
+        assert is_valid is False
+        assert error is not None
+        assert "Invalid Account ID" in error
+        assert "ABC123XYZ" in error
+
     @mock.patch.object(BingAdsSource, "get_oauth_integration")
     def test_validate_credentials_success(self, mock_get_oauth):
         """Test successful credential validation."""

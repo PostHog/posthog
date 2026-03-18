@@ -14,6 +14,8 @@ from posthog.dags.common.health.types import (
 
 BatchDetectFn = Callable[[list[int]], dict[int, list[HealthCheckResult]]]
 
+DEFAULT_ACTIVE_SINCE_DAYS: int = 90
+
 
 @dataclass
 class HealthCheckWorkflowInputs:
@@ -25,6 +27,7 @@ class HealthCheckWorkflowInputs:
     rollout_percentage: float = 1.0
     not_processed_threshold: float = 0.1
     dry_run: bool = False
+    active_since_days: int | None = DEFAULT_ACTIVE_SINCE_DAYS
     owner: str = ""
 
     @classmethod
@@ -37,6 +40,7 @@ class HealthCheckWorkflowInputs:
             rollout_percentage=config.rollout_percentage,
             not_processed_threshold=config.not_processed_threshold,
             dry_run=config.dry_run,
+            active_since_days=config.active_since_days,
             owner=config.owner.value,
         )
 

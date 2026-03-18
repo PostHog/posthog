@@ -158,6 +158,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
         icon: <IconListTree />,
         iconColor: ['var(--color-product-tracing-light)'],
     },
+    metrics: {
+        icon: <IconGraph />,
+        iconColor: ['var(--color-product-metrics-light)', 'var(--color-product-metrics-dark)'],
+    },
     early_access_feature: {
         icon: <IconRocket />,
         iconColor: [
