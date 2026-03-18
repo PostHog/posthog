@@ -21,6 +21,7 @@ class Migration(migrations.Migration):
             database_operations=[
                 migrations.RunSQL(
                     sql="""\
+-- migration-analyzer: safe reason=personalapikey is a small table (<10k rows), NULLs already backfilled in 1052
 UPDATE posthog_personalapikey SET scopes = '{}' WHERE scopes IS NULL;
 ALTER TABLE posthog_personalapikey ALTER COLUMN scopes SET NOT NULL; -- not-null-ignore: personalapikey is a small table, NULLs backfilled in 1052
 """,
