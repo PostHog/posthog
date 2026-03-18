@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use axum::{routing::get, Router};
 use common_database::{get_pool_with_config, PoolConfig};
+use common_metrics::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
@@ -14,7 +15,7 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::EnvFilter;
 
-use personhog_common::{spawn_pool_monitor, GrpcMetricsLayer, MonitoredPool};
+use personhog_common::{spawn_pool_monitor, MonitoredPool};
 use personhog_replica::config::Config;
 use personhog_replica::service::PersonHogReplicaService;
 use personhog_replica::storage::postgres::PostgresStorage;
@@ -176,10 +177,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tokio::spawn(async move {
         let _guard = grpc_handle.process_scope();
+        let listener = match tokio::net::TcpListener::bind(grpc_addr).await {
+            Ok(l) => l,
+            Err(e) => {
+                grpc_handle.signal_failure(format!("Failed to bind gRPC port: {e}"));
+                return;
+            }
+        };
+        let incoming = tracked_tcp_incoming(listener);
         if let Err(e) = Server::builder()
             .layer(GrpcMetricsLayer)
             .add_service(PersonHogReplicaServer::new(service))
-            .serve_with_shutdown(grpc_addr, grpc_handle.shutdown_signal())
+            .serve_with_incoming_shutdown(incoming, grpc_handle.shutdown_signal())
             .await
         {
             grpc_handle.signal_failure(format!("gRPC server error: {e}"));

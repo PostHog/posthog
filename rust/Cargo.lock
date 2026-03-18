@@ -2127,9 +2127,14 @@ name = "common-metrics"
 version = "0.1.0"
 dependencies = [
  "axum 0.7.9",
+ "futures",
+ "http 1.4.0",
  "metrics",
  "metrics-exporter-prometheus",
+ "pin-project",
  "tokio",
+ "tonic 0.12.3",
+ "tower 0.4.13",
 ]
 
 [[package]]

@@ -8,6 +8,11 @@ workspace = true
 
 [dependencies]
 axum = { workspace = true }
-metrics-exporter-prometheus = { workspace = true }
-tokio = { workspace = true }
+futures = { workspace = true }
+http = { workspace = true }
 metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+pin-project = "1.1"
+tokio = { workspace = true }
+tonic = { workspace = true }
+tower = { workspace = true }
