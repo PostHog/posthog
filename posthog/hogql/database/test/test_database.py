@@ -2104,9 +2104,8 @@ class TestDatabase(BaseTest, QueryMatchingTest):
 
     def test_posthog_qualified_table_names_are_resolvable(self):
         database = Database.create_for(team=self.team)
-        posthog_table_names = database.get_posthog_table_names()
 
-        for table_name in posthog_table_names:
+        for table_name in ROOT_TABLES__DO_NOT_ADD_ANY_MORE.keys():
             qualified_name = f"posthog.{table_name}"
             assert database.has_table(qualified_name), f"Table {qualified_name} should be resolvable"
 
