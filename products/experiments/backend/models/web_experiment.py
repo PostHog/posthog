@@ -1,5 +1,6 @@
-from posthog.models import Experiment
 from posthog.models.utils import RootTeamManager, RootTeamMixin
+
+from products.experiments.backend.models.experiment import Experiment
 
 
 class WebExperimentManager(RootTeamManager):

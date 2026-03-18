@@ -49,18 +49,7 @@ from posthog.constants import PAGEVIEW_EVENT
 from posthog.demo.matrix.matrix import Cluster, Matrix
 from posthog.demo.matrix.randomization import Industry
 from posthog.exceptions_capture import capture_exception
-from posthog.models import (
-    Action,
-    Cohort,
-    Dashboard,
-    DashboardTile,
-    Experiment,
-    ExperimentSavedMetric,
-    ExperimentToSavedMetric,
-    FeatureFlag,
-    Insight,
-    InsightViewed,
-)
+from posthog.models import Action, Cohort, Dashboard, DashboardTile, FeatureFlag, Insight, InsightViewed
 from posthog.models.oauth import OAuthApplication
 from posthog.storage import object_storage
 
@@ -74,6 +63,7 @@ from products.event_definitions.backend.models.schema import (
     SchemaPropertyGroup,
     SchemaPropertyGroupProperty,
 )
+from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 
 from .models import HedgeboxAccount, HedgeboxPerson
 from .taxonomy import (

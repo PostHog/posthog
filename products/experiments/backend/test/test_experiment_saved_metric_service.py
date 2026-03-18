@@ -5,10 +5,10 @@ from parameterized import parameterized
 from rest_framework.exceptions import ValidationError
 
 from posthog.models import Team
-from posthog.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 
 from products.experiments.backend.experiment_saved_metric_service import ExperimentSavedMetricService
 from products.experiments.backend.experiment_service import ExperimentService
+from products.experiments.backend.models.experiment import ExperimentSavedMetric, ExperimentToSavedMetric
 
 
 class TestExperimentSavedMetricService(APIBaseTest):
