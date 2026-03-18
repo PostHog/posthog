@@ -512,6 +512,22 @@ error_tracking_issue_fingerprints: PostgresTable = PostgresTable(
     },
 )
 
+early_access_features: PostgresTable = PostgresTable(
+    name="early_access_features",
+    postgres_table_name="posthog_earlyaccessfeature",
+    access_scope="early_access_feature",
+    fields={
+        "id": StringDatabaseField(name="id"),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "feature_flag_id": IntegerDatabaseField(name="feature_flag_id"),
+        "name": StringDatabaseField(name="name"),
+        "description": StringDatabaseField(name="description"),
+        "stage": StringDatabaseField(name="stage"),
+        "documentation_url": StringDatabaseField(name="documentation_url"),
+        "created_at": DateTimeDatabaseField(name="created_at"),
+    },
+)
+
 
 class SystemTables(TableNode):
     name: str = "system"
@@ -533,6 +549,7 @@ class SystemTables(TableNode):
             name="error_tracking_issue_fingerprints", table=error_tracking_issue_fingerprints
         ),
         "error_tracking_issues": TableNode(name="error_tracking_issues", table=error_tracking_issues),
+        "early_access_features": TableNode(name="early_access_features", table=early_access_features),
         "experiments": TableNode(name="experiments", table=experiments),
         "exports": TableNode(name="exports", table=exports),
         "feature_flags": TableNode(name="feature_flags", table=feature_flags),
