@@ -1,5 +1,6 @@
 import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { ClickHouseClient, createClient as createClickHouseClient } from '@clickhouse/client'
+import fs from 'fs'
 import express from 'ultimate-express'
 
 import { KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS } from '../../config/kafka-topics'
@@ -122,6 +123,7 @@ export class RecordingApi {
         // Initialize ClickHouse client for block listing queries
         const chScheme = this.config.CLICKHOUSE_SECURE ? 'https' : 'http'
         const chPort = this.config.CLICKHOUSE_SECURE ? 8443 : 8123
+        const chCaCert = this.config.CLICKHOUSE_CA ? await fs.promises.readFile(this.config.CLICKHOUSE_CA) : undefined
         this.clickhouseClient = createClickHouseClient({
             url: `${chScheme}://${this.config.CLICKHOUSE_HOST}:${chPort}`,
             username: this.config.CLICKHOUSE_USER,
@@ -129,6 +131,7 @@ export class RecordingApi {
             database: this.config.CLICKHOUSE_DATABASE,
             request_timeout: 30_000,
             max_open_connections: 10,
+            ...(chCaCert ? { tls: { ca_cert: chCaCert } } : {}),
         })
 
         // Create the service layer

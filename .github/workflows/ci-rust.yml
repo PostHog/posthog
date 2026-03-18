@@ -265,6 +265,7 @@ jobs:
                   DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
               run: |
                   sqlx migrate run --source persons_migrations/
+                  DATABASE_URL='postgres://posthog:posthog@localhost:5432/test_posthog' sqlx migrate run --source behavioral_cohorts_migrations/
 
             - name: Download MaxMind Database
               run: |

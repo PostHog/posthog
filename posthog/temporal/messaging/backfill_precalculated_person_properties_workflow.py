@@ -124,6 +124,7 @@ class PersonPropertyFilter:
 
     condition_hash: str
     bytecode: list[Any]  # HogQL bytecode
+    cohort_ids: list[int]  # Cohorts that use this condition
 
 
 @dataclasses.dataclass
@@ -139,32 +140,22 @@ class BackfillPrecalculatedPersonPropertiesInputs:
     """Inputs for the precalculated person properties backfill workflow."""
 
     team_id: int
-    cohort_filters: list[CohortFilters]  # All cohorts and their filters
+    filters: list[PersonPropertyFilter]  # Deduplicated filters with cohort mappings
+    cohort_ids: list[int]  # All cohort IDs being processed
     batch_size: int = 1000
     offset: int = 0
     limit: int | None = None  # Total persons to process (None = all)
-    _cohort_ids: list[int] | None = dataclasses.field(default=None, init=False, repr=False)
-    _total_filters: int | None = dataclasses.field(default=None, init=False, repr=False)
-
-    @property
-    def cohort_ids(self) -> list[int]:
-        """Cached list of cohort IDs."""
-        if self._cohort_ids is None:
-            self._cohort_ids = [cf.cohort_id for cf in self.cohort_filters]
-        return self._cohort_ids
 
     @property
     def total_filters(self) -> int:
-        """Cached total number of filters across all cohorts."""
-        if self._total_filters is None:
-            self._total_filters = sum(len(cf.filters) for cf in self.cohort_filters)
-        return self._total_filters
+        """Total number of unique filters."""
+        return len(self.filters)
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {
             "team_id": self.team_id,
-            "cohort_count": len(self.cohort_filters),
+            "cohort_count": len(self.cohort_ids),
             "cohort_ids": self.cohort_ids,
             "filter_count": self.total_filters,
             "batch_size": self.batch_size,
@@ -277,44 +268,43 @@ async def backfill_precalculated_person_properties_activity(
                         person_properties = parse_person_properties(row.get("properties"), person_id)
                         distinct_ids = row["distinct_ids"]
 
-                        # Process all filters from all cohorts
-                        for cohort_filters in inputs.cohort_filters:
-                            cohort_id = cohort_filters.cohort_id
-                            for filter_info in cohort_filters.filters:
-                                # Evaluate person against filter using HogQL bytecode
-                                globals_dict = {
-                                    "person": {
-                                        "id": person_id,
-                                        "properties": person_properties,
-                                    },
-                                    "project": {
-                                        "id": inputs.team_id,
-                                    },
-                                }
+                        globals_dict = {
+                            "person": {
+                                "id": person_id,
+                                "properties": person_properties,
+                            },
+                            "project": {
+                                "id": inputs.team_id,
+                            },
+                        }
 
-                                try:
-                                    result = await asyncio.to_thread(
-                                        execute_bytecode, filter_info.bytecode, globals_dict, timeout=10
-                                    )
-                                    matches = bool(result.result) if result else False
-                                except Exception as e:
-                                    logger.warning(
-                                        f"Error evaluating person {person_id} against filter {filter_info.condition_hash}: {e}",
-                                        person_id=person_id,
-                                        condition_hash=filter_info.condition_hash,
-                                        error=str(e),
-                                    )
-                                    matches = False
+                        # Evaluate each filter once per person and send results to all cohorts that use it
+                        for filter_obj in inputs.filters:
+                            try:
+                                result = await asyncio.to_thread(
+                                    execute_bytecode, filter_obj.bytecode, globals_dict, timeout=10
+                                )
+                                matches = bool(result.result) if result else False
+                            except Exception as e:
+                                logger.warning(
+                                    f"Error evaluating person {person_id} against filter {filter_obj.condition_hash}: {e}",
+                                    person_id=person_id,
+                                    condition_hash=filter_obj.condition_hash,
+                                    error=str(e),
+                                )
+                                matches = False
 
+                            # Send results to all cohorts that use this filter
+                            for cohort_id in filter_obj.cohort_ids:
                                 # ALWAYS emit - both matches and non-matches for EACH distinct_id
                                 for distinct_id in distinct_ids:
                                     event = {
                                         "distinct_id": distinct_id,
                                         "person_id": person_id,
                                         "team_id": inputs.team_id,
-                                        "condition": filter_info.condition_hash,
+                                        "condition": filter_obj.condition_hash,
                                         "matches": matches,
-                                        "source": f"cohort_backfill_{cohort_id}",  # Use the current cohort_id
+                                        "source": f"cohort_backfill_{cohort_id}",
                                     }
 
                                     # Produce to Kafka without blocking - collect send results for later flushing

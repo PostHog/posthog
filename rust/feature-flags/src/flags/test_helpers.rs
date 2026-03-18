@@ -55,6 +55,7 @@ pub fn create_simple_flag_property_group(
         properties: Some(properties),
         rollout_percentage: Some(rollout_percentage),
         variant: None,
+        ..Default::default()
     }
 }
 
