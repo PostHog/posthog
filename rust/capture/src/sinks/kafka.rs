@@ -473,7 +473,7 @@ impl<P: KafkaProducer> KafkaSinkBase<P> {
             headers,
         };
 
-        counter!("capture_kafka_produce_bytes_total", "topic" => record.topic.clone())
+        counter!("capture_kafka_produce_bytes_total", "topic" => topic.to_string())
             .increment(payload_bytes);
 
         self.producer.send(record)
