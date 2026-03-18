@@ -1196,7 +1196,7 @@ class GoogleCloudServiceAccountIntegration:
             sensitive_config["token_uri"] = token_uri
 
         # Do not allow the same project_id in multiple organizations
-        same_service_account_integrations = Integration.objects.filter(
+        same_service_account_integrations = Integration.objects.select_related("team__organization").filter(
             kind="google-cloud-service-account", config__service_account_email=service_account_email
         )
         for integration in same_service_account_integrations:
