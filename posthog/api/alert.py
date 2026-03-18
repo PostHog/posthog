@@ -353,7 +353,7 @@ class AlertSerializer(serializers.ModelSerializer):
             if len(root.detectors) < 2:
                 raise ValidationError("Ensemble detector requires at least 2 sub-detectors.")
 
-        return value
+        return validated.model_dump() if hasattr(validated, "model_dump") else value
 
     def validate_snoozed_until(self, value):
         if value is not None and not isinstance(value, str):
