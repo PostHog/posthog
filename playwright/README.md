@@ -19,6 +19,11 @@ LOGIN_USERNAME='my@email.address' LOGIN_PASSWORD="the-password" BASE_URL='http:/
 
 You might need to install Playwright first: `pnpm --filter=@posthog/playwright exec playwright install`
 
+## Writing tests with Claude Code
+
+Use the `/playwright-test` skill to have Claude Code write and validate end-to-end tests for you.
+It will explore the UI with Playwright MCP tools, plan the tests, implement them, and run them in a loop until they pass reliably (including a flakiness check with `--repeat-each 10`).
+
 ## Writing tests
 
 ### Flaky tests are almost always due to not waiting for the right thing

@@ -84,6 +84,9 @@ export enum DashboardEventSource {
     SceneCommonButtons = 'scene_common_buttons',
     CardEdgeHover = 'card_edge_hover',
     CardDragHandle = 'card_drag_handle',
+    DashboardFilters = 'dashboard_filters',
+    DashboardInsightColorsModal = 'dashboard_insight_colors_modal',
+    DashboardVariableOverride = 'dashboard_variable_override',
 }
 
 export enum InsightEventSource {
