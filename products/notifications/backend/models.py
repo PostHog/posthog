@@ -9,7 +9,7 @@ class NotificationEvent(UUIDModel):
     organization = models.ForeignKey("posthog.Organization", on_delete=models.CASCADE)
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, null=True, blank=True)
     notification_type = models.CharField(max_length=32, choices=[(t.value, t.name) for t in NotificationType])
-    priority = models.CharField(max_length=8, choices=[(p.value, p.name) for p in Priority], default=Priority.NORMAL)
+    priority = models.CharField(max_length=16, choices=[(p.value, p.name) for p in Priority], default=Priority.NORMAL)
     title = models.CharField(max_length=255)
     body = models.TextField(blank=True, default="")
     resource_type = models.CharField(max_length=64, null=True, blank=True)
