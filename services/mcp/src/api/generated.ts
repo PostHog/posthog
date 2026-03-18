@@ -11901,9 +11901,21 @@ export namespace Schemas {
        * @maxLength 200
        */
       name: string;
+      /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
       description?: string;
+      /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
+
+    * `draft` - draft
+    * `concept` - concept
+    * `alpha` - alpha
+    * `beta` - beta
+    * `general-availability` - general availability
+    * `archived` - archived */
       stage: StageEnum;
-      /** @maxLength 800 */
+      /**
+       * URL to external documentation for this feature. Shown to users in the opt-in UI.
+       * @maxLength 800
+       */
       documentation_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
@@ -11917,12 +11929,26 @@ export namespace Schemas {
        * @maxLength 200
        */
       name: string;
+      /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
       description?: string;
+      /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
+
+    * `draft` - draft
+    * `concept` - concept
+    * `alpha` - alpha
+    * `beta` - beta
+    * `general-availability` - general availability
+    * `archived` - archived */
       stage: StageEnum;
-      /** @maxLength 800 */
+      /**
+       * URL to external documentation for this feature. Shown to users in the opt-in UI.
+       * @maxLength 800
+       */
       documentation_url?: string;
+      /** Arbitrary JSON metadata associated with this feature. */
       payload?: unknown;
       readonly created_at: string;
+      /** Optional ID of an existing feature flag to link. If omitted, a new flag is auto-created from the feature name. The flag must not already be linked to another feature, must not be group-based, and must not be multivariate. */
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
       _create_in_folder?: string;
@@ -21133,9 +21159,21 @@ export namespace Schemas {
        * @maxLength 200
        */
       name?: string;
+      /** A longer description of what this early access feature does, shown to users in the opt-in UI. */
       description?: string;
+      /** Lifecycle stage. Valid values: draft, concept, alpha, beta, general-availability, archived. Moving to an active stage (alpha/beta/general-availability) enables the feature flag for opted-in users.
+
+    * `draft` - draft
+    * `concept` - concept
+    * `alpha` - alpha
+    * `beta` - beta
+    * `general-availability` - general availability
+    * `archived` - archived */
       stage?: StageEnum;
-      /** @maxLength 800 */
+      /**
+       * URL to external documentation for this feature. Shown to users in the opt-in UI.
+       * @maxLength 800
+       */
       documentation_url?: string;
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
