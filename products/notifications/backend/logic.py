@@ -8,6 +8,7 @@ import posthoganalytics
 from posthog.models import Team
 
 from products.notifications.backend.facade.contracts import NotificationData
+from products.notifications.backend.facade.enums import NotificationOnlyResourceType
 from products.notifications.backend.models import NotificationEvent
 from products.notifications.backend.resolvers import RecipientsResolver
 
@@ -76,7 +77,9 @@ def create_notification(data: NotificationData) -> NotificationEvent | None:
         priority=data.priority,
         title=data.title,
         body=data.body,
-        resource_type=data.resource_type.value if data.resource_type else None,
+        resource_type=data.resource_type.value
+        if isinstance(data.resource_type, NotificationOnlyResourceType)
+        else data.resource_type,
         resource_id=data.resource_id,
         source_url=data.source_url,
         target_type=data.target_type,

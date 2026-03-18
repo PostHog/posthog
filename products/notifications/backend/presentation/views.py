@@ -60,7 +60,7 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             .distinct()
         )
 
-        ac_types_to_check = resource_types_in_set & {rt.value for rt in AC_RESOURCE_TYPES}
+        ac_types_to_check = resource_types_in_set & AC_RESOURCE_TYPES
         if not ac_types_to_check:
             return queryset
 
