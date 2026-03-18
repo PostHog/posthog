@@ -1,6 +1,8 @@
 import pytest
 from unittest.mock import AsyncMock, Mock, patch
 
+import fakeredis
+
 from posthog.temporal.messaging.backfill_precalculated_person_properties_workflow import (
     BackfillPrecalculatedPersonPropertiesInputs,
     backfill_precalculated_person_properties_activity,
@@ -311,8 +313,12 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             ),
         ]
 
-        # Store filters in filter storage
-        filter_storage_key = filter_storage.store_filters(filters, team_id=1)
+        # Store filters in filter storage using an in-memory Redis (fakeredis)
+        with patch(
+            "posthog.temporal.messaging.filter_storage.redis.Redis.from_url",
+            return_value=fakeredis.FakeRedis(),
+        ):
+            filter_storage_key = filter_storage.store_filters(filters, team_id=1)
 
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
@@ -485,8 +491,12 @@ class TestBackfillPrecalculatedPersonPropertiesActivity:
             ),
         ]
 
-        # Store filters in filter storage
-        filter_storage_key = filter_storage.store_filters(filters, team_id=1)
+        # Store filters in filter storage using an in-memory Redis (fakeredis)
+        with patch(
+            "posthog.temporal.messaging.filter_storage.redis.Redis.from_url",
+            return_value=fakeredis.FakeRedis(),
+        ):
+            filter_storage_key = filter_storage.store_filters(filters, team_id=1)
 
         inputs = BackfillPrecalculatedPersonPropertiesInputs(
             team_id=1,
