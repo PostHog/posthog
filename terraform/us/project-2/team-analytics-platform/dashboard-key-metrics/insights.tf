@@ -654,7 +654,7 @@ resource "posthog_insight" "subscription_delivery_success_rate" {
           "custom_name": "Started",
           "properties": [
             {
-              "key": "$set.region",
+              "key": "region",
               "type": "event",
               "value": [each.key],
               "operator": "exact"
@@ -668,7 +668,7 @@ resource "posthog_insight" "subscription_delivery_success_rate" {
           "custom_name": "Exhausted (failed)",
           "properties": [
             {
-              "key": "$set.region",
+              "key": "region",
               "type": "event",
               "value": [each.key],
               "operator": "exact"
