@@ -58,7 +58,7 @@ class TestTokenAuthCache(TestCase):
         self._cleanup()
 
     def _cleanup(self):
-        from posthog.models.personal_api_key import hash_key_value
+        from posthog.models.utils import hash_key_value
 
         # Delete the fixed token cache keys used across all tests in this class.
         # Avoid broad scan patterns — fakeredis is a process-wide singleton and a broad scan
@@ -100,7 +100,8 @@ class TestTokenAuthCache(TestCase):
         self.cache.invalidate_token("sha256$nonexistent")
 
     def test_invalidate_user_tokens_deletes_all_user_entries(self):
-        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import hash_key_value
         from posthog.models.user import User
 
         user = User.objects.create(email="cache_bulk_test@example.com", is_active=True)
@@ -121,7 +122,8 @@ class TestTokenAuthCache(TestCase):
             assert not self.redis.exists(f"{TOKEN_CACHE_PREFIX}{token}")
 
     def test_invalidate_user_tokens_uses_db(self):
-        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import hash_key_value
         from posthog.models.user import User
 
         user = User.objects.create(email="cache_test@example.com", is_active=True)
@@ -169,7 +171,7 @@ class TestTokenAuthCache(TestCase):
         self.cache.invalidate_tokens([])  # should not raise
 
     def test_invalidate_team_tokens_deletes_secret_tokens(self):
-        from posthog.models.personal_api_key import hash_key_value
+        from posthog.models.utils import hash_key_value
         from posthog.models.team.team import Team
         from posthog.models.utils import generate_random_token_secret
 
@@ -191,7 +193,7 @@ class TestTokenAuthCache(TestCase):
         assert not self.redis.exists(f"{TOKEN_CACHE_PREFIX}{backup_hash}")
 
     def test_invalidate_team_tokens_deletes_psak_entries(self):
-        from posthog.models.personal_api_key import hash_key_value
+        from posthog.models.utils import hash_key_value
         from posthog.models.project_secret_api_key import ProjectSecretAPIKey
         from posthog.models.team.team import Team
         from posthog.models.utils import generate_random_token_secret
@@ -215,7 +217,8 @@ class TestTokenAuthCache(TestCase):
         assert not self.redis.exists(f"{TOKEN_CACHE_PREFIX}{psak.secure_value}")
 
     def test_invalidate_team_tokens_includes_personal_keys(self):
-        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import hash_key_value
         from posthog.models.team.team import Team
         from posthog.models.user import User
         from posthog.models.utils import generate_random_token_secret
@@ -246,7 +249,8 @@ class TestTokenAuthCache(TestCase):
     )
     def test_invalidate_team_tokens_pak_scoping(self, _name, scoped_teams, scoped_organizations, expected_count):
         from posthog.models.organization import Organization
-        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import hash_key_value
         from posthog.models.team.team import Team
         from posthog.models.user import User
         from posthog.models.utils import generate_random_token_secret
@@ -292,7 +296,8 @@ class TestTokenAuthCache(TestCase):
         return Organization.objects.get_or_create(name="Test Org for Auth Cache")[0]
 
     def test_invalidate_preserves_other_users_tokens(self):
-        from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+        from posthog.models.personal_api_key import PersonalAPIKey
+        from posthog.models.utils import hash_key_value
         from posthog.models.user import User
 
         user1 = User.objects.create(email="cache_user1@example.com", is_active=True)

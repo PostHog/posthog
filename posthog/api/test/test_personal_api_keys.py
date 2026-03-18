@@ -13,9 +13,9 @@ from posthog.api.personal_api_key import PersonalAPIKeySerializer
 from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.models.insight import Insight
 from posthog.models.organization import Organization
-from posthog.models.personal_api_key import SHA256_HASH_PREFIX, PersonalAPIKey, hash_key_value
+from posthog.models.personal_api_key import LEGACY_PERSONAL_API_KEY_SALT, PersonalAPIKey
 from posthog.models.team.team import Team
-from posthog.models.utils import generate_random_token_personal
+from posthog.models.utils import SHA256_HASH_PREFIX, generate_random_token_personal, hash_key_value
 
 
 class TestPersonalAPIKeysAPI(APIBaseTest):
@@ -360,7 +360,7 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
         self.key_390000 = PersonalAPIKey.objects.create(
             label="Test",
             user=self.user,
-            secure_value=hash_key_value(self.value_390000, "pbkdf2", iterations=390000),
+            secure_value=hash_key_value(self.value_390000, "pbkdf2", LEGACY_PERSONAL_API_KEY_SALT, iterations=390000),
             scopes=["*"],
         )
         self.value_hardcoded = "phx_0a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p"
@@ -373,16 +373,22 @@ class TestPersonalAPIKeysAPIAuthentication(PersonalAPIKeysBaseTest):
 
     @parameterized.expand(
         [
-            ("sha256", None, "sha256$45af89b510a3279a817f851de5d3f95b73485d58ec2672a39e52d8aeeb014059"),
-            ("pbkdf2", 1, "pbkdf2_sha256$1$posthog_personal_api_key$vzzA4fHFTiUipScUeDJ4+NjuXwAWWu2AFRbk/JUs6Ck="),
+            ("sha256", None, None, "sha256$45af89b510a3279a817f851de5d3f95b73485d58ec2672a39e52d8aeeb014059"),
             (
                 "pbkdf2",
+                LEGACY_PERSONAL_API_KEY_SALT,
+                1,
+                "pbkdf2_sha256$1$posthog_personal_api_key$vzzA4fHFTiUipScUeDJ4+NjuXwAWWu2AFRbk/JUs6Ck=",
+            ),
+            (
+                "pbkdf2",
+                LEGACY_PERSONAL_API_KEY_SALT,
                 260000,
                 "pbkdf2_sha256$260000$posthog_personal_api_key$eeRy21dbVoEzYND0NVLfjXxgNeO67SeBRrwQr6bbhK4=",
             ),
         ]
     )
-    def test_hash_key_values(self, algorithm, iterations, expected_hash):
+    def test_hash_key_values(self, algorithm, salt, iterations, expected_hash):
         result = hash_key_value("test_key_12345", algorithm, iterations=iterations)
         assert result == expected_hash
 

@@ -4,7 +4,7 @@ from django.utils import timezone
 
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
 
-from .utils import generate_random_token
+from .utils import generate_random_token, hash_key_value
 
 
 class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
