@@ -9,7 +9,7 @@ import { IntegrationType } from '~/types'
 
 import type { googleCloudServiceAccountSetupModalLogicType } from './googleCloudServiceAccountSetupModalLogicType'
 
-export type ServiceAccountMode = 'impersonated' | 'real'
+export type ServiceAccountMode = 'impersonated' | 'key_file'
 
 export interface GoogleCloudServiceAccountSetupModalLogicProps {
     isOpen: boolean

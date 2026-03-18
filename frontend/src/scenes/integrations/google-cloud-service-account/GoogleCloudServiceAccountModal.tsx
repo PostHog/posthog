@@ -1,9 +1,10 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonFileInput, LemonInput, LemonSegmentedButton, LemonModal } from '@posthog/lemon-ui'
+import { LemonButton, Link, LemonFileInput, LemonInput, LemonSegmentedButton, LemonModal } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
+import { organizationLogic } from 'scenes/organizationLogic'
 
 import IconGoogleCloud from 'public/services/google-cloud.png'
 
@@ -14,6 +15,7 @@ import {
 
 export const GoogleCloudServiceAccountModal = (props: GoogleCloudServiceAccountSetupModalLogicProps): JSX.Element => {
     const logic = googleCloudServiceAccountSetupModalLogic(props)
+    const { currentOrganization } = useValues(organizationLogic)
     const { serviceAccountMode, isGoogleCloudServiceAccountIntegrationSubmitting } = useValues(logic)
     const { setServiceAccountMode, submitGoogleCloudServiceAccountIntegration } = useActions(logic)
 
@@ -43,23 +45,51 @@ export const GoogleCloudServiceAccountModal = (props: GoogleCloudServiceAccountS
                                 label: 'Impersonate service account',
                             },
                             {
-                                value: 'real',
+                                value: 'key_file',
                                 label: 'Upload service account JSON key file (not recommended)',
                             },
                         ]}
                         fullWidth
                     />
-                    {serviceAccountMode === 'real' ? (
+                    {serviceAccountMode === 'key_file' ? (
                         <LemonField
                             name="jsonKeyFile"
                             label="Service account JSON key file"
-                            help="The project ID and service account email will be extracted automatically."
+                            help="The project ID and service account information will be extracted automatically."
                         >
                             <LemonFileInput accept=".json" multiple={false} />
                         </LemonField>
                     ) : (
                         <>
-                            <LemonField name="projectId" label="Project ID">
+                            <p className="text-sm text-primary">
+                                PostHog will impersonate the service account you configure here with one of our own. You
+                                must grant the PostHog service account the following permissions:
+                                <ul>
+                                    <li>
+                                        <code>roles/iam.serviceAccountTokenCreator</code>: To allow impersonating.
+                                    </li>
+                                    <li>
+                                        <code>iam.serviceAccounts.get</code>: To allow checking service account
+                                        ownership.
+                                    </li>
+                                </ul>
+                            </p>
+
+                            <p className="text-sm text-warning">
+                                In order to identify you as the owner of this service account, you must include{' '}
+                                <code>posthog:{currentOrganization}</code> as part of the service account description.
+                            </p>
+
+                            <LemonField
+                                name="projectId"
+                                label="Project ID"
+                                help={
+                                    <Link target="_blank" to="https://support.google.com/googleapi/answer/7014113">
+                                        {' '}
+                                        Find your Project ID{' '}
+                                    </Link>
+                                }
+                            >
                                 <LemonInput placeholder="my-gcp-project" />
                             </LemonField>
 
