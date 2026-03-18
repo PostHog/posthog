@@ -986,7 +986,7 @@ export const batchExportConfigurationLogic = kea<batchExportConfigurationLogicTy
         ],
         requiredFields: [
             (s) => [s.service, s.isNew, s.configuration, s.featureFlags],
-            (service, isNew, config): string[] => {
+            (service, isNew, config, featureFlags): string[] => {
                 const generalRequiredFields = ['interval', 'name', 'model']
                 if (service === 'Postgres') {
                     return [
