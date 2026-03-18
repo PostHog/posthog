@@ -1,5 +1,3 @@
-pub mod grpc;
-
 use std::time::{Instant, SystemTime};
 
 use axum::{

@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{routing::get, Router};
-use common_metrics::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
+use personhog_common::grpc::{tracked_tcp_incoming, GrpcMetricsLayer};
 use envconfig::Envconfig;
 use lifecycle::{ComponentOptions, Manager};
 use metrics_exporter_prometheus::PrometheusBuilder;
