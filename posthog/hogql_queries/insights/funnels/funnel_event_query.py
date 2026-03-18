@@ -41,6 +41,7 @@ from posthog.hogql_queries.insights.utils.properties import Properties
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.action.action import Action
 from posthog.models.property.property import PropertyName
+from posthog.queries.breakdown_props import NOT_IN_COHORT_ID
 from posthog.types import EntityNode, ExclusionEntityNode
 
 
@@ -410,6 +411,18 @@ class FunnelEventQuery(DataWarehouseSchemaMixin):
             normalize_url = breakdownFilter.breakdown_normalize_url
             return get_breakdown_expr(breakdown, properties_column, normalize_url=normalize_url)
         elif breakdownType == "cohort":
+            if isinstance(breakdown, int):
+                cohort_id = breakdown
+            elif isinstance(breakdown, list) and "all" not in breakdown and len(breakdown) == 1:
+                cohort_id = int(breakdown[0])
+            else:
+                cohort_id = None
+
+            if cohort_id is not None:
+                return parse_expr(
+                    f"if(person_id in cohort {cohort_id}, {cohort_id}, {{not_in_cohort_id}})",
+                    {"not_in_cohort_id": ast.Constant(value=NOT_IN_COHORT_ID)},
+                )
             return ast.Field(chain=["value"])
         elif breakdownType == "group":
             properties_column = f"group_{breakdownFilter.breakdown_group_type_index}.properties"
