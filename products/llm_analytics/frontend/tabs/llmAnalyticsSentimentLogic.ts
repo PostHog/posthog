@@ -65,6 +65,10 @@ interface GenerationsQueryValues {
     propertyFilters: unknown[]
 }
 
+// Tracks the raw (pre-dedup) count from the last loadMoreGenerations fetch,
+// so the listener can determine hasMore accurately despite deduplication.
+let lastRawFetchCount = 0
+
 async function fetchGenerations(values: GenerationsQueryValues, cursor: string | null): Promise<SentimentGeneration[]> {
     const response = (await api.query({
         kind: NodeKind.HogQLQuery,
@@ -109,7 +113,7 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
         activate: true,
         setSentimentFilter: (sentimentFilter: SentimentFilterLabel) => ({ sentimentFilter }),
         setIntensityThreshold: (intensityThreshold: number) => ({ intensityThreshold }),
-        toggleCardExpanded: (generationId: string) => ({ generationId }),
+        toggleCardExpanded: (cardKey: string) => ({ cardKey }),
         loadMoreGenerations: true,
         setHasMore: (hasMore: boolean) => ({ hasMore }),
         submitSentimentFeedback: (cardKey: string, feedbackLabel: SentimentFeedbackLabel, card: SentimentCard) => ({
@@ -135,12 +139,12 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
         expandedCardIds: [
             new Set<string>(),
             {
-                toggleCardExpanded: (state, { generationId }) => {
+                toggleCardExpanded: (state, { cardKey }) => {
                     const newSet = new Set(state)
-                    if (newSet.has(generationId)) {
-                        newSet.delete(generationId)
+                    if (newSet.has(cardKey)) {
+                        newSet.delete(cardKey)
                     } else {
-                        newSet.add(generationId)
+                        newSet.add(cardKey)
                     }
                     return newSet
                 },
@@ -183,6 +187,7 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     const existing = values.generations
                     const cursor = existing.length > 0 ? existing[existing.length - 1].timestamp : null
                     const newGenerations = await fetchGenerations(values, cursor)
+                    lastRawFetchCount = newGenerations.length
                     // Dedupe by traceId in case of timestamp boundary overlap
                     const existingTraceIds = new Set(existing.map((g) => g.traceId))
                     const unique = newGenerations.filter((g) => !existingTraceIds.has(g.traceId))
@@ -217,23 +222,55 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     if (!sentimentData?.messages) {
                         continue
                     }
-                    // Find the highest-intensity message that matches the filter
-                    let bestIndex = -1
-                    let bestScore = 0
-                    let bestSentiment: MessageSentiment | null = null
-                    for (const [idx, msg] of Object.entries(sentimentData.messages)) {
-                        const matches =
-                            sentimentFilter !== 'both'
-                                ? msg.label === sentimentFilter && msg.score >= intensityThreshold
-                                : msg.label !== 'neutral' && msg.score >= intensityThreshold
-                        if (matches && msg.score > bestScore) {
-                            bestIndex = Number(idx)
-                            bestScore = msg.score
-                            bestSentiment = msg
+
+                    if (sentimentFilter !== 'both') {
+                        // Single filter: find the highest-intensity message matching the filter
+                        let bestIndex = -1
+                        let bestScore = 0
+                        let bestSentiment: MessageSentiment | null = null
+                        for (const [idx, msg] of Object.entries(sentimentData.messages)) {
+                            if (
+                                msg.label === sentimentFilter &&
+                                msg.score >= intensityThreshold &&
+                                msg.score > bestScore
+                            ) {
+                                bestIndex = Number(idx)
+                                bestScore = msg.score
+                                bestSentiment = msg
+                            }
                         }
-                    }
-                    if (bestSentiment && bestIndex >= 0) {
-                        cards.push({ generation: gen, messageIndex: bestIndex, sentiment: bestSentiment })
+                        if (bestSentiment && bestIndex >= 0) {
+                            cards.push({ generation: gen, messageIndex: bestIndex, sentiment: bestSentiment })
+                        }
+                    } else {
+                        // "Both" filter: surface up to two cards per generation — strongest positive and strongest negative
+                        let bestPosIndex = -1
+                        let bestPosScore = 0
+                        let bestPosSentiment: MessageSentiment | null = null
+                        let bestNegIndex = -1
+                        let bestNegScore = 0
+                        let bestNegSentiment: MessageSentiment | null = null
+
+                        for (const [idx, msg] of Object.entries(sentimentData.messages)) {
+                            if (msg.score < intensityThreshold) {
+                                continue
+                            }
+                            if (msg.label === 'positive' && msg.score > bestPosScore) {
+                                bestPosIndex = Number(idx)
+                                bestPosScore = msg.score
+                                bestPosSentiment = msg
+                            } else if (msg.label === 'negative' && msg.score > bestNegScore) {
+                                bestNegIndex = Number(idx)
+                                bestNegScore = msg.score
+                                bestNegSentiment = msg
+                            }
+                        }
+                        if (bestPosSentiment && bestPosIndex >= 0) {
+                            cards.push({ generation: gen, messageIndex: bestPosIndex, sentiment: bestPosSentiment })
+                        }
+                        if (bestNegSentiment && bestNegIndex >= 0) {
+                            cards.push({ generation: gen, messageIndex: bestNegIndex, sentiment: bestNegSentiment })
+                        }
                     }
                 }
                 return cards
@@ -249,8 +286,6 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
     }),
 
     listeners(({ values, actions }) => {
-        let preLoadMoreCount = 0
-
         return {
             activate: () => {
                 if (!values.hasLoadedOnce) {
@@ -265,12 +300,8 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
                     }
                 }
             },
-            loadMoreGenerations: () => {
-                preLoadMoreCount = values.generations.length
-            },
             loadMoreGenerationsSuccess: () => {
-                const newCount = values.generations.length - preLoadMoreCount
-                actions.setHasMore(newCount >= GENERATIONS_PAGE_SIZE)
+                actions.setHasMore(lastRawFetchCount >= GENERATIONS_PAGE_SIZE)
                 for (const gen of values.generations) {
                     if (values.sentimentByGenerationId[gen.uuid] === undefined) {
                         actions.ensureGenerationSentimentLoaded(gen.uuid, values.dateFilter)
@@ -292,26 +323,55 @@ export const llmAnalyticsSentimentLogic = kea<llmAnalyticsSentimentLogicType>([
         }
     }),
 
-    subscriptions(({ actions, values }) => ({
-        activeTab: (activeTab) => {
-            if (activeTab === 'sentiment') {
-                actions.activate()
-            }
-        },
-        dateFilter: () => {
-            if (values.hasLoadedOnce) {
-                actions.loadGenerations()
-            }
-        },
-        shouldFilterTestAccounts: () => {
-            if (values.hasLoadedOnce) {
-                actions.loadGenerations()
-            }
-        },
-        propertyFilters: () => {
-            if (values.hasLoadedOnce) {
-                actions.loadGenerations()
-            }
-        },
-    })),
+    subscriptions(({ actions, values }) => {
+        let wasAnalyzing = false
+
+        return {
+            activeTab: (activeTab) => {
+                if (activeTab === 'sentiment') {
+                    actions.activate()
+                }
+            },
+            dateFilter: () => {
+                if (values.hasLoadedOnce) {
+                    actions.loadGenerations()
+                }
+            },
+            shouldFilterTestAccounts: () => {
+                if (values.hasLoadedOnce) {
+                    actions.loadGenerations()
+                }
+            },
+            propertyFilters: () => {
+                if (values.hasLoadedOnce) {
+                    actions.loadGenerations()
+                }
+            },
+            stillAnalyzing: (stillAnalyzing: boolean) => {
+                if (wasAnalyzing && !stillAnalyzing && values.activeTab === 'sentiment') {
+                    const totalGenerations = values.generations.length
+                    const failedCount = values.generations.filter(
+                        (gen) => values.sentimentByGenerationId[gen.uuid] === null
+                    ).length
+                    const cardCount = values.sentimentCards.length
+
+                    if (totalGenerations === 0 || cardCount === 0) {
+                        posthog.capture('llma sentiment empty state', {
+                            reason:
+                                totalGenerations === 0
+                                    ? 'no_generations'
+                                    : failedCount === totalGenerations
+                                      ? 'all_classification_failed'
+                                      : 'no_matching_cards',
+                            total_generations: totalGenerations,
+                            failed_classifications: failedCount,
+                            sentiment_filter: values.sentimentFilter,
+                            intensity_threshold: values.intensityThreshold,
+                        })
+                    }
+                }
+                wasAnalyzing = stillAnalyzing
+            },
+        }
+    }),
 ])

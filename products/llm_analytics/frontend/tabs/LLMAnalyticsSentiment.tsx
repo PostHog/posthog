@@ -158,7 +158,7 @@ function SentimentCardRow({ card, expanded }: { card: SentimentCard; expanded: b
         <div
             className="group/card flex border rounded-lg overflow-hidden cursor-pointer hover:border-primary/30 transition-colors bg-surface-primary"
             data-attr="llma-sentiment-card"
-            onClick={() => toggleCardExpanded(generation.uuid)}
+            onClick={() => toggleCardExpanded(`${uuid}:${messageIndex}`)}
         >
             <div className={`w-1 shrink-0 ${accentColor}`} />
 
@@ -310,9 +310,9 @@ export function LLMAnalyticsSentiment(): JSX.Element {
                         <div className="space-y-2">
                             {sentimentCards.map((card: SentimentCard) => (
                                 <SentimentCardRow
-                                    key={card.generation.uuid}
+                                    key={`${card.generation.uuid}:${card.messageIndex}`}
                                     card={card}
-                                    expanded={expandedCardIds.has(card.generation.uuid)}
+                                    expanded={expandedCardIds.has(`${card.generation.uuid}:${card.messageIndex}`)}
                                 />
                             ))}
                         </div>

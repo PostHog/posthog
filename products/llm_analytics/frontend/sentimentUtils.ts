@@ -70,7 +70,7 @@ export function extractContentText(content: unknown): string {
                         return (block as { text: string }).text
                     }
                     if ('content' in block) {
-                        return String((block as { content: unknown }).content)
+                        return extractContentText((block as { content: unknown }).content)
                     }
                 }
                 return ''
