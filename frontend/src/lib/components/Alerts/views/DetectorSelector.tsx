@@ -306,7 +306,8 @@ function PreprocessingSection({
 
     const updatePreprocessing = (updates: Partial<PreprocessingConfig>): void => {
         const newPreprocessing = { ...preprocessing, ...updates }
-        const isEmpty = newPreprocessing.diffs_n == null && newPreprocessing.smooth_n == null && newPreprocessing.lags_n == null
+        const isEmpty =
+            newPreprocessing.diffs_n == null && newPreprocessing.smooth_n == null && newPreprocessing.lags_n == null
         onChange({ ...config, preprocessing: isEmpty ? undefined : newPreprocessing } as SingleDetectorConfig)
     }
 
