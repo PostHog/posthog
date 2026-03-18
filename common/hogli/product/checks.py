@@ -230,10 +230,25 @@ class IsolationProgressCheck(ProductCheck):
         model_names = get_model_names(ctx.backend_dir)
         n = len(model_names)
 
+        # Check if any view file exists (canonical or legacy locations)
+        _all_view_candidates = [
+            ctx.backend_dir / "presentation" / "views.py",
+            ctx.backend_dir / "api" / "views.py",
+            ctx.backend_dir / "api.py",
+            ctx.backend_dir / "views.py",
+        ]
+        has_any_views = any(p.exists() for p in _all_view_candidates)
+
+        if n == 0 and not has_any_views:
+            result.lines.append("no Django models or views found — nothing to isolate yet")
+            return result
+
         if ctx.detailed and model_names:
             result.lines.append(f"models ({n}): {', '.join(model_names)}")
-        else:
+        elif n > 0:
             result.lines.append(f"models: {n} to cover")
+        else:
+            result.lines.append("models: none in backend/ (may live in posthog/)")
 
         # logic.py
         has_logic = (ctx.backend_dir / "logic.py").exists() or (ctx.backend_dir / "logic").is_dir()
@@ -266,7 +281,7 @@ class IsolationProgressCheck(ProductCheck):
                 hint := self._hint(ctx, "remove django/rest_framework imports — contracts.py must be pure stdlib")
             ):
                 result.lines.append(hint)
-        else:
+        elif n > 0:
             result.lines.append("contracts:  ○ missing")
             if hint := self._hint(
                 ctx, "create backend/facade/contracts.py with @dataclass(frozen=True) for each model"
@@ -284,7 +299,7 @@ class IsolationProgressCheck(ProductCheck):
                 result.lines.append(f"            {', '.join(fn_names)}")
             if impure and (hint := self._hint(ctx, "remove rest_framework imports — facade must not depend on DRF")):
                 result.lines.append(hint)
-        else:
+        elif n > 0:
             result.lines.append("facade:     ○ missing")
             if hint := self._hint(
                 ctx, "create backend/facade/api.py with thin methods wrapping logic.py, returning contracts"
@@ -309,8 +324,21 @@ class IsolationProgressCheck(ProductCheck):
             else:
                 result.lines.append("serializers: ✓ no ORM model bindings")
 
-        # Views
+        # Views — check canonical location first, then legacy locations
+        _LEGACY_VIEW_PATHS = [
+            ("api/views.py", "backend/api/views.py"),
+            ("api.py", "backend/api.py"),
+            ("views.py", "backend/views.py"),
+        ]
         views_path = ctx.backend_dir / "presentation" / "views.py"
+        legacy_views: tuple[Path, str] | None = None
+        if not views_path.exists():
+            for rel, label in _LEGACY_VIEW_PATHS:
+                candidate = ctx.backend_dir / rel
+                if candidate.exists():
+                    legacy_views = (candidate, label)
+                    break
+
         if views_path.exists():
             uses_facade, uses_models = view_facade_usage(views_path)
             orm_queries = count_direct_orm_queries(views_path)
@@ -332,10 +360,24 @@ class IsolationProgressCheck(ProductCheck):
                 result.lines.append(f"views:      ✗ no facade usage{suffix}")
                 if hint := self._hint(ctx, "update views to call facade methods instead of querying models directly"):
                     result.lines.append(hint)
-        else:
-            result.lines.append("views:      ○ missing")
-            if hint := self._hint(ctx, "create backend/presentation/views.py that calls facade methods only"):
+        elif legacy_views:
+            legacy_path, legacy_label = legacy_views
+            uses_facade, uses_models = view_facade_usage(legacy_path)
+            orm_queries = count_direct_orm_queries(legacy_path)
+            parts = []
+            if uses_models:
+                parts.append("imports models directly")
+            if orm_queries:
+                parts.append(f"{orm_queries} direct ORM quer{'y' if orm_queries == 1 else 'ies'}")
+            issues_str = f" — {', '.join(parts)}" if parts else ""
+            result.lines.append(f"views:      ✗ at {legacy_label}{issues_str}")
+            if hint := self._hint(ctx, "move to backend/presentation/views.py and route data access through facade"):
                 result.lines.append(hint)
+        else:
+            if n > 0:
+                result.lines.append("views:      ○ missing")
+                if hint := self._hint(ctx, "create backend/presentation/views.py that calls facade methods only"):
+                    result.lines.append(hint)
 
         # Cross-product internal imports (own files importing other products' non-facade paths)
         if ctx.detailed:
