@@ -972,7 +972,7 @@ def _delete_teams_and_data(team_ids: list[int], user_id: int, project_id: int | 
     user = User.objects.filter(id=user_id).first()
 
     try:
-        deleted_by = user.email if user else str(user_id)
+        deleted_by = user.email if user else f"deleted_user_id:{user_id}"
         _queue_delete_team_recordings(team_ids, deleted_by=deleted_by)
     except Exception:
         logger.exception("Failed to queue recording deletion workflows", team_ids=team_ids)
