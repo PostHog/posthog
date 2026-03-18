@@ -26,7 +26,7 @@ import click
 
 # Write-only project token -- routes events to the correct PostHog project.
 # It cannot read data; safe to embed in source code.
-_API_KEY = "phc_khyO4pFrNHv2DOP98Q0L5oMByChkIVmr4LevQRGkd2z"
+_API_KEY = "phc_JYFXrbqdzueOYb0wFUTnCglFKZuC4xRXBW790ewdcvn"
 _HOST = "https://us.i.posthog.com"
 
 
