@@ -4161,6 +4161,10 @@
                 "is_cached": {
                     "type": "boolean"
                 },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentQuery",
                     "type": "string"
@@ -5343,6 +5347,10 @@
                     "type": "string"
                 },
                 "is_cached": {
+                    "type": "boolean"
+                },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
                     "type": "boolean"
                 },
                 "last_refresh": {
@@ -14966,6 +14974,10 @@
                     },
                     "type": "array"
                 },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
+                },
                 "kind": {
                     "const": "ExperimentQuery",
                     "type": "string"
@@ -22742,6 +22754,10 @@
                 "hogql": {
                     "type": "string"
                 },
+                "is_precomputed": {
+                    "description": "Whether exposures were served from the precomputation system",
+                    "type": "boolean"
+                },
                 "variant_results": {
                     "anyOf": [
                         {
@@ -25279,6 +25295,10 @@
                                 "type": "object"
                             },
                             "type": "array"
+                        },
+                        "is_precomputed": {
+                            "description": "Whether exposures were served from the precomputation system",
+                            "type": "boolean"
                         },
                         "kind": {
                             "const": "ExperimentQuery",
