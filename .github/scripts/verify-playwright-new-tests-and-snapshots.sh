@@ -54,17 +54,38 @@ fi
 echo "Verifying ${#tests_to_run[@]} file(s) with --repeat-each=$REPEAT_COUNT:"
 printf "  %s\n" "${tests_to_run[@]}"
 
+# Write a JSON results file for the PR comment step to pick up.
+RESULTS_FILE="playwright/flake-verification-results.json"
+write_results() {
+    local status="$1"
+    local message="$2"
+    local files_json
+    files_json=$(printf '%s\n' "${tests_to_run[@]}" | jq -R . | jq -s .)
+    jq -n \
+        --arg status "$status" \
+        --arg message "$message" \
+        --argjson files "$files_json" \
+        --argjson repeat "$REPEAT_COUNT" \
+        '{status: $status, message: $message, files: $files, repeat_count: $repeat}' \
+        > "$RESULTS_FILE"
+}
+
 set +e
+# No --reporter override — uses playwright.config.ts reporters (html + json in CI).
+# This overwrites the main run's report, which is fine: if verification fails,
+# the verification report is the one that matters (the main tests passed).
 pnpm --filter=@posthog/playwright exec playwright test "${tests_to_run[@]}" \
-    --workers=1 --repeat-each="$REPEAT_COUNT" --retries=0 --max-failures=1 --reporter=list
+    --workers=1 --repeat-each="$REPEAT_COUNT" --retries=0 --max-failures=1
 test_exit=$?
 set -e
 
 if [ "$test_exit" -ne 0 ]; then
     echo ""
     echo "Flake verification failed — one or more changed test files are unstable"
+    write_results "failed" "Flake verification failed — changed tests are unstable across $REPEAT_COUNT repetitions"
     exit 1
 fi
 
 echo ""
 echo "Flake verification passed — all changed test files stable across $REPEAT_COUNT repetitions"
+write_results "passed" "All changed test files stable across $REPEAT_COUNT repetitions"

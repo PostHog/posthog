@@ -618,6 +618,15 @@ jobs:
                           }
                       } catch {}
 
+                      // Flake verification results for changed test files
+                      try {
+                          const flakeResults = JSON.parse(fs.readFileSync('playwright/flake-verification-results.json', 'utf8'));
+                          if (flakeResults.status === 'failed') {
+                              const fileList = flakeResults.files.map(f => `- \`${f}\``).join('\n');
+                              extraLines += `\n\n🔁 **Flake verification failed** (--repeat-each=${flakeResults.repeat_count}):\n${fileList}\n\nChanged test files must pass ${flakeResults.repeat_count} consecutive runs without failure.`;
+                          }
+                      } catch {}
+
                       const { data: comments } = await github.rest.issues.listComments({
                           owner: context.repo.owner,
                           repo: context.repo.repo,
