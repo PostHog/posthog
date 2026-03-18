@@ -1274,7 +1274,6 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
         attempt = activity.info().attempt
         stage_table_id = f"stage_{inputs.table_id}_{data_interval_end_str}_{inputs.team_id}_{attempt}"
 
-        google_cloud_integration = await _get_google_cloud_service_account_integration(inputs)
         if google_cloud_integration is not None:
             if not google_cloud_integration.has_key():
                 await verify_impersonated_service_account_ownership(
