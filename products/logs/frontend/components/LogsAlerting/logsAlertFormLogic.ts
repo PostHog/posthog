@@ -17,6 +17,7 @@ import {
 
 import type { logsAlertFormLogicType } from './logsAlertFormLogicType'
 import { logsAlertingLogic } from './logsAlertingLogic'
+import { logsAlertNotificationLogic } from './logsAlertNotificationLogic'
 
 const EMPTY_FILTER_GROUP: UniversalFiltersGroup = {
     type: FilterLogicalOperator.And,
@@ -82,10 +83,20 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
     props({} as LogsAlertFormLogicProps),
     key(({ alert }) => alert?.id ?? 'new'),
 
-    connect({
-        values: [teamLogic, ['currentTeamId']],
-        actions: [logsAlertingLogic, ['loadAlerts', 'setEditingAlert', 'setIsCreating']],
-    }),
+    connect(({ alert }: LogsAlertFormLogicProps) => ({
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            logsAlertNotificationLogic({ alertId: alert?.id }),
+            ['pendingNotifications'],
+        ],
+        actions: [
+            logsAlertingLogic,
+            ['loadAlerts', 'setEditingAlert', 'setIsCreating'],
+            logsAlertNotificationLogic({ alertId: alert?.id }),
+            ['createPendingHogFunctions'],
+        ],
+    })),
 
     selectors({
         isEditing: [() => [(_, props) => props.alert], (alert: LogsAlertConfigurationApi | null) => alert !== null],
@@ -126,14 +137,23 @@ export const logsAlertFormLogic = kea<logsAlertFormLogicType>([
                 }
 
                 try {
+                    let savedAlertId: string
                     if (props.alert) {
                         const patch: PatchedLogsAlertConfigurationApi = { ...payload }
                         await logsAlertsPartialUpdate(projectId, props.alert.id, patch)
+                        savedAlertId = props.alert.id
                         lemonToast.success('Alert updated')
                     } else {
-                        await logsAlertsCreate(projectId, payload)
+                        const created = await logsAlertsCreate(projectId, payload)
+                        savedAlertId = created.id
                         lemonToast.success('Alert created')
                     }
+
+                    if (values.pendingNotifications.length > 0) {
+                        const notifLogic = logsAlertNotificationLogic({ alertId: props.alert?.id })
+                        await notifLogic.asyncActions.createPendingHogFunctions(savedAlertId, form.name)
+                    }
+
                     actions.setEditingAlert(null)
                     actions.setIsCreating(false)
                     actions.loadAlerts()
