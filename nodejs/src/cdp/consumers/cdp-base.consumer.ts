@@ -91,7 +91,7 @@ export abstract class CdpConsumerBase<TConfig extends CdpConsumerBaseConfig = Cd
 
         // Base-only services
         this.hogMasker = new HogMaskerService(services.redis)
-        this.personsManager = new PersonsManagerService(deps.personRepository)
+        this.personsManager = new PersonsManagerService(deps.teamManager, deps.personRepository, config.SITE_URL)
         this.groupsManager = new GroupsManagerService(deps.teamManager, deps.groupRepository)
         this.pluginDestinationExecutorService = new LegacyPluginExecutorService(deps.postgres, deps.geoipService)
     }

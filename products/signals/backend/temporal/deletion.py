@@ -88,7 +88,7 @@ class SignalReportDeletionWorkflow:
                 max_wait_time_seconds=3600,
             ),
             start_to_close_timeout=timedelta(hours=1, minutes=5),
-            heartbeat_timeout=timedelta(seconds=30),
+            heartbeat_timeout=timedelta(minutes=2),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 

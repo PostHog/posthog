@@ -167,6 +167,7 @@ export function IntegrationView({
                                 kind: integration.kind,
                                 next: window.location.pathname,
                             }),
+                            disabledReason: restrictedReason,
                         }}
                     >
                         {errors[0] === 'TOKEN_REFRESH_FAILED'

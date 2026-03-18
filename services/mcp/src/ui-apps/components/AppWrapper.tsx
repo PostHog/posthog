@@ -129,7 +129,8 @@ function ExpandButton({
 
 export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): ReactElement {
     const toolResult = useToolResult<T>(options)
-    const { data, isConnected, error, openLink, app, containerDimensions, refreshContainerDimensions } = toolResult
+    const { data, isConnected, error, isCancelled, openLink, app, containerDimensions, refreshContainerDimensions } =
+        toolResult
 
     const posthogUrl =
         data && typeof data === 'object' && '_posthogUrl' in data
@@ -142,7 +143,7 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
         }
     }, [error])
 
-    const hasContent = !error && isConnected && data
+    const hasContent = !error && !isCancelled && isConnected && data
 
     const rootStyle: React.CSSProperties = {
         display: 'flex',
@@ -159,6 +160,8 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
     }
 
     if (!hasContent) {
+        const showError = error || isCancelled
+
         return (
             <div
                 style={{
@@ -169,10 +172,15 @@ export function AppWrapper<T>({ children, ...options }: AppWrapperProps<T>): Rea
                     gap: '0.75rem',
                 }}
             >
-                <div style={{ animation: error ? 'none' : 'loading__pulse 4s ease-in-out infinite' }}>
+                <div style={{ animation: showError ? 'none' : 'loading__pulse 4s ease-in-out infinite' }}>
                     <PostHogLogo size={40} />
                 </div>
-                {error && (
+                {isCancelled && (
+                    <span style={{ color: 'var(--color-text-secondary, #ca8a04)', fontSize: '0.8125rem' }}>
+                        Tool call was cancelled
+                    </span>
+                )}
+                {error && !isCancelled && (
                     <span style={{ color: 'var(--color-text-danger, #dc2626)', fontSize: '0.8125rem' }}>
                         {error.message}
                     </span>

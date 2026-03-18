@@ -152,7 +152,7 @@ export interface PatchedSessionRecordingPlaylistApi {
 export interface MinimalPersonApi {
     readonly id: number
     readonly name: string
-    readonly distinct_ids: string
+    readonly distinct_ids: readonly string[]
     properties?: unknown
     readonly created_at: string
     readonly uuid: string

@@ -7,6 +7,7 @@ from django.dispatch import receiver
 
 import posthoganalytics
 from django_filters.rest_framework import DjangoFilterBackend
+from drf_spectacular.utils import extend_schema_field
 from rest_framework import filters, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -61,6 +62,7 @@ class BatchImportSerializer(serializers.ModelSerializer):
             validated_data["import_config"] = validated_data.pop("import_config")
         return BatchImport.objects.create(**validated_data)
 
+    @extend_schema_field({"type": "object", "nullable": True})
     def get_created_by(self, obj):
         if obj.created_by_id:
             try:
