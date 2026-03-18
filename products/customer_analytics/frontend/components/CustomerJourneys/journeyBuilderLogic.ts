@@ -586,9 +586,12 @@ export const journeyBuilderLogic = kea<journeyBuilderLogicType>([
         },
         [urls.customerJourneyEdit(':id')]: ({ id }, searchParams) => {
             const insightId = Number(searchParams.insightId)
-            if (id && insightId) {
-                actions.setEditingJourney(id, insightId)
+            if (!id || !insightId || isNaN(insightId)) {
+                lemonToast.error('Invalid journey or insight ID')
+                router.actions.push(urls.customerAnalyticsJourneys())
+                return
             }
+            actions.setEditingJourney(id, insightId)
         },
     })),
 
